@@ -5,13 +5,14 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 ## Possible bugs
 
 - **cloudflare: faux responses leak across runs.** A start body's `faux` is queued before `startScript`; if the script is refused (422) they stay queued and answer the next run.
-- **cloudflare: malformed JSON body → unhandled 500**, not a 4xx.
-- **cloudflare: `GET /runs/<host>/abc`** passes `NaN` to `getTask`; untested whether that 404s or throws.
+- **cloudflare: malformed JSON body → unhandled 500**, not a 4xx (confirmed: uncaught `SyntaxError`, no JSON body).
 - **cloudflare: a missing `AI` binding** outside faux mode is cast, not checked, so it fails late.
 - **cli: some usage errors exit 1, not 2.** A bad `--var`, a missing file and an unknown flag throw instead of printing usage.
 - **cli: an unknown model still creates the SQLite file.** `Harness.open` runs before the model check (no task is created). The test name "before creating anything" overstates it.
 - **durable: no bound on `submit_result` retries** within a step, beyond whatever pi-durable has.
 - **core: undeclared variables never reach `UndeclaredVariableError`** through `start`; the dialect's lint reports them as errors first, so callers get `UnparsedDocumentError`.
+- **core: `UnreadableDocumentError` looks unreachable.** Every malformed input tried (empty, whitespace, comments, `}{`, NUL) yields a root or an error diagnostic first, so `UnparsedDocumentError` always wins. Candidate for removal; its scenario has no test.
+- **core: `integer` variables always warn.** The only default an `integer` can have (`= 0`) draws the dialect warning `declared as 'integer' but default value is 'number'`. A warning, so it runs.
 - **core: mixed-type `<`/`>` comparisons coerce** the JavaScript way (`"10" < 9` is false).
 - **core: answered / cut-short outcomes are not validated** (`text`, `turns` pass through as given).
 
@@ -28,4 +29,5 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 - `authoring/index.ts` lists the base `agentscript-dialect`; the code parses with `agentforce-dialect`. `document.ts` says `topic`; the vocabulary is `subagent`.
 - `agentscript-cloudflare/src/index.ts` header: GET also returns `task`/`phase`/`step`; POST returns 202.
 - User-facing messages (`NoReasoningPortError`, the scan refusal) name `@coopcli/agentscript`; they change with the package rename.
+- Test `describe` names mix the inherited `platform-agentscript-interpreter:` prefix with the new `core-<capability>:` one.
 - Persistence is specced in both `core/composition` and `core/step-machine`; fold into one when either changes.
