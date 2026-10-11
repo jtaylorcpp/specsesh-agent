@@ -8,7 +8,7 @@
  * targets are).
  */
 
-import Type, { type Static, type TSchema, type TUnsafe } from "typebox";
+import { z } from "zod";
 import { Evidence, Finding, Target, satisfies } from "./evidence.js";
 import {
 	type Change,
@@ -28,167 +28,133 @@ import { Name, closed, literals, sameValue } from "./schema.js";
 
 // ── Shapes ──────────────────────────────────────────────────────────────────
 
-export const Budget = closed({ maxIterations: Type.Integer({ minimum: 1 }), maxWallMs: Type.Optional(Type.Integer({ minimum: 1 })) });
-export type Budget = Static<typeof Budget>;
+export const Budget = closed({ maxIterations: z.int().min(1), maxWallMs: z.int().min(1).optional() });
+export type Budget = z.infer<typeof Budget>;
 
 /** For a spec item, `ref` is the serialised reference of that kind. */
-export const ContextRef = Type.Refine(
-	closed({ kind: literals("file", "capability", "requirement", "scenario", "change", "doc"), ref: Name() }),
-	(context) => {
-		if (context.kind !== "capability" && context.kind !== "requirement" && context.kind !== "scenario") return true;
-		const ref = parseRef(context.ref);
-		if (ref === undefined) return false;
-		if (context.kind === "capability") return Array.isArray(ref);
-		return !Array.isArray(ref) && ("scenario" in ref) === (context.kind === "scenario");
-	},
-	(context) => `"${context.ref}" is not a serialised ${context.kind} reference`,
-);
-export type ContextRef = Static<typeof ContextRef>;
-
-export const Action = closed({
-	kind: Type.Union([Type.Literal("edit"), Type.Literal("command"), Type.Literal("delegate")]),
-	summary: Type.String(),
-	refs: Type.Array(Type.String()),
+export const ContextRef = closed({
+	kind: literals("file", "capability", "requirement", "scenario", "change", "doc"),
+	ref: Name(),
+}).superRefine((context, ctx) => {
+	if (context.kind !== "capability" && context.kind !== "requirement" && context.kind !== "scenario") return;
+	const ref = parseRef(context.ref);
+	const matches =
+		ref !== undefined &&
+		(context.kind === "capability" ? Array.isArray(ref) : !Array.isArray(ref) && ("scenario" in ref) === (context.kind === "scenario"));
+	if (!matches) ctx.addIssue({ code: "custom", message: `"${context.ref}" is not a serialised ${context.kind} reference` });
 });
-export type Action = Static<typeof Action>;
+export type ContextRef = z.infer<typeof ContextRef>;
+
+export const Action = closed({ kind: literals("edit", "command", "delegate"), summary: z.string(), refs: z.array(z.string()) });
+export type Action = z.infer<typeof Action>;
+
+const Unmet = closed({ target: Target, reason: z.string() });
 
 /** `met` is true exactly when `unmet` is empty. */
-export const Verdict = Type.Union([
-	closed({
-		met: Type.Literal(true),
-		satisfied: Type.Array(Target),
-		unmet: Type.Array(closed({ target: Target, reason: Type.String() }), { maxItems: 0 }),
-	}),
-	closed({
-		met: Type.Literal(false),
-		satisfied: Type.Array(Target),
-		unmet: Type.Array(closed({ target: Target, reason: Type.String() }), { minItems: 1 }),
-	}),
+export const Verdict = z.union([
+	closed({ met: z.literal(true), satisfied: z.array(Target), unmet: z.array(Unmet).max(0) }),
+	closed({ met: z.literal(false), satisfied: z.array(Target), unmet: z.array(Unmet).min(1) }),
 ]);
-export type Verdict = Static<typeof Verdict>;
+export type Verdict = z.infer<typeof Verdict>;
 
-export const FeedbackAction = Type.Union([
-	Type.Literal("retry"),
-	Type.Literal("rework-task"),
-	Type.Literal("add-task"),
-	Type.Literal("amend-spec"),
-	Type.Literal("ask"),
-]);
-export type FeedbackAction = Static<typeof FeedbackAction>;
+export const FeedbackAction = literals("retry", "rework-task", "add-task", "amend-spec", "ask");
+export type FeedbackAction = z.infer<typeof FeedbackAction>;
 
 export const Feedback = closed({ from: Finding, action: FeedbackAction });
-export type Feedback = Static<typeof Feedback>;
+export type Feedback = z.infer<typeof Feedback>;
 
-export const Recipient = Type.Union([Type.Literal("principal"), Type.Literal("agent")]);
-export type Recipient = Static<typeof Recipient>;
+export const Recipient = literals("principal", "agent");
+export type Recipient = z.infer<typeof Recipient>;
 
-export const LoopLevel = Type.Union([Type.Literal("task"), Type.Literal("group"), Type.Literal("change")]);
-export type LoopLevel = Static<typeof LoopLevel>;
+export const LoopLevel = literals("task", "group", "change");
+export type LoopLevel = z.infer<typeof LoopLevel>;
 
-export const Escalation = closed({ level: LoopLevel, to: Recipient, reason: Type.String(), question: Name() });
-export type Escalation = Static<typeof Escalation>;
+export const Escalation = closed({ level: LoopLevel, to: Recipient, reason: z.string(), question: Name() });
+export type Escalation = z.infer<typeof Escalation>;
 
 /** Only the escalation's named recipient may answer it. */
-export const EscalationAnswer = Type.Refine(
-	closed({ escalation: Escalation, by: Recipient, decision: Type.String(), feedback: Type.Array(Feedback) }),
-	(answer) => answer.by === answer.escalation.to,
-	(answer) => `the escalation goes to the ${answer.escalation.to}, not the ${answer.by}`,
-);
-export type EscalationAnswer = Static<typeof EscalationAnswer>;
+export const EscalationAnswer = closed({
+	escalation: Escalation,
+	by: Recipient,
+	decision: z.string(),
+	feedback: z.array(Feedback),
+}).superRefine((answer, ctx) => {
+	if (answer.by !== answer.escalation.to) {
+		ctx.addIssue({ code: "custom", message: `the escalation goes to the ${answer.escalation.to}, not the ${answer.by}` });
+	}
+});
+export type EscalationAnswer = z.infer<typeof EscalationAnswer>;
 
 /** Every unmet target of the verdict has at least one feedback item whose finding names it. */
-export const Iteration = Type.Refine(
-	closed({
-		n: Type.Integer({ minimum: 1 }),
-		plan: Type.String(),
-		actions: Type.Array(Action),
-		evidence: Type.Array(Evidence),
-		verdict: Verdict,
-		feedback: Type.Array(Feedback),
-	}),
-	(iteration) =>
-		iteration.verdict.unmet.every(({ target }) => iteration.feedback.some((item) => sameValue(item.from.target, target))),
-	() => "an unmet target has no feedback",
-);
-export type Iteration = Static<typeof Iteration>;
+export const Iteration = closed({
+	n: z.int().min(1),
+	plan: z.string(),
+	actions: z.array(Action),
+	evidence: z.array(Evidence),
+	verdict: Verdict,
+	feedback: z.array(Feedback),
+}).superRefine((iteration, ctx) => {
+	if (!iteration.verdict.unmet.every(({ target }) => iteration.feedback.some((item) => sameValue(item.from.target, target)))) {
+		ctx.addIssue({ code: "custom", message: "an unmet target has no feedback" });
+	}
+});
+export type Iteration = z.infer<typeof Iteration>;
 
-export const LoopInput = <Goal extends TSchema>(goal: Goal) =>
-	closed({ goal, context: Type.Array(ContextRef), budget: Budget, carried: Type.Array(Feedback) });
-export type LoopInput<Goal> = Static<ReturnType<typeof LoopInput<TUnsafe<Goal>>>>;
-
-const numberedFromOne = (outcome: { iterations: readonly { n: number }[] }) =>
-	outcome.iterations.every((iteration, i) => iteration.n === i + 1);
+export const LoopInput = <Goal extends z.ZodType>(goal: Goal) =>
+	closed({ goal, context: z.array(ContextRef), budget: Budget, carried: z.array(Feedback) });
+export type LoopInput<Goal> = z.infer<ReturnType<typeof LoopInput<z.ZodType<Goal>>>>;
 
 /**
  * How a loop ended. `result` is present when it converged; `escalation` exactly
  * when it is blocked. Iterations are numbered from 1, one apart.
  */
-const loopOutcomes = <Out extends TSchema>(out: Out) =>
-	Type.Union([
-		closed({ status: Type.Literal("converged"), iterations: Type.Array(Iteration), result: out }),
-		closed({
-			status: Type.Literal("blocked"),
-			iterations: Type.Array(Iteration),
-			result: Type.Optional(out),
-			escalation: Escalation,
-		}),
-		closed({
-			status: Type.Union([Type.Literal("exhausted"), Type.Literal("failed")]),
-			iterations: Type.Array(Iteration),
-			result: Type.Optional(out),
-		}),
-	]);
-
-export const LoopOutcome = <Out extends TSchema>(out: Out) =>
-	Type.Refine<ReturnType<typeof loopOutcomes<Out>>, { iterations: readonly { n: number }[] }>(
-		loopOutcomes(out),
-		numberedFromOne,
-		() => "iterations are not numbered 1, 2, 3, …",
-	);
-export type LoopOutcome<Out> = Static<ReturnType<typeof LoopOutcome<TUnsafe<Out>>>>;
+export const LoopOutcome = <Out extends z.ZodType>(out: Out) =>
+	z
+		.union([
+			closed({ status: z.literal("converged"), iterations: z.array(Iteration), result: out }),
+			closed({ status: z.literal("blocked"), iterations: z.array(Iteration), result: out.optional(), escalation: Escalation }),
+			closed({ status: literals("exhausted", "failed"), iterations: z.array(Iteration), result: out.optional() }),
+		])
+		.superRefine((outcome, ctx) => {
+			if (!outcome.iterations.every((iteration, i) => iteration.n === i + 1)) {
+				ctx.addIssue({ code: "custom", message: "iterations are not numbered 1, 2, 3, …" });
+			}
+		});
+export type LoopOutcome<Out> = z.infer<ReturnType<typeof LoopOutcome<z.ZodType<Out>>>>;
 
 /** One run of a loop: what it was given and how it ended. The iterations are the outcome's. */
-export const Loop = <Goal extends TSchema, Out extends TSchema>(goal: Goal, out: Out) =>
+export const Loop = <Goal extends z.ZodType, Out extends z.ZodType>(goal: Goal, out: Out) =>
 	closed({ input: LoopInput(goal), output: LoopOutcome(out) });
-export type Loop<Goal, Out> = Static<ReturnType<typeof Loop<TUnsafe<Goal>, TUnsafe<Out>>>>;
+export type Loop<Goal, Out> = z.infer<ReturnType<typeof Loop<z.ZodType<Goal>, z.ZodType<Out>>>>;
 
 export const LoopStatus = literals("converged", "blocked", "exhausted", "failed");
-export type LoopStatus = Static<typeof LoopStatus>;
+export type LoopStatus = z.infer<typeof LoopStatus>;
 
-export const TaskOutcome = closed({ task: TaskId, ticked: Type.Boolean() });
-export type TaskOutcome = Static<typeof TaskOutcome>;
+export const TaskOutcome = closed({ task: TaskId, ticked: z.boolean() });
+export type TaskOutcome = z.infer<typeof TaskOutcome>;
 
 /** One entry per task (its latest run), each id within the group. */
-export const GroupOutcome = Type.Refine(
-	closed({
-		group: Type.Integer({ minimum: 1 }),
-		tasks: Type.Array(
-			closed({ task: TaskId, outcome: LoopOutcome(TaskOutcome), runs: Type.Integer({ minimum: 1 }) }),
-		),
-	}),
-	(outcome) =>
-		outcome.tasks.every((entry) => entry.task.startsWith(`${outcome.group}.`)) &&
-		new Set(outcome.tasks.map((entry) => entry.task)).size === outcome.tasks.length,
-	() => "a task is listed twice, or outside its group",
-);
-export type GroupOutcome = Static<typeof GroupOutcome>;
+export const GroupOutcome = closed({
+	group: z.int().min(1),
+	tasks: z.array(closed({ task: TaskId, outcome: LoopOutcome(TaskOutcome), runs: z.int().min(1) })),
+}).superRefine((outcome, ctx) => {
+	const within = outcome.tasks.every((entry) => entry.task.startsWith(`${outcome.group}.`));
+	if (!within || new Set(outcome.tasks.map((entry) => entry.task)).size !== outcome.tasks.length) {
+		ctx.addIssue({ code: "custom", message: "a task is listed twice, or outside its group" });
+	}
+});
+export type GroupOutcome = z.infer<typeof GroupOutcome>;
 
 /** One entry per group, in ascending order; `unclaimed` is what no task claimed when execution started. */
-export const ChangeOutcome = Type.Refine(
-	closed({
-		groups: Type.Array(
-			closed({
-				group: Type.Integer({ minimum: 1 }),
-				outcome: LoopOutcome(GroupOutcome),
-				runs: Type.Integer({ minimum: 1 }),
-			}),
-		),
-		unclaimed: Type.Array(ScenarioRef),
-	}),
-	(outcome) => outcome.groups.every((entry, i) => i === 0 || entry.group > outcome.groups[i - 1]!.group),
-	() => "group entries are not unique and ascending",
-);
-export type ChangeOutcome = Static<typeof ChangeOutcome>;
+export const ChangeOutcome = closed({
+	groups: z.array(closed({ group: z.int().min(1), outcome: LoopOutcome(GroupOutcome), runs: z.int().min(1) })),
+	unclaimed: z.array(ScenarioRef),
+}).superRefine((outcome, ctx) => {
+	if (!outcome.groups.every((entry, i) => i === 0 || entry.group > outcome.groups[i - 1]!.group)) {
+		ctx.addIssue({ code: "custom", message: "group entries are not unique and ascending" });
+	}
+});
+export type ChangeOutcome = z.infer<typeof ChangeOutcome>;
 
 // ── Rules ───────────────────────────────────────────────────────────────────
 

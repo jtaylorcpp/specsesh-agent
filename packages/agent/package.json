@@ -58,7 +58,7 @@
     "@sf-agentscript/agentscript-dialect": "3.4.0",
     "@sf-agentscript/language": "3.2.3",
     "@sf-agentscript/parser-javascript": "3.1.3",
-    "typebox": "1.3.27"
+    "zod": "4.6.5"
   },
   "peerDependencies": {
     "@earendil-works/chord": "^1.1.0",

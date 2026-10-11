@@ -3,26 +3,20 @@
  * failed check produces, and when evidence satisfies a target.
  */
 
-import Type, { type Static } from "typebox";
+import { z } from "zod";
 import { RequirementRef, ScenarioRef } from "./model.js";
-import { Name, closed, sameValue } from "./schema.js";
+import { Name, closed, literals, sameValue } from "./schema.js";
 
 /** Declared by `openspec/loops`; here because a `Finding` may name one. */
-export const Target = Type.Union([RequirementRef, ScenarioRef, closed({ check: Name() })]);
-export type Target = Static<typeof Target>;
+export const Target = z.union([RequirementRef, ScenarioRef, closed({ check: Name() })]);
+export type Target = z.infer<typeof Target>;
 
 /** Declared by `openspec/process`; here because `ValidationEvidence` carries one. */
 export const ValidationReport = closed({
-	valid: Type.Boolean(),
-	issues: Type.Array(
-		closed({
-			level: Type.Union([Type.Literal("ERROR"), Type.Literal("WARNING"), Type.Literal("INFO")]),
-			path: Type.String(),
-			message: Type.String(),
-		}),
-	),
+	valid: z.boolean(),
+	issues: z.array(closed({ level: literals("ERROR", "WARNING", "INFO"), path: z.string(), message: z.string() })),
 });
-export type ValidationReport = Static<typeof ValidationReport>;
+export type ValidationReport = z.infer<typeof ValidationReport>;
 
 /** The vitest separator between a describe block and a test in a full test name. */
 const NAME_SEPARATOR = " > ";
@@ -33,70 +27,54 @@ export function claims(testName: string, scenarioName: string): boolean {
 	return own === `Scenario: ${scenarioName}`;
 }
 
-export const TestEvidence = Type.Refine(
-	closed({
-		kind: Type.Literal("test"),
-		file: Name(),
-		name: Name(),
-		scenario: Type.Optional(ScenarioRef),
-		status: Type.Union([Type.Literal("pass"), Type.Literal("fail"), Type.Literal("skip")]),
-		message: Type.Optional(Type.String()),
-	}),
-	(evidence) => evidence.scenario === undefined || claims(evidence.name, evidence.scenario.scenario),
-	(evidence) => `test "${evidence.name}" does not carry the exact name of the scenario it names`,
-);
-export type TestEvidence = Static<typeof TestEvidence>;
-
-export const ValidationEvidence = closed({ kind: Type.Literal("validation"), report: ValidationReport });
-export type ValidationEvidence = Static<typeof ValidationEvidence>;
-
-export const CheckEvidence = closed({
-	kind: Type.Literal("check"),
-	command: Name(),
-	exitCode: Type.Integer(),
-	output: Type.String(),
+export const TestEvidence = closed({
+	kind: z.literal("test"),
+	file: Name(),
+	name: Name(),
+	scenario: ScenarioRef.optional(),
+	status: literals("pass", "fail", "skip"),
+	message: z.string().optional(),
+}).superRefine((evidence, ctx) => {
+	if (evidence.scenario !== undefined && !claims(evidence.name, evidence.scenario.scenario)) {
+		ctx.addIssue({ code: "custom", message: `test "${evidence.name}" does not carry the exact name of the scenario it names` });
+	}
 });
-export type CheckEvidence = Static<typeof CheckEvidence>;
+export type TestEvidence = z.infer<typeof TestEvidence>;
+
+export const ValidationEvidence = closed({ kind: z.literal("validation"), report: ValidationReport });
+export type ValidationEvidence = z.infer<typeof ValidationEvidence>;
+
+export const CheckEvidence = closed({ kind: z.literal("check"), command: Name(), exitCode: z.int(), output: z.string() });
+export type CheckEvidence = z.infer<typeof CheckEvidence>;
 
 export const DiffEvidence = closed({
-	kind: Type.Literal("diff"),
-	files: Type.Array(
-		closed({
-			path: Name(),
-			change: Type.Union([Type.Literal("added"), Type.Literal("modified"), Type.Literal("deleted")]),
-		}),
-	),
+	kind: z.literal("diff"),
+	files: z.array(closed({ path: Name(), change: literals("added", "modified", "deleted") })),
 });
-export type DiffEvidence = Static<typeof DiffEvidence>;
+export type DiffEvidence = z.infer<typeof DiffEvidence>;
 
 export const ReviewEvidence = closed({
-	kind: Type.Literal("review"),
-	reviewer: Type.Union([Type.Literal("agent"), Type.Literal("principal")]),
-	verdict: Type.Union([Type.Literal("approve"), Type.Literal("changes")]),
-	notes: Type.String(),
+	kind: z.literal("review"),
+	reviewer: literals("agent", "principal"),
+	verdict: literals("approve", "changes"),
+	notes: z.string(),
 });
-export type ReviewEvidence = Static<typeof ReviewEvidence>;
+export type ReviewEvidence = z.infer<typeof ReviewEvidence>;
 
-export const Evidence = Type.Union([TestEvidence, ValidationEvidence, CheckEvidence, DiffEvidence, ReviewEvidence]);
-export type Evidence = Static<typeof Evidence>;
+export const Evidence = z.union([TestEvidence, ValidationEvidence, CheckEvidence, DiffEvidence, ReviewEvidence]);
+export type Evidence = z.infer<typeof Evidence>;
 
-export const FindingKind = Type.Union([
-	Type.Literal("code-defect"),
-	Type.Literal("spec-defect"),
-	Type.Literal("test-defect"),
-	Type.Literal("environment"),
-	Type.Literal("needs-decision"),
-]);
-export type FindingKind = Static<typeof FindingKind>;
+export const FindingKind = literals("code-defect", "spec-defect", "test-defect", "environment", "needs-decision");
+export type FindingKind = z.infer<typeof FindingKind>;
 
 /** A finding rests on evidence: `evidence` is never empty. */
 export const Finding = closed({
 	kind: FindingKind,
-	target: Type.Optional(Target),
-	evidence: Type.Array(Evidence, { minItems: 1 }),
-	message: Type.String(),
+	target: Target.optional(),
+	evidence: z.array(Evidence).min(1),
+	message: z.string(),
 });
-export type Finding = Static<typeof Finding>;
+export type Finding = z.infer<typeof Finding>;
 
 /**
  * Whether `evidence` satisfies `target`:

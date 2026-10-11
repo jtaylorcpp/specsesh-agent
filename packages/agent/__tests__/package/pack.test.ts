@@ -230,6 +230,59 @@ process.exit(refused && accepted ? 0 : 1);
 	});
 });
 
+/** Every installed version of `name` in a project, from `npm ls --all --json`, deduped copies included. */
+function installedVersions(dir: string, name: string): string[] {
+	const r = spawnSync("npm", ["ls", name, "--all", "--json"], { cwd: dir, encoding: "utf8" });
+	if (r.status !== 0) throw new Error(`npm ls ${name} failed: ${r.stderr.trim()}`);
+	const versions: string[] = [];
+	const walk = (deps: Record<string, { version?: string; dependencies?: Record<string, unknown> }> = {}) => {
+		for (const [dep, node] of Object.entries(deps)) {
+			if (dep === name && node.version !== undefined) versions.push(node.version);
+			walk(node.dependencies as typeof deps);
+		}
+	};
+	walk(JSON.parse(r.stdout).dependencies);
+	return versions;
+}
+
+describe("The ontology entry imports from the packed tarball", () => {
+	it("Scenario: The ontology loads with no peers", () => {
+		for (const name of ["@earendil-works", "agents"]) {
+			expect(existsSync(join(bare, "node_modules", name)), `${name} was installed`).toBe(false);
+		}
+		const r = node(
+			bare,
+			`import { Clause, check, toJSONSchema } from "@specsesh/agent/openspec";
+if (!check(Clause, { keyword: "WHEN", text: "x" })) throw new Error("a valid clause is refused");
+if (check(Clause, { keyword: "BUT", text: "x" })) throw new Error("an invalid clause is accepted");
+if (toJSONSchema(Clause).type !== "object") throw new Error("no JSON Schema");
+console.log("done");
+`,
+		);
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout.trim()).toBe("done");
+	});
+
+	it("Scenario: One zod beside pi", () => {
+		// pi is there, and zod is installed exactly once, at the pinned version.
+		expect(existsSync(join(full, "node_modules", "@earendil-works", "pi-ai"))).toBe(true);
+		const versions = installedVersions(full, "zod");
+		expect(versions.length, "npm ls found no zod").toBeGreaterThan(0);
+		expect([...new Set(versions)]).toEqual(["4.6.5"]);
+		const r = node(
+			full,
+			`import * as openspec from "@specsesh/agent/openspec";
+import * as pi from "@specsesh/agent/pi";
+if (Object.keys(pi).length === 0) throw new Error("./pi has no exports");
+if (!openspec.check(openspec.Clause, { keyword: "THEN", text: "x" })) throw new Error("a valid clause is refused");
+console.log("done");
+`,
+		);
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout.trim()).toBe("done");
+	});
+});
+
 describe("The bin is the compiled CLI", () => {
 	it("Scenario: The installed bin needs no tsx", () => {
 		expect(existsSync(join(full, "node_modules", "tsx"))).toBe(false);

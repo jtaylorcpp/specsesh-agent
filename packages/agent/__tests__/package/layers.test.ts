@@ -45,7 +45,7 @@ const PI = [...CORE, "@earendil-works/pi-ai", "src/pi"];
 const CLAUDE_CODE = [...PI, "src/claude-code"];
 const DURABLE = [...CLAUDE_CODE, "@earendil-works/pi-durable", "@earendil-works/chord", "src/durable"];
 const CLOUDFLARE = [...DURABLE, "agents", "cloudflare:workers", "src/cloudflare"];
-const OPENSPEC = ["typebox", "src/openspec"];
+const OPENSPEC = ["zod", "src/openspec"];
 const ALLOWED: Record<string, readonly string[]> = {
 	pi: PI,
 	"claude-code": CLAUDE_CODE,
