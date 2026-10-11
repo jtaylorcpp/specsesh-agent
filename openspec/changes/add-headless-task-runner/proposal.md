@@ -34,7 +34,9 @@ The outcome this change is for: **the moment it merges, `pnpm task <change-id> <
 - **Worktree mode.** With `--worktree` (or `worktree: true` in the config), `run` creates a git worktree for the task on branch `task/<change-id>/<task-id>`, from `HEAD`, runs the configured setup commands there (this repo: `pnpm install --frozen-lockfile --offline`), and runs the loop inside it.
   - **The main tree stays untouched,** so the clean-tree guard does not apply to it; you can keep working while a task runs.
   - **Uncommitted main-tree changes are not carried over.** A warning says how many there are.
-  - **The database stays in the main repo.** The loop records the worktree's path and branch, and `resume` and `status` use them.
+  - **`--db` is mandatory in worktree mode,** and the config's `db` is not used, so each worktree run names its own database.
+  - **That makes parallel tasks safe:** several worktree runs on different tasks, each with its own database, run at once. A database is locked to one live process; a second process using it is refused.
+  - **The loop records the worktree's path and branch,** and `resume` and `status` use them.
   - **The work is left for review.** The runner never commits; it prints the worktree path, its branch, and the commands to review and remove it.
 - **Status.** `agentscript-task status [--db]` lists loops with their change, task, status and iteration count.
 - **Root script** `pnpm task …`, and a section in `CLAUDE.md` on using it.

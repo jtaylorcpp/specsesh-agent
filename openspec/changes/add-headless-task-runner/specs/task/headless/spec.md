@@ -181,7 +181,7 @@ With `--worktree`, or `worktree: true` in the config, `run` SHALL create a workt
 
 #### Scenario: A task runs in its own worktree
 - **GIVEN** this repo at a clean `HEAD` and change `add-task-agent` committed
-- **WHEN** `agentscript-task run add-task-agent 2.4 --worktree` converges
+- **WHEN** `agentscript-task run add-task-agent 2.4 --worktree --db task-2.4.sqlite` converges
 - **THEN** the worktree `../agentscript-worktrees/add-task-agent-2.4` SHALL exist on branch `task/add-task-agent/2.4`, hold the edits and the ticked line, and the main tree's `HEAD` and files SHALL be unchanged
 
 ### Requirement: A worktree is never reused or clobbered by run
@@ -189,12 +189,12 @@ With `--worktree`, or `worktree: true` in the config, `run` SHALL create a workt
 
 #### Scenario: An existing branch refuses the run
 - **GIVEN** a branch `task/add-task-agent/2.4` already exists
-- **WHEN** `run add-task-agent 2.4 --worktree` starts
+- **WHEN** `run add-task-agent 2.4 --worktree --db t.sqlite` starts
 - **THEN** stderr SHALL name the branch, the exit code SHALL be `2`, and no worktree or loop SHALL be created
 
 #### Scenario: An uncommitted change refuses worktree mode
 - **GIVEN** a change directory that exists in the working tree but not at `HEAD`
-- **WHEN** `run <that change> 1.1 --worktree` starts
+- **WHEN** `run <that change> 1.1 --worktree --db t.sqlite` starts
 - **THEN** the exit code SHALL be `2` and stderr SHALL say the change is not committed at `HEAD`
 
 ### Requirement: Worktree setup runs before the loop
@@ -202,7 +202,7 @@ In worktree mode, `run` SHALL run each `worktreeSetup` command in the worktree, 
 
 #### Scenario: A failing setup command leaves the worktree
 - **GIVEN** `worktreeSetup: ["pnpm install --frozen-lockfile --offline"]` and a lockfile that cannot install offline
-- **WHEN** `run --worktree` reaches setup
+- **WHEN** `run --worktree --db t.sqlite` reaches setup
 - **THEN** the exit code SHALL be `1`, stderr SHALL name the command, and the worktree SHALL remain
 
 ### Requirement: In worktree mode the main tree may be dirty
@@ -210,15 +210,43 @@ In worktree mode the clean-tree guard SHALL apply to the new worktree, not the m
 
 #### Scenario: Working in the main tree while a task runs
 - **GIVEN** an uncommitted edit to `README.md` in the main tree
-- **WHEN** `run add-task-agent 2.4 --worktree` starts
+- **WHEN** `run add-task-agent 2.4 --worktree --db t.sqlite` starts
 - **THEN** the loop SHALL be created and the stream SHALL hold a `warning` event saying `1` uncommitted change is not in the worktree
 
+### Requirement: Worktree mode requires an explicit database
+`run --worktree` MUST be given `--db` on the command line; the config's `db` SHALL NOT be used in worktree mode. Without `--db` it MUST exit `2` before creating anything, saying worktree mode needs `--db`.
+
+#### Scenario: A worktree run without --db is refused
+- **GIVEN** this repo's config, which sets `db`
+- **WHEN** `run add-task-agent 2.4 --worktree` starts with no `--db`
+- **THEN** the exit code SHALL be `2`, stderr SHALL say worktree mode needs `--db`, and no worktree or loop SHALL be created
+
+### Requirement: Worktree tasks can run in parallel
+Several `run --worktree` processes for different tasks, each with its own `--db`, SHALL run at the same time, each in its own worktree and database, sharing nothing but the git repository.
+
+#### Scenario: Two tasks run at once
+- **WHEN** `run add-task-agent 2.3 --worktree --db a.sqlite` and `run add-task-agent 2.4 --worktree --db b.sqlite` run concurrently
+- **THEN** both SHALL complete, each in its own worktree and branch, and neither database SHALL hold the other's loop
+
+### Requirement: A database is held by one live process
+`run` and `resume` SHALL take an exclusive lock, a file `<db>.lock` holding the process id, before opening the database, and release it on exit. When another live process holds the lock they MUST exit `2`, naming that pid. A lock whose process is no longer alive SHALL be taken over, with a `warning` event.
+
+#### Scenario: A second process on the same database is refused
+- **GIVEN** a running loop on `a.sqlite`
+- **WHEN** another `run … --db a.sqlite` starts
+- **THEN** it SHALL exit `2` naming the holder's pid, and the first loop SHALL be unaffected
+
+#### Scenario: A stale lock is taken over
+- **GIVEN** `a.sqlite.lock` naming a process that no longer exists
+- **WHEN** `run … --db a.sqlite` starts
+- **THEN** the run SHALL proceed and the stream SHALL hold a `warning` event about the stale lock
+
 ### Requirement: The loop remembers its worktree
-A loop run in worktree mode SHALL record `worktree: { path, branch }` in the database, which stays the main repo's. `resume` SHALL run in that path, `status` SHALL show the branch, and the final output SHALL print the path, the branch, `git -C <path> diff` and `git worktree remove <path>`.
+A loop run in worktree mode SHALL record `worktree: { path, branch }` in its database. `resume` and `status`, given the same `--db`, SHALL use it: `resume` runs in that path, `status` shows the branch. The final output SHALL print the path, the branch, `git -C <path> diff` and `git worktree remove <path>`.
 
 #### Scenario: Resume finds the worktree
 - **GIVEN** a worktree-mode loop whose process died
-- **WHEN** `agentscript-task resume <loop>` runs from the main tree
+- **WHEN** `agentscript-task resume <loop> --db <same db>` runs from the main tree
 - **THEN** the loop SHALL continue with the worktree as its workspace
 
 #### Scenario: The output says how to review and remove

@@ -27,6 +27,8 @@
 - [ ] 5.2 `packages/agent/src/task/git.ts`: `loop-ended.changed` = sorted paths whose porcelain entry differs between loop start and end; `[]` outside git
 - [ ] 5.3 `packages/agent/src/task/worktree.ts`: `--worktree` / `worktree: true`: path `<worktreeDir>/<change-id>-<task-id>` (default `../<repo-dir-name>-worktrees`), branch `task/<change-id>/<task-id>`; refuse (exit `2`) if the branch or path exists or the change is absent at `HEAD`; `git worktree add -b <branch> <path> HEAD`; run `worktreeSetup` in order (non-zero → exit `1`, naming it, worktree kept); resolve the change and workspace inside the worktree
 - [ ] 5.4 `packages/agent/src/task/worktree.ts`: in worktree mode the guard checks the worktree; main-tree uncommitted changes emit a `warning` event with their count; the loop records `worktree: { path, branch }`; `resume` uses the path; `status` shows the branch; the outcome prints path, branch, `git -C <path> diff` and `git worktree remove <path>`
+- [ ] 5.6 `packages/agent/src/bin/agentscript-task.ts`: `run --worktree` requires `--db` on the command line (config `db` ignored in worktree mode; missing → exit `2` before creating anything)
+- [ ] 5.7 `packages/agent/src/task/lock.ts`: exclusive `<db>.lock` holding the pid for `run` and `resume`; another live holder → exit `2` naming the pid; a dead holder's lock taken over with a `warning` event; released on every exit path
 - [ ] 5.5 Audit: no code path in `packages/agent/src/task/` runs any git command other than `status`, `rev-parse`, `worktree add` and `worktree list`
 
 ## 6. The delegate, headless
