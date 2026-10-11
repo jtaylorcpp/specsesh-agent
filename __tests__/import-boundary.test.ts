@@ -5,7 +5,6 @@ import { dirname, join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
-const REPO_ROOT = join(PKG_DIR, "..", "..");
 const manifest = JSON.parse(readFileSync(join(PKG_DIR, "package.json"), "utf8"));
 
 /**
@@ -166,43 +165,6 @@ describe("platform-agentscript-interpreter: Reasoning Goes Out Through A Declare
 	});
 });
 
-describe("platform-agentscript-authoring: The manifest and the specification agree", () => {
-	it("The manifest and the specification agree", () => {
-		// The spec used to claim this package was published. It is not, and is not
-		// scheduled to be — so the claim was a folded requirement describing
-		// something that did not exist, which is the state this repository's whole
-		// lifecycle discipline exists to prevent. `retire-agentscript-publish-claim`
-		// withdrew it and pinned the replacement here, against the repository
-		// rather than against npm.
-		expect(manifest.private, "the package must declare itself private").toBe(true);
-
-		const workflow = readFileSync(join(REPO_ROOT, ".github/workflows/publish.yml"), "utf8");
-		const publishSteps = workflow
-			.split("\n")
-			.filter((line) => /npm publish|working-directory:\s*packages\//.test(line))
-			.join("\n");
-		expect(publishSteps).not.toMatch(/agentscript/);
-
-		// It IS type-checked, and that is correct — the distinction is "not published",
-		// not "not gated". The verify job used to name this package on a hand-written
-		// `--filter` line; it now runs the derived gate, which covers every package in
-		// the workspace. So the assertion is that the gate runs AND that this package
-		// is one it would run — asserting only the first would pass for a package the
-		// gate had somehow stopped seeing.
-		expect(workflow).toMatch(/node scripts\/type-check-all\.mjs/);
-		const plan = execFileSync("node", [join(REPO_ROOT, "scripts/type-check-all.mjs"), "--plan"], {
-			cwd: REPO_ROOT,
-			encoding: "utf8",
-		});
-		expect(plan).toMatch(/@coopcli\/agentscript → pnpm check/);
-
-		// Not merely accurate: OIDC cannot bootstrap a package npm has never seen,
-		// and every merge to the default branch releases — so a publish step for
-		// this package would fail every merge, and the job creating the release tag
-		// waits on it. The safe state and the honest state are the same state.
-	});
-});
-
 describe("platform-agentscript-authoring: Consumed from elsewhere", () => {
 	// Genuinely deleting specsketch to prove independence is not something a unit
 	// test can do. What IS checkable, and is the property that matters: every
@@ -210,8 +172,6 @@ describe("platform-agentscript-authoring: Consumed from elsewhere", () => {
 	// declared upstream dependency. If that holds, a consumer with no specsketch
 	// on disk resolves the same graph this one does.
 	it("closes over a module graph that never leaves the package", () => {
-		expect(existsSync(join(REPO_ROOT, "packages", "specsketch"))).toBe(true);
-
 		// Seeded from the MANIFEST, not from one hand-picked entry. Seeded with
 		// `src/authoring/index.ts` alone, this walk reached `document.ts` and
 		// `subset.ts` and stopped — `run.ts`, `compose.ts`, `scan.ts` and `port.ts`

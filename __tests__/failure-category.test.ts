@@ -1,27 +1,29 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { KNOWN_FAILURE_CATEGORIES, toFailureCategory } from "../src/interpreter/index.js";
-
-const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
  * The categories the model layer this port is fed by actually reports.
  *
- * Read from the HARNESS's own restatement of the SDK union rather than typed
- * out here: that file carries a compile-time drift guard against the SDK
- * (`CategoriesMatchSdk`), so this list is the SDK's, one hop removed. It is
- * read as text because the harness is a private workspace package this one may
- * not import — which is the whole reason the port exists.
+ * Snapshot of `ModelFailureCategory` from coopcli's `packages/agent-harness/src/types.ts`
+ * (tag `archive/pre-unspecced`), which mirrored the Claude Agent SDK's union. The harness
+ * no longer sits beside this package, so the list is pinned here; refresh it from the SDK
+ * when the port is next wired to a real model layer.
  */
+const HARNESS_CATEGORIES = [
+	"authentication_failed",
+	"oauth_org_not_allowed",
+	"billing_error",
+	"rate_limit",
+	"overloaded",
+	"invalid_request",
+	"model_not_found",
+	"server_error",
+	"unknown",
+	"max_output_tokens",
+];
+
 function harnessCategories(): string[] {
-	const types = readFileSync(join(PKG_DIR, "..", "agent-harness", "src", "types.ts"), "utf8");
-	const union = types.slice(
-		types.indexOf("export type ModelFailureCategory"),
-		types.indexOf("export interface ModelFailure"),
-	);
-	return [...union.matchAll(/'([a-z_]+)'/g)].map((m) => m[1] as string);
+	return HARNESS_CATEGORIES;
 }
 
 describe("platform-agentscript-interpreter: A Model-Layer Failure Carries The Layer's Own Category", () => {
