@@ -13,6 +13,7 @@ import {
 	blockedBy,
 	decodeCheckpoint,
 	encodeCheckpoint,
+	formatCheckOutput,
 	initialGroupCheckpoint,
 	type GroupCheckpoint,
 	findGroup,
@@ -376,6 +377,74 @@ describe("task/group: The group loop is a durable task over a queue", () => {
 				expect(outcome.result?.tasks.map((t) => [t.task, t.runs, t.outcome.status])).toEqual([["1.1", 1, status]]);
 			});
 		}
+	});
+
+	describe("The group check runs every check over the workspace", () => {
+		// Runs the `check` phase against a runtime that records what it commits.
+		const runCheck = async (checks: string[], checkpoint?: Partial<GroupCheckpoint>) => {
+			const dir = mkdtempSync(join(tmpdir(), "group-check-"));
+			temps.push(dir);
+			const committed: { status: string; checkpoint?: JsonObject; outcome?: { result: { outcome: JsonObject; notes: string[] } } }[] = [];
+			const runtime = { commit: async (fn: () => unknown) => void committed.push(fn() as (typeof committed)[number]) };
+			const cp: GroupCheckpoint = { phase: "check", queue: [], entries: [], reworks: 0, ...checkpoint };
+			const handler = GroupLoopTask.definition.phases.check as unknown as (t: unknown, r: unknown, c: unknown) => Promise<void>;
+			await handler({ state: { checkpoint: encodeCheckpoint(cp) }, input: { ...input(), checks, workspace: dir } }, runtime, undefined);
+			expect(committed).toHaveLength(1);
+			return committed[0] as (typeof committed)[number];
+		};
+
+		it("Scenario: A passing check converges the group", async () => {
+			const entries = initialGroupCheckpoint(input().tasks).entries;
+			const commit = await runCheck(["node -e process.exit(0)"], { entries });
+			expect(commit.status).toBe("terminal");
+			const outcome = commit.outcome?.result.outcome as unknown as LoopOutcome<GroupOutcome>;
+			expect(check(LoopOutcome(GroupOutcome), outcome)).toBe(true);
+			expect(outcome.status).toBe("converged");
+			expect(outcome.result?.tasks.map((t) => t.task)).toEqual(["1.1", "1.3"]);
+		});
+
+		it("Scenario: A failing check goes to the judge", async () => {
+			const command = "node -e console.log('boom');process.exit(1)";
+			const commit = await runCheck([command]);
+			expect(commit.status).toBe("running");
+			const cp = decodeCheckpoint(commit.checkpoint as JsonObject);
+			expect(cp.phase).toBe("judge");
+			expect(cp.checkOutput).toHaveLength(1);
+			expect(cp.checkOutput?.[0]).toMatchObject({ command, exitCode: 1 });
+			expect(cp.checkOutput?.[0]?.output).toContain("boom");
+		});
+
+		it("spawns without a shell", async () => {
+			const commit = await runCheck(["node -e console.log(process.argv[1]);process.exit(1) $HOME"]);
+			const cp = decodeCheckpoint(commit.checkpoint as JsonObject);
+			expect(cp.checkOutput?.[0]?.output.trim()).toBe("$HOME");
+		});
+
+		it("records a missing binary as exit 127 without throwing", async () => {
+			const commit = await runCheck(["definitely-not-a-binary"]);
+			const cp = decodeCheckpoint(commit.checkpoint as JsonObject);
+			expect(cp.phase).toBe("judge");
+			expect(cp.checkOutput?.[0]).toMatchObject({ command: "definitely-not-a-binary", exitCode: 127 });
+			expect(cp.checkOutput?.[0]?.output).toContain("ENOENT");
+		});
+
+		it("runs every check in order, even after a failure", async () => {
+			const commit = await runCheck(["node -e process.exit(3)", "node -e console.log('second')"]);
+			const cp = decodeCheckpoint(commit.checkpoint as JsonObject);
+			expect(cp.checkOutput?.map((r) => [r.command, r.exitCode])).toEqual([
+				["node -e process.exit(3)", 3],
+				["node -e console.log('second')", 0],
+			]);
+		});
+
+		it("formatCheckOutput renders only the failing checks", () => {
+			expect(
+				formatCheckOutput([
+					{ command: "a", exitCode: 0, output: "fine" },
+					{ command: "b c", exitCode: 2, output: "bad\n" },
+				]),
+			).toBe("$ b c\nexit 2\nbad\n");
+		});
 	});
 
 	it("decoding a malformed checkpoint throws", () => {

@@ -3,7 +3,7 @@
 - [x] 1.1 `packages/agent/src/task/group.ts`: `GroupLoopOptions` (task-loop options with `group`, `groupScript`, `budget.maxReworks` default `2`); sources read once into the durable input; group lookup by `## <n>.` heading in `tasks.md` (unknown number refused listing the numbers; no task lines or no `checks` refused)
 - [x] 1.2 `packages/agent/src/task/group.ts`: `agentscript.group-loop` v1 with checkpoint `{ phase, queue, entries, reworks, carried?, child? }` and phases `next`, `task`, `check`, `judge`; the queue from unticked tasks in file order, ticked tasks entered as converged with `runs` `0`
 - [x] 1.3 `packages/agent/src/task/group.ts`: the `task` phase starts an `agentscript.task-loop` child (rework `carried` passed through), awaits it idempotently by child id, records converged entries (`runs` + 1); blocked → group blocked with the escalation at level `group`; exhausted/failed → group failed naming the task
-- [ ] 1.4 `packages/agent/src/task/group.ts`: the `check` phase runs each check in the workspace with no shell; all exit `0` → converged; otherwise → `judge` with commands, exit codes and output
+- [x] 1.4 `packages/agent/src/task/group.ts`: the `check` phase runs each check in the workspace with no shell; all exit `0` → converged; otherwise → `judge` with commands, exit codes and output
 - [ ] 1.5 `packages/agent/src/openspec/loops.ts`: `GroupOutcome.tasks[].runs` allows `0` (per the modified `openspec/loops` requirement); its tests
 - [ ] 1.6 `packages/agent/src/task/index.ts`: export `startGroupLoop`, `waitForGroupLoop`, `answerGroupEscalation`, `GroupLoop`, `groupLoopExtensions`, `GroupLoopOptions`
 

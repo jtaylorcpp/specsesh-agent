@@ -66,7 +66,7 @@ export interface BuiltinActionOptions {
 	readonly delegateContext?: readonly string[];
 }
 
-const DEFAULT_TIMEOUT_MS = 600_000;
+export const DEFAULT_TIMEOUT_MS = 600_000;
 /** Claude Code's file tools, always allowed; `Bash` is enabled but allowed only per allowlist entry. */
 const DELEGATE_FILE_TOOLS = ["Read", "Edit", "Write", "Glob", "Grep"];
 
@@ -303,7 +303,7 @@ function inside(root: string, candidate: string): boolean {
 	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-type Ran =
+export type Ran =
 	| { kind: "exited"; code: number; output: string; stderr: string }
 	| { kind: "timed-out"; output: string }
 	| { kind: "spawn-error"; message: string };
@@ -319,7 +319,7 @@ interface RunOptions {
 }
 
 /** Spawn an argv with no shell, collecting its output, killing it past the timeout. */
-function runArgv(argv: readonly string[], options: RunOptions): Promise<Ran> {
+export function runArgv(argv: readonly string[], options: RunOptions): Promise<Ran> {
 	const [binary, ...args] = argv;
 	if (binary === undefined) return Promise.resolve({ kind: "spawn-error", message: "the command is empty" });
 	return new Promise((resolvePromise) => {

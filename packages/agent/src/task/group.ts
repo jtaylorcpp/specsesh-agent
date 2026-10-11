@@ -15,6 +15,7 @@ import {
 	type TaskId,
 } from "@earendil-works/pi-durable";
 import { GroupOutcome, LoopOutcome, check, explain, type Escalation, type Recipient, type TaskOutcome } from "../openspec/index.js";
+import { DEFAULT_TIMEOUT_MS, runArgv, splitCommand } from "../durable/index.js";
 import { concatDeltas } from "./deltas.js";
 import { TaskLoopStartError } from "./errors.js";
 import type { TaskLoopInput, TaskLoopResult } from "./loop-input.js";
@@ -209,7 +210,15 @@ export type GroupCheckpoint = {
 	reworks: number;
 	carried?: string;
 	child?: { task: string; id?: TaskId };
+	/** Every check's result, set by the `check` phase when it hands a failure to the judge. */
+	checkOutput?: CheckRun[];
 };
+
+/** One group check's result: the command as configured, its exit code and its stdout and stderr combined. */
+export type CheckRun = { command: string; exitCode: number; output: string };
+
+/** Exit code recorded for a command that could not be spawned, as a shell reports a missing command. */
+export const SPAWN_FAILED_EXIT_CODE = 127;
 
 /** The checkpoint as pi-durable stores it: JSON, narrowed per phase so each handler's task type is not `never`. */
 export type StoredGroupCheckpoint = { [P in GroupPhase]: JsonObject & { phase: P } }[GroupPhase];
@@ -224,6 +233,9 @@ export function encodeCheckpoint(cp: GroupCheckpoint): JsonObject {
 		...(cp.carried !== undefined ? { carried: cp.carried } : {}),
 		...(cp.child !== undefined
 			? { child: { task: cp.child.task, ...(cp.child.id !== undefined ? { id: cp.child.id } : {}) } }
+			: {}),
+		...(cp.checkOutput !== undefined
+			? { checkOutput: cp.checkOutput.map((r) => ({ command: r.command, exitCode: r.exitCode, output: r.output })) }
 			: {}),
 	};
 }
@@ -249,6 +261,22 @@ export function decodeCheckpoint(raw: JsonValue): GroupCheckpoint {
 		}
 		if (child.id !== undefined && typeof child.id !== "number") return malformed("child");
 	}
+	const checkOutput = o.checkOutput;
+	if (
+		checkOutput !== undefined &&
+		(!Array.isArray(checkOutput) ||
+			!checkOutput.every(
+				(r) =>
+					r !== null &&
+					typeof r === "object" &&
+					!Array.isArray(r) &&
+					typeof r.command === "string" &&
+					typeof r.exitCode === "number" &&
+					typeof r.output === "string",
+			))
+	) {
+		return malformed("checkOutput");
+	}
 	return {
 		phase: phase as GroupPhase,
 		queue: queue as string[],
@@ -258,6 +286,7 @@ export function decodeCheckpoint(raw: JsonValue): GroupCheckpoint {
 		...(child !== undefined
 			? { child: { task: (child as JsonObject).task as string, ...(typeof (child as JsonObject).id === "number" ? { id: (child as JsonObject).id as TaskId } : {}) } }
 			: {}),
+		...(checkOutput !== undefined ? { checkOutput: checkOutput as unknown as CheckRun[] } : {}),
 	};
 }
 
@@ -315,7 +344,7 @@ function notYet(phase: GroupPhase, task: string): never {
 export function groupOutcome(
 	input: Pick<GroupLoopInput, "group" | "tasks">,
 	entries: readonly GroupEntry[],
-	status: "blocked" | "failed",
+	status: "converged" | "blocked" | "failed",
 	escalation?: Escalation,
 ): LoopOutcome<GroupOutcome> & JsonObject {
 	const tasks = input.tasks.flatMap((t) => {
@@ -372,6 +401,44 @@ export function endedGroup(
 		outcome.status === "blocked"
 			? { outcome: groupOutcome(input, entries, "blocked", { ...outcome.escalation, level: "group" }), notes: [] }
 			: { outcome: groupOutcome(input, entries, "failed"), notes: [`task ${task} ended ${outcome.status}`] };
+	if (!check(GroupLoopOutcome, done.outcome)) {
+		throw new Error(`the group loop built an outcome the ontology refuses: ${explain(GroupLoopOutcome, done.outcome).join("; ")}`);
+	}
+	return done;
+}
+
+/**
+ * Run every check in order over the workspace, none skipped after a failure. Each command is
+ * split into an argv and spawned with no shell. One that cannot start is a failure (127, the
+ * spawn error as output); one that times out is a failure too (-1). Nothing here throws.
+ */
+export async function runGroupChecks(
+	commands: readonly string[],
+	workspace: string,
+	signal?: AbortSignal,
+	timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<CheckRun[]> {
+	const runs: CheckRun[] = [];
+	for (const command of commands) {
+		const ran = await runArgv(splitCommand(command), { cwd: workspace, timeoutMs, signal });
+		if (ran.kind === "exited") runs.push({ command, exitCode: ran.code, output: ran.output });
+		else if (ran.kind === "timed-out") runs.push({ command, exitCode: -1, output: `${ran.output}\n(timed out after ${timeoutMs}ms)` });
+		else runs.push({ command, exitCode: SPAWN_FAILED_EXIT_CODE, output: ran.message });
+	}
+	return runs;
+}
+
+/** The failing checks only, each as `$ <command>`, `exit <code>`, then its output. Empty when all passed. */
+export function formatCheckOutput(runs: readonly CheckRun[]): string {
+	return runs
+		.filter((r) => r.exitCode !== 0)
+		.map((r) => `$ ${r.command}\nexit ${r.exitCode}\n${r.output}`)
+		.join("\n\n");
+}
+
+/** The terminal result when every check passed, checked against the ontology. */
+export function convergedGroup(input: Pick<GroupLoopInput, "group" | "tasks">, entries: readonly GroupEntry[]): GroupLoopResult {
+	const done: GroupLoopResult = { outcome: groupOutcome(input, entries, "converged"), notes: [] };
 	if (!check(GroupLoopOutcome, done.outcome)) {
 		throw new Error(`the group loop built an outcome the ontology refuses: ${explain(GroupLoopOutcome, done.outcome).join("; ")}`);
 	}
@@ -438,7 +505,17 @@ export const GroupLoopTask: Task<GroupLoopInput, StoredGroupCheckpoint, GroupLoo
 			const done = endedGroup(task.input, entries, current, outcome);
 			await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
 		},
-		check: async () => notYet("check", "1.4"),
+		// Nothing is stored before the checks finish, so a process that dies here reruns them all.
+		check: async (task, runtime, context) => {
+			const cp = decodeCheckpoint(task.state.checkpoint);
+			const runs = await runGroupChecks(task.input.checks, task.input.workspace);
+			if (runs.every((r) => r.exitCode === 0)) {
+				const done = convergedGroup(task.input, cp.entries);
+				await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
+				return;
+			}
+			await runtime.commit(() => ({ status: "running", checkpoint: stored({ ...cp, phase: "judge", checkOutput: runs }) }), context);
+		},
 		judge: async () => notYet("judge", "2.3"),
 	},
 	abort: async (_task, runtime, context) => {
