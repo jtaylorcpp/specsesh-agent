@@ -5,7 +5,7 @@
 - [x] 1.3 `packages/agent/src/task/group.ts`: the `task` phase starts an `agentscript.task-loop` child (rework `carried` passed through), awaits it idempotently by child id, records converged entries (`runs` + 1); blocked → group blocked with the escalation at level `group`; exhausted/failed → group failed naming the task
 - [x] 1.4 `packages/agent/src/task/group.ts`: the `check` phase runs each check in the workspace with no shell; all exit `0` → converged; otherwise → `judge` with commands, exit codes and output
 - [x] 1.5 `packages/agent/src/openspec/loops.ts`: `GroupOutcome.tasks[].runs` allows `0` (per the modified `openspec/loops` requirement); its tests
-- [ ] 1.6 `packages/agent/src/task/index.ts`: export `startGroupLoop`, `waitForGroupLoop`, `answerGroupEscalation`, `GroupLoop`, `groupLoopExtensions`, `GroupLoopOptions`
+- [x] 1.6 `packages/agent/src/task/index.ts`: export `startGroupLoop`, `waitForGroupLoop`, `answerGroupEscalation`, `GroupLoop`, `groupLoopExtensions`, `GroupLoopOptions`
 
 ## 2. The group judge
 

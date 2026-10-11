@@ -22,5 +22,6 @@ export { TASK_LOOP, TaskLoop, TaskLoopTask, taskLoopExtensions, type TaskLoopAct
 export type { LoopCheckpoint, TaskLoopInput, TaskLoopResult } from "./loop-input.js";
 export { BUNDLED_SCRIPTS, DEFAULT_ESCALATE_TO, DEFAULT_MAX_ITERATIONS, type ChangeSource, type LoopWorktree, type Source, type TaskLoopOptions } from "./options.js";
 export type { GroupLoopOptions } from "./group.js";
+export { GroupLoop, answerGroupEscalation, groupLoopExtensions, startGroupLoop, waitForGroupLoop } from "./group-api.js";
 export { prepareTaskLoop, startTaskLoop } from "./start.js";
 export { answerEscalation, waitForTaskLoop, waitForTaskLoopResult } from "./answer.js";
