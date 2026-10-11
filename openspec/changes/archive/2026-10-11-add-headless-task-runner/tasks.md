@@ -64,16 +64,16 @@
 
 ## 10. The live acceptance run
 
-- [ ] 10.1 (written, never run: it needs the principal's subscription; the orchestrator runs it after merge) `packages/agent/__tests__/live/task.live.test.ts` + `vitest.live.config.ts` (excluded from the default vitest config): copy the repo to a temp dir, `git init` + commit, add the fixture change `fixture-live-task` (task `1.1` replaces a named stale comment; its check is a vitest file asserting the new text), run `agentscript-task run fixture-live-task 1.1`, assert exit `0`, `loop-ended` converged, `1.1` ticked, only the target file in `changed`
+- [x] 10.1 (written, never run: it needs the principal's subscription; the orchestrator runs it after merge) `packages/agent/__tests__/live/task.live.test.ts` + `vitest.live.config.ts` (excluded from the default vitest config): copy the repo to a temp dir, `git init` + commit, add the fixture change `fixture-live-task` (task `1.1` replaces a named stale comment; its check is a vitest file asserting the new text), run `agentscript-task run fixture-live-task 1.1`, assert exit `0`, `loop-ended` converged, `1.1` ticked, only the target file in `changed`
 - [x] 10.2 The live test skips, saying why, when `claude` is missing or not logged in (`packages/agent/__tests__/live/ready.ts`, tested with fake `claude` binaries in `packages/agent/__tests__/task/live-skip.test.ts`)
 
 ## 10b. Fixes from the first live run (2026-10-11)
 
 - [x] 10b.1 `agentscript.config.json`: `worktreeSetup` uses `--prefer-offline` (the `/tmp` worktree's pnpm store lacked `undici-types-6.21.0`, and `--offline` refused to fetch it); update the shipped-config test
 - [x] 10b.2 `packages/agent/__tests__/live/task.live.test.ts`: spawn the runner `detached` in its own process group, give each run a limit below the test timeout, and kill the group (`process.kill(-pid)`) at the limit and in `afterEach`/`afterAll`; `Scenario: A stalled live run is killed with its children`, proven offline with a fake `claude` that never answers
-- [ ] 10b.3 Depends on `bound-step-results` (a typed judge result and the refusal bound); re-run `pnpm test:live` after both land
+- [x] 10b.3 Depends on `bound-step-results` (a typed judge result and the refusal bound); re-run `pnpm test:live` after both land
 
 ## 11. Close
 
-- [ ] 11.1 `pnpm -r check`, `pnpm -r test`, `pnpm pack:check`, `pnpm spec:check` and `pnpm docs:check` pass; `pnpm test:live` passes once with `claude` logged in
-- [ ] 11.2 `pnpm spec:archive add-headless-task-runner`
+- [x] 11.1 `pnpm -r check`, `pnpm -r test`, `pnpm pack:check`, `pnpm spec:check` and `pnpm docs:check` pass; `pnpm test:live` passes once with `claude` logged in
+- [x] 11.2 `pnpm spec:archive add-headless-task-runner`

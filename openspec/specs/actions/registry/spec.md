@@ -89,7 +89,7 @@ When a run is created, every action the script defines SHALL be checked against 
 - **THEN** it SHALL answer `{ ok: false }` with `no checks configured`
 
 ### Requirement: delegate_claude_code runs headless Claude Code inside this project's hard lines
-`delegate_claude_code` SHALL be `{ instructions } → { ok, summary }`, kind `"delegate"`, replay `"unsafe"`. It SHALL run `claude -p --safe-mode` with Claude Code's file edit and shell tools enabled, in the workspace, never with `--bare`, with `ANTHROPIC_API_KEY` and `CLAUDECODE` removed from its environment, and SHALL never read, copy or forward Claude Code's OAuth token. `summary` is Claude Code's result text.
+`delegate_claude_code` SHALL be `{ instructions } → { ok, summary }`, kind `"delegate"`, replay `"unsafe"`. It SHALL run `claude -p --safe-mode` with file and shell tools and no prompts (see "The delegate never prompts"), in the workspace, never with `--bare`, with `ANTHROPIC_API_KEY` and `CLAUDECODE` removed from its environment, and SHALL never read, copy or forward Claude Code's OAuth token. `summary` is Claude Code's result text.
 
 #### Scenario: The delegate's argv and environment keep the hard lines
 - **WHEN** `delegate_claude_code` builds its process
@@ -106,3 +106,30 @@ Each execution SHALL put an ontology record in its result's `record`: `edit_file
 #### Scenario: A read records nothing
 - **WHEN** `read_file` reads a file
 - **THEN** its `record` SHALL hold no `Action` and no `Evidence`
+
+### Requirement: The delegate never prompts
+`delegate_claude_code` SHALL pass `--tools Read,Edit,Write,Glob,Grep,Bash`, `--permission-mode dontAsk`, `--output-format json` and `--no-session-persistence`, and `--allowedTools` listing `Read`, `Edit`, `Write`, `Glob`, `Grep` and one `Bash(<word>:*)` per `allow` entry, in order. A tool use outside that list is denied by Claude Code, never prompted.
+
+#### Scenario: The allowlist becomes Bash patterns
+- **GIVEN** the allowlist `["pnpm", "node"]`
+- **WHEN** `delegate_claude_code` builds its argv
+- **THEN** `--allowedTools` SHALL be followed by `Read`, `Edit`, `Write`, `Glob`, `Grep`, `Bash(pnpm:*)`, `Bash(node:*)`
+- **AND** argv SHALL contain `--permission-mode` followed by `dontAsk`
+
+#### Scenario: An empty allowlist allows no shell
+- **GIVEN** the allowlist `[]`
+- **WHEN** `delegate_claude_code` builds its argv
+- **THEN** `--allowedTools` SHALL list only the five file tools
+
+### Requirement: The delegate's model and context are configurable
+`builtinActions` SHALL take `delegateModel` and `delegateContext`. `delegate_claude_code` SHALL pass `--model <delegateModel>` when it is set, and one `--append-system-prompt-file <path>` per `delegateContext` entry, in order, each resolved against the workspace. A context file that does not exist SHALL make the action answer `{ ok: false }` naming it, without starting Claude Code.
+
+#### Scenario: Context files reach the delegate
+- **GIVEN** `delegateContext` `["CLAUDE.md"]` and `delegateModel` `"sonnet"`
+- **WHEN** `delegate_claude_code` builds its argv
+- **THEN** argv SHALL contain `--model` followed by `sonnet` and `--append-system-prompt-file` followed by the workspace's `CLAUDE.md`
+
+#### Scenario: A missing context file fails the action
+- **GIVEN** `delegateContext` `["MISSING.md"]`
+- **WHEN** `delegate_claude_code` runs
+- **THEN** it SHALL answer `{ ok: false }` naming `MISSING.md`, and no `claude` process SHALL start
