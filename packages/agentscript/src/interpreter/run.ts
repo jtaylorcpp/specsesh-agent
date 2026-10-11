@@ -238,7 +238,14 @@ export interface AwaitingStep {
 	readonly subagent: string;
 	readonly request: ReasoningRequest;
 	readonly pending: readonly PendingAssignment[];
+	/** Variables after this step's own logic lines ran; committed only if it answers. */
 	readonly variables: Readonly<Record<string, VariableValue>>;
+	/**
+	 * Variables before this step's own logic lines, but after any logic-only
+	 * subagents `next` ran on the way here. Those finished; a failure rolls back
+	 * to this, not to the state `next` started from.
+	 */
+	readonly before: Readonly<Record<string, VariableValue>>;
 }
 
 /** What `next` decided: a request to answer, or the run's result. */
@@ -357,6 +364,7 @@ export function next(source: string, state: RunState, options: { persistVariable
 		const block = program.subagents.get(name);
 		if (block === undefined) throw new UnknownSubagentError(name, [...program.subagents.keys()]);
 
+		const before = Object.fromEntries(variables);
 		const { prompt, pending } = compose(procedureStatements(block), variables);
 
 		// A subagent whose lines are all logic has already done its whole job, here,
@@ -378,7 +386,13 @@ export function next(source: string, state: RunState, options: { persistVariable
 			pending.length > 0
 				? { systemInstructions, prompt, outputSchema: outputSchemaFor(pending, program.declarations) }
 				: { systemInstructions, prompt };
-		const awaiting: AwaitingStep = { subagent: name, request, pending, variables: Object.fromEntries(variables) };
+		const awaiting: AwaitingStep = {
+			subagent: name,
+			request,
+			pending,
+			variables: Object.fromEntries(variables),
+			before,
+		};
 		return { type: "request", request, state: { ...state, cursor, awaiting } };
 	}
 
@@ -404,8 +418,9 @@ export function apply(source: string, state: RunState, reported: StepOutcome): R
 
 	const { awaiting: _done, ...rest } = state;
 	if (settled.kind !== "answered") {
-		// The step's logic-line effects are not committed: the step did not finish.
-		return { ...rest, steps, stopped: settled.kind };
+		// The step's own logic-line effects are not committed: it did not finish.
+		// Logic-only subagents that ran before it did finish, and are kept.
+		return { ...rest, steps, stopped: settled.kind, variables: awaiting.before };
 	}
 	return { ...rest, steps, cursor: state.cursor + 1, variables: Object.fromEntries(variables) };
 }

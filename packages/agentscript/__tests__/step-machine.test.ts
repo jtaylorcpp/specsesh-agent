@@ -189,6 +189,14 @@ describe("a step that does not answer", () => {
 		expect(result.variables.stage).toBe("proposal");
 	});
 
+	it("keeps the effects of a logic-only subagent that finished before the failing step", () => {
+		// `gate` sets urgent = True by logic and finishes; `respond` then fails.
+		const failed: StepOutcome = { kind: "failed", category: "unknown", message: "boom" };
+		const { result } = drive(PIPELINE, [structured("high"), failed], { entry: ENTRIES });
+		expect(result.kind).toBe("failed");
+		expect(result.variables).toEqual({ report: "it crashes", severity: "high", urgent: true });
+	});
+
 	it("matches run() on that, too", async () => {
 		const { port } = recordingPort({ kind: "failed", category: "unknown", message: "boom" });
 		const viaRun = await run(IN_SUBSET, { port });
