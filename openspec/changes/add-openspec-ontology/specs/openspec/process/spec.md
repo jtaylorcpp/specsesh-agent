@@ -26,7 +26,7 @@ The model SHALL define `StepResult<Out>` as `{ ok: true, value: Out }` or `{ ok:
 - **THEN** it SHALL fail with `kind` `"refused"`
 
 ### Requirement: Propose turns intent into a proposal
-The model SHALL define the `propose` step with input `Intent` = `{ words: string, existing: CapabilityIndex }`, output `Proposal`, actor `"agent"` drafting from the principal's `words`. `CapabilityIndex` SHALL list every existing `CapabilityPath` with its `purpose`.
+The model SHALL define the `propose` step with input `Intent` = `{ words: string, existing: CapabilityIndex }`, output `Proposal`, actor `"agent"` drafting from the principal's `words`. Its first `Proposal` creates the change, in state `"drafting"`. `CapabilityIndex` SHALL list every existing `CapabilityPath` with its `purpose`.
 
 #### Scenario: The proposal reuses existing capability paths
 - **GIVEN** an `Intent` whose `existing` lists `["durable","cli"]`
@@ -56,21 +56,21 @@ The model SHALL define `validate` with input `Change`, output `ValidationReport`
 - **THEN** `valid` SHALL be `false`
 
 ### Requirement: Approve is the principal's gate
-The model SHALL define `approve` with input `{ change: Change, report: ValidationReport }`, output `Approval` = `{ approved: boolean, by: string, notes: string }`, actor `"principal"`. No agent or tool MAY produce an `Approval`.
+The model SHALL define `approve` with input `{ change: Change, report: ValidationReport }`, output `Approval` = `{ approved: boolean, by: "principal", principal: string, notes: string }`, actor `"principal"`, where `principal` names who approved. No agent or tool MAY produce an `Approval`.
 
 #### Scenario: An agent cannot approve
-- **WHEN** an `Approval` is recorded with an agent as `by`
-- **THEN** it SHALL NOT satisfy the approval guard
+- **WHEN** an `Approval` with `by` `"agent"` is checked
+- **THEN** it SHALL be rejected as invalid input, and SHALL NOT satisfy the approval guard
 
 ### Requirement: Execute runs the change loop
-The model SHALL define `execute` with input an approved `Change`, output `ChangeOutcome` (see `openspec/loops`), actor `"loop"`.
+The model SHALL define `execute` with input an approved `Change`, output `LoopOutcome<ChangeOutcome>` (see `openspec/loops`), actor `"loop"`.
 
 #### Scenario: Execute produces a change outcome
 - **WHEN** `execute` returns successfully
-- **THEN** its value SHALL be a `ChangeOutcome` whose `groups` cover every `TaskGroup` of the change
+- **THEN** its value SHALL be a `LoopOutcome<ChangeOutcome>` whose `result.groups`, when present, cover every `TaskGroup` of the change
 
 ### Requirement: Archive folds a converged change, guarded
-The model SHALL define `archive` with input `{ change: Change, outcome: ChangeOutcome }`, output `ArchiveResult` = `{ archivedAs: string, totals: { added, modified, removed, renamed: integer }, specsUpdated: CapabilityPath[] }`, actor `"tool"`. The outcome's status MUST be `"converged"`.
+The model SHALL define `archive` with input `{ change: Change, outcome: LoopOutcome<ChangeOutcome> }`, output `ArchiveResult` = `{ archivedAs: string, totals: { added, modified, removed, renamed: integer }, specsUpdated: CapabilityPath[] }`, actor `"tool"`. The outcome's status MUST be `"converged"`.
 
 #### Scenario: The durable baseline's archive
 - **GIVEN** `baseline-agentscript-durable` archived on 2026-10-11
@@ -78,15 +78,19 @@ The model SHALL define `archive` with input `{ change: Change, outcome: ChangeOu
 - **THEN** it SHALL be `{ archivedAs: "2026-10-11-baseline-agentscript-durable", totals: { added: 140, modified: 0, removed: 0, renamed: 0 }, specsUpdated }` with nine paths
 
 #### Scenario: An exhausted change is not archived
-- **WHEN** archive receives a `ChangeOutcome` with status `"exhausted"`
+- **WHEN** archive receives a `LoopOutcome<ChangeOutcome>` with `status` `"exhausted"`
 - **THEN** it SHALL fail with `kind` `"refused"`
 
 ### Requirement: A change moves through a fixed sequence of states
-The model SHALL define `ChangeState` as `"drafting"`, `"specified"`, `"designed"`, `"planned"`, `"validated"`, `"approved"`, `"executing"`, `"converged"`, `"archived"`, `"amended"` or `"abandoned"`. The forward path SHALL be drafting → specified → designed → planned → validated → approved → executing → converged → archived.
+The model SHALL define `ChangeState` as `"drafting"`, `"specified"`, `"designed"`, `"planned"`, `"validated"`, `"approved"`, `"executing"`, `"converged"`, `"archived"`, `"amended"` or `"abandoned"`. `"drafting"` SHALL be the initial state. The forward path SHALL be drafting → specified → designed → planned → validated → approved → executing → converged → archived.
 
 #### Scenario: The forward path
 - **WHEN** a change completes every step without amendment
 - **THEN** it SHALL pass through the nine forward states in that order
+
+#### Scenario: A new change starts drafting
+- **WHEN** `propose` returns the first `Proposal` for a new change id
+- **THEN** the change SHALL exist in state `"drafting"`, and no transition SHALL lead into `"drafting"`
 
 ### Requirement: Each forward transition follows its step
 `drafting → specified` SHALL follow `specify`; `→ designed` follows `design`; `→ planned` follows `plan`; `planned → validated` needs a `ValidationReport` with `valid` `true`. Any other transition than those defined in `openspec/process` MUST be refused.
@@ -103,7 +107,7 @@ The model SHALL define `ChangeState` as `"drafting"`, `"specified"`, `"designed"
 - **THEN** the transition SHALL be refused
 
 ### Requirement: Archiving needs convergence and a fresh valid report
-`executing → converged` SHALL need a `ChangeOutcome` with status `"converged"`. `converged → archived` SHALL need a `ValidationReport` with `valid` `true` produced after convergence.
+`executing → converged` SHALL need a `LoopOutcome<ChangeOutcome>` with `status` `"converged"`. `converged → archived` SHALL need a `ValidationReport` with `valid` `true` produced after convergence.
 
 #### Scenario: A stale report does not license archive
 - **GIVEN** a change whose only valid report predates its execution

@@ -6,7 +6,7 @@ area: loops
 spec:
   - "openspec/loops: The task loop drives one task to its targets"
   - "openspec/loops: Only a converged task loop ticks its box"
-related: [task-loop, task-id, group-outcome]
+related: [task-loop, task-id, group-outcome, loop-outcome]
 status: modelled
 ---
 
@@ -30,7 +30,7 @@ TaskOutcome { task: TaskId, ticked: boolean }
 ## Invariants
 
 - `ticked` SHALL be `true` when the task loop ends `"converged"`; a box is never ticked otherwise.
-- The spec does not say whether a `TaskOutcome` exists for a loop that did not converge (`LoopOutcome.result` is required only when converged).
+- A `TaskOutcome` is the `result` of a converged task loop. A loop that did not converge has no `result`, but its task is still listed in the group: each [GroupOutcome](group-outcome.md) entry carries the task's whole `LoopOutcome<TaskOutcome>`, whatever its status.
 
 ## Relations
 

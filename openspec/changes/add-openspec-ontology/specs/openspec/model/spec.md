@@ -150,6 +150,18 @@ The model SHALL define `TaskLink` as `{ target: RequirementRef | ScenarioRef, ba
 - **WHEN** a `TaskLink` with `confidence` `1.5` is checked
 - **THEN** the check SHALL fail
 
+### Requirement: References serialise to one line of text
+The model SHALL serialise a `CapabilityPath` as its segments joined by `/`, a `RequirementRef` as `<path> › <requirement>` and a `ScenarioRef` as `<path> › <requirement> › <scenario>`, with ` › ` (space, U+203A, space) as the separator. Parsing a serialised reference SHALL give back the same reference.
+
+#### Scenario: A scenario reference as text
+- **GIVEN** the `ScenarioRef` with `capability` `["durable","run-task"]`, `requirement` `The step number is the index of the step being run` and `scenario` `The first and second model steps are numbered 0 and 1`
+- **WHEN** it is serialised
+- **THEN** it SHALL read `durable/run-task › The step number is the index of the step being run › The first and second model steps are numbered 0 and 1`
+
+#### Scenario: Round trip
+- **WHEN** a serialised `RequirementRef` is parsed and serialised again
+- **THEN** the text SHALL be unchanged
+
 ### Requirement: A link records how it was inferred, strongest first
 The model SHALL define `LinkBasis` as, strongest to weakest: `"scenario-named"` (the text holds a scenario's exact name), `"requirement-named"` (a requirement's exact name), `"capability-named"` (a capability path), `"file-overlap"` (a file another source links to the target), `"inferred"` (anything weaker).
 

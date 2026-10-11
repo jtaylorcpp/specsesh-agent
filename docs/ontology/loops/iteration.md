@@ -25,7 +25,7 @@ Iteration { n: integer, plan: string, actions: Action[], evidence: Evidence[], v
 |---|---|---|
 | n | `integer` | The iteration's number, starting at `1` and increasing by one. |
 | plan | `string` | What this iteration means to do. |
-| actions | `Action[]` | What it did to the workspace. |
+| actions | `Action[]` | What it did: edits, commands and delegations (see [Action](action.md)). |
 | evidence | `Evidence[]` | What it gathered. |
 | verdict | `Verdict` | Whether the goal's targets are met, judged from `evidence` only. |
 | feedback | `Feedback[]` | What the unmet targets call for. |

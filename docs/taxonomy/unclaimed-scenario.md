@@ -1,7 +1,7 @@
 ---
 id: unclaimed-scenario
 name: Unclaimed scenario
-kind: type
+kind: rule
 area: taxonomy
 spec:
   - "openspec/model: An unclaimed scenario is a coverage gap"

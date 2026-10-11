@@ -10,7 +10,7 @@ spec:
   - "openspec/process: Archiving needs convergence and a fresh valid report"
   - "openspec/process: A spec defect sends the change back through amendment"
   - "openspec/process: Any change may be abandoned"
-related: [change, validation-report, approval, change-outcome, finding, specify-step, design-step, plan-step, validate-step, approve-step, execute-step, archive-step]
+related: [change, validation-report, approval, change-outcome, loop-outcome, propose-step, finding, specify-step, design-step, plan-step, validate-step, approve-step, execute-step, archive-step]
 status: modelled
 ---
 
@@ -43,7 +43,7 @@ any state except archived ──→ abandoned          archived, abandoned: term
 | `planned` | `validated` | a [ValidationReport](validation-report.md) with `valid` `true` |
 | `validated` | `approved` | an [Approval](approval.md) with `approved` `true` from the principal |
 | `approved` | `executing` | [execute](steps/execute-step.md) starting |
-| `executing` | `converged` | a [ChangeOutcome](../loops/change-outcome.md) with status `"converged"` |
+| `executing` | `converged` | a [LoopOutcome](../loops/loop-outcome.md)`<ChangeOutcome>` with `status` `"converged"` |
 | `converged` | `archived` | a `ValidationReport` with `valid` `true`, produced after convergence |
 | `executing` | `amended` | the change loop ends on a `spec-defect` finding |
 | `amended` | `validated` | the amended deltas validate |
@@ -51,6 +51,7 @@ any state except archived ──→ abandoned          archived, abandoned: term
 
 ## Invariants
 
+- `drafting` is the initial state: the first `Proposal` from [propose](steps/propose-step.md) creates the change in it, and no transition leads into it.
 - The forward path SHALL be drafting → specified → designed → planned → validated → approved → executing → converged → archived.
 - A change MUST NOT enter `executing` from any state other than `approved`.
 - A valid report produced before execution does not license `converged → archived`.
@@ -60,7 +61,7 @@ any state except archived ──→ abandoned          archived, abandoned: term
 ## Relations
 
 - The `state` field of a [Change](../../taxonomy/change.md).
-- Forward transitions follow the lifecycle [steps](step.md); the guards read a [ValidationReport](validation-report.md), an [Approval](approval.md) and a [ChangeOutcome](../loops/change-outcome.md).
+- Forward transitions follow the lifecycle [steps](step.md); the guards read a [ValidationReport](validation-report.md), an [Approval](approval.md) and the change loop's [LoopOutcome](../loops/loop-outcome.md).
 - `amended` is entered on a `spec-defect` [Finding](../evidence/finding.md).
 
 ## Example

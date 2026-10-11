@@ -7,7 +7,7 @@ spec:
   - "openspec/process: Archive folds a converged change, guarded"
   - "openspec/process: Failure kinds mean distinct things"
   - "openspec/process: Archiving needs convergence and a fresh valid report"
-related: [step, change, change-outcome, archive-result, validation-report, validate-step, execute-step, change-state, step-failure]
+related: [step, change, change-outcome, loop-outcome, archive-result, validation-report, validate-step, execute-step, change-state, step-failure]
 status: modelled
 ---
 
@@ -18,20 +18,20 @@ A tool folds a converged change's deltas into the specs and moves the change to 
 ## Definition
 
 ```
-archive: Step<{ change: Change, outcome: ChangeOutcome }, ArchiveResult>, actor "tool"
+archive: Step<{ change: Change, outcome: LoopOutcome<ChangeOutcome> }, ArchiveResult>, actor "tool"
 ```
 
 ## Fields
 
 | | Type | Meaning |
 |---|---|---|
-| **Input** | `{ change: Change, outcome: ChangeOutcome }` | The [Change](../../../taxonomy/change.md) and the [ChangeOutcome](../../loops/change-outcome.md) of its execution. |
+| **Input** | `{ change: Change, outcome: LoopOutcome<ChangeOutcome> }` | The [Change](../../../taxonomy/change.md) and the [LoopOutcome](../../loops/loop-outcome.md) of its execution, as [execute](execute-step.md) returned it. |
 | **Output** | [ArchiveResult](../archive-result.md) | Where it was archived, the totals, and the capabilities updated. |
 | **Actor** | `"tool"` | |
 
 ## Invariants
 
-- The outcome's status MUST be `"converged"`. An `"exhausted"` outcome fails with `kind` `"refused"`.
+- The outcome's `status` MUST be `"converged"`. An outcome with `status` `"exhausted"` fails with `kind` `"refused"`.
 - A change whose latest `ValidationReport` has `valid` `false` fails with `kind` `"refused"`.
 - `converged → archived` needs a report with `valid` `true` produced after convergence.
 

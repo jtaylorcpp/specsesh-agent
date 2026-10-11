@@ -12,6 +12,7 @@
 - [ ] 2.2 `packages/agent/src/openspec/model.ts`: `Change`, `Proposal`, `Delta` (`Added`, `Modified`, `Removed`, `Renamed`), `Design`
 - [ ] 2.3 `packages/agent/src/openspec/model.ts`: `TaskList`, `TaskGroup`, `Task`, `TaskId`, `TaskLink`, `RequirementRef`, `ScenarioRef`, `LinkBasis`, plus the cross-field checks (task id within its group, confidence 1 exactly for exact-name bases, no path both new and modified)
 - [ ] 2.4 `packages/agent/src/openspec/model.ts`: a pure `unclaimedScenarios(change)` over typed values (no file reading)
+- [ ] 2.5 `packages/agent/src/openspec/model.ts`: pure `formatRef` / `parseRef` for `CapabilityPath`, `RequirementRef` and `ScenarioRef` (` › ` separator), round-tripping
 
 ## 3. Evidence types and schemas
 
@@ -25,7 +26,7 @@
 
 ## 5. Loop types and schemas
 
-- [ ] 5.1 `packages/agent/src/openspec/loops.ts`: `LoopInput`, `Budget`, `Iteration`, `Verdict`, `Target`, `Feedback`, `Escalation`, `EscalationAnswer`, `LoopOutcome`
+- [ ] 5.1 `packages/agent/src/openspec/loops.ts`: `LoopInput`, `Budget`, `Iteration`, `Action`, `ContextRef`, `Verdict`, `Target`, `Feedback`, `Escalation`, `EscalationAnswer`, `LoopOutcome`
 - [ ] 5.2 `packages/agent/src/openspec/loops.ts`: `TaskOutcome`, `GroupOutcome`, `ChangeOutcome`, and a pure `outcomeStatus(iterations, budget)` implementing the four status causes
 
 ## 6. Tests

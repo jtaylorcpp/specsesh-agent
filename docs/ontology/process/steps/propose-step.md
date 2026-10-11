@@ -5,7 +5,7 @@ kind: step
 area: process
 spec:
   - "openspec/process: Propose turns intent into a proposal"
-related: [step, intent, capability-index, proposal, specify-step]
+related: [step, intent, capability-index, proposal, specify-step, change-state]
 status: modelled
 ---
 
@@ -25,7 +25,7 @@ propose: Step<Intent, Proposal>, actor "agent"
 |---|---|---|
 | **Input** | [Intent](../intent.md) = `{ words, existing: CapabilityIndex }` | The principal's words and every existing capability with its purpose. |
 | **Output** | [Proposal](../../../taxonomy/proposal.md) | Why, what changes, which capabilities, what is out of scope. |
-| **Actor** | `"agent"` | Drafting from the principal's `words`. |
+| **Actor** | `"agent"` | Drafting from the principal's `words`. Its first `Proposal` creates the change in state `"drafting"`. |
 
 ## Invariants
 

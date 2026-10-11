@@ -16,7 +16,7 @@ The files an iteration added, modified or deleted.
 ## Definition
 
 ```
-DiffEvidence { kind: "diff", files: { path, change: "added" | "modified" | "deleted" }[] }
+DiffEvidence { kind: "diff", files: { path: string, change: "added" | "modified" | "deleted" }[] }
 ```
 
 ## Fields
@@ -24,7 +24,7 @@ DiffEvidence { kind: "diff", files: { path, change: "added" | "modified" | "dele
 | Field | Type | Meaning |
 |---|---|---|
 | kind | `"diff"` | Discriminant. |
-| files | `{ path, change }[]` | Each changed file, with `change` one of `"added"`, `"modified"`, `"deleted"`. `path`'s type is not stated in the spec. |
+| files | `{ path: string, change }[]` | Each changed file: its repository-relative `path`, and `change` one of `"added"`, `"modified"`, `"deleted"`. |
 
 ## Invariants
 

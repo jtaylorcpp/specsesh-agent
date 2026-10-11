@@ -5,7 +5,8 @@ kind: type
 area: taxonomy
 spec:
   - "openspec/model: A task link targets a requirement or a scenario"
-related: [requirement, capability-path, scenario-ref, task-link, target]
+  - "openspec/model: References serialise to one line of text"
+related: [requirement, capability-path, scenario-ref, task-link, target, context-ref]
 status: modelled
 ---
 
@@ -28,7 +29,7 @@ RequirementRef { capability: CapabilityPath, requirement: string }
 
 ## Invariants
 
-None.
+- As text it is `<path> › <requirement>`, with ` › ` (space, U+203A, space) as the separator: `durable/run-task › The step number is the index of the step being run`. Parsing the text gives back the same reference.
 
 ## Relations
 
@@ -43,3 +44,4 @@ None.
 ## Spec
 
 - `openspec/model`: A task link targets a requirement or a scenario
+- `openspec/model`: References serialise to one line of text

@@ -7,7 +7,7 @@ spec:
   - "openspec/process: Execute runs the change loop"
   - "openspec/process: Execution needs approval"
   - "openspec/process: Archiving needs convergence and a fresh valid report"
-related: [step, change, change-loop, change-outcome, approve-step, archive-step, change-state]
+related: [step, change, change-loop, change-outcome, loop-outcome, approve-step, archive-step, change-state]
 status: modelled
 ---
 
@@ -18,7 +18,7 @@ Runs the change loop over an approved change's task list.
 ## Definition
 
 ```
-execute: Step<Change (approved), ChangeOutcome>, actor "loop"
+execute: Step<Change (approved), LoopOutcome<ChangeOutcome>>, actor "loop"
 ```
 
 ## Fields
@@ -26,14 +26,14 @@ execute: Step<Change (approved), ChangeOutcome>, actor "loop"
 | | Type | Meaning |
 |---|---|---|
 | **Input** | an approved [Change](../../../taxonomy/change.md) | The change, in state `approved`. |
-| **Output** | [ChangeOutcome](../../loops/change-outcome.md) | The change loop's result: one group outcome per task group, and the unclaimed scenarios. |
+| **Output** | [LoopOutcome](../../loops/loop-outcome.md)`<`[ChangeOutcome](../../loops/change-outcome.md)`>` | The change loop's whole outcome: its `status`, its iterations, and when converged a `result` with one entry per task group and the unclaimed scenarios. |
 | **Actor** | `"loop"` | The [change loop](../../loops/change-loop.md). |
 
 ## Invariants
 
 - A change MUST NOT enter `executing` from any state other than `approved`. `approved → executing` follows `execute` starting.
-- A successful value SHALL be a `ChangeOutcome` whose `groups` cover every `TaskGroup` of the change.
-- A `"converged"` outcome licenses `executing → converged`. A change loop ending on a `spec-defect` finding moves the change to `amended`.
+- A successful value SHALL be a `LoopOutcome<ChangeOutcome>` whose `result.groups`, when present, cover every `TaskGroup` of the change.
+- An outcome with `status` `"converged"` licenses `executing → converged`. A change loop ending on a `spec-defect` finding moves the change to `amended`.
 
 ## Relations
 

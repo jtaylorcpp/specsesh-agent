@@ -2,7 +2,7 @@
 
 ## One concept, one file
 
-- A concept is a type, a step, a loop or a state machine from the model. Its file is `<id>.md`, where `id` is kebab-case and unique across all of `docs/`.
+- A concept is a type, a step, a loop, a state machine or a rule from the model. A rule is a definition over other types that is not a structure of its own (an unclaimed scenario). Its file is `<id>.md`, where `id` is kebab-case and unique across all of `docs/`.
 - Steps take the suffix `-step` (`design-step`), so they never collide with a noun of the same name (`design`).
 - Every concept appears exactly once in [README.md](README.md), in its area's table, linked by its path.
 
@@ -14,7 +14,7 @@ Every concept page starts with:
 ---
 id: task-link                 # = the file name without .md
 name: TaskLink                # the type's name as the model spells it
-kind: type                    # type | step | loop | state-machine
+kind: type                    # type | step | loop | state-machine | rule
 area: taxonomy                # taxonomy | process | loops | evidence
 spec:                         # the requirement(s) this page restates
   - "openspec/model: A task links to requirements and scenarios by inference"

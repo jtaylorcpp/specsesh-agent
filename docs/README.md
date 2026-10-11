@@ -41,7 +41,7 @@ Status: **modelled**. The source of truth is the OpenSpec change `add-openspec-o
 | [StepResult](ontology/process/step-result.md) | `step-result` | What a step returns: a value, or a failure. Steps never throw. |
 | [StepFailure](ontology/process/step-failure.md) | `step-failure` | Why a step failed: invalid input, refused, blocked or error. |
 | [Intent](ontology/process/intent.md) | `intent` | The principal's words plus the existing capability index. |
-| [CapabilityIndex](ontology/process/capability-index.md) | `capability-index` | Every existing capability with its purpose and requirement names. |
+| [CapabilityIndex](ontology/process/capability-index.md) | `capability-index` | Every existing capability path with its purpose. |
 | [ValidationReport](ontology/process/validation-report.md) | `validation-report` | Strict validation's verdict and its issues by level. |
 | [Approval](ontology/process/approval.md) | `approval` | The principal's yes or no on a change. |
 | [ArchiveResult](ontology/process/archive-result.md) | `archive-result` | Where a change was archived and what it folded into the specs. |
@@ -63,7 +63,8 @@ Status: **modelled**. The source of truth is the OpenSpec change `add-openspec-o
 | [LoopInput](ontology/loops/loop-input.md) | `loop-input` | Goal, context, budget and carried feedback. |
 | [Budget](ontology/loops/budget.md) | `budget` | How many iterations (and how long) a loop may take. |
 | [Iteration](ontology/loops/iteration.md) | `iteration` | One round: plan, act, gather evidence, judge, feed back. |
-| [Action](ontology/loops/action.md) | `action` | Something an iteration did to the workspace. |
+| [Action](ontology/loops/action.md) | `action` | Something an iteration did: an edit, a command or a delegation. |
+| [ContextRef](ontology/loops/context-ref.md) | `context-ref` | A pointer to what a loop reads: a file, spec item, change or doc. |
 | [Verdict](ontology/loops/verdict.md) | `verdict` | Whether the goal's targets are met, and which are not. |
 | [Target](ontology/loops/target.md) | `target` | What a verdict judges: a requirement, a scenario or a named check. |
 | [Feedback](ontology/loops/feedback.md) | `feedback` | A finding plus the action it calls for. |

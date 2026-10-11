@@ -36,7 +36,7 @@ Finding { kind: "code-defect" | "spec-defect" | "test-defect" | "environment" | 
 - `"spec-defect"`: the spec is wrong against intended behaviour.
 - `"test-defect"`: the test is wrong.
 - `"environment"`: a cause outside the change.
-- `"needs-decision"`: a choice only a person can make.
+- `"needs-decision"`: a choice the loop cannot make itself, which it escalates to a principal or an agent.
 
 ## Relations
 

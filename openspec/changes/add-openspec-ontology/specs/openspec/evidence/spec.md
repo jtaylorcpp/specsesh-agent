@@ -20,7 +20,7 @@ The model SHALL define `TestEvidence` as `{ kind: "test", file: string, name: st
 - **THEN** it SHALL be `TestEvidence` with that `file` and `name`, `status` `"pass"`, and `scenario` naming `pi/claude-code`
 
 ### Requirement: The other evidence kinds have fixed fields
-`ValidationEvidence` SHALL be `{ kind: "validation", report: ValidationReport }`; `CheckEvidence` `{ kind: "check", command: string, exitCode: integer, output: string }`; `DiffEvidence` `{ kind: "diff", files: { path, change: "added" | "modified" | "deleted" }[] }`; `ReviewEvidence` `{ kind: "review", reviewer: "agent" | "principal", verdict: "approve" | "changes", notes }`.
+`ValidationEvidence` SHALL be `{ kind: "validation", report: ValidationReport }`; `CheckEvidence` `{ kind: "check", command: string, exitCode: integer, output: string }`; `DiffEvidence` `{ kind: "diff", files: { path: string, change: "added" | "modified" | "deleted" }[] }`; `ReviewEvidence` `{ kind: "review", reviewer: "agent" | "principal", verdict: "approve" | "changes", notes: string }`.
 
 #### Scenario: A type check is check evidence
 - **WHEN** `pnpm check` exits 0
@@ -34,7 +34,7 @@ The model SHALL define `Finding` as `{ kind: "code-defect" | "spec-defect" | "te
 - **THEN** the check SHALL fail
 
 ### Requirement: Finding kinds say where the fault lies
-`"code-defect"` SHALL mean the code is wrong against the spec; `"spec-defect"` the spec is wrong against intended behaviour; `"test-defect"` the test is wrong; `"environment"` a cause outside the change; `"needs-decision"` a choice only a person can make.
+`"code-defect"` SHALL mean the code is wrong against the spec; `"spec-defect"` the spec is wrong against intended behaviour; `"test-defect"` the test is wrong; `"environment"` a cause outside the change; `"needs-decision"` a choice the loop cannot make itself, which it escalates to a principal or an agent.
 
 #### Scenario: A spec that describes the code wrongly
 - **WHEN** a test written to a scenario fails because the scenario misdescribes behaviour that is intended

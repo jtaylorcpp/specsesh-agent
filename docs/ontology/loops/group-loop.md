@@ -30,7 +30,7 @@ Loop<TaskGroup, GroupOutcome>
 |---|---|---|
 | Goal | `TaskGroup` | One numbered section of tasks.md. |
 | Targets | its tasks' targets + no regression | Earlier groups' converged targets must still hold. |
-| Out | `GroupOutcome` | `{ group: integer, tasks: TaskOutcome[] }`. |
+| Out | `GroupOutcome` | `{ group: integer, tasks: { task: TaskId, outcome: LoopOutcome<TaskOutcome>, runs: integer }[] }`: one entry per task, latest run. |
 
 ## Invariants
 

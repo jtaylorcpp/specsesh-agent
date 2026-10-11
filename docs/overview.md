@@ -40,7 +40,7 @@ A delta scenario with no strong link is an [unclaimed scenario](taxonomy/unclaim
 | [plan](ontology/process/steps/plan-step.md) | Proposal + deltas + design | TaskList | agent |
 | [validate](ontology/process/steps/validate-step.md) | Change | [ValidationReport](ontology/process/validation-report.md) | tool |
 | [approve](ontology/process/steps/approve-step.md) | Change + report | [Approval](ontology/process/approval.md) | **principal only** |
-| [execute](ontology/process/steps/execute-step.md) | approved Change | [ChangeOutcome](ontology/loops/change-outcome.md) | the change loop |
+| [execute](ontology/process/steps/execute-step.md) | approved Change | [LoopOutcome](ontology/loops/loop-outcome.md)`<`[ChangeOutcome](ontology/loops/change-outcome.md)`>` | the change loop |
 | [archive](ontology/process/steps/archive-step.md) | converged Change | [ArchiveResult](ontology/process/archive-result.md) | tool, guarded |
 
 A step never throws: it returns a value or a [StepFailure](ontology/process/step-failure.md) (`invalid-input`, `refused`, `blocked` or `error`).
@@ -51,11 +51,11 @@ The change moves through its [state machine](ontology/process/change-state.md):
 drafting → specified → designed → planned → validated → approved → executing → converged → archived
                                                ↑                        │
                                                └──── amended ◄──────────┘   a spec-defect finding
-(any state except archived → abandoned; archived and abandoned are terminal)
+(drafting is the initial state; any state except archived → abandoned; archived and abandoned are terminal)
 ```
 
 Two guards matter most:
-- **Execution needs an Approval** with `approved: true`.
+- **Execution needs an Approval** with `approved: true` and `by: "principal"`.
 - **Archiving needs a fresh ValidationReport** with `valid: true`. This is what `pnpm spec:archive` enforces today.
 
 ## Loops: execution as nested feedback
@@ -70,8 +70,8 @@ change loop ── for each TaskGroup ──► group loop ── for each Task 
 Every loop has [the same shape](ontology/loops/loop.md):
 
 ```
-LoopInput { goal, context, budget, carried feedback }
-  └─ Iteration n: plan → actions → evidence → Verdict { met, satisfied, unmet } → Feedback[]
+LoopInput { goal, context: ContextRef[], budget, carried feedback }
+  └─ Iteration n: plan → actions: Action[] → evidence → Verdict { met, satisfied, unmet } → Feedback[]
 LoopOutcome: converged | blocked | exhausted | failed
 ```
 
@@ -81,6 +81,7 @@ LoopOutcome: converged | blocked | exhausted | failed
   - **amend-spec**, out of the loops: the evidence shows the spec is wrong, not the code. The change loop ends `blocked` and the change moves to `amended`. This happened on 2026-10-11, when tests showed two baseline requirements described the code wrongly;
   - **ask**, to someone: the loop ends `blocked` with an [Escalation](ontology/loops/escalation.md) addressed to a **principal or an agent**. The recipient's [answer](ontology/loops/escalation-answer.md) resumes the loop as a new run carrying its feedback.
 - **Only a converged task loop ticks a box**, and rework unticks it. A box is never ticked from a summary line.
+- **Outcomes keep one row per task and per group:** each holds its latest loop outcome, whatever its status, and how many runs it took.
 
 ## Evidence: what a verdict may rest on
 

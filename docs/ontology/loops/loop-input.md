@@ -5,7 +5,7 @@ kind: type
 area: loops
 spec:
   - "openspec/loops: A loop input carries the goal, context, budget and carried feedback"
-related: [loop, budget, feedback, escalation-answer]
+related: [loop, budget, feedback, escalation-answer, context-ref]
 status: modelled
 ---
 
@@ -24,7 +24,7 @@ LoopInput<Goal> { goal: Goal, context: ContextRef[], budget: Budget, carried: Fe
 | Field | Type | Meaning |
 |---|---|---|
 | goal | `Goal` | What the loop drives to: a `Task`, a `TaskGroup` or a `TaskList`, by level. |
-| context | `ContextRef[]` | What the loop reads. `ContextRef`'s fields are not yet specified. |
+| context | `ContextRef[]` | What the loop reads: files, spec items, changes or docs (see [ContextRef](context-ref.md)). |
 | budget | `Budget` | How many iterations (and optionally how long) the loop may take. |
 | carried | `Feedback[]` | Feedback handed down from the enclosing loop, or from an escalation answer. |
 
@@ -35,6 +35,7 @@ LoopInput<Goal> { goal: Goal, context: ContextRef[], budget: Budget, carried: Fe
 
 ## Relations
 
+- [ContextRef](context-ref.md) names each thing the loop reads.
 - [Budget](budget.md) bounds the run.
 - [Feedback](feedback.md) fills `carried`.
 - [EscalationAnswer](escalation-answer.md) supplies `carried` when a blocked loop resumes.
@@ -42,7 +43,7 @@ LoopInput<Goal> { goal: Goal, context: ContextRef[], budget: Budget, carried: Fe
 
 ## Example
 
-The task loop for task `2.4` of `baseline-agentscript-durable` starts from `{ goal: <task 2.4>, context: [...], budget: { maxIterations: 3 }, carried: [] }`. If it is blocked and the principal answers with `"retry"` feedback, the new run starts with that feedback in `carried`.
+The task loop for task `2.4` of `baseline-agentscript-durable` starts from `{ goal: <task 2.4>, context: [{ kind: "file", ref: "packages/agentscript-durable/src/cli.ts" }, …], budget: { maxIterations: 3 }, carried: [] }`. If it is blocked and the principal answers with `"retry"` feedback, the new run starts with that feedback in `carried`.
 
 ## Spec
 

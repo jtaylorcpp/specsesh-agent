@@ -25,8 +25,27 @@ The model SHALL define `Iteration` as `{ n: integer, plan: string, actions: Acti
 - **WHEN** a loop has run three iterations
 - **THEN** their `n` values SHALL be `1`, `2` and `3`
 
+### Requirement: An action records what an iteration did
+The model SHALL define `Action` as `{ kind: "edit" | "command" | "delegate", summary: string, refs: string[] }`. For `"edit"`, `refs` SHALL be the files edited; for `"command"`, the command line run; for `"delegate"`, the agent delegated to. Diffs and results SHALL NOT be stored on an action; they are evidence (see `openspec/evidence`).
+
+#### Scenario: Running the tests is a command action
+- **WHEN** an iteration runs `pnpm --filter agentscript-durable test`
+- **THEN** its actions SHALL include `{ kind: "command", summary, refs: ["pnpm --filter agentscript-durable test"] }`, and the result SHALL be recorded as evidence, not on the action
+
+#### Scenario: An unknown action kind is refused
+- **WHEN** an `Action` with `kind` `"think"` is checked
+- **THEN** the check SHALL fail
+
+### Requirement: A context reference names what a loop reads
+The model SHALL define `ContextRef` as `{ kind: "file" | "capability" | "requirement" | "scenario" | "change" | "doc", ref: string }`. For `"capability"`, `"requirement"` and `"scenario"`, `ref` SHALL be the serialised `CapabilityPath`, `RequirementRef` or `ScenarioRef` (see `openspec/model`); for `"file"` and `"doc"`, a repository-relative path; for `"change"`, a change id.
+
+#### Scenario: A context reference to a spec item can be checked
+- **GIVEN** a `ContextRef` of `kind` `"scenario"` whose `ref` names a scenario no capability has
+- **WHEN** the loop input is checked against the specs
+- **THEN** the dangling reference SHALL be detectable, because `ref` parses to a `ScenarioRef` that can be looked up
+
 ### Requirement: A verdict lists satisfied and unmet targets
-The model SHALL define `Verdict` as `{ met: boolean, satisfied: Target[], unmet: { target: Target, reason: string }[] }`, where `Target` is a `RequirementRef`, a `ScenarioRef` or a named check. `met` SHALL be `true` exactly when `unmet` is empty.
+The model SHALL define `Verdict` as `{ met: boolean, satisfied: Target[], unmet: { target: Target, reason: string }[] }`, where `Target` is a `RequirementRef`, a `ScenarioRef` or a named check `{ check: string }`, such as `{ check: "strict validation" }`. `met` SHALL be `true` exactly when `unmet` is empty.
 
 #### Scenario: One unmet target means not met
 - **WHEN** a verdict has two satisfied targets and one unmet
@@ -89,7 +108,7 @@ The task loop SHALL take as goal one `Task` with its `TaskLink`s; its targets SH
 - **THEN** its verdicts SHALL judge exactly those three targets
 
 ### Requirement: The group loop drives one feature set
-The group loop SHALL take as goal one `TaskGroup`; its targets SHALL be every target its tasks link to, plus no regression in targets earlier groups converged. It SHALL run its task loops in order, then a group check. Its `Out` SHALL be `GroupOutcome` = `{ group: integer, tasks: TaskOutcome[] }`.
+The group loop SHALL take as goal one `TaskGroup`; its targets SHALL be every target its tasks link to, plus no regression in targets earlier groups converged. It SHALL run its task loops in order, then a group check. Its `Out` SHALL be `GroupOutcome` (see the group outcome requirement).
 
 #### Scenario: A regression fails the group check
 - **GIVEN** group `1` converged with scenario S passing
@@ -104,8 +123,20 @@ The change loop SHALL take as goal the change's `TaskList`; its targets SHALL be
 - **WHEN** the change check runs
 - **THEN** that scenario SHALL be among the change loop's targets
 
+### Requirement: A group outcome has one entry per task
+The model SHALL define `GroupOutcome` as `{ group: integer, tasks: { task: TaskId, outcome: LoopOutcome<TaskOutcome>, runs: integer }[] }`, with exactly one entry per task, in group order. `outcome` SHALL be the task's latest run, whatever its status, and `runs` how many times its loop ran; earlier runs stay in their own iterations.
+
+#### Scenario: A reworked task appears once
+- **GIVEN** task `2.4` whose loop converged, was reopened by `"rework-task"`, and converged again
+- **WHEN** the group outcome is read
+- **THEN** `tasks` SHALL hold one entry for `2.4`, with `runs` `2` and the second run's `outcome`
+
+#### Scenario: A task that never converged is still listed
+- **WHEN** a task's loop ends `"exhausted"`
+- **THEN** the group outcome SHALL hold its entry, with `outcome.status` `"exhausted"`
+
 ### Requirement: The change loop reports its groups and what was unclaimed
-The change loop's `Out` SHALL be `ChangeOutcome` = `{ groups: GroupOutcome[], unclaimed: ScenarioRef[] }`, where `unclaimed` lists the scenarios no task claimed at the start of execution.
+The change loop's `Out` SHALL be `ChangeOutcome` = `{ groups: { group: integer, outcome: LoopOutcome<GroupOutcome>, runs: integer }[], unclaimed: ScenarioRef[] }`, with one entry per task group in order (latest run, and how many runs), and `unclaimed` the scenarios no task claimed at the start of execution.
 
 #### Scenario: Unclaimed scenarios are reported
 - **WHEN** the change loop converges after adding tasks for two unclaimed scenarios

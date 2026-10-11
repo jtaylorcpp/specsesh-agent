@@ -26,12 +26,12 @@ approve: Step<{ change: Change, report: ValidationReport }, Approval>, actor "pr
 | | Type | Meaning |
 |---|---|---|
 | **Input** | `{ change: Change, report: ValidationReport }` | The [Change](../../../taxonomy/change.md) and its [ValidationReport](../validation-report.md). |
-| **Output** | [Approval](../approval.md) = `{ approved, by, notes }` | The decision. |
+| **Output** | [Approval](../approval.md) = `{ approved, by: "principal", principal, notes }` | The decision, and who made it. |
 | **Actor** | `"principal"` | Only the principal. |
 
 ## Invariants
 
-- No agent or tool MAY produce an `Approval`; one recorded with an agent as `by` does not satisfy the guard.
+- No agent or tool MAY produce an `Approval`; one whose `by` is not `"principal"` is invalid input and does not satisfy the guard.
 - An `Approval` with `approved` `true` licenses `validated → approved`.
 - A change returning from `amended` needs a new `Approval` before it can execute again.
 

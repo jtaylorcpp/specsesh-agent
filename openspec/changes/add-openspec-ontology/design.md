@@ -56,9 +56,9 @@ The lifecycle is a sequence of steps. Every step is `Step<In, Out>` with a named
 | design | `{ proposal, deltas }` | `Design` | agent |
 | plan | `{ proposal, deltas, design }` | `TaskList` | agent |
 | validate | `Change` | `ValidationReport` | tool |
-| approve | `Change + ValidationReport` | `Approval { approved, by, notes }` | principal (gate) |
-| execute | `Change (approved)` | `ChangeOutcome` | the change loop |
-| archive | `Change + ChangeOutcome (converged)` | `ArchiveResult` | tool, guarded |
+| approve | `Change + ValidationReport` | `Approval { approved, by: "principal", principal, notes }` | principal (gate) |
+| execute | `Change (approved)` | `LoopOutcome<ChangeOutcome>` | the change loop |
+| archive | `Change + LoopOutcome<ChangeOutcome> (converged)` | `ArchiveResult` | tool, guarded |
 
 ```
 StepResult<Out> = { ok: true, value: Out } | { ok: false, failure: StepFailure }
@@ -75,7 +75,7 @@ drafting → specified → designed → planned → validated → approved → e
                                                └──── amended ◄──────────┘   (a spec-defect finding)
 ```
 
-Any state except `archived` may go to `abandoned`; `archived` and `abandoned` are terminal. `approved → executing` needs an `Approval` with `approved: true`. `converged → archived` needs a fresh `ValidationReport` with `valid: true`; this is the guard `pnpm spec:archive` already enforces. `executing → amended` happens when execution finds the spec is wrong. The change returns to `validated` only after the amended deltas validate and are re-approved.
+`drafting` is the initial state: `propose`'s first Proposal creates the change in it. Any state except `archived` may go to `abandoned`; `archived` and `abandoned` are terminal. `approved → executing` needs an `Approval` with `approved: true`. `converged → archived` needs a fresh `ValidationReport` with `valid: true`; this is the guard `pnpm spec:archive` already enforces. `executing → amended` happens when execution finds the spec is wrong. The change returns to `validated` only after the amended deltas validate and are re-approved.
 
 ## Loops
 
@@ -94,6 +94,9 @@ Feedback   { from: Finding, action: "retry" | "rework-task" | "add-task" | "amen
 Escalation { level: "task" | "group" | "change", to: "principal" | "agent", reason, question }
 EscalationAnswer { escalation, by: "principal" | "agent", decision, feedback: Feedback[] }   // by == escalation.to
 Target     = RequirementRef | ScenarioRef | { check: string }      // a named check, e.g. "strict validation"
+Action     { kind: "edit" | "command" | "delegate", summary, refs: string[] }   // files edited | command line | agent delegated to
+ContextRef { kind: "file" | "capability" | "requirement" | "scenario" | "change" | "doc", ref: string }
+             // spec refs serialised: "durable/run-task", "durable/run-task › <requirement> › <scenario>"
 ```
 
 An iteration plans, acts, gathers evidence, and judges the evidence against the goal's targets. Its verdict's unmet targets become feedback for the next iteration. A loop ends:
@@ -107,8 +110,8 @@ An iteration plans, acts, gathers evidence, and judges the evidence against the 
 | Level | Goal | Targets | Iterates over | Outcome adds |
 |---|---|---|---|---|
 | **task loop** | one `Task` + its `TaskLink`s | the linked scenarios and requirements | attempts at that task | `TaskOutcome { task, ticked: boolean }` |
-| **group loop** | one `TaskGroup` | every target any of its tasks links to, plus "no regression in what earlier groups converged" | its task loops, in order, then a group check | `GroupOutcome { group, tasks: TaskOutcome[] }` |
-| **change loop** | the whole `TaskList` | every scenario in every delta (unclaimed ones too), `ValidationReport.valid`, the full suite green | its group loops, in order, then a change check | `ChangeOutcome { groups: GroupOutcome[], unclaimed: ScenarioRef[] }` |
+| **group loop** | one `TaskGroup` | every target any of its tasks links to, plus "no regression in what earlier groups converged" | its task loops, in order, then a group check | `GroupOutcome { group, tasks: { task, outcome: LoopOutcome<TaskOutcome>, runs }[] }` |
+| **change loop** | the whole `TaskList` | every scenario in every delta (unclaimed ones too), `ValidationReport.valid`, the full suite green | its group loops, in order, then a change check | `ChangeOutcome { groups: { group, outcome: LoopOutcome<GroupOutcome>, runs }[], unclaimed: ScenarioRef[] }` |
 
 **Feedback flows.**
 - **Inside a loop:** an unmet target becomes `retry` for the next iteration of the same loop.
@@ -130,8 +133,8 @@ Evidence = TestEvidence | ValidationEvidence | CheckEvidence | DiffEvidence | Re
 TestEvidence       { kind: "test", file, name, scenario?: ScenarioRef, status: "pass" | "fail" | "skip", message? }
 ValidationEvidence { kind: "validation", report: ValidationReport }
 CheckEvidence      { kind: "check", command, exitCode, output }          // tsc, a pack check, a shell script
-DiffEvidence       { kind: "diff", files: { path, change: "added" | "modified" | "deleted" }[] }
-ReviewEvidence     { kind: "review", reviewer: "agent" | "principal", verdict: "approve" | "changes", notes }
+DiffEvidence       { kind: "diff", files: { path: string, change: "added" | "modified" | "deleted" }[] }
+ReviewEvidence     { kind: "review", reviewer: "agent" | "principal", verdict: "approve" | "changes", notes: string }
 Finding  { kind: "code-defect" | "spec-defect" | "test-defect" | "environment" | "needs-decision",
            target?: Target, evidence: Evidence[], message }
 ```

@@ -5,7 +5,8 @@ kind: type
 area: taxonomy
 spec:
   - "openspec/model: A capability is a path, a purpose and its requirements"
-related: [capability, root, requirement-ref, scenario-ref, proposal]
+  - "openspec/model: References serialise to one line of text"
+related: [capability, root, requirement-ref, scenario-ref, proposal, context-ref]
 status: modelled
 ---
 
@@ -23,6 +24,7 @@ CapabilityPath = string[]          // non-empty; every segment non-empty
 
 - The array is non-empty.
 - Every segment is a non-empty string.
+- As text it is the segments joined by `/`: `durable/run-task`.
 
 ## Relations
 
@@ -37,3 +39,4 @@ CapabilityPath = string[]          // non-empty; every segment non-empty
 ## Spec
 
 - `openspec/model`: A capability is a path, a purpose and its requirements
+- `openspec/model`: References serialise to one line of text

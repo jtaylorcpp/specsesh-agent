@@ -16,7 +16,7 @@ An agent's or the principal's review verdict.
 ## Definition
 
 ```
-ReviewEvidence { kind: "review", reviewer: "agent" | "principal", verdict: "approve" | "changes", notes }
+ReviewEvidence { kind: "review", reviewer: "agent" | "principal", verdict: "approve" | "changes", notes: string }
 ```
 
 ## Fields
@@ -26,7 +26,7 @@ ReviewEvidence { kind: "review", reviewer: "agent" | "principal", verdict: "appr
 | kind | `"review"` | Discriminant. |
 | reviewer | `"agent"` · `"principal"` | Who reviewed. |
 | verdict | `"approve"` · `"changes"` | The review's verdict. |
-| notes | not stated in the spec | The reviewer's notes. |
+| notes | `string` | The reviewer's notes. |
 
 ## Invariants
 

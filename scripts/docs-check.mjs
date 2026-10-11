@@ -7,7 +7,7 @@ import { basename, join, relative } from "node:path";
 const root = new URL("..", import.meta.url).pathname;
 const docs = join(root, "docs");
 const NOT_CONCEPTS = new Set(["README.md", "overview.md", "CONVENTIONS.md"]);
-const KINDS = new Set(["type", "step", "loop", "state-machine"]);
+const KINDS = new Set(["type", "step", "loop", "state-machine", "rule"]);
 const AREAS = new Set(["taxonomy", "process", "loops", "evidence"]);
 const STATUSES = new Set(["modelled", "implemented"]);
 const problems = [];

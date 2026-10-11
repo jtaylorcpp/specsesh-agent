@@ -32,7 +32,7 @@ Loop<TaskList, ChangeOutcome>
 |---|---|---|
 | Goal | `TaskList` | The change's tasks.md. |
 | Targets | every delta scenario, strict validation, the full suite | Unclaimed scenarios included. |
-| Out | `ChangeOutcome` | `{ groups: GroupOutcome[], unclaimed: ScenarioRef[] }`. |
+| Out | `ChangeOutcome` | `{ groups: { group: integer, outcome: LoopOutcome<GroupOutcome>, runs: integer }[], unclaimed: ScenarioRef[] }`: one entry per group, latest run. |
 
 ## Invariants
 
@@ -44,7 +44,7 @@ Loop<TaskList, ChangeOutcome>
 
 - An instance of [Loop](loop.md) over the [TaskList](../../taxonomy/task-list.md); run by the [execute](../process/steps/execute-step.md) step.
 - Runs [Group loop](group-loop.md)s; targets [unclaimed scenarios](../../taxonomy/unclaimed-scenario.md) and a valid [ValidationReport](../process/validation-report.md).
-- Returns a [ChangeOutcome](change-outcome.md).
+- Returns a [ChangeOutcome](change-outcome.md) as the `result` of its `LoopOutcome<ChangeOutcome>`, which [execute](../process/steps/execute-step.md) hands back whole.
 
 ## Example
 

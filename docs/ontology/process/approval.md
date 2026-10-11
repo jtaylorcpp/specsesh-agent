@@ -17,7 +17,7 @@ The principal's yes or no on a change. Only the principal can produce one.
 ## Definition
 
 ```
-Approval { approved: boolean, by: string, notes: string }
+Approval { approved: boolean, by: "principal", principal: string, notes: string }
 ```
 
 ## Fields
@@ -25,13 +25,14 @@ Approval { approved: boolean, by: string, notes: string }
 | Field | Type | Meaning |
 |---|---|---|
 | `approved` | boolean | Whether the change is approved. |
-| `by` | string | Who approved it. |
+| `by` | `"principal"` | The role that approved. Always `"principal"`. |
+| `principal` | string | Which principal approved it. |
 | `notes` | string | Anything the approver said. |
 
 ## Invariants
 
 - No agent or tool MAY produce an `Approval`.
-- An `Approval` recorded with an agent as `by` SHALL NOT satisfy the approval guard.
+- An `Approval` whose `by` is not `"principal"` (e.g. `"agent"`) is invalid input, and SHALL NOT satisfy the approval guard.
 - `validated → approved` needs an `Approval` with `approved` `true` from the principal.
 - After an amendment, the change needs a new `Approval` before it can execute again.
 
@@ -42,7 +43,7 @@ Approval { approved: boolean, by: string, notes: string }
 
 ## Example
 
-`{ approved: true, by: "principal", notes: "go" }` licenses a validated change to move to `approved`. The same shape with an agent as `by` licenses nothing.
+`{ approved: true, by: "principal", principal: "Jesse", notes: "go" }` licenses a validated change to move to `approved`. The same shape with `by: "agent"` is rejected as invalid input.
 
 ## Spec
 

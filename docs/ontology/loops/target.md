@@ -25,7 +25,7 @@ Target = RequirementRef | ScenarioRef | { check: string }   // a named check, e.
 - A `ScenarioRef` target is satisfied exactly when the evidence holds a passing `TestEvidence` whose `scenario` is that target.
 - A `RequirementRef` target is satisfied exactly when every scenario of that requirement is satisfied.
 - A named-check target is satisfied by `CheckEvidence` for that command with `exitCode` `0`; such evidence MUST NOT satisfy any scenario or requirement target.
-- The spec says only "a named check"; the `{ check: string }` notation is the design's.
+- A named check is written `{ check: string }`, e.g. `{ check: "strict validation" }`.
 
 ## Relations
 
