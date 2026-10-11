@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KNOWN_FAILURE_CATEGORIES, toFailureCategory } from "../src/interpreter/index.js";
+import { KNOWN_FAILURE_CATEGORIES, isFailureCategory, toFailureCategory } from "../src/interpreter/index.js";
 
 /**
  * The categories the model layer this port is fed by actually reports.
@@ -64,5 +64,36 @@ describe("platform-agentscript-interpreter: A Model-Layer Failure Carries The La
 			);
 			expect(KNOWN_FAILURE_CATEGORIES).not.toContain(foreign);
 		}
+	});
+});
+
+describe("platform-agentscript-interpreter: The known layer vocabulary is exported", () => {
+	it("Scenario: The exported vocabulary", () => {
+		expect([...KNOWN_FAILURE_CATEGORIES]).toEqual([
+			"authentication_failed",
+			"oauth_org_not_allowed",
+			"billing_error",
+			"rate_limit",
+			"overloaded",
+			"invalid_request",
+			"model_not_found",
+			"server_error",
+			"max_output_tokens",
+			"unknown",
+		]);
+	});
+});
+
+describe("platform-agentscript-interpreter: Our own categories are recognisable", () => {
+	it("Scenario: Membership", () => {
+		for (const category of ["rate_limit", "layer_unknown", "unrecognised", "unknown"]) {
+			expect(isFailureCategory(category), category).toBe(true);
+		}
+		expect(isFailureCategory("aborted")).toBe(false);
+		expect(isFailureCategory("")).toBe(false);
+		// Exactly the twelve: the ten the layer vocabulary names (the layer's own
+		// `unknown` is also one of ours), plus the two we add.
+		for (const category of KNOWN_FAILURE_CATEGORIES) expect(isFailureCategory(category), category).toBe(true);
+		expect(isFailureCategory("RATE_LIMIT")).toBe(false);
 	});
 });
