@@ -45,4 +45,4 @@
 ## 8. Close
 
 - [x] 8.1 `pnpm check` and `pnpm test` pass; every new test is named after the scenario it pins
-- [ ] 8.2 `pnpm spec:archive add-openspec-ontology`, then `pnpm spec:check`
+- [x] 8.2 `pnpm spec:archive add-openspec-ontology`, then `pnpm spec:check`
