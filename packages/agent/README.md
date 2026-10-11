@@ -21,8 +21,33 @@ peer dependencies, so a consumer of the interpreter alone installs none of them.
 | `@specsesh/agent/claude-code` | A `ReasoningPort` and a pi provider that run each step through your own `claude -p` (Node only) | `@earendil-works/pi-ai` |
 | `@specsesh/agent/durable` | The pi-durable extensions and `startScript` / `waitForScript` / `runScript` | `@earendil-works/pi-ai`, `@earendil-works/pi-durable`, `@earendil-works/chord` |
 | `@specsesh/agent/cloudflare` | `AgentScriptHost`, a Durable Object class for a Worker to re-export (workerd only) | the durable peers and `agents` |
+| `@specsesh/agent/openspec` | The OpenSpec ontology: typed schemas for a change, its lifecycle steps, its execution loops and their evidence | none (uses the `typebox` dependency) |
 
-The authoring and interpreter entries run on Node and on Workers.
+The authoring, interpreter and openspec entries run on Node and on Workers.
+
+## `@specsesh/agent/openspec`
+
+Types for executing an OpenSpec change, where every step has a typed input and output.
+Each type is one [TypeBox](https://github.com/sinclairzx81/typebox) schema exported under
+the type's name, with the static type derived from it, so a value can be checked wherever
+it crosses a boundary (a model's tool call, a durable checkpoint): `check(Clause, value)`.
+A few rules compare two fields of one value (a task id against its group, a rename's
+`from` against its `to`); those are TypeBox refinements, which `check` runs and the
+serialised JSON Schema does not carry. The entry reads no files and runs no loop.
+
+- **Taxonomy:** `Root`, `Capability`, `CapabilityPath`, `Requirement`, `Scenario`, `Clause`,
+  `Change`, `Proposal`, `Delta` (`Added`, `Modified`, `Removed`, `Renamed`), `Design`,
+  `TaskList`, `TaskGroup`, `Task`, `TaskId`, `TaskLink`, `RequirementRef`, `ScenarioRef`,
+  `LinkBasis`; `formatRef` / `parseRef`, `applyDelta`, `unclaimedScenarios`.
+- **Steps:** `propose`, `specify`, `design`, `plan`, `validate`, `approve`, `execute` and
+  `archive` (`STEPS`, `STEP_SCHEMAS`), each returning a `StepResult` rather than throwing
+  (`invokeStep`); the change state machine, `ChangeState` and `transition(state, event)`.
+- **Loops:** one shape (`LoopInput`, `Iteration`, `Verdict`, `Feedback`, `Escalation`,
+  `LoopOutcome`) used three times: the **task loop** (`TaskOutcome`), the **group loop**
+  (`GroupOutcome`) and the **change loop** (`ChangeOutcome`); `outcomeStatus`, `judge`,
+  `feedbackFor` and the other rules a runner applies between iterations.
+- **Evidence:** `TestEvidence`, `ValidationEvidence`, `CheckEvidence`, `DiffEvidence`,
+  `ReviewEvidence`, `Finding`; `satisfies(target, evidence)`.
 
 ## Command-line tools
 

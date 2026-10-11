@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 const EXAMPLES = join(ROOT, "examples");
-const ENTRIES = ["authoring", "interpreter", "pi", "claude-code", "durable", "cloudflare"].map(
+const ENTRIES = ["authoring", "interpreter", "pi", "claude-code", "durable", "cloudflare", "openspec"].map(
 	(entry) => `@specsesh/agent/${entry}`,
 );
 

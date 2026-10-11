@@ -1,6 +1,6 @@
 ## Context
 
-Today a change is executed by reading `tasks.md` and ticking boxes. This design names what is executed, the shape of each step, and the three feedback loops, so that an agent or a durable runtime can carry a change from proposal to archive with every hand-off typed and checkable. It is a model: the type sketches below are TypeScript-flavoured notation for the specs, not code that exists.
+Today a change is executed by reading `tasks.md` and ticking boxes. This design names what is executed, the shape of each step, and the three feedback loops, so that an agent or a durable runtime can carry a change from proposal to archive with every hand-off typed and checkable. The type sketches below are TypeScript-flavoured notation for the specs; `packages/agent/src/openspec/` implements them as the `@specsesh/agent/openspec` entry (see Implementation).
 
 ## Two halves
 
@@ -146,7 +146,7 @@ Finding  { kind: "code-defect" | "spec-defect" | "test-defect" | "environment" |
 
 ## Decisions
 
-- **Every type has a JSON Schema as well as a static type.** Step inputs and outputs cross boundaries where TypeScript is absent: a model's tool call, a durable checkpoint, another process. When this becomes code, one declaration produces both. TypeBox is already in the tree, through pi-ai, but the choice belongs to the implementing change.
+- **Every type has a JSON Schema as well as a static type.** Step inputs and outputs cross boundaries where TypeScript is absent: a model's tool call, a durable checkpoint, another process. One declaration produces both: see the schema library under Implementation.
 - **No parser, so links are typed, not computed.** `LinkBasis` and `confidence` exist so that the later parser's guesses are visible and rankable instead of silent.
 - **The loop shape is shared, not three bespoke shapes.** A runner then needs one loop implementation parameterised by level, and the levels differ only in goal, targets and outcome.
 - **Steps return `StepResult`; they don't throw.** This matches the step machine's discipline that a failure is a value a caller branches on, never prose.
@@ -156,3 +156,43 @@ Finding  { kind: "code-defect" | "spec-defect" | "test-defect" | "environment" |
 - **The Agent Script structured-output subset can't carry these types.** A step returns flat string, number and boolean fields only. Running a loop step as an Agent Script subagent will need either nested outputs in the subset or a side channel such as the step doc in the durable runtime. That's a later change.
 - **Prose inference will mislink.** The confidence and basis fields make that visible but don't prevent it. A declared link convention remains an option if inference proves too weak.
 - **The model assumes the `spec-driven` schema.** Custom OpenSpec schemas with other artifacts would need `Step` entries generated from the schema's artifact graph.
+
+## Implementation
+
+**Schema library: TypeBox, the npm package `typebox`, exact-pinned at `1.3.27`.**
+- It is already in the tree at that exact version, pinned by `@earendil-works/pi-ai`, so a pi consumer installs nothing new and the copies dedupe.
+- One declaration gives both forms: the schema is JSON Schema, and `Static<typeof X>` derives the type, so the two cannot drift.
+- `Value.Check` runs JSON Schema and TypeBox refinements together, and the library has no dependencies of its own.
+- Rejected: zod (a new dependency, and JSON Schema only through a converter), and hand-written JSON Schema plus Ajv (two declarations per type).
+- It is a required dependency, not an optional peer: `./openspec` cannot load without it, and it is small. `package/distribution` is modified to allow it.
+
+**Where JSON Schema stops.** Every structural rule is plain JSON Schema: patterns, ranges, enums, non-empty arrays, closed objects, "at least one WHEN and one THEN" (`contains`), "confidence 1 exactly for exact-name bases", "`met` exactly when `unmet` is empty", and "`result` when converged, `escalation` exactly when blocked" (unions).
+
+A few rules compare two parts of one value, and JSON Schema cannot say them. These are TypeBox refinements: `check` enforces them, but a consumer holding only the serialised schema does not. They are:
+- a task id inside its group;
+- group numbers unique and ascending;
+- a path both new and modified;
+- a rename's `from` equal to its `to`;
+- iterations numbered 1, 2, 3, …;
+- an unmet target with no feedback;
+- one entry per task in a group outcome;
+- an escalation answered by someone other than its recipient;
+- a test naming a scenario it does not claim;
+- a context reference that is not the serialised form its kind requires.
+
+The static types are wider than the schemas wherever TypeScript cannot express a rule (string patterns, ranges, non-empty arrays). The schema is the authority at a boundary.
+
+**Decisions the specs leave open:**
+- **File placement.** `ChangeState` is declared in `model.ts`, and `ValidationReport` and `Target` in `evidence.ts`, because `Change`, `ValidationEvidence` and `Finding` carry them. This keeps the import graph acyclic (model → evidence → loops → process). The index exports each once.
+- **Named step inputs.** The anonymous inputs become `SpecifyInput`, `DesignInput`, `PlanInput`, `ApproveInput` and `ArchiveInput`. `STEPS` names each step's types as strings (`Delta[]`, `LoopOutcome<ChangeOutcome>`), and `STEP_SCHEMAS` holds the schemas.
+- **`Step<In, Out>`** is the serialisable declaration `{ name, actor, input, output }`, with `input` and `output` as type names. `In` and `Out` are type-level only.
+- **`Loop<Goal, Out>`** is one run, `{ input: LoopInput<Goal>, output: LoopOutcome<Out> }`. Its iterations are the outcome's.
+- **Absent, not empty.** `Design.sections` and `TaskList.groups` are non-empty, so a change with no design or tasks yet can only say so by leaving the field out.
+- **Claiming by name.** A test claims a scenario when its name, or the last ` > ` segment of the runner's full name, is `Scenario: <exact name>`.
+- **Archive's fresh report.** `archive`'s input is `{ change, outcome }`, so the guard (`archiveGuard(input, report)`) takes the report from the step's own strict validation, run as it begins. This matches `pnpm spec:archive`.
+- **Transitions.** `transition(state, event)` takes events that carry each step's result: deltas, design, tasks, a report, an approval, an outcome or a finding. Freshness is judged by the archive event's `reportedAt` being later than its `convergedAt` (ISO 8601 times).
+- **Loop status.** `outcomeStatus(iterations, budget, error?)` takes the error that makes a loop `failed`. It returns `undefined` while the loop should go on. Precedence: failed, converged, blocked, exhausted.
+- **Escalation recipient.** Feedback names no recipient, so `concludeLoop` takes one (`to`, the principal by default).
+- **Check feedback.** A group or change check's feedback rests on a `code-defect` finding: `rework-task` when a task links to the unmet target, `add-task` when none does.
+- **Named checks.** A `{ check }` target is satisfied only by a `CheckEvidence` whose `command` equals the check, with exit code 0. `ValidationEvidence` satisfies no target by itself; the change loop's `strict validation` and `full suite` targets need a check recorded under those names.
+- **Pure rules beyond the tasks.** Some loop scenarios describe what a runner does. Their tests pin the pure rule a runner would apply, because there is no runner: `applyDelta`, `deltaScenarios`, `feedbackFor`, `concludeLoop`, `carriedInto`, `handedUp`, `resume`, `taskTargets` / `groupTargets` / `changeTargets`, `judge`, `checkFeedback`, `recordTaskRun`, `startChangeOutcome`, `tick` / `untick`, `resolves`, `proposalIssues`, `specifyIssues`, `strictlyValid` and `coversEveryGroup`.
