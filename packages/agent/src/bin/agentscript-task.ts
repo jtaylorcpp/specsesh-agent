@@ -60,9 +60,12 @@ import {
 	DEFAULT_PROVIDER,
 	loadConfig,
 	resolveDb,
+	resolveGroupScript,
 	resolveRunSettings,
 	type DbPath,
 	type LoadedConfig,
+	type ResolvedScript,
+	type RunSettings,
 } from "../task/config.js";
 import { LoopWatcher, jsonLines, now, type EventSink, type TaskEvent } from "../task/events.js";
 import { changedBetween, insideGit, repoRoot, snapshot, status } from "../task/git.js";
@@ -141,6 +144,8 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 				check: { type: "string", multiple: true },
 				allow: { type: "string", multiple: true },
 				"max-iterations": { type: "string" },
+				"max-reworks": { type: "string" },
+				"group-script": { type: "string" },
 				"escalate-to": { type: "string" },
 				provider: { type: "string" },
 				model: { type: "string" },
@@ -211,6 +216,10 @@ async function run(
 	if (maxIterations !== undefined && !/^[1-9][0-9]*$/.test(maxIterations)) {
 		return usage(`--max-iterations must be a positive integer, got "${maxIterations}"`);
 	}
+	const maxReworks = values["max-reworks"] as string | undefined;
+	if (maxReworks !== undefined && !/^[1-9][0-9]*$/.test(maxReworks)) {
+		return usage(`--max-reworks must be a positive integer, got "${maxReworks}"`);
+	}
 	const escalateTo = values["escalate-to"] as string | undefined;
 	if (escalateTo !== undefined && !isRecipient(escalateTo)) {
 		return usage(`--escalate-to must be principal or agent, got "${escalateTo}"`);
@@ -227,7 +236,9 @@ async function run(
 			...(values["workspace"] !== undefined ? { workspace: values["workspace"] as string } : {}),
 			...(values["check"] !== undefined ? { check: values["check"] as string[] } : {}),
 			...(values["allow"] !== undefined ? { allow: values["allow"] as string[] } : {}),
+			...(values["group-script"] !== undefined ? { groupScript: values["group-script"] as string } : {}),
 			...(maxIterations !== undefined ? { maxIterations: Number(maxIterations) } : {}),
+			...(maxReworks !== undefined ? { maxReworks: Number(maxReworks) } : {}),
 			...(escalateTo !== undefined ? { escalateTo } : {}),
 			...(values["provider"] !== undefined ? { provider: values["provider"] as string } : {}),
 			...(values["model"] !== undefined ? { model: values["model"] as string } : {}),
@@ -252,6 +263,9 @@ async function run(
 		io.err("--worktree is not supported for a group yet");
 		return 2;
 	}
+
+	// A missing group script refuses the run here, before any model or database is touched.
+	const groupScript = group !== undefined ? resolveGroupScript(settings.groupScript.value, settings.groupScript.base) : undefined;
 
 	const models = await (deps.models ?? builtin)();
 	if (models.getModel(settings.provider, settings.model) === undefined) {
@@ -323,7 +337,9 @@ async function run(
 		for (const extension of extensions) registry.install(extension);
 		const harness = await Harness.open(await openNodeSqliteStorage(db.path), { models, registry }, BACKGROUND_CONTEXT);
 		try {
-			if (group !== undefined) return await runGroup(harness, { ...options, group }, io);
+			if (group !== undefined && groupScript !== undefined) {
+				return await runGroup(harness, groupLoopOptions(options, group, groupScript, settings), io);
+			}
 			if (task === undefined) return usage();
 			let id: LoopId;
 			try {
@@ -365,6 +381,21 @@ function parseTarget(positionals: readonly string[], flags: { next: boolean; nex
 	if (positional === undefined) return { kind: "usage" };
 	if (/^[1-9]\d*$/.test(positional)) return { kind: "group", change, group: Number(positional) };
 	return { kind: "task", change, task: positional };
+}
+
+/** The options a group run starts with: the task options plus the group, its judge script and the rework budget. */
+export function groupLoopOptions(
+	options: Omit<TaskLoopOptions, "task">,
+	group: number,
+	groupScript: ResolvedScript,
+	settings: Pick<RunSettings, "maxIterations" | "maxReworks">,
+): GroupLoopOptions {
+	return {
+		...options,
+		group,
+		groupScript: { path: groupScript.path },
+		budget: { maxIterations: settings.maxIterations, maxReworks: settings.maxReworks },
+	};
 }
 
 /** Start a group loop and wait for it. Output is minimal until the group's own formatting lands. */

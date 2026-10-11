@@ -19,7 +19,7 @@
 ## 3. The CLI
 
 - [x] 3.1 `packages/agent/src/bin/agentscript-task.ts`: `run <change> <task-id>|<group>|--next|--next-group` (a bare positive integer is a group; exactly one of the four, else usage and exit `2`); usage line updated
-- [ ] 3.2 `packages/agent/src/task/config.ts` + the bin: `groupScript` (bundled `group` or a path; missing path → exit `2`) and `maxReworks` (positive integer) in the config's fixed field set and precedence; `--group-script`, `--max-reworks` (malformed → exit `2`)
+- [x] 3.2 `packages/agent/src/task/config.ts` + the bin: `groupScript` (bundled `group` or a path; missing path → exit `2`) and `maxReworks` (positive integer) in the config's fixed field set and precedence; `--group-script`, `--max-reworks` (malformed → exit `2`)
 - [ ] 3.3 `packages/agent/src/task/resolve.ts`: `--next-group` picks the first group with an unticked task; none → `no unticked task in <change>`, exit `0`
 - [ ] 3.4 `packages/agent/src/task/worktree.ts`: a group runs in `<worktreeDir>/<change-id>-<group>` on `task/<change-id>/<group>`, with the task-worktree rules (no reuse, committed change, setup, explicit `--db`, remembered for `resume`/`status`)
 - [ ] 3.5 `packages/agent/src/task/events.ts`: `group-started`, `group-check`, `rework`, `group-ended`; task events inside a group carry `group`

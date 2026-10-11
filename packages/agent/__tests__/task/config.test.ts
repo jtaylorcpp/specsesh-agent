@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { BUNDLED_SCRIPTS } from "../../src/task/index.js";
-import { ConfigError, loadConfig, resolveRunSettings, validateTaskConfig } from "../../src/task/config.js";
+import { ConfigError, loadConfig, resolveGroupScript, resolveRunSettings, validateTaskConfig } from "../../src/task/config.js";
 import { cli, fauxModels, storedLoops, workdir } from "./cli-helpers.js";
 import { cleanTemps, temp, tinyChange, verdict } from "./helpers.js";
 
@@ -178,6 +178,37 @@ describe("task/headless: Values resolve flag, then environment, then config, the
 		expect(r.code, r.err).toBe(0);
 		const { inputs } = await storedLoops(join(root, "loops.sqlite"));
 		expect(inputs[0]).toMatchObject({ delegateModel: "sonnet", delegateContext: [join(root, "CLAUDE.md")] });
+	});
+});
+
+describe("task/headless: group fields", () => {
+	it("accepts groupScript and maxReworks", () => {
+		const task = { groupScript: "x.agent", maxReworks: 3 };
+		expect(validateTaskConfig(task, "f")).toEqual(task);
+	});
+
+	it("refuses a bad maxReworks or groupScript", () => {
+		for (const [key, value] of [["maxReworks", 0], ["maxReworks", -1], ["maxReworks", 1.5], ["maxReworks", "2"], ["groupScript", 4]] as const) {
+			expect(() => validateTaskConfig({ [key]: value }, "cfg.json"), key).toThrow(new RegExp(`cfg\\.json.*task\\.${key}`));
+		}
+	});
+
+	it("defaults to the bundled group script and 2 reworks; the flag beats the config", () => {
+		const { sub, root } = configured({ groupScript: "g.agent", maxReworks: 3 });
+		const defaults = resolveRunSettings({}, {}, { dir: sub, task: {} }, sub);
+		expect(defaults.groupScript.value).toBe("group");
+		expect(defaults.maxReworks).toBe(2);
+		const config = loadConfig(sub);
+		const fromConfig = resolveRunSettings({}, {}, config, sub);
+		expect(fromConfig).toMatchObject({ groupScript: { value: "g.agent", base: root }, maxReworks: 3 });
+		const flagged = resolveRunSettings({ groupScript: "f.agent", maxReworks: 1 }, {}, config, sub);
+		expect(flagged).toMatchObject({ groupScript: { value: "f.agent", base: sub }, maxReworks: 1 });
+	});
+
+	it("Scenario: A missing group script is refused", () => {
+		const { sub } = configured({});
+		expect(resolveGroupScript("group", sub).path).toBe(fileURLToPath(BUNDLED_SCRIPTS.group));
+		expect(() => resolveGroupScript("./nope.agent", sub)).toThrow(/\.\/nope\.agent/);
 	});
 });
 

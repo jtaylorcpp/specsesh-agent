@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Harness, createRegistry } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { DEFAULT_MODEL, DEFAULT_PROVIDER, main } from "../../src/bin/agentscript-task.js";
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, groupLoopOptions, main } from "../../src/bin/agentscript-task.js";
 import { startTaskLoop, taskLoopExtensions } from "../../src/task/index.js";
 import { cli, fauxModels, storedLoops, workdir } from "./cli-helpers.js";
 import { JUDGE_ONLY, baselineDir, cleanTemps, context, temp, tinyChange, verdict } from "./helpers.js";
@@ -69,6 +69,36 @@ describe("task/cli: run rejects malformed flag values with usage", () => {
 		expect(nobody.code).toBe(2);
 		expect(nobody.err).toContain('--escalate-to must be principal or agent, got "nobody"');
 		expect(existsSync(db)).toBe(false);
+	});
+});
+
+describe("task/cli: group flags", () => {
+	it("Scenario: A zero rework budget is refused", async () => {
+		const { db } = workdir();
+		const r = await cli(["run", baselineDir(), "2", "--db", db, "--max-reworks", "0"]);
+		expect(r.code).toBe(2);
+		expect(r.errLines[0]).toContain("--max-reworks");
+		expect(r.errLines[0]).toContain('"0"');
+		expect(r.err).toContain("usage:");
+		expect(existsSync(db)).toBe(false);
+		const abc = await cli(["run", baselineDir(), "2", "--db", db, "--max-reworks", "abc"]);
+		expect(abc.code).toBe(2);
+		expect(existsSync(db)).toBe(false);
+	});
+
+	it("Scenario: A missing group script is refused", async () => {
+		const { db, dir } = workdir();
+		const r = await cli(["run", tinyChange(), "1", "--db", db, "--group-script", "./nope.agent"], fauxModels(), { cwd: dir });
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("./nope.agent");
+		expect(existsSync(db)).toBe(false);
+	});
+
+	it("Scenario: A rework budget from the flag", () => {
+		const base = { change: { dir: "c" }, workspace: "w" } as Parameters<typeof groupLoopOptions>[0];
+		const script = { label: "group", path: "/g.agent" };
+		const options = groupLoopOptions(base, 2, script, { maxIterations: 3, maxReworks: 1 });
+		expect(options).toMatchObject({ group: 2, groupScript: { path: "/g.agent" }, budget: { maxIterations: 3, maxReworks: 1 } });
 	});
 });
 

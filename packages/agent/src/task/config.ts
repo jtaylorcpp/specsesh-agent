@@ -12,6 +12,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_MAX_REWORKS } from "./group.js";
 import { BUNDLED_SCRIPTS, DEFAULT_ESCALATE_TO, DEFAULT_MAX_ITERATIONS } from "./options.js";
 
 export const CONFIG_FILE = "agentscript.config.json";
@@ -29,9 +30,11 @@ const FIELDS = {
 	model: "string",
 	delegateModel: "string",
 	script: "string",
+	groupScript: "string",
 	checks: "strings",
 	allow: "strings",
 	maxIterations: "positive-integer",
+	maxReworks: "positive-integer",
 	escalateTo: "recipient",
 	delegateContext: "strings",
 	requireCleanTree: "boolean",
@@ -56,9 +59,11 @@ export interface TaskConfig {
 	readonly model?: string;
 	readonly delegateModel?: string;
 	readonly script?: string;
+	readonly groupScript?: string;
 	readonly checks?: readonly string[];
 	readonly allow?: readonly string[];
 	readonly maxIterations?: number;
+	readonly maxReworks?: number;
 	readonly escalateTo?: "principal" | "agent";
 	readonly delegateContext?: readonly string[];
 	readonly requireCleanTree?: boolean;
@@ -147,6 +152,9 @@ export const BUNDLED_SCRIPT_NAMES: Readonly<Record<string, URL>> = {
 	"task-delegate": BUNDLED_SCRIPTS.delegate,
 };
 
+/** The bundled group judge script's name. */
+export const BUNDLED_GROUP_SCRIPT = "group";
+
 /** A resolved script: a bundled one's file, or a `.agent` file that exists. */
 export interface ResolvedScript {
 	/** As given: the bundled name or the path. */
@@ -167,10 +175,23 @@ export function resolveScript(value: string, base: string): ResolvedScript {
 	return { label: value, path };
 }
 
+/**
+ * `group` selects the bundled group judge script; anything else is a path
+ * relative to `base`. A path that does not exist refuses the run.
+ */
+export function resolveGroupScript(value: string, base: string): ResolvedScript {
+	if (value === BUNDLED_GROUP_SCRIPT) return { label: value, path: fileURLToPath(BUNDLED_SCRIPTS.group) };
+	const path = resolve(base, value);
+	if (!existsSync(path)) throw new ConfigError(`the group script ${value} does not exist (looked for ${path})`);
+	return { label: value, path };
+}
+
 /** The flags `run` reads, as parsed; each undefined when not given. */
 export interface RunFlags {
 	readonly db?: string;
 	readonly script?: string;
+	readonly groupScript?: string;
+	readonly maxReworks?: number;
 	readonly workspace?: string;
 	readonly check?: readonly string[];
 	readonly allow?: readonly string[];
@@ -197,10 +218,13 @@ export interface RunSettings {
 	readonly model: string;
 	readonly delegateModel: string;
 	readonly script: ResolvedScript;
+	/** Not resolved here: only a group run needs the file, so a task run never refuses over it. Pass to `resolveGroupScript`. */
+	readonly groupScript: { readonly value: string; readonly base: string };
 	readonly workspace: string;
 	readonly checks: readonly string[];
 	readonly allow: readonly string[];
 	readonly maxIterations: number;
+	readonly maxReworks: number;
 	readonly escalateTo: "principal" | "agent";
 	readonly delegateContext: readonly string[];
 	readonly requireCleanTree: boolean;
@@ -238,10 +262,15 @@ export function resolveRunSettings(
 		model,
 		delegateModel: task.delegateModel ?? model,
 		script,
+		groupScript:
+			flags.groupScript !== undefined
+				? { value: flags.groupScript, base: cwd }
+				: { value: task.groupScript ?? BUNDLED_GROUP_SCRIPT, base: config.dir },
 		workspace: resolve(cwd, flags.workspace ?? "."),
 		checks: flags.check ?? task.checks ?? [],
 		allow: flags.allow ?? task.allow ?? [],
 		maxIterations: flags.maxIterations ?? task.maxIterations ?? DEFAULT_MAX_ITERATIONS,
+		maxReworks: flags.maxReworks ?? task.maxReworks ?? DEFAULT_MAX_REWORKS,
 		escalateTo: flags.escalateTo ?? task.escalateTo ?? DEFAULT_ESCALATE_TO,
 		delegateContext: (task.delegateContext ?? []).map(fromConfig),
 		requireCleanTree: flags.allowDirty === true ? false : (task.requireCleanTree ?? true),
