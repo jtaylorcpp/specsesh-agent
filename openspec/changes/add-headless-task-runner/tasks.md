@@ -25,7 +25,9 @@
 
 - [ ] 5.1 `packages/agent/src/task/git.ts`: `git status --porcelain` before creating the loop; refuse (exit `2`) listing at most 20 paths plus `N more`, unless `--allow-dirty` or `requireCleanTree: false`; outside a git repo skip it with a `warning` event
 - [ ] 5.2 `packages/agent/src/task/git.ts`: `loop-ended.changed` = sorted paths whose porcelain entry differs between loop start and end; `[]` outside git
-- [ ] 5.3 Audit: no code path in `packages/agent/src/task/` runs a git command that changes git state (only `git status` and `git rev-parse`)
+- [ ] 5.3 `packages/agent/src/task/worktree.ts`: `--worktree` / `worktree: true`: path `<worktreeDir>/<change-id>-<task-id>` (default `../<repo-dir-name>-worktrees`), branch `task/<change-id>/<task-id>`; refuse (exit `2`) if the branch or path exists or the change is absent at `HEAD`; `git worktree add -b <branch> <path> HEAD`; run `worktreeSetup` in order (non-zero → exit `1`, naming it, worktree kept); resolve the change and workspace inside the worktree
+- [ ] 5.4 `packages/agent/src/task/worktree.ts`: in worktree mode the guard checks the worktree; main-tree uncommitted changes emit a `warning` event with their count; the loop records `worktree: { path, branch }`; `resume` uses the path; `status` shows the branch; the outcome prints path, branch, `git -C <path> diff` and `git worktree remove <path>`
+- [ ] 5.5 Audit: no code path in `packages/agent/src/task/` runs any git command other than `status`, `rev-parse`, `worktree add` and `worktree list`
 
 ## 6. The delegate, headless
 
@@ -38,10 +40,10 @@
 
 ## 8. Wiring this repo in
 
-- [ ] 8.1 Root `agentscript.config.json` with exactly the values in "This repo ships a config for its own tasks"
+- [ ] 8.1 Root `agentscript.config.json` with exactly the values in "This repo ships a config for its own tasks", plus `worktreeSetup: ["pnpm install --frozen-lockfile --offline"]`
 - [ ] 8.2 `.gitignore`: add `.agentscript/`
 - [ ] 8.3 Root `package.json`: `task` → the built `agentscript-task` bin; `test:live` → the live acceptance run
-- [ ] 8.4 `CLAUDE.md`: a "Running a task" section: `pnpm task <change-id> <task-id>`, `--next`, `status`, answering an escalation, the clean-tree guard, and that the runner never commits
+- [ ] 8.4 `CLAUDE.md`: a "Running a task" section: `pnpm task <change-id> <task-id>`, `--next`, `--worktree` (and reviewing/removing the worktree it leaves), `status`, answering an escalation, the clean-tree guard, and that the runner never commits
 
 ## 9. Tests (vitest; fake `claude` binaries and temp git repos only, no live calls)
 

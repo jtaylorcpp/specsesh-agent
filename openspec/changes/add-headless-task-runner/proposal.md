@@ -31,6 +31,11 @@ The outcome this change is for: **the moment it merges, `pnpm task <change-id> <
 
   Anything not pre-allowed is denied, never prompted. The configured context files reach it through `--append-system-prompt-file`, so it knows the repo's conventions without `--safe-mode` being lifted. A separate `delegateModel` lets orient and judge run on Haiku while the delegate runs on a stronger model.
 - **A clean-tree guard.** By default `run` refuses to start when the git working tree has uncommitted changes, naming them, so every edit after it is the loop's. `--allow-dirty` overrides. The runner never commits; it prints the files the loop changed.
+- **Worktree mode.** With `--worktree` (or `worktree: true` in the config), `run` creates a git worktree for the task on branch `task/<change-id>/<task-id>`, from `HEAD`, runs the configured setup commands there (this repo: `pnpm install --frozen-lockfile --offline`), and runs the loop inside it.
+  - **The main tree stays untouched,** so the clean-tree guard does not apply to it; you can keep working while a task runs.
+  - **Uncommitted main-tree changes are not carried over.** A warning says how many there are.
+  - **The database stays in the main repo.** The loop records the worktree's path and branch, and `resume` and `status` use them.
+  - **The work is left for review.** The runner never commits; it prints the worktree path, its branch, and the commands to review and remove it.
 - **Status.** `agentscript-task status [--db]` lists loops with their change, task, status and iteration count.
 - **Root script** `pnpm task …`, and a section in `CLAUDE.md` on using it.
 - **Proof it works here.** An opt-in `pnpm test:live` runs the CLI headless on a copy of this repo, against a small fixture change, on the subscription. It converges and ticks the task. This is the only test that makes a real model call, and it is not part of the default gate.
@@ -43,7 +48,7 @@ The outcome this change is for: **the moment it merges, `pnpm task <change-id> <
 
 ## Capabilities
 
-- **New:** `task/headless` (repo config, id resolution, `--next`, JSON Lines events, the clean-tree guard, `status`, this repo's config, the live acceptance run).
+- **New:** `task/headless` (repo config, id resolution, `--next`, JSON Lines events, the clean-tree guard, worktree mode, `status`, this repo's config, the live acceptance run).
 - **Modified:**
   - `task/cli` (config-driven defaults, positional change id, `status`, the event stream on stderr);
   - `actions/registry` (`delegate_claude_code` runs headless: tools, `dontAsk`, the allowlist, context files, `delegateModel`).

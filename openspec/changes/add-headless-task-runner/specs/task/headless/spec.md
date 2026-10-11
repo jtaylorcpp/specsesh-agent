@@ -18,7 +18,7 @@ Running the task agent unattended in a repository: defaults from a repo config, 
 - **THEN** it SHALL run with the CLI defaults
 
 ### Requirement: The task config has a fixed set of typed fields
-The `task` object SHALL accept these fields, all optional: `changesDir` (string), `db` (string), `provider` (string), `model` (string), `delegateModel` (string), `script` (string), `checks` (string array), `allow` (string array), `maxIterations` (positive integer), `escalateTo` (`"principal"` or `"agent"`), `delegateContext` (string array) and `requireCleanTree` (boolean).
+The `task` object SHALL accept these fields, all optional: `changesDir` (string), `db` (string), `provider` (string), `model` (string), `delegateModel` (string), `script` (string), `checks` (string array), `allow` (string array), `maxIterations` (positive integer), `escalateTo` (`"principal"` or `"agent"`), `delegateContext` (string array), `requireCleanTree` (boolean), `worktree` (boolean), `worktreeDir` (string) and `worktreeSetup` (string array).
 
 #### Scenario: An empty task object is valid
 - **GIVEN** `{ "task": {} }`
@@ -170,11 +170,60 @@ When the workspace is not inside a git repository, `run` SHALL skip the clean-tr
 - **THEN** the loop SHALL be created and the stream SHALL hold a `warning` event about the skipped guard
 
 ### Requirement: The runner never commits
-`agentscript-task` SHALL NOT run `git commit`, `git add`, `git stash`, `git checkout` or any other command that changes git state. Its only writes are the workspace files the loop's actions change, the ticked line in `tasks.md`, and the database.
+`agentscript-task` SHALL run only `git status`, `git rev-parse`, `git worktree add` and `git worktree list`. It SHALL NOT commit, add, stash, check out or remove anything. Its only writes are a worktree and branch it creates, the files the loop's actions change, the ticked line in `tasks.md`, and the database.
 
 #### Scenario: A converged loop leaves its work uncommitted
 - **WHEN** a loop converges in a git workspace
 - **THEN** `git log` SHALL show the same HEAD as before the run, and the loop's edits SHALL be uncommitted
+
+### Requirement: --worktree runs the loop in a new git worktree
+With `--worktree`, or `worktree: true` in the config, `run` SHALL create a worktree at `<worktreeDir>/<change-id>-<task-id>` on a new branch `task/<change-id>/<task-id>` from `HEAD` with `git worktree add -b`, and run the loop with that worktree as the workspace and the change resolved inside it. `worktreeDir` SHALL default to `../<repo-dir-name>-worktrees`, relative to the repo root.
+
+#### Scenario: A task runs in its own worktree
+- **GIVEN** this repo at a clean `HEAD` and change `add-task-agent` committed
+- **WHEN** `agentscript-task run add-task-agent 2.4 --worktree` converges
+- **THEN** the worktree `../agentscript-worktrees/add-task-agent-2.4` SHALL exist on branch `task/add-task-agent/2.4`, hold the edits and the ticked line, and the main tree's `HEAD` and files SHALL be unchanged
+
+### Requirement: A worktree is never reused or clobbered by run
+`run --worktree` MUST exit `2` before creating anything when the branch `task/<change-id>/<task-id>` or the worktree path already exists, naming which. It MUST also exit `2` when the change does not exist at `HEAD`, saying the worktree starts from `HEAD`.
+
+#### Scenario: An existing branch refuses the run
+- **GIVEN** a branch `task/add-task-agent/2.4` already exists
+- **WHEN** `run add-task-agent 2.4 --worktree` starts
+- **THEN** stderr SHALL name the branch, the exit code SHALL be `2`, and no worktree or loop SHALL be created
+
+#### Scenario: An uncommitted change refuses worktree mode
+- **GIVEN** a change directory that exists in the working tree but not at `HEAD`
+- **WHEN** `run <that change> 1.1 --worktree` starts
+- **THEN** the exit code SHALL be `2` and stderr SHALL say the change is not committed at `HEAD`
+
+### Requirement: Worktree setup runs before the loop
+In worktree mode, `run` SHALL run each `worktreeSetup` command in the worktree, in order, before creating the loop. A non-zero exit MUST end the run with exit `1`, naming the command, and leave the worktree in place for inspection.
+
+#### Scenario: A failing setup command leaves the worktree
+- **GIVEN** `worktreeSetup: ["pnpm install --frozen-lockfile --offline"]` and a lockfile that cannot install offline
+- **WHEN** `run --worktree` reaches setup
+- **THEN** the exit code SHALL be `1`, stderr SHALL name the command, and the worktree SHALL remain
+
+### Requirement: In worktree mode the main tree may be dirty
+In worktree mode the clean-tree guard SHALL apply to the new worktree, not the main tree. Uncommitted changes in the main tree SHALL NOT refuse the run; they SHALL produce a `warning` event giving their count, because they are absent from the worktree.
+
+#### Scenario: Working in the main tree while a task runs
+- **GIVEN** an uncommitted edit to `README.md` in the main tree
+- **WHEN** `run add-task-agent 2.4 --worktree` starts
+- **THEN** the loop SHALL be created and the stream SHALL hold a `warning` event saying `1` uncommitted change is not in the worktree
+
+### Requirement: The loop remembers its worktree
+A loop run in worktree mode SHALL record `worktree: { path, branch }` in the database, which stays the main repo's. `resume` SHALL run in that path, `status` SHALL show the branch, and the final output SHALL print the path, the branch, `git -C <path> diff` and `git worktree remove <path>`.
+
+#### Scenario: Resume finds the worktree
+- **GIVEN** a worktree-mode loop whose process died
+- **WHEN** `agentscript-task resume <loop>` runs from the main tree
+- **THEN** the loop SHALL continue with the worktree as its workspace
+
+#### Scenario: The output says how to review and remove
+- **WHEN** a worktree-mode loop ends
+- **THEN** stdout SHALL contain the worktree path, `task/<change-id>/<task-id>`, `git -C <path> diff` and `git worktree remove <path>`
 
 ### Requirement: status lists the loops in the database
 `agentscript-task status` SHALL print one line per loop in the database: its id, change, task, status (`running`, `converged`, `blocked`, `exhausted` or `failed`) and iteration count, newest first. With no loops it SHALL print `no loops in <db>` and exit `0`.
@@ -189,7 +238,7 @@ When the workspace is not inside a git repository, `run` SHALL skip the clean-tr
 - **THEN** stdout SHALL be `no loops in <db>` and the exit code SHALL be `0`
 
 ### Requirement: This repo ships a config for its own tasks
-The repository root SHALL hold `agentscript.config.json` with `task` set to `changesDir` `openspec/changes`, `db` `.agentscript/task-loops.sqlite`, `provider` `claude-code`, `model` `claude-haiku-4-5`, `delegateModel` `sonnet`, `script` `task-delegate`, `checks` `["pnpm check", "pnpm test"]`, `allow` `["pnpm", "node"]`, `maxIterations` `3`, `escalateTo` `principal`, `delegateContext` `["CLAUDE.md"]` and `requireCleanTree` `true`.
+The repository root SHALL hold `agentscript.config.json` with `task` set to `changesDir` `openspec/changes`, `db` `.agentscript/task-loops.sqlite`, `provider` `claude-code`, `model` `claude-haiku-4-5`, `delegateModel` `sonnet`, `script` `task-delegate`, `checks` `["pnpm check", "pnpm test"]`, `allow` `["pnpm", "node"]`, `maxIterations` `3`, `escalateTo` `principal`, `delegateContext` `["CLAUDE.md"]`, `requireCleanTree` `true` and `worktreeSetup` `["pnpm install --frozen-lockfile --offline"]`.
 
 #### Scenario: The shipped config is valid
 - **WHEN** the repo's `agentscript.config.json` is read

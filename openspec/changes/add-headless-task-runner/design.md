@@ -75,12 +75,34 @@ claude -p --safe-mode --model <delegateModel> --output-format json --no-session-
 - **Outside a git repository** the guard is skipped, and a warning event is emitted.
 - **Ignored files don't count.** The database lives in a gitignored directory, so the guard doesn't trip on its own state.
 
+## Worktree mode
+
+```
+agentscript-task run <change-id> <task-id> --worktree
+  1. path   = <worktreeDir>/<change-id>-<task-id>   (worktreeDir default: ../<repo-dir-name>-worktrees)
+     branch = task/<change-id>/<task-id>
+  2. refuse (exit 2) if the branch or the path already exists, naming it: a worktree is never reused or clobbered by `run`
+  3. refuse (exit 2) if the change is not committed at HEAD: the worktree starts from HEAD and would not contain it
+  4. git worktree add -b <branch> <path> HEAD
+  5. run each worktreeSetup command in <path>; a non-zero exit ends the run as failed (exit 1), naming the command, and leaves the worktree for inspection
+  6. run the loop with workspace = <path> and the change resolved inside <path>, so ticking lands in the worktree
+  7. print the path and branch, `git -C <path> diff`, and `git worktree remove <path>`
+```
+
+- **The clean-tree guard checks the worktree, not the main tree.** It is clean by construction. Main-tree uncommitted changes produce a `warning` event with their count, because they are absent from the worktree.
+- **The database is the main repo's** (paths resolve from the config file). The loop's record holds `worktree: { path, branch }`; `resume` runs in that path and `status` shows it.
+- **One process per database at a time.** Parallel tasks in separate worktrees each need their own `--db` in this change; concurrent writers to one SQLite database are not supported yet.
+- **Git commands the runner may run:** `status`, `rev-parse`, `worktree add` and `worktree list`. It still never commits, adds, stashes, checks out or removes anything.
+
+Config: `worktree` (boolean, default `false`), `worktreeDir` (string), `worktreeSetup` (string array, default `[]`). This repo's config sets `worktreeSetup: ["pnpm install --frozen-lockfile --offline"]`; `worktree` stays `false` by default and is turned on per run with `--worktree`.
+
 ## Acceptance: `pnpm test:live`
 
 1. Copy the repo to a temp directory, `git init` it and commit.
 2. Add a fixture change, `fixture-live-task`, with one small task: replace a stale comment named in the task with given text. The checks are a vitest file that asserts the new text.
 3. Run `agentscript-task run fixture-live-task 1.1`, using the repo config.
 4. Expect exit `0`, a `loop-ended` event with `status: "converged"`, the task ticked in the fixture's `tasks.md`, and only the target file in `changed`.
+5. Repeat with `--worktree`: the main copy's HEAD and files are unchanged, and the work and tick are in the worktree on `task/fixture-live-task/1.1`.
 
 It needs `claude` logged in. Without it, the test skips and says why. It is never part of `pnpm test`.
 
