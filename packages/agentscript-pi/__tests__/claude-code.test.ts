@@ -212,3 +212,12 @@ describe("The port is one claude process per step and stateless", () => {
 		expect(seen).toEqual([first, second]);
 	});
 });
+
+describe("The claude-code surface is exported from the root entry", () => {
+	it("Scenario: Argv building and spawning stay module-level", async () => {
+		const root = await import("../src/index.js");
+		expect(root.createClaudeCodeReasoningPort).toBeTypeOf("function");
+		expect(root).not.toHaveProperty("claudeArgs");
+		expect(root).not.toHaveProperty("spawnRunner");
+	});
+});
