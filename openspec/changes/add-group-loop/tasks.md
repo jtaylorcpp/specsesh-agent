@@ -23,7 +23,7 @@
 - [x] 3.3 `packages/agent/src/task/resolve.ts`: `--next-group` picks the first group with an unticked task; none → `no unticked task in <change>`, exit `0`
 - [x] 3.4 `packages/agent/src/task/worktree.ts`: a group runs in `<worktreeDir>/<change-id>-<group>` on `task/<change-id>/<group>`, with the task-worktree rules (no reuse, committed change, setup, explicit `--db`, remembered for `resume`/`status`)
 - [x] 3.5 `packages/agent/src/task/events.ts`: `group-started`, `group-check`, `rework`, `group-ended`; task events inside a group carry `group`
-- [ ] 3.6 `packages/agent/src/task/status.ts` + the bin: `status` lists group loops as `group <n>` beside task loops; `resume` and `answer` handle group loops; text output for a group (`# group loop`, `## task <id>: <status> (runs <n>)`, `## group check: …`, the answer command when blocked); JSON outcome `LoopOutcome<GroupOutcome>`; exit `0` converged, `1` otherwise
+- [x] 3.6 `packages/agent/src/task/status.ts` + the bin: `status` lists group loops as `group <n>` beside task loops; `resume` and `answer` handle group loops; text output for a group (`# group loop`, `## task <id>: <status> (runs <n>)`, `## group check: …`, the answer command when blocked); JSON outcome `LoopOutcome<GroupOutcome>`; exit `0` converged, `1` otherwise
 
 ## 4. Tests (vitest; faux provider and fake `claude` only, no live calls)
 

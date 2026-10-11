@@ -38,11 +38,12 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, type Registry, type TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import type { Escalation, LoopOutcome, Recipient, TaskOutcome } from "../openspec/index.js";
+import type { Escalation, GroupOutcome, LoopOutcome, Recipient, TaskOutcome } from "../openspec/index.js";
 import {
-	TASK_LOOP,
+	GroupLoop,
 	TaskLoop,
 	answerEscalation,
+	answerGroupEscalation,
 	groupLoopExtensions,
 	startGroupLoop,
 	startTaskLoop,
@@ -72,7 +73,9 @@ import { LoopWatcher, jsonLines, now, type EventSink, type TaskEvent } from "../
 import { changedBetween, insideGit, repoRoot, snapshot, status } from "../task/git.js";
 import { DatabaseLockedError, lockDatabase, type DbLock } from "../task/lock.js";
 import { ChangeNotFoundError, nextGroup, nextTask, resolveChange } from "../task/resolve.js";
-import { changeOf, formatLoop, listLoops, scriptOf } from "../task/status.js";
+import type { GroupLoopInput, GroupLoopResult } from "../task/group.js";
+import { readResult } from "../task/group-api.js";
+import { changeOf, formatLoop, listLoops, loopKind, scriptOf } from "../task/status.js";
 import { WorktreeRefusedError, checkWorktree, createWorktree, inRepo, planWorktree, rebase, runSetup } from "../task/worktree.js";
 
 export { DEFAULT_MODEL, DEFAULT_PROVIDER };
@@ -103,6 +106,26 @@ export interface CliDeps {
 }
 
 type LoopId = TaskId<LoopOutcome<TaskOutcome>>;
+type GroupId = TaskId<LoopOutcome<GroupOutcome>>;
+
+/** 0 when the loop converged, 1 when it blocked, exhausted or failed. */
+export const exitFor = (outcome: { readonly status: string }) => (outcome.status === "converged" ? 0 : 1);
+
+/**
+ * A settled group loop as text: its tasks, its last check round and, when blocked, the
+ * escalation and the exact command that answers it.
+ */
+export function formatGroupOutcome(id: number | string, outcome: LoopOutcome<GroupOutcome>, dbPath: string): string[] {
+	const lines = [`# group loop ${id} — ${outcome.status}`];
+	for (const entry of outcome.result?.tasks ?? []) lines.push(`## task ${entry.task}: ${entry.outcome.status} (runs ${entry.runs})`);
+	const last = outcome.iterations.at(-1);
+	if (last !== undefined) lines.push(`## group check: ${last.verdict.met ? "passed" : "failed"}`);
+	if (outcome.status === "blocked") {
+		lines.push(`to: ${outcome.escalation.to}`, `question: ${outcome.escalation.question}`);
+		lines.push(`agentscript-task answer ${id} --db ${dbPath} --by ${outcome.escalation.to} --decision "…"`);
+	}
+	return lines;
+}
 
 async function builtin(): Promise<Models> {
 	const { builtinModels } = await import("@earendil-works/pi-ai/providers/all");
@@ -335,7 +358,7 @@ async function run(
 		const harness = await Harness.open(await openNodeSqliteStorage(db.path), { models, registry }, BACKGROUND_CONTEXT);
 		try {
 			if (group !== undefined && groupScript !== undefined) {
-				return await runGroup(harness, groupLoopOptions(options, group, groupScript, settings), io);
+				return await runGroup(harness, groupLoopOptions(options, group, groupScript, settings), io, db);
 			}
 			if (task === undefined) return usage();
 			let id: LoopId;
@@ -395,8 +418,8 @@ export function groupLoopOptions(
 	};
 }
 
-/** Start a group loop and wait for it. Output is minimal until the group's own formatting lands. */
-async function runGroup(harness: Harness, options: GroupLoopOptions, io: Io): Promise<number> {
+/** Start a group loop and wait for it. */
+async function runGroup(harness: Harness, options: GroupLoopOptions, io: Io, db: DbPath): Promise<number> {
 	let id;
 	try {
 		id = await startGroupLoop(harness, options, BACKGROUND_CONTEXT);
@@ -404,12 +427,46 @@ async function runGroup(harness: Harness, options: GroupLoopOptions, io: Io): Pr
 		io.err(message(error));
 		return 2;
 	}
-	io.err(`group loop ${id}`);
+	io.err(`loop ${id} — resume with: agentscript-task resume ${id} --db ${db.label}`);
+	return await settleGroup(harness, id, io, db);
+}
+
+/** Wait for a group loop and print its outcome. */
+async function settleGroup(harness: Harness, id: GroupId, io: Io, db: DbPath): Promise<number> {
 	harness.resume();
 	const outcome = await waitForGroupLoop(harness, id, BACKGROUND_CONTEXT);
 	if (io.json === true) io.out(JSON.stringify({ loop: id, ...outcome }, null, 2));
-	else io.out(`# group loop ${id} — ${outcome.status}`);
-	return outcome.status === "converged" ? 0 : 1;
+	else for (const line of formatGroupOutcome(id, outcome, db.label)) io.out(line);
+	return exitFor(outcome);
+}
+
+/** `resume` and `answer` for a group loop. */
+async function continueGroup(
+	command: "resume" | "answer",
+	harness: Harness,
+	id: GroupId,
+	answer: { by: Recipient; decision: string } | undefined,
+	io: Io,
+	db: DbPath,
+): Promise<number> {
+	if (command === "resume" || answer === undefined) return await settleGroup(harness, id, io, db);
+	let next: GroupId;
+	try {
+		const record = await harness.getTask(id as unknown as TaskId<GroupLoopResult>, BACKGROUND_CONTEXT);
+		const settled =
+			record?.state.status === "terminal" && record.state.outcome.status === "completed"
+				? readResult(record.state.outcome.result, id).outcome
+				: undefined;
+		if (settled === undefined || settled.status !== "blocked") {
+			throw new Error(`group loop ${id} has not ended blocked, so it has no escalation to answer`);
+		}
+		next = await answerGroupEscalation(harness, id, { escalation: settled.escalation, ...answer, feedback: [] }, BACKGROUND_CONTEXT);
+	} catch (error) {
+		io.err(message(error));
+		return 2;
+	}
+	io.err(`loop ${next} — resume with: agentscript-task resume ${next} --db ${db.label}`);
+	return await settleGroup(harness, next, io, db);
 }
 
 /** `resume` and `answer`: the loop's workspace, checks, allowlist, delegate and worktree come from the database. */
@@ -447,14 +504,23 @@ async function continueLoop(
 	if (lock.staleFrom !== undefined) warnings.push(`took over a stale lock on ${db.label} left by process ${lock.staleFrom}, which is no longer running`);
 	try {
 		const registry = createRegistry();
+		registry.install(GroupLoop);
 		registry.install(TaskLoop);
 		const harness = await Harness.open(await openNodeSqliteStorage(db.path), { models, registry }, BACKGROUND_CONTEXT);
 		try {
 			const id = Number(target) as LoopId;
-			const record = Number.isInteger(id) ? await harness.getTask(id, BACKGROUND_CONTEXT) : undefined;
-			if (record === undefined || record.kind !== TASK_LOOP) {
+			const kind = Number.isInteger(id) ? await loopKind(harness, id) : undefined;
+			const record = kind !== undefined ? await harness.getTask(id, BACKGROUND_CONTEXT) : undefined;
+			if (kind === undefined || record === undefined) {
 				io.err(`no loop ${target} in ${db.label}`);
 				return 2;
+			}
+			if (kind === "group") {
+				// A group's input carries the same workspace, checks, allowlist and delegate a task loop's does.
+				installActions(registry, record.input as unknown as GroupLoopInput);
+				for (const warning of warnings) io.emit({ event: "warning", loop: Number(id), message: warning });
+				const answer = command === "answer" ? { by: by as Recipient, decision: decision as string } : undefined;
+				return await continueGroup(command, harness, id as unknown as GroupId, answer, io, db);
 			}
 			const input = record.input as unknown as TaskLoopInput;
 			installActions(registry, input);
@@ -503,7 +569,10 @@ async function continueLoop(
 }
 
 /** Bind the loop's actions to the workspace, checks, allowlist and delegate it was started with. */
-function installActions(registry: Registry, input: TaskLoopInput): void {
+function installActions(
+	registry: Registry,
+	input: Pick<TaskLoopInput, "workspace" | "checks" | "allow" | "delegateModel" | "delegateContext">,
+): void {
 	const [, run, step] = taskLoopExtensions({
 		workspace: input.workspace,
 		checks: input.checks,
@@ -610,7 +679,7 @@ async function finish(harness: Harness, id: LoopId, context: FinishContext): Pro
 			out(`agentscript-task answer ${id} --db ${context.db.label} --by ${outcome.escalation.to} --decision "…"`);
 		}
 	}
-	return outcome.status === "converged" ? 0 : 1;
+	return exitFor(outcome);
 }
 
 // Run only as the entry point: through a bin symlink argv[1] is the link, so compare real paths.
