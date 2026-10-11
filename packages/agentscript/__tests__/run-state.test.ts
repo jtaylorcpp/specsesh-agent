@@ -139,3 +139,239 @@ describe("platform-agentscript-interpreter: The Document's Declared Variables Ar
 		expect(analyze(result.updatedSource as string).diagnostics.map((d) => d.message)).toEqual([]);
 	});
 });
+
+/** One subagent over the given declarations and instruction lines. */
+function stateDocument(declarations: readonly string[], statements: readonly string[], extra = ""): string {
+	return [
+		"variables:",
+		...declarations.map((line) => `    ${line}`),
+		"",
+		"subagent draft:",
+		'    description: "Draft it"',
+		"",
+		"    reasoning:",
+		"        instructions: ->",
+		...statements.map((line) => `            ${line}`),
+		"",
+		...(extra === "" ? [] : [extra, ""]),
+	].join("\n");
+}
+
+function lintMessages(source: string): string[] {
+	return analyze(source).diagnostics.map((d) => d.message);
+}
+
+describe("core-composition: Declared variables are the run's initial state", () => {
+	it("Scenario: Each literal kind starts as its JavaScript value", async () => {
+		const source = stateDocument(
+			['name: mutable string = "World"', "count: mutable number = 3", "approved: mutable boolean = False"],
+			["| Greet {!@variables.name}, {!@variables.count} times, approved: {!@variables.approved}."],
+		);
+		expect(lintMessages(source)).toEqual([]);
+		const { port } = recordingPort(answered());
+
+		const result = await run(source, { port });
+
+		expect(result.variables).toEqual({ name: "World", count: 3, approved: false });
+		// Types, not just looks: `3` is a number and `false` the boolean.
+		expect(typeof result.variables["count"]).toBe("number");
+		expect(result.variables["approved"]).toBe(false);
+	});
+});
+
+describe("core-composition: Both declaration forms are read the same way", () => {
+	it("Scenario: Both declaration forms seed state", async () => {
+		const source = stateDocument(
+			['stage: mutable string = "proposal"', 'change_id: string = "OS-1"'],
+			["| Draft {!@variables.change_id} at {!@variables.stage}."],
+		);
+		expect(lintMessages(source)).toEqual([]);
+		const { port, requests } = recordingPort(answered());
+
+		const result = await run(source, { port });
+
+		expect(result.variables).toEqual({ stage: "proposal", change_id: "OS-1" });
+		expect(requests[0]?.prompt).toBe("Draft OS-1 at proposal.");
+	});
+
+	it("Scenario: A description changes nothing", async () => {
+		const source = stateDocument(
+			['name: mutable string = "World"', '    description: "who to greet"'],
+			["| Greet {!@variables.name}."],
+		);
+		expect(lintMessages(source)).toEqual([]);
+		const { port, requests } = recordingPort(answered());
+
+		const result = await run(source, { port });
+
+		expect(result.variables["name"]).toBe("World");
+		expect(requests[0]?.prompt).toBe("Greet World.");
+	});
+});
+
+describe("core-composition: Every undeclared reference is refused before anything runs", () => {
+	// Every document here is refused by the dialect's own `undefined-reference`
+	// error before the interpreter's check is reached (see the scenario in
+	// "The Document's Declared Variables Are The Run's Initial State"), so `run`
+	// rejects with `UnparsedDocumentError` naming the variable. The interpreter's
+	// own check is exercised directly: it is the one that must cover every
+	// position, whatever the lint happens to catch.
+	async function refusal(source: string, ghost: string) {
+		const { port, requests } = recordingPort(answered());
+		const error = (await run(source, { port }).then(
+			() => undefined,
+			(err: unknown) => err,
+		)) as UnparsedDocumentError;
+		expect(error).toBeInstanceOf(UnparsedDocumentError);
+		expect(error.diagnostics.map((d) => d.message)).toEqual([`'${ghost}' is not defined in variables`]);
+		expect(requests).toHaveLength(0);
+		return collectUndeclaredReferences(analyze(source).parsed, new Set(["ok", "stage"]));
+	}
+
+	it("Scenario: An undeclared reference on a branch nobody takes", async () => {
+		const source = stateDocument(
+			["ok: mutable boolean = True", 'stage: mutable string = "proposal"'],
+			["| Read the {!@variables.stage}.", "if @variables.ok:", "    | Taken.", "else:", '    set @variables.ghost = "y"'],
+		);
+
+		const problems = await refusal(source, "ghost");
+
+		expect(problems.map((p) => p.variable)).toEqual(["ghost"]);
+		expect(problems[0]).toBeInstanceOf(UndeclaredVariableError);
+	});
+
+	it("Scenario: An undeclared reference in a subagent the run never enters", async () => {
+		const source = stateDocument(
+			["ok: mutable boolean = True", 'stage: mutable string = "proposal"'],
+			["| Read the {!@variables.stage}."],
+			[
+				"subagent review:",
+				'    description: "Never entered"',
+				"",
+				"    reasoning:",
+				"        instructions: ->",
+				"            | Review {!@variables.ghost}.",
+				"            if @variables.ok:",
+				"                | Fine.",
+			].join("\n"),
+		);
+
+		// `entry` names only the first subagent; the second is checked all the same.
+		const problems = await refusal(source, "ghost");
+
+		expect(problems.map((p) => p.variable)).toEqual(["ghost"]);
+	});
+});
+
+describe("core-composition: The undeclared check covers every reading and writing position", () => {
+	async function refusal(source: string, ghost: string) {
+		const { port, requests } = recordingPort(answered());
+		const error = (await run(source, { port }).then(
+			() => undefined,
+			(err: unknown) => err,
+		)) as UnparsedDocumentError;
+		expect(error).toBeInstanceOf(UnparsedDocumentError);
+		expect(error.diagnostics.map((d) => d.message)).toEqual([`'${ghost}' is not defined in variables`]);
+		expect(requests).toHaveLength(0);
+		return collectUndeclaredReferences(analyze(source).parsed, new Set(["ok", "stage"]));
+	}
+
+	it("Scenario: An undeclared set target", async () => {
+		const source = stateDocument(
+			["ok: mutable boolean = True", 'stage: mutable string = "proposal"'],
+			["| Read the {!@variables.stage}.", "if @variables.ok:", '    set @variables.nowhere = "x"'],
+		);
+
+		const problems = await refusal(source, "nowhere");
+
+		expect(problems.map((p) => p.variable)).toEqual(["nowhere"]);
+	});
+
+	it("Scenario: An undeclared read on the right of or", async () => {
+		const source = stateDocument(
+			["ok: mutable boolean = True", 'stage: mutable string = "proposal"'],
+			["| Read the {!@variables.stage}.", "if @variables.ok or @variables.ghost:", "    | Taken."],
+		);
+
+		// `ok` is true, so evaluation would never reach `ghost`; the check does.
+		const problems = await refusal(source, "ghost");
+
+		expect(problems.map((p) => p.variable)).toEqual(["ghost"]);
+	});
+});
+
+describe("core-composition: An undeclared reference error names the reference and its position", () => {
+	it("Scenario: Each reference reports its own position", async () => {
+		const line = "| {!@variables.stage} then {!@variables.bad}.";
+		const source = stateDocument(['stage: mutable string = "proposal"'], [line]);
+		expect(lintMessages(source)).toEqual(["'bad' is not defined in variables"]);
+		const { port, requests } = recordingPort(answered());
+		await expect(run(source, { port })).rejects.toBeInstanceOf(UnparsedDocumentError);
+		expect(requests).toHaveLength(0);
+
+		const problems = collectUndeclaredReferences(analyze(source).parsed, new Set(["stage"]));
+
+		expect(problems).toHaveLength(1);
+		const error = problems[0] as UndeclaredVariableError;
+		expect(error.name).toBe("UndeclaredVariableError");
+		expect(error.variable).toBe("bad");
+		const lines = source.split("\n");
+		const row = lines.findIndex((l) => l.includes(line));
+		const column = (lines[row] as string).indexOf("{!@variables.bad}");
+		// The reference's own start, past the `{!@variables.stage}` before it —
+		// not the start of the line holding both.
+		expect(error.range.start).toEqual({ line: row, character: column });
+		expect(column).toBeGreaterThan((lines[row] as string).indexOf("|") + 2);
+		expect(error.message).toContain("@variables.bad");
+		expect(error.message).toContain(`${row + 1}:${column + 1}`);
+		expect(error.message).toContain("declares no such variable");
+	});
+});
+
+describe("core-composition: A run does not edit the script unless asked", () => {
+	it("Scenario: Nothing changed means identical text", async () => {
+		const source = stateDocument(
+			['stage: mutable string = "proposal"', "count: mutable number = 3", "approved: mutable boolean = False"],
+			["| Draft the {!@variables.stage}, {!@variables.count}, {!@variables.approved}."],
+		);
+		expect(lintMessages(source)).toEqual([]);
+		const { port } = recordingPort(answered());
+
+		const result = await run(source, { port, persistVariables: true });
+
+		expect(result.variables).toEqual({ stage: "proposal", count: 3, approved: false });
+		expect(result.updatedSource).toBe(source);
+	});
+});
+
+describe("core-composition: Persistence rewrites only changed values, in the dialect's spelling", () => {
+	it("Scenario: Only the value span changes", async () => {
+		const source = [
+			"variables:",
+			'    stage: mutable string = "proposal"  # the working stage',
+			'        description: "proposal | specs"',
+			"    count: mutable number = 3",
+			"",
+			"subagent draft:",
+			'    description: "Draft it"',
+			"",
+			"    reasoning:",
+			"        instructions: ->",
+			"            | Draft the {!@variables.stage}, {!@variables.count} times.",
+			'            set @variables.stage = "say \\"hi\\""',
+			"",
+		].join("\n");
+		expect(lintMessages(source)).toEqual([]);
+		const { port } = recordingPort(answered());
+
+		const result = await run(source, { port, persistVariables: true });
+
+		expect(result.variables["stage"]).toBe('say "hi"');
+		expect(result.updatedSource).toBe(source.replace('= "proposal"', '= "say \\"hi\\""'));
+		// The unchanged number, the comment, the description and the body survive.
+		expect(result.updatedSource).toContain("count: mutable number = 3");
+		expect(result.updatedSource).toContain("# the working stage");
+		expect(result.updatedSource).toContain('description: "proposal | specs"');
+		expect(lintMessages(result.updatedSource as string)).toEqual([]);
+	});
+});

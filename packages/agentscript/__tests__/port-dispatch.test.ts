@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { NoReasoningPortError, run } from "../src/interpreter/index.js";
+import { analyze } from "../src/authoring/index.js";
+import { NoReasoningPortError, UnparsedDocumentError, run } from "../src/interpreter/index.js";
 import * as interpreter from "../src/interpreter/index.js";
-import { IN_SUBSET } from "./helpers/fixtures.js";
+import { IN_SUBSET, TWO_STEPS } from "./helpers/fixtures.js";
 import { answered, recordingPort } from "./helpers/recording-port.js";
 
 describe("platform-agentscript-interpreter: Reasoning Goes Out Through A Declared Port, And The Package Imports No Model Client", () => {
@@ -44,5 +45,93 @@ describe("platform-agentscript-interpreter: Reasoning Goes Out Through A Declare
 				typeof value === "object" && value !== null && typeof Reflect.get(value, "reason") === "function",
 		);
 		expect(implementations).toEqual([]);
+	});
+});
+
+/** A system block that interpolates a declared variable, with a prompt to dispatch. */
+const SYSTEM_INTERPOLATION = `system:
+    instructions: |
+        You are working on the {!@variables.stage}.
+
+variables:
+    stage: mutable string = "proposal"
+
+subagent draft:
+    description: "Fill the proposal"
+
+    reasoning:
+        instructions: ->
+            | Read the current artifact.
+`;
+
+/** Declares a subagent and no `system:` block at all. */
+const NO_SYSTEM_BLOCK = `subagent draft:
+    description: "Fill the proposal"
+
+    reasoning:
+        instructions: ->
+            | Read the current artifact.
+`;
+
+describe("core-reasoning-port: System instructions travel as their own channel", () => {
+	it("Scenario: No system block", async () => {
+		expect(analyze(NO_SYSTEM_BLOCK).diagnostics).toEqual([]);
+		const { port, requests } = recordingPort(answered());
+
+		await run(NO_SYSTEM_BLOCK, { port });
+
+		expect(requests).toHaveLength(1);
+		expect(requests[0]?.systemInstructions).toBe("");
+		expect(requests[0]?.prompt).toBe("Read the current artifact.");
+	});
+
+	it("Scenario: Every step carries the same instructions", async () => {
+		const { port, requests } = recordingPort(answered("first"), answered("second"));
+
+		await run(TWO_STEPS, { port, entry: ["first", "second"] });
+
+		expect(requests).toHaveLength(2);
+		expect(requests[0]?.systemInstructions).toBe("You walk the author through one OpenSpec change.");
+		expect(requests[1]?.systemInstructions).toBe(requests[0]?.systemInstructions);
+	});
+});
+
+describe("core-reasoning-port: System instructions are not composed against run state", () => {
+	it("Scenario: An interpolation in the system block is not filled in", async () => {
+		expect(analyze(SYSTEM_INTERPOLATION).diagnostics).toEqual([]);
+		const { port, requests } = recordingPort(answered());
+
+		await run(SYSTEM_INTERPOLATION, { port });
+
+		const system = requests[0]?.systemInstructions;
+		expect(system).toContain("{!@variables.stage}");
+		// Not filled in, and not an empty hole either.
+		expect(system).not.toContain("proposal");
+		expect(system).toBe("You are working on the {!@variables.stage}.");
+	});
+});
+
+describe("core-reasoning-port: There is no default port", () => {
+	it("Scenario: No port is refused before the document is read", async () => {
+		// A source the dialect cannot make sense of: read first, it would be a
+		// document error. The port is checked before anything is parsed.
+		const unparsable = 'subagent draft:\n    set @variables.stage = "unterminated\n';
+		expect(analyze(unparsable).diagnostics.length).toBeGreaterThan(0);
+
+		const error = await run(unparsable).then(
+			() => undefined,
+			(err: unknown) => err,
+		);
+
+		expect(error).toBeInstanceOf(NoReasoningPortError);
+		expect(error).not.toBeInstanceOf(UnparsedDocumentError);
+		expect((error as Error).name).toBe("NoReasoningPortError");
+
+		// And with the port supplied the same text IS a document error, so the
+		// ordering above is what the test observed rather than a source that
+		// would have been accepted anyway.
+		const { port, requests } = recordingPort(answered());
+		await expect(run(unparsable, { port })).rejects.not.toBeInstanceOf(NoReasoningPortError);
+		expect(requests).toHaveLength(0);
 	});
 });
