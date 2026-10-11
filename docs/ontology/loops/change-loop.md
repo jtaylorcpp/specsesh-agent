@@ -1,0 +1,57 @@
+---
+id: change-loop
+name: Change loop
+kind: loop
+area: loops
+spec:
+  - "openspec/loops: The change loop makes the spec real"
+  - "openspec/loops: The change loop reports its groups and what was unclaimed"
+  - "openspec/loops: A spec defect leaves the loops as an amendment"
+related: [loop, task-list, group-loop, change-outcome, unclaimed-scenario, validation-report, execute-step]
+status: modelled
+---
+
+# Change loop
+
+The loop that drives the whole task list until the spec is real.
+
+## Definition
+
+```
+Loop<TaskList, ChangeOutcome>
+  goal:    the change's TaskList
+  targets: every scenario in every delta (unclaimed included)
+           + a ValidationReport with valid true
+           + the full suite passing
+  iterates: its group loops, in order, then a change check
+```
+
+## Fields
+
+| Field | Type | Meaning |
+|---|---|---|
+| Goal | `TaskList` | The change's tasks.md. |
+| Targets | every delta scenario, strict validation, the full suite | Unclaimed scenarios included. |
+| Out | `ChangeOutcome` | `{ groups: GroupOutcome[], unclaimed: ScenarioRef[] }`. |
+
+## Invariants
+
+- Every delta scenario SHALL be a target, including scenarios no task claims.
+- The change check SHALL close unclaimed scenarios by adding tasks, and MAY issue `"rework-task"` or `"add-task"`.
+- A `"spec-defect"` finding SHALL become `"amend-spec"`, ending the change loop `"blocked"` with an escalation and moving the change to `amended`. The fix is a delta change, not code.
+
+## Relations
+
+- An instance of [Loop](loop.md) over the [TaskList](../../taxonomy/task-list.md); run by the [execute](../process/steps/execute-step.md) step.
+- Runs [Group loop](group-loop.md)s; targets [unclaimed scenarios](../../taxonomy/unclaimed-scenario.md) and a valid [ValidationReport](../process/validation-report.md).
+- Returns a [ChangeOutcome](change-outcome.md).
+
+## Example
+
+On 2026-10-11, tests written for `baseline-agentscript-durable` showed its spec said `run` throws `UndeclaredVariableError` and allowed nested `if`s, while the dialect's lint refuses both first. That `"spec-defect"` finding ended the loop with `"amend-spec"`, and the remedy was amended requirements, not changed code.
+
+## Spec
+
+- `openspec/loops: The change loop makes the spec real`
+- `openspec/loops: The change loop reports its groups and what was unclaimed`
+- `openspec/loops: A spec defect leaves the loops as an amendment`

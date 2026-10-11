@@ -87,8 +87,25 @@ for (const path of seen.keys()) {
 	if (!pages.some((f) => relative(docs, f) === path)) problems.push(`README lists ${path}, which has no page`);
 }
 
+// Every relative link in docs/ must resolve to a file.
+let links = 0;
+for (const file of walk(docs)) {
+	const text = readFileSync(file, "utf8").replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
+	for (const [, target] of text.matchAll(/\]\(([^)#\s]+\.md)(#[^)]*)?\)/g)) {
+		if (/^[a-z]+:/.test(target)) continue;
+		links += 1;
+		const resolved = join(file, "..", target);
+		try {
+			readFileSync(resolved);
+		} catch {
+			problems.push(`${relative(docs, file)}: link ${target} does not resolve`);
+		}
+	}
+}
+if (links === 0) problems.push("found no relative links in docs/; the link check would pass vacuously");
+
 if (problems.length > 0) {
 	console.error(`docs:check found ${problems.length} problem(s):\n${problems.map((p) => `  - ${p}`).join("\n")}`);
 	process.exit(1);
 }
-console.log(`docs:check: ${pages.length} concept pages, ${listed.length} README entries, ${requirements.size} spec requirements read — all consistent`);
+console.log(`docs:check: ${pages.length} concept pages, ${listed.length} README entries, ${requirements.size} spec requirements read — ${links} links resolved — all consistent`);
