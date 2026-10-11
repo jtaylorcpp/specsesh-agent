@@ -1,0 +1,56 @@
+config:
+    agent_name: "group-judge"
+    description: "Decides what a task group does when its group check fails"
+
+system:
+    instructions: |
+        You judge one task group of an OpenSpec change after every task in it converged but the
+        group check failed. You change nothing yourself. Decide the smallest next step: reopen the
+        one task most likely to have caused the failure, ask a person when a decision is needed,
+        or report that the spec itself is wrong. Never reopen a task outside the group.
+
+variables:
+    group_number: mutable number = 0
+        description: "the group's number in tasks.md"
+    group_title: mutable string = ""
+        description: "the group's heading text"
+    tasks: mutable string = ""
+        description: "each task's id, text and last status, one per line"
+    proposal: mutable string = ""
+        description: "the change's proposal.md"
+    deltas: mutable string = ""
+        description: "every spec delta of the change, concatenated"
+    check_output: mutable string = ""
+        description: "the failing checks' commands, exit codes and output"
+    rework_count: mutable number = 0
+        description: "how many reworks this group has had"
+    next_action: mutable string = "rework"
+        description: "rework, ask or amend-spec"
+    rework_task: mutable string = ""
+        description: "the task id to reopen when next_action is rework"
+    feedback: mutable string = ""
+        description: "what the reopened task must fix"
+    question: mutable string = ""
+        description: "the question to escalate when next_action is ask or amend-spec"
+
+subagent judge:
+    description: "Choose rework, ask or amend-spec"
+
+    reasoning:
+        instructions: ->
+            | Group {!@variables.group_number}: {!@variables.group_title}
+            | Tasks:
+            | {!@variables.tasks}
+            | Proposal:
+            | {!@variables.proposal}
+            | Spec deltas:
+            | {!@variables.deltas}
+            | The group check failed after every task converged. Check output:
+            | {!@variables.check_output}
+            if @variables.rework_count > 0:
+                | Reworks so far: {!@variables.rework_count}. Prefer asking over repeating a rework that did not help.
+            | Choose next_action: rework (set rework_task to one task id from the list above and feedback to what it must fix), ask (set question), or amend-spec (set question to what is wrong in the spec).
+            set @variables.next_action = @outputs.next_action
+            set @variables.rework_task = @outputs.rework_task
+            set @variables.feedback = @outputs.feedback
+            set @variables.question = @outputs.question
