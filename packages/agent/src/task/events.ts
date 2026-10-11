@@ -16,9 +16,11 @@
  */
 
 import type { Context } from "@earendil-works/chord";
-import type { Harness, TaskId } from "@earendil-works/pi-durable";
+import type { Cursor, Harness, Storage, TaskId } from "@earendil-works/pi-durable";
 import type { GroupOutcome, Iteration, LoopOutcome, LoopStatus, TaskOutcome } from "../openspec/index.js";
-import type { LoopCheckpoint } from "./loop-input.js";
+import { decodeCheckpoint, initialGroupCheckpoint, type GroupCheckpoint, type GroupLoopInput } from "./group.js";
+import type { LoopCheckpoint, TaskLoopResult } from "./loop-input.js";
+import { TASK_LOOP } from "./loop.js";
 
 export type TaskEvent =
 	| { event: "loop-started"; loop: number; group?: number; change: string; task: string; script: string; at: string }
@@ -133,6 +135,190 @@ export function iterationEvents(loop: number, iteration: Iteration): TaskEvent[]
 		next: verdict.met ? "done" : (iteration.feedback[0]?.action ?? "retry"),
 	});
 	return events;
+}
+
+/** A child task loop of a group, as the watcher reads it from storage. */
+type ChildRecord = {
+	readonly id: number;
+	readonly input: { readonly task: string; readonly earlier?: readonly unknown[] };
+	readonly state: { readonly status: string; readonly checkpoint?: unknown; readonly outcome?: { readonly status: string; readonly result?: unknown } };
+};
+
+function isObject(v: unknown): v is Record<string, unknown> {
+	return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isEarlierTask(v: unknown): v is { task: string; earlier?: readonly unknown[] } {
+	return isObject(v) && typeof v.task === "string" && (v.earlier === undefined || Array.isArray(v.earlier));
+}
+
+export interface GroupWatchOptions {
+	readonly change: string;
+	/** The script label child `loop-started` events carry. */
+	readonly script: string;
+	/** Called as a child's `loop-started` is emitted; the function it returns lists what that loop changed. */
+	readonly track?: () => () => string[];
+}
+
+/**
+ * Turns a running group loop's record into events, each exactly once and in order:
+ * `group-started`, then each child task loop's events (tagged with the group) and
+ * each check round's `group-check` (and `rework`) as the group's work reached them,
+ * then `group-ended`. Children are the task loops the group owns, in creation order,
+ * so a child the poll never saw running is still reported, from its settled record.
+ *
+ * A round follows exactly the children that ran before it: the starting queue plus
+ * one rework child per earlier round.
+ */
+export class GroupWatcher {
+	private readonly loop: number;
+	private readonly group: number;
+	private readonly tasks: readonly string[];
+	private readonly emit: EventSink;
+	private readonly options: GroupWatchOptions;
+	/** Rounds an answered escalation's earlier run already recorded. */
+	private readonly earlier: number;
+	/** Children the starting checkpoint queued. */
+	private readonly base: number;
+	private reported: number;
+	private done = 0;
+	private current?: { id: number; watcher: LoopWatcher; changed: () => string[] };
+
+	constructor(loop: number, input: GroupLoopInput, emit: EventSink, options: GroupWatchOptions) {
+		this.loop = loop;
+		this.group = input.group;
+		this.tasks = input.tasks.map((t) => t.id);
+		this.emit = emit;
+		this.options = options;
+		const start = input.resume !== undefined ? decodeCheckpoint(input.resume.checkpoint) : initialGroupCheckpoint(input.tasks);
+		this.earlier = start.iterations.length;
+		this.reported = this.earlier;
+		this.base = start.queue.length + (start.phase === "task" && start.child?.id === undefined ? 1 : 0);
+	}
+
+	start(): void {
+		this.emit(groupStarted(this.loop, this.options.change, this.group, this.tasks));
+	}
+
+	private async children(storage: Storage, context: Context): Promise<ChildRecord[]> {
+		const found: ChildRecord[] = [];
+		let cursor: Cursor | undefined;
+		do {
+			const page = await storage.scanTasks({ kind: TASK_LOOP }, 100, cursor, context);
+			for (const record of page.items) {
+				if (record.owner !== undefined && Number(record.owner) === this.loop) {
+					const { input, state } = record;
+					if (!isEarlierTask(input)) continue;
+					found.push({ id: Number(record.id), input, state });
+				}
+			}
+			cursor = page.next;
+		} while (cursor !== undefined);
+		return found.sort((a, b) => a.id - b.id);
+	}
+
+	/** Report one child as far as its record goes; true once it has ended. */
+	private feed(child: ChildRecord): boolean {
+		const sink = withGroup(this.emit, this.group);
+		if (this.current?.id !== child.id) {
+			this.current = {
+				id: child.id,
+				watcher: new LoopWatcher(child.id, sink, child.input.earlier?.length ?? 0),
+				changed: this.options.track?.() ?? (() => []),
+			};
+			sink({ event: "loop-started", loop: child.id, change: this.options.change, task: child.input.task, script: this.options.script, at: now() });
+		}
+		const { watcher, changed } = this.current;
+		const state = child.state;
+		if (state.status !== "terminal") {
+			if (state.checkpoint !== undefined) watcher.observe(state.checkpoint as LoopCheckpoint);
+			return false;
+		}
+		const ended = state.outcome;
+		const outcome = (
+			ended?.status === "completed"
+				? (ended.result as TaskLoopResult).outcome
+				: { status: "failed", iterations: [] }
+		) as LoopOutcome<TaskOutcome>;
+		watcher.finish(outcome);
+		sink({
+			event: "loop-ended",
+			loop: child.id,
+			status: outcome.status,
+			iterations: outcome.iterations.length,
+			ticked: outcome.status === "converged" ? outcome.result.ticked : false,
+			changed: changed(),
+		});
+		this.current = undefined;
+		this.done += 1;
+		return true;
+	}
+
+	/** Report children until `limit` have ended; false while one is still running. */
+	private drain(children: readonly ChildRecord[], limit: number, final: boolean): boolean {
+		while (this.done < limit) {
+			const child = children[this.done];
+			if (child === undefined) return final;
+			if (!this.feed(child)) return final;
+		}
+		return true;
+	}
+
+	private reportRound(round: Iteration): void {
+		const checks = round.evidence.filter((e) => e.kind === "check") as { command: string; exitCode: number; output: string }[];
+		this.emit(groupCheck(this.loop, checks, round.verdict.met));
+		const feedback = round.feedback[0];
+		if (feedback?.action === "rework-task") {
+			const named = /^rework (\S+): ([\s\S]*)$/.exec(feedback.from.message);
+			const failing = checks.find((c) => c.exitCode !== 0);
+			const firstLine = (failing?.output ?? "").split("\n").find((line) => line.trim() !== "");
+			const reason = named?.[2]?.trim() || firstLine || `group ${this.group} check failed`;
+			this.emit(rework(this.loop, named?.[1] ?? "", reason));
+		}
+		this.reported = round.n;
+	}
+
+	private advance(children: readonly ChildRecord[], rounds: readonly Iteration[], final: boolean): void {
+		for (;;) {
+			const bound = this.base + (this.reported - this.earlier);
+			const round = rounds.find((r) => r.n === this.reported + 1);
+			const limit = round !== undefined || !final ? bound : Number.POSITIVE_INFINITY;
+			if (!this.drain(children, limit, final) || round === undefined) return;
+			this.reportRound(round);
+		}
+	}
+
+	/** A group checkpoint read while the loop runs. */
+	async observe(storage: Storage, checkpoint: GroupCheckpoint, context: Context): Promise<void> {
+		this.advance(await this.children(storage, context), checkpoint.iterations, false);
+	}
+
+	/** The settled outcome: whatever children and rounds were not reported yet, then `group-ended`. */
+	async finish(storage: Storage, outcome: LoopOutcome<GroupOutcome>, changed: readonly string[], context: Context): Promise<void> {
+		this.advance(await this.children(storage, context), outcome.iterations, true);
+		this.emit(groupEndedFromOutcome(this.loop, outcome, changed));
+	}
+
+	/** Poll the group loop's record every `intervalMs` until stopped. */
+	watch(harness: Harness, storage: Storage, id: TaskId<unknown>, context: Context, intervalMs = 200): () => Promise<void> {
+		let stopped = false;
+		let pending: Promise<void> = Promise.resolve();
+		const tick = async () => {
+			const record = await harness.getTask(id, context).catch(() => undefined);
+			const state = record?.state;
+			if (state === undefined || !("checkpoint" in state) || state.checkpoint === undefined) return;
+			await this.observe(storage, decodeCheckpoint(state.checkpoint), context).catch(() => undefined);
+		};
+		const timer = setInterval(() => {
+			if (stopped) return;
+			pending = pending.then(tick);
+		}, intervalMs);
+		return async () => {
+			stopped = true;
+			clearInterval(timer);
+			await pending;
+		};
+	}
 }
 
 /**

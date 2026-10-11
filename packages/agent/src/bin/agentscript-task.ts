@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai";
-import { createRegistry, Harness, type Registry, type TaskId } from "@earendil-works/pi-durable";
+import { createRegistry, Harness, type Registry, type Storage, type TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { Escalation, GroupOutcome, LoopOutcome, Recipient, TaskOutcome } from "../openspec/index.js";
 import {
@@ -69,7 +69,7 @@ import {
 	type ResolvedScript,
 	type RunSettings,
 } from "../task/config.js";
-import { LoopWatcher, jsonLines, now, type EventSink, type TaskEvent } from "../task/events.js";
+import { GroupWatcher, LoopWatcher, jsonLines, now, type EventSink, type TaskEvent } from "../task/events.js";
 import { changedBetween, insideGit, repoRoot, snapshot, status } from "../task/git.js";
 import { DatabaseLockedError, lockDatabase, type DbLock } from "../task/lock.js";
 import { ChangeNotFoundError, nextGroup, nextTask, resolveChange } from "../task/resolve.js";
@@ -355,10 +355,11 @@ async function run(
 		const registry = createRegistry();
 		const extensions = group !== undefined ? groupLoopExtensions(options) : taskLoopExtensions(options);
 		for (const extension of extensions) registry.install(extension);
-		const harness = await Harness.open(await openNodeSqliteStorage(db.path), { models, registry }, BACKGROUND_CONTEXT);
+		const storage = await openNodeSqliteStorage(db.path);
+		const harness = await Harness.open(storage, { models, registry }, BACKGROUND_CONTEXT);
 		try {
 			if (group !== undefined && groupScript !== undefined) {
-				return await runGroup(harness, groupLoopOptions(options, group, groupScript, settings), io, db);
+				return await runGroup(harness, storage, groupLoopOptions(options, group, groupScript, settings), io, db);
 			}
 			if (task === undefined) return usage();
 			let id: LoopId;
@@ -419,7 +420,7 @@ export function groupLoopOptions(
 }
 
 /** Start a group loop and wait for it. */
-async function runGroup(harness: Harness, options: GroupLoopOptions, io: Io, db: DbPath): Promise<number> {
+async function runGroup(harness: Harness, storage: Storage, options: GroupLoopOptions, io: Io, db: DbPath): Promise<number> {
 	let id;
 	try {
 		id = await startGroupLoop(harness, options, BACKGROUND_CONTEXT);
@@ -428,13 +429,40 @@ async function runGroup(harness: Harness, options: GroupLoopOptions, io: Io, db:
 		return 2;
 	}
 	io.err(`loop ${id} — resume with: agentscript-task resume ${id} --db ${db.label}`);
-	return await settleGroup(harness, id, io, db);
+	return await settleGroup(harness, storage, id, io, db);
 }
 
-/** Wait for a group loop and print its outcome. */
-async function settleGroup(harness: Harness, id: GroupId, io: Io, db: DbPath): Promise<number> {
+/** Wait for a group loop, stream its events and print its outcome. */
+async function settleGroup(harness: Harness, storage: Storage, id: GroupId, io: Io, db: DbPath): Promise<number> {
+	const record = await harness.getTask(id as unknown as TaskId<GroupLoopResult>, BACKGROUND_CONTEXT);
+	const input = record?.input as unknown as GroupLoopInput | undefined;
+	const inGit = input !== undefined && insideGit(input.workspace);
+	const root = input !== undefined && inGit ? repoRoot(input.workspace) : undefined;
+	const skip = input !== undefined && root !== undefined ? bookkeeping(root, { io, db, workspace: input.workspace, ...(input.tasksPath !== undefined ? { tasksPath: input.tasksPath } : {}), earlier: 0 }) : new Set<string>();
+	const diffSince = () => {
+		if (input === undefined || root === undefined) return () => [] as string[];
+		const before = snapshot(input.workspace);
+		return () => changedBetween(before, snapshot(input.workspace), skip);
+	};
+	const changedAtEnd = input !== undefined && root !== undefined ? diffSince() : () => [] as string[];
+	const watcher =
+		input !== undefined
+			? new GroupWatcher(Number(id), input, io.emit, {
+					change: changeOf(input),
+					script: scriptOf({ script: input.script } as TaskLoopInput),
+					track: diffSince,
+				})
+			: undefined;
+	watcher?.start();
+	const stop = watcher?.watch(harness, storage, id, BACKGROUND_CONTEXT, io.pollMs);
 	harness.resume();
-	const outcome = await waitForGroupLoop(harness, id, BACKGROUND_CONTEXT);
+	let outcome: LoopOutcome<GroupOutcome>;
+	try {
+		outcome = await waitForGroupLoop(harness, id, BACKGROUND_CONTEXT);
+	} finally {
+		await stop?.();
+	}
+	await watcher?.finish(storage, outcome, changedAtEnd(), BACKGROUND_CONTEXT);
 	if (io.json === true) io.out(JSON.stringify({ loop: id, ...outcome }, null, 2));
 	else for (const line of formatGroupOutcome(id, outcome, db.label)) io.out(line);
 	return exitFor(outcome);
@@ -444,12 +472,13 @@ async function settleGroup(harness: Harness, id: GroupId, io: Io, db: DbPath): P
 async function continueGroup(
 	command: "resume" | "answer",
 	harness: Harness,
+	storage: Storage,
 	id: GroupId,
 	answer: { by: Recipient; decision: string } | undefined,
 	io: Io,
 	db: DbPath,
 ): Promise<number> {
-	if (command === "resume" || answer === undefined) return await settleGroup(harness, id, io, db);
+	if (command === "resume" || answer === undefined) return await settleGroup(harness, storage, id, io, db);
 	let next: GroupId;
 	try {
 		const record = await harness.getTask(id as unknown as TaskId<GroupLoopResult>, BACKGROUND_CONTEXT);
@@ -466,7 +495,7 @@ async function continueGroup(
 		return 2;
 	}
 	io.err(`loop ${next} — resume with: agentscript-task resume ${next} --db ${db.label}`);
-	return await settleGroup(harness, next, io, db);
+	return await settleGroup(harness, storage, next, io, db);
 }
 
 /** `resume` and `answer`: the loop's workspace, checks, allowlist, delegate and worktree come from the database. */
@@ -506,7 +535,8 @@ async function continueLoop(
 		const registry = createRegistry();
 		registry.install(GroupLoop);
 		registry.install(TaskLoop);
-		const harness = await Harness.open(await openNodeSqliteStorage(db.path), { models, registry }, BACKGROUND_CONTEXT);
+		const storage = await openNodeSqliteStorage(db.path);
+		const harness = await Harness.open(storage, { models, registry }, BACKGROUND_CONTEXT);
 		try {
 			const id = Number(target) as LoopId;
 			const kind = Number.isInteger(id) ? await loopKind(harness, id) : undefined;
@@ -520,7 +550,7 @@ async function continueLoop(
 				installActions(registry, record.input as unknown as GroupLoopInput);
 				for (const warning of warnings) io.emit({ event: "warning", loop: Number(id), message: warning });
 				const answer = command === "answer" ? { by: by as Recipient, decision: decision as string } : undefined;
-				return await continueGroup(command, harness, id as unknown as GroupId, answer, io, db);
+				return await continueGroup(command, harness, storage, id as unknown as GroupId, answer, io, db);
 			}
 			const input = record.input as unknown as TaskLoopInput;
 			installActions(registry, input);
