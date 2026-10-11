@@ -20,4 +20,4 @@
 ## 4. Close
 
 - [x] 4.1 `pnpm -r check`, `pnpm -r test`, `pnpm pack:check`, `pnpm spec:check`, `pnpm docs:check` pass
-- [ ] 4.2 `pnpm spec:archive switch-ontology-to-zod`
+- [x] 4.2 `pnpm spec:archive switch-ontology-to-zod`
