@@ -46,4 +46,4 @@
 ## 9. Close
 
 - [x] 9.1 All suites pass, types clean, conformance passes on the pinned dialect
-- [ ] 9.2 `pnpm spec:archive add-agentscript-actions`, then `pnpm spec:check`
+- [x] 9.2 `pnpm spec:archive add-agentscript-actions`, then `pnpm spec:check`
