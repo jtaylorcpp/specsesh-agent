@@ -54,6 +54,16 @@ export {
 
 export {
 	EmptyPromptError,
+	RunStateError,
+	SourceMismatchError,
+	apply,
+	hashSource,
+	next,
+	start,
+	type AwaitingStep,
+	type NextStep,
+	type RunState,
+	type StartOptions,
 	NoEntrySubagentError,
 	UndeclaredOverrideError,
 	UnknownSubagentError,

@@ -207,10 +207,82 @@ export class UndeclaredOverrideError extends Error {
 	}
 }
 
-export async function run(source: string, options: RunOptions = {}): Promise<RunResult> {
-	const port = options.port;
-	if (port === undefined) throw new NoReasoningPortError();
+/**
+ * The run's state between steps, as plain JSON.
+ *
+ * This is what lets a run outlive a process: a durable host saves it after every
+ * `next` and `apply`, and a restarted host carries on from it. Everything the
+ * runner knows between steps is in here and nowhere else.
+ */
+export interface RunState {
+	readonly version: 1;
+	/** Fingerprint of the source the state was started on; `next`/`apply` refuse any other. */
+	readonly sourceHash: string;
+	/** The subagents to run, in order, resolved at `start`. */
+	readonly entries: readonly string[];
+	/** Index into `entries` of the subagent to compose next. */
+	readonly cursor: number;
+	readonly variables: Readonly<Record<string, VariableValue>>;
+	readonly steps: readonly StepReport[];
+	/** Set once a step ends cut short or failed; the run is then over. */
+	readonly stopped?: "cut-short" | "failed";
+	/**
+	 * A step that has been composed but not answered. Composition may already have
+	 * run logic lines, so the variables they produced travel with it and are only
+	 * committed by `apply`.
+	 */
+	readonly awaiting?: AwaitingStep;
+}
 
+export interface AwaitingStep {
+	readonly subagent: string;
+	readonly request: ReasoningRequest;
+	readonly pending: readonly PendingAssignment[];
+	readonly variables: Readonly<Record<string, VariableValue>>;
+}
+
+/** What `next` decided: a request to answer, or the run's result. */
+export type NextStep =
+	| { readonly type: "request"; readonly request: ReasoningRequest; readonly state: RunState }
+	| { readonly type: "done"; readonly result: RunResult };
+
+export interface StartOptions {
+	readonly entry?: string | readonly string[];
+	readonly variables?: Readonly<Record<string, VariableValue>>;
+}
+
+/** Raised when a state is used with a different source than it was started on. */
+export class SourceMismatchError extends Error {
+	constructor() {
+		super(
+			"this run state was started on a different document. A state is only valid with the " +
+				"exact source it was started on; a changed script means a new run.",
+		);
+		this.name = "SourceMismatchError";
+	}
+}
+
+/** Raised when `apply` is called with no step awaiting an answer, or `next` while one is. */
+export class RunStateError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "RunStateError";
+	}
+}
+
+/** Everything read from the source, re-derived on every call so the state stays small. */
+interface Program {
+	readonly declarations: ReadonlyMap<string, DeclaredVariable>;
+	readonly subagents: ReturnType<typeof readSubagents>;
+	readonly systemInstructions: string;
+}
+
+/**
+ * Parse and check the whole document. Every refusal happens here, before
+ * anything is dispatched: lint errors, an unreadable tree, an unsupported
+ * construct, an undeclared reference.
+ */
+function load(source: string): Program {
 	// ONE analysis, and both halves of it are read. Taking `.parsed` and dropping
 	// `.diagnostics` is what let a document with a hard syntax error execute: the
 	// scan walks the RECOVERED tree, so everything the recovery swallowed is
@@ -233,26 +305,57 @@ export async function run(source: string, options: RunOptions = {}): Promise<Run
 	const undeclared = collectUndeclaredReferences(parsed, new Set(declarations.keys()));
 	if (undeclared[0] !== undefined) throw undeclared[0];
 
-	const variables = new Map<string, VariableValue>();
-	for (const [name, declared] of declarations) variables.set(name, declared.initial);
+	return { declarations, subagents: readSubagents(parsed), systemInstructions: readSystemInstructions(parsed) };
+}
+
+function loadFor(source: string, state: RunState): Program {
+	if (state.version !== 1 || state.sourceHash !== hashSource(source)) throw new SourceMismatchError();
+	return load(source);
+}
+
+/** Validate the document and the caller's choices, and return the run's first state. */
+export function start(source: string, options: StartOptions = {}): RunState {
+	const { declarations, subagents } = load(source);
+
+	const variables: Record<string, VariableValue> = {};
+	for (const [name, declared] of declarations) variables[name] = declared.initial;
 	for (const [name, value] of Object.entries(options.variables ?? {})) {
 		if (!declarations.has(name)) {
 			throw new UndeclaredOverrideError(name, [...declarations.keys()]);
 		}
-		variables.set(name, value);
+		variables[name] = value;
 	}
-
-	const subagents = readSubagents(parsed);
-	const systemInstructions = readSystemInstructions(parsed);
-	const steps: StepReport[] = [];
-	let kind: RunResult["kind"] = "completed";
 
 	const entries = resolveEntries(options.entry, subagents);
 	if (entries.length === 0) throw new NoEntrySubagentError([...subagents.keys()]);
-
+	// Checked whole, up front, like everything else that can refuse.
 	for (const name of entries) {
-		const block = subagents.get(name);
-		if (block === undefined) throw new UnknownSubagentError(name, [...subagents.keys()]);
+		if (!subagents.has(name)) throw new UnknownSubagentError(name, [...subagents.keys()]);
+	}
+
+	return { version: 1, sourceHash: hashSource(source), entries, cursor: 0, variables, steps: [] };
+}
+
+/**
+ * Compose the next request, or finish.
+ *
+ * Pure: the same state always yields the same request, so a host that crashed
+ * after `next` and before `apply` can call it again and dispatch the same step.
+ * A subagent made only of logic lines runs here, deterministically, and the run
+ * moves on without asking the model anything.
+ */
+export function next(source: string, state: RunState, options: { persistVariables?: boolean } = {}): NextStep {
+	const program = loadFor(source, state);
+	if (state.awaiting !== undefined) {
+		return { type: "request", request: state.awaiting.request, state };
+	}
+
+	const variables = new Map(Object.entries(state.variables));
+	let cursor = state.cursor;
+	while (state.stopped === undefined && cursor < state.entries.length) {
+		const name = state.entries[cursor] as string;
+		const block = program.subagents.get(name);
+		if (block === undefined) throw new UnknownSubagentError(name, [...program.subagents.keys()]);
 
 		const { prompt, pending } = compose(procedureStatements(block), variables);
 
@@ -260,35 +363,80 @@ export async function run(source: string, options: RunOptions = {}): Promise<Run
 		// deterministically. Dispatching an empty prompt would be asking the model
 		// nothing and paying for the answer — and it is what makes "evaluating a
 		// logic line makes no model turn" true rather than merely intended.
-		if (prompt === "" && pending.length === 0) continue;
+		if (prompt === "" && pending.length === 0) {
+			cursor += 1;
+			continue;
+		}
 		// The same cost, one branch over: an empty prompt that still asks for a
 		// structured result is not skipped by the line above, and is refused here
 		// rather than dispatched.
 		if (prompt === "") throw new EmptyPromptError(name, pending.map((p) => p.field));
 
 		// Built fresh every step: the port is told everything, every time.
+		const { systemInstructions } = program;
 		const request: ReasoningRequest =
 			pending.length > 0
-				? { systemInstructions, prompt, outputSchema: outputSchemaFor(pending, declarations) }
+				? { systemInstructions, prompt, outputSchema: outputSchemaFor(pending, program.declarations) }
 				: { systemInstructions, prompt };
-
-		const outcome = normalise(await port.reason(request));
-		const settled = pending.length > 0 ? applyStructured(outcome, pending, variables) : outcome;
-		steps.push({ subagent: name, request, outcome: settled });
-
-		if (settled.kind !== "answered") {
-			kind = settled.kind;
-			break;
-		}
+		const awaiting: AwaitingStep = { subagent: name, request, pending, variables: Object.fromEntries(variables) };
+		return { type: "request", request, state: { ...state, cursor, awaiting } };
 	}
 
-	const result: RunResult = {
-		kind,
-		steps,
-		variables: Object.fromEntries(variables),
+	const final = { ...state, cursor, variables: Object.fromEntries(variables) };
+	const result: RunResult = { kind: final.stopped ?? "completed", steps: final.steps, variables: final.variables };
+	if (options.persistVariables !== true) return { type: "done", result };
+	return {
+		type: "done",
+		result: { ...result, updatedSource: rewrite(source, program.declarations, new Map(Object.entries(final.variables))) },
 	};
-	if (options.persistVariables !== true) return result;
-	return { ...result, updatedSource: rewrite(source, declarations, variables) };
+}
+
+/** Fold the answer to the awaiting step into the state. */
+export function apply(source: string, state: RunState, reported: StepOutcome): RunState {
+	loadFor(source, state);
+	const awaiting = state.awaiting;
+	if (awaiting === undefined) throw new RunStateError("apply was called with no step awaiting an answer");
+
+	const variables = new Map(Object.entries(awaiting.variables));
+	const outcome = normalise(reported);
+	const settled = awaiting.pending.length > 0 ? applyStructured(outcome, awaiting.pending, variables) : outcome;
+	const steps = [...state.steps, { subagent: awaiting.subagent, request: awaiting.request, outcome: settled }];
+
+	const { awaiting: _done, ...rest } = state;
+	if (settled.kind !== "answered") {
+		// The step's logic-line effects are not committed: the step did not finish.
+		return { ...rest, steps, stopped: settled.kind };
+	}
+	return { ...rest, steps, cursor: state.cursor + 1, variables: Object.fromEntries(variables) };
+}
+
+export async function run(source: string, options: RunOptions = {}): Promise<RunResult> {
+	const port = options.port;
+	if (port === undefined) throw new NoReasoningPortError();
+
+	let state = start(source, {
+		...(options.entry !== undefined ? { entry: options.entry } : {}),
+		...(options.variables !== undefined ? { variables: options.variables } : {}),
+	});
+	for (;;) {
+		const step = next(source, state, { persistVariables: options.persistVariables === true });
+		if (step.type === "done") return step.result;
+		state = apply(source, step.state, await port.reason(step.request));
+	}
+}
+
+/**
+ * FNV-1a over the source, as 8 hex digits. Not cryptographic: it only has to
+ * notice that a saved state is being resumed against an edited script. Plain JS
+ * so the core still imports nothing outside itself and runs on Workers.
+ */
+export function hashSource(source: string): string {
+	let hash = 0x811c9dc5;
+	for (let i = 0; i < source.length; i += 1) {
+		hash ^= source.charCodeAt(i);
+		hash = Math.imul(hash, 0x01000193) >>> 0;
+	}
+	return `${source.length.toString(16)}-${hash.toString(16).padStart(8, "0")}`;
 }
 
 function resolveEntries(
