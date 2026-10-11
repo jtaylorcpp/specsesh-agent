@@ -7,7 +7,8 @@ Four workspace packages exist only to keep boundaries: the core must not import 
 ```
 packages/agent/                    @specsesh/agent
   src/authoring/   src/interpreter/        ← today's packages/agentscript/src
-  src/pi/                                  ← packages/agentscript-pi/src
+  src/pi/                                  ← packages/agentscript-pi/src/{port,categories,models}.ts
+  src/claude-code/                         ← packages/agentscript-pi/src/claude-code*.ts (Node only)
   src/durable/                             ← packages/agentscript-durable/src
   src/cloudflare/                          ← AgentScriptHost from packages/agentscript-cloudflare/src
   src/bin/agentscript-pi.ts  src/bin/agentscript-durable.ts
@@ -20,7 +21,7 @@ examples/cloudflare-worker/        the Worker + wrangler.jsonc + crash-resume.sh
 ## Decisions
 
 - **One package with subpath exports, not four packages.** One version, one install. The `exports` map lists each entry with `types` and `import` conditions; there is no root `.` export, so nothing pulls in every layer by accident.
-- **The import boundary moves from package to directory.** Today's import-boundary test checks the core imports only its declared dependencies. After the change it checks that `src/authoring` and `src/interpreter` import only `@sf-agentscript/*`, `node:` built-ins and each other; `src/pi` adds pi-ai; `src/durable` adds pi-durable and chord; only `src/cloudflare` may import `agents` or `cloudflare:workers`.
+- **The import boundary moves from package to directory.** Today's import-boundary test checks the core imports only its declared dependencies. After the change it checks that `src/authoring` and `src/interpreter` import only `@sf-agentscript/*`, `node:` built-ins and each other; `src/pi` adds pi-ai; `src/claude-code` adds `src/pi`; `src/durable` adds pi-durable, chord and `src/claude-code`; only `src/cloudflare` may import `agents` or `cloudflare:workers`.
 - **Optional peers.** `@earendil-works/pi-ai`, `pi-durable`, `chord` and `agents` are `peerDependencies` with `peerDependenciesMeta.optional: true`, pinned to the versions tested (`^1.1.0` for pi; `^0.28.0` for agents). They are also dev dependencies, so the workspace tests run.
 - **tsc, not a bundler.** `tsc -p tsconfig.build.json` emits `dist/` file-for-file, so `.d.ts` paths match the exports and stack traces map to source. The existing `.js`-suffixed relative imports already satisfy NodeNext.
 - **Bins are compiled entry points** (`dist/bin/*.js` with a shebang); `tsx` leaves the dependency list.

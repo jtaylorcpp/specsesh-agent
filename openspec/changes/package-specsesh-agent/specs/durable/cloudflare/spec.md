@@ -1,0 +1,137 @@
+## ADDED Requirements
+
+### Requirement: A subclass can replace the provider and answer requests first
+`AgentScriptHost` SHALL let a subclass replace the pi provider and model it runs steps on, and answer a request before the base routes, falling back to them for anything it does not handle. Request handling MUST obtain the harness with `await this.harness.pi()`. `examples/cloudflare-worker` SHALL define `FauxAgentScriptHost` this way and export it as the Worker's Durable Object class.
+
+#### Scenario: The example host is a subclass of the published one
+- **WHEN** the example Worker's object class is inspected
+- **THEN** it SHALL be `FauxAgentScriptHost`, a subclass of `AgentScriptHost` from `@specsesh/agent/cloudflare`
+
+#### Scenario: Base routes still answer in the subclass
+- **GIVEN** the example Worker with `AGENTSCRIPT_FAUX=1`
+- **WHEN** a client requests `GET /runs/<host>/999`
+- **THEN** the base route SHALL answer `404` with `{ "error": "no task 999" }`
+
+## MODIFIED Requirements
+
+### Requirement: The Worker routes /runs/<host> to a Durable Object by name
+The `examples/cloudflare-worker` Worker's `fetch` handler SHALL split the request path on `/`, and when the first segment is `runs` and the second (`<host>`) is non-empty, forward the request unchanged to `env.HOST.getByName(<host>)`. Any other path MUST answer `404` with JSON `{ "error": "use /runs/<host>" }`. Each distinct `<host>` name MUST be its own Durable Object with its own storage and its own runs.
+
+#### Scenario: A path outside /runs is refused
+- **WHEN** a client requests `GET /`
+- **THEN** the response SHALL be `404` with body `{ "error": "use /runs/<host>" }`
+
+#### Scenario: /runs with no host is refused
+- **WHEN** a client requests `POST /runs/`
+- **THEN** the response SHALL be `404` with body `{ "error": "use /runs/<host>" }`
+
+#### Scenario: Two host names are two objects
+- **WHEN** a client starts a run at `/runs/a` and asks for that task ID at `/runs/b`
+- **THEN** `/runs/b` SHALL answer `404` for that task unless it has a task with the same ID of its own
+
+### Requirement: AgentScriptHost hosts pi-durable through PiHarness and Lifecycle
+`@specsesh/agent/cloudflare` SHALL export `AgentScriptHost`, which SHALL extend `DurableObject<Env>` and in its constructor create `new PiHarness({ harness })`, whose factory opens `Harness.open(storage, { models, registry }, context)` on the storage PiHarness supplies (this object's SQLite), and install it with `Lifecycle.install(this).use(this.harness)`.
+
+#### Scenario: The object exposes its harness and lifecycle
+- **WHEN** an `AgentScriptHost` is constructed
+- **THEN** it SHALL expose `harness` (a `PiHarness`) and `lifecycle` (the installed `Lifecycle`)
+
+### Requirement: The object installs the same extensions as the Node CLI
+The object's registry SHALL have `AgentScript` and `AgentScriptStepExtension` from `@specsesh/agent/durable` installed, the same extensions the Node CLI installs, so a run behaves as `durable/run-task` specifies on either host.
+
+#### Scenario: A run on the object is an agentscript.run task
+- **WHEN** a run is started on the object
+- **THEN** it SHALL be a pi-durable task named `agentscript.run` whose checkpoints have the `durable/run-task` phases
+
+### Requirement: The model is Workers AI unless faux mode is on
+The published `AgentScriptHost` SHALL create a provider with `createAI({ binding: env.AI })` and run every step on model `AGENTSCRIPT_MODEL`, or `@cf/moonshotai/kimi-k2.7-code` when unset. The example's `FauxAgentScriptHost` MUST, when `AGENTSCRIPT_FAUX` is `"1"`, replace it with a pi-ai `fauxProvider` and run every step on its model. Exactly one provider MUST be registered.
+
+#### Scenario: Default Workers AI model
+- **GIVEN** `AGENTSCRIPT_FAUX` unset and `AGENTSCRIPT_MODEL` unset
+- **WHEN** a run is started
+- **THEN** its steps SHALL run on Workers AI model `@cf/moonshotai/kimi-k2.7-code`
+
+#### Scenario: AGENTSCRIPT_MODEL picks the Workers AI model
+- **GIVEN** `AGENTSCRIPT_MODEL=@cf/some/model`
+- **WHEN** a run is started
+- **THEN** its steps SHALL run on that model
+
+#### Scenario: Faux mode replaces Workers AI
+- **GIVEN** the example Worker with `AGENTSCRIPT_FAUX=1`
+- **WHEN** a run is started
+- **THEN** its steps SHALL run on the faux provider's model and Workers AI SHALL NOT be called
+
+#### Scenario: The published host has no faux mode
+- **WHEN** the source of `src/cloudflare/` is scanned
+- **THEN** it SHALL NOT contain `AGENTSCRIPT_FAUX` or `fauxProvider`
+
+### Requirement: Faux responses are queued from requests, pacing and a construction-time seed
+In faux mode (local testing only) the example's `FauxAgentScriptHost` SHALL accept faux responses as `{ "text": string }` (assistant text) or `{ "result": { [field]: string | number | boolean } }` (a `toolUse` message calling `submit_result` with those arguments). `AGENTSCRIPT_FAUX_SEED`, a JSON array of them, MUST be queued in the constructor, before pi resumes unfinished work, only when `AGENTSCRIPT_FAUX` is `"1"`.
+
+#### Scenario: A seeded object has its answer ready after a restart
+- **GIVEN** `AGENTSCRIPT_FAUX=1` and `AGENTSCRIPT_FAUX_SEED=[{"text":"Escalated after restart."}]`
+- **WHEN** the object is constructed and pi resumes an unfinished step
+- **THEN** that step SHALL be answered with `Escalated after restart.`
+
+#### Scenario: Pacing slows faux output
+- **GIVEN** `AGENTSCRIPT_FAUX_TPS=4`
+- **WHEN** a faux text response of 60 repetitions of `Escalating. ` is streamed
+- **THEN** the step SHALL remain at phase `await` long enough for a test to kill the process mid-step
+
+### Requirement: AGENTSCRIPT_FAUX_TPS paces faux output
+When `AGENTSCRIPT_FAUX_TPS` is a finite number greater than zero, the example's faux provider SHALL stream at that many tokens per second; otherwise it MUST use the faux provider's default pace.
+
+#### Scenario: An invalid pace is ignored
+- **GIVEN** `AGENTSCRIPT_FAUX_TPS=0` or `AGENTSCRIPT_FAUX_TPS=abc`
+- **WHEN** the object is constructed
+- **THEN** the faux provider SHALL be created with no `tokensPerSecond`
+
+### Requirement: POST /runs/<host> starts a run
+A `POST` to `/runs/<host>` SHALL read a JSON body `{ source, entry?, variables? }` (the example also reads `faux`), call `startScript` with the object's model plus `entry` and `variables` when present, call `pi.resume()`, and answer `202` with `{ "task": <id> }`. With query `?wait=1` it MUST instead await `waitForScript` and answer `200` with `{ "task": <id>, "result": <RunResult> }`.
+
+#### Scenario: A run is started and acknowledged
+- **GIVEN** faux mode and a body with the pipeline source, entries `classify`, `gate`, `respond`, and faux responses for both model steps
+- **WHEN** the client posts it to `/runs/crash`
+- **THEN** the response SHALL be `202` with an integer `task`
+
+#### Scenario: ?wait=1 returns the result
+- **WHEN** the client posts a valid body to `/runs/<host>?wait=1`
+- **THEN** the response SHALL be `200` with `task` and a `result` whose `kind` is `completed`, `failed` or `cut-short`
+
+#### Scenario: A refused script is 422
+- **WHEN** the client posts a body whose `source` uses a construct outside the subset
+- **THEN** the response SHALL be `422` with an `error` containing `unsupported by this runtime`
+
+#### Scenario: faux outside faux mode is 400
+- **GIVEN** `AGENTSCRIPT_FAUX` unset
+- **WHEN** the client posts a body carrying `faux`
+- **THEN** the response SHALL be `400` with `{ "error": "faux responses need AGENTSCRIPT_FAUX=1" }`
+- **AND** no task SHALL be created
+
+### Requirement: A refused start is 422 and faux outside faux mode is 400
+When `startScript` throws (the script was refused before anything ran) the start route SHALL answer `422` with `{ "error": <message> }`. In the example Worker, a start body carrying `faux` MUST be refused with `400` and `{ "error": "faux responses need AGENTSCRIPT_FAUX=1" }` unless faux mode is on, in which case its responses are queued before the run starts.
+
+#### Scenario: Faux responses in the body are queued in faux mode
+- **GIVEN** faux mode
+- **WHEN** the client posts a start body with `faux: [{ "result": { "severity": "high" } }, { "text": "ok" }]`
+- **THEN** those responses SHALL answer the run's two model steps in order
+
+### Requirement: POST /runs/<host>/faux queues faux responses
+In the example Worker, a `POST` to `/runs/<host>/faux` with a JSON array of faux responses SHALL, in faux mode, queue them, call `pi.resume()`, and answer `200` with `{ "queued": <pending response count> }`. Outside faux mode it MUST answer `400` with `{ "error": "faux responses need AGENTSCRIPT_FAUX=1" }`.
+
+#### Scenario: Responses are queued
+- **GIVEN** faux mode and an empty queue
+- **WHEN** the client posts `[{"text":"a"},{"result":{"severity":"high"}}]` to `/runs/<host>/faux`
+- **THEN** the response SHALL be `{ "queued": 2 }`
+
+#### Scenario: Outside faux mode the route is refused
+- **GIVEN** `AGENTSCRIPT_FAUX` unset
+- **WHEN** the client posts to `/runs/<host>/faux`
+- **THEN** the response SHALL be `400`
+
+### Requirement: The Worker is configured for SQLite Durable Objects and Workers AI
+`examples/cloudflare-worker/wrangler.jsonc` SHALL name the Worker `agentscript-cloudflare` with `main` `src/index.ts`, `compatibility_date` `2026-10-01`, compatibility flag `nodejs_compat`, an AI binding named `AI`, a Durable Object binding `HOST` for the example's host class, and migration tag `v1` declaring that class under `new_sqlite_classes`.
+
+#### Scenario: The object uses SQLite storage
+- **WHEN** the Worker is deployed or run with `wrangler dev`
+- **THEN** the example's host class SHALL be a SQLite-backed Durable Object class bound as `HOST`
