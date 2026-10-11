@@ -126,3 +126,29 @@ describe("Document edit history", () => {
 		expect(doc.analysis.source).toBe(SCRIPT);
 	});
 });
+
+describe("platform-agentscript-authoring: A Document's text is the artifact and its analysis follows every change", () => {
+	it("Scenario: Default construction is empty", () => {
+		const doc = new Document();
+		expect(doc.source).toBe("");
+		expect(doc.canUndo).toBe(false);
+		expect(doc.canRedo).toBe(false);
+		expect(doc.analysis.source).toBe("");
+	});
+});
+
+describe("platform-agentscript-authoring: Document edit history works over whole-text snapshots", () => {
+	it("Scenario: Undo and redo with nothing to move are no-ops", () => {
+		const doc = new Document(SCRIPT);
+		const before = doc.analysis;
+
+		expect(doc.undo()).toBe(doc);
+		expect(doc.source).toBe(SCRIPT);
+		expect(doc.redo()).toBe(doc);
+		expect(doc.source).toBe(SCRIPT);
+		expect(doc.canUndo).toBe(false);
+		expect(doc.canRedo).toBe(false);
+		// Nothing moved, so nothing was re-analysed either.
+		expect(doc.analysis).toBe(before);
+	});
+});

@@ -15,15 +15,35 @@ afterEach(() => {
 	for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
+/**
+ * The pin check: every `@sf-agentscript/*` dependency must be an exact
+ * `major.minor.patch`. A caret would let the closed-spec upstream change our
+ * subset's meaning on someone else's install, with nothing in this repo
+ * recording it. Returns one failure per offender, naming it.
+ */
+function pinFailures(deps: Record<string, string>): string[] {
+	return UPSTREAM(deps)
+		.filter(([, range]) => !/^\d+\.\d+\.\d+$/.test(range))
+		.map(([name, range]) => `${name} is not pinned exactly (declared ${range})`);
+}
+
 describe("platform-agentscript-authoring: The dependency is exact", () => {
 	it("pins every upstream dependency to an exact version", () => {
 		const upstream = UPSTREAM(manifest().dependencies ?? {});
 		expect(upstream.length).toBeGreaterThan(0);
-		for (const [name, range] of upstream) {
-			// A caret would let the closed-spec upstream change our subset's meaning
-			// on someone else's install, with nothing in this repo recording it.
-			expect(range, `${name} is not pinned exactly`).toMatch(/^\d+\.\d+\.\d+$/);
-		}
+		expect(pinFailures(manifest().dependencies ?? {})).toEqual([]);
+	});
+
+	it("Scenario: A caret range is rejected", () => {
+		const failures = pinFailures({
+			"@sf-agentscript/language": "^3.2.3",
+			"@sf-agentscript/parser-javascript": "3.1.3",
+			"not-upstream": "^1.0.0",
+		});
+		// Only the caret dependency fails, and it is named.
+		expect(failures).toHaveLength(1);
+		expect(failures[0]).toContain("@sf-agentscript/language");
+		expect(failures[0]).toContain("not pinned exactly");
 	});
 });
 
@@ -66,6 +86,35 @@ function withSubset(edit: (source: string) => string) {
 }
 
 describe("platform-agentscript-authoring: A bump that breaks the subset", () => {
+	it("Scenario: A declaration that is no longer a plain literal", () => {
+		const dir = mkdtempSync(join(tmpdir(), "agentscript-bump-"));
+		temps.push(dir);
+		const subsetPath = join(dir, "subset.ts");
+		const original = readFileSync(join(PKG_DIR, "src/interpreter/subset.ts"), "utf8");
+		const edited = original.replaceAll("] as const;", "];");
+		// The edit really removed the terminator the script looks for.
+		expect(original).toContain("] as const;");
+		expect(edited).not.toContain("] as const;");
+		writeFileSync(subsetPath, edited);
+
+		let status = 0;
+		let stderr = "";
+		try {
+			execFileSync("node", ["scripts/check-subset-conformance.mjs", "--json"], {
+				cwd: PKG_DIR,
+				encoding: "utf8",
+				stdio: "pipe",
+				env: { ...process.env, AGENTSCRIPT_SUBSET_FILE: subsetPath },
+			});
+		} catch (err) {
+			const e = err as { status?: number; stderr?: string };
+			status = e.status ?? 1;
+			stderr = e.stderr ?? "";
+		}
+		expect(status, "a non-literal declaration must fail the run").not.toBe(0);
+		expect(stderr).toContain("SUPPORTED_CONSTRUCTS is no longer a plain array literal");
+	});
+
 	it("fails naming the constructs whose HANDLING changed, not only those that stopped parsing", () => {
 		// The failure mode the requirement is actually about, and the one the
 		// script could not see. An upstream RENAME — `ProcedureValue` → `Procedure`

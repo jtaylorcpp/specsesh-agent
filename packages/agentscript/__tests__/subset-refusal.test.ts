@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { analyze } from "../src/authoring/index.js";
 import { UnsupportedConstructError, run, scanDocument } from "../src/interpreter/index.js";
+import { renderSubsetInline } from "../src/interpreter/subset.js";
 import {
 	EXPRESSION_DEFAULT,
 	TWO_UNSUPPORTED,
@@ -141,5 +143,196 @@ describe("platform-agentscript-interpreter: A Construct Outside The Subset Fails
 		const { port, requests } = recordingPort(answered());
 		await expect(run(TWO_UNSUPPORTED, { port })).rejects.toThrow(UnsupportedConstructError);
 		expect(requests).toHaveLength(0);
+	});
+});
+
+/** Scan a source the way `run` does: through the authoring surface's parse. */
+const scan = (source: string) => scanDocument(analyze(source).parsed);
+
+/** A document with a `variables` block declaring what the procedure under test reads. */
+function procedure(body: string, variables = "") {
+	return `${variables}subagent t:
+    description: "d"
+
+    reasoning:
+        instructions: ->
+${body
+	.split("\n")
+	.map((line) => `            ${line}`)
+	.join("\n")}
+`;
+}
+
+const VARS = `variables:
+    approved: mutable boolean = False
+    count: mutable number = 0
+    stage: mutable string = "proposal"
+    verdict: mutable string = ""
+
+`;
+
+describe("platform-agentscript-interpreter: Supported block fields are named per block", () => {
+	it("Scenario: A config with agent_name is accepted", () => {
+		expect(scan('config:\n    agent_name: "spec-author"\n')).toEqual([]);
+	});
+
+	it("Scenario: A subagent-level system block is refused", () => {
+		const found = scan(
+			`subagent t:
+    description: "d"
+
+    system:
+        instructions: |
+            Be careful.
+`,
+		);
+		const finding = found.find((c) => c.construct === "system");
+		expect(finding, "the subagent-level system block was not named").toBeDefined();
+		expect(finding?.where).toBe('subagent "t"');
+	});
+
+	it("Scenario: An unknown top-level block is refused", () => {
+		const found = scan(UNSUPPORTED_BLOCK);
+		const finding = found.find((c) => c.construct === "model_config");
+		expect(finding?.where).toBe("the document");
+	});
+
+	it("Scenario: An unknown field in a supported block is refused", () => {
+		const found = scan(
+			`subagent t:
+    description: "d"
+
+    actions:
+        noop:
+            description: "x"
+`,
+		);
+		const finding = found.find((c) => c.construct === "actions");
+		expect(finding, "the unknown subagent field was not named").toBeDefined();
+		expect(finding?.where).toBe('subagent "t"');
+	});
+});
+
+describe("platform-agentscript-interpreter: Statements, expressions and defaults are limited to declared kinds", () => {
+	it("Scenario: A variable with no default is refused", () => {
+		const found = scan("variables:\n    v: mutable string\n");
+		const finding = found.find((c) => c.construct === "v (a variable with no declared value)");
+		expect(finding, "the default-less variable was not named").toBeDefined();
+		expect(finding?.where).toBe('variable "v"');
+	});
+
+	it("Scenario: A bare name in a value position is refused in the author's words", () => {
+		const inCondition = scan(procedure("if foo:\n    | Go.", VARS));
+		expect(inCondition.map((c) => c.construct)).toEqual(["the bare name foo"]);
+
+		const inSet = scan(procedure("set @variables.stage = foo", VARS));
+		expect(inSet.map((c) => c.construct)).toEqual(["the bare name foo"]);
+		for (const found of [...inCondition, ...inSet]) expect(found.construct).not.toBe("Identifier");
+	});
+
+	it("Scenario: A non-procedure instructions value is refused", () => {
+		const found = scan(
+			`subagent t:
+    description: "d"
+
+    reasoning:
+        instructions: "just a string"
+`,
+		);
+		// Named by the kind the parser gave the value — never the supported procedure's.
+		expect(found.map((c) => [c.construct, c.where])).toEqual([["UnknownStatement", 'subagent "t"']]);
+	});
+
+	it("Scenario: An unknown statement kind is refused", () => {
+		const found = scan(procedure("run @actions.lookup", VARS));
+		expect(found.map((c) => [c.construct, c.where])).toEqual([["RunStatement", 'subagent "t"']]);
+	});
+});
+
+describe("platform-agentscript-interpreter: Only @variables may be read or written, and @outputs only as a set's whole value", () => {
+	it("Scenario: Reading another namespace in an interpolation is refused", () => {
+		const found = scan(procedure("| Hello {!@context.x}.", VARS));
+		expect(found.map((c) => c.construct)).toEqual(["@context"]);
+	});
+
+	it("Scenario: @outputs as a set's value is accepted", () => {
+		expect(scan(procedure("| Judge it.\nset @variables.verdict = @outputs.verdict", VARS))).toEqual(
+			[],
+		);
+	});
+
+	it("Scenario: @outputs inside a condition is refused", () => {
+		const found = scan(procedure('if @outputs.verdict == "ok":\n    | Fine.', VARS));
+		expect(found.map((c) => c.construct)).toEqual(["@outputs"]);
+	});
+
+	it("Scenario: A set target that is not a member expression is refused", () => {
+		const found = scan(procedure("set foo = 1", VARS));
+		// Named by the target's kind, never as a `set @<ns>`.
+		expect(found.map((c) => [c.construct, c.where])).toEqual([["Identifier", 'subagent "t"']]);
+	});
+});
+
+describe("platform-agentscript-interpreter: Operators are limited to the declared sets", () => {
+	it("Scenario: Supported operators pass", () => {
+		const found = scan(
+			procedure("if not @variables.approved and @variables.count > 1:\n    | Draft it.", VARS),
+		);
+		expect(found).toEqual([]);
+	});
+
+	it("Scenario: An unknown operator is refused by name", () => {
+		const found = scan(procedure("if @variables.count + 1:\n    | Draft it.", VARS));
+		expect(found.map((c) => c.construct)).toEqual(["the operator +"]);
+	});
+});
+
+describe("platform-agentscript-interpreter: Booleans are spelled the dialect's way when written back", () => {
+	it("Scenario: Lower-case true is not a boolean", () => {
+		const found = scan(procedure("if @variables.approved == true:\n    | Go.", VARS));
+		expect(found.map((c) => c.construct)).toEqual(["the bare name true"]);
+	});
+});
+
+describe("platform-agentscript-interpreter: The scan walks the whole document up front and reports every finding", () => {
+	it("Scenario: The wrapper and the root give the same answer", () => {
+		const parsed = analyze(UNSUPPORTED_BLOCK).parsed as { value: unknown };
+		expect(parsed.value, "no root inside the wrapper").toBeDefined();
+
+		const viaWrapper = scanDocument(parsed);
+		const viaRoot = scanDocument(parsed.value);
+		expect(viaWrapper.map((c) => c.construct)).toContain("model_config");
+		expect(viaRoot).toEqual(viaWrapper);
+	});
+
+	it("Scenario: No root means no findings", () => {
+		expect(scanDocument(null)).toEqual([]);
+		expect(scanDocument(undefined)).toEqual([]);
+	});
+});
+
+describe("platform-agentscript-interpreter: A refusal says the construct is unsupported by this runtime, where and in which block", () => {
+	it("Scenario: The exact message and error shape", () => {
+		const [finding] = scan(UNSUPPORTED_BLOCK);
+		expect(finding?.construct).toBe("model_config");
+		expect(finding?.message).toBe(
+			"model_config at 4:1, in the document, is unsupported by this runtime. " +
+				"It may well be valid Agent Script — @coopcli/agentscript implements an enumerated " +
+				"subset and does not execute this construct. " +
+				`Supported: ${renderSubsetInline()}.`,
+		);
+	});
+
+	it("Scenario: The error aggregates its findings", () => {
+		const findings = scan(TWO_UNSUPPORTED);
+		expect(findings).toHaveLength(2);
+
+		const error = new UnsupportedConstructError(findings);
+		expect(error.name).toBe("UnsupportedConstructError");
+		expect(error.constructs).toEqual(findings);
+		expect(
+			error.message.startsWith("this runtime does not implement 2 construct(s) used by the document:\n"),
+		).toBe(true);
+		for (const finding of findings) expect(error.message).toContain(`  - ${finding.message}`);
 	});
 });
