@@ -1,9 +1,10 @@
 import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { nextTask, openChanges, resolveChange } from "../../src/task/resolve.js";
 import { cli, fauxModels, storedLoops, workdir } from "./cli-helpers.js";
-import { baselineDir, cleanTemps, temp, tinyChange, verdict } from "./helpers.js";
+import { baselineDir, cleanTemps, context, temp, tinyChange, verdict } from "./helpers.js";
 
 afterEach(() => cleanTemps());
 
@@ -75,6 +76,62 @@ describe("task/headless: --next picks the first unticked task", () => {
 	});
 });
 
+const GROUP_CHECK = ["--check", "node --version"];
+
+/** The group-loop tasks stored in a database. */
+async function groupLoopsIn(db: string) {
+	const storage = await openNodeSqliteStorage(db);
+	const page = await storage.scanTasks({ kind: "agentscript.group-loop" }, 10, undefined, context);
+	await storage.close(context);
+	return page.items;
+}
+
+describe("task/cli: run takes a group", () => {
+	it("Scenario: A bare integer runs a group", async () => {
+		const { dir, db } = workdir();
+		const env = fauxModels();
+		env.faux.setResponses([verdict(true), verdict(true), verdict(true), verdict(true)]);
+		await cli(["run", tinyChange(), "1", "--db", db, "--workspace", dir, ...GROUP_CHECK, ...env.args], env);
+		const groups = await groupLoopsIn(db);
+		expect(groups).toHaveLength(1);
+		expect((groups[0]?.input as { group?: number }).group).toBe(1);
+		// The group loop runs its tasks as child task loops; none is started directly.
+		const { loops, inputs } = await storedLoops(db);
+		expect(inputs.map((i) => i.task)).toEqual(["1.1"]);
+		expect(loops.map((l) => l.owner)).toEqual([groups[0]?.id]);
+	});
+
+	it("Scenario: --next-group skips a finished group", async () => {
+		const tasks = "## 1. Done\n\n- [x] 1.1 done\n\n## 2. Open\n\n- [ ] 2.1 open\n";
+		const { dir, db } = workdir();
+		const env = fauxModels();
+		env.faux.setResponses([verdict(true), verdict(true), verdict(true), verdict(true)]);
+		await cli(["run", tinyChange({ tasks }), "--next-group", "--db", db, "--workspace", dir, ...GROUP_CHECK, ...env.args], env);
+		const loops = await groupLoopsIn(db);
+		expect(loops).toHaveLength(1);
+		expect((loops[0]?.input as { group?: number }).group).toBe(2);
+	});
+
+	it("Scenario: --next-group with every task ticked exits 0 and creates no loop", async () => {
+		const { db } = workdir();
+		const dir = tinyChange({ tasks: "## 1. Done\n\n- [x] 1.1 done\n" });
+		const r = await cli(["run", dir, "--next-group", "--db", db]);
+		expect(r.code).toBe(0);
+		expect(r.out).toMatch(/^no unticked task in /);
+		expect(existsSync(db)).toBe(false);
+	});
+
+	it("Scenario: An unknown group exits 2 listing the groups", async () => {
+		const { dir, db } = workdir();
+		const env = fauxModels();
+		const r = await cli(["run", tinyChange(), "9", "--db", db, "--workspace", dir, ...GROUP_CHECK, ...env.args], env);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("9");
+		expect(r.err).toContain("1");
+		expect(await groupLoopsIn(db)).toEqual([]);
+	});
+});
+
 describe("task/cli: run takes a change and a task, with the database from flag or config", () => {
 	it("Scenario: No database from flag or config prints usage", async () => {
 		const { root } = changesRoot(null);
@@ -111,6 +168,30 @@ describe("task/cli: run takes a change and a task, with the database from flag o
 		const db = join(root, ".agentscript", "task-loops.sqlite");
 		expect((await storedLoops(db)).loops).toHaveLength(1);
 		expect(r.errLines[0]).toContain(`--db ${db}`);
+	});
+
+	it("Scenario: No command prints usage", async () => {
+		const r = await cli([]);
+		expect(r.code).toBe(2);
+		expect(r.errLines[0]).toMatch(/^usage:/);
+		expect(r.err).toContain("agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]");
+		for (const word of ["resume", "answer", "status"]) expect(r.err).toContain(`agentscript-task ${word}`);
+	});
+
+	it("Scenario: --next and --next-group together print usage", async () => {
+		const { db } = workdir();
+		const r = await cli(["run", baselineDir(), "--next", "--next-group", "--db", db]);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("usage:");
+		expect(existsSync(db)).toBe(false);
+	});
+
+	it("a group and --next-group together print usage", async () => {
+		const { db } = workdir();
+		const r = await cli(["run", baselineDir(), "1", "--next-group", "--db", db]);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("usage:");
+		expect(existsSync(db)).toBe(false);
 	});
 
 	it("a missing change, or an extra positional, prints usage", async () => {

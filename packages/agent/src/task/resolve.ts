@@ -50,6 +50,19 @@ export function resolveChange(value: string, changesDir: string, cwd: string): R
 	return { dir, id: value };
 }
 
+/** The number of the first `## <n>.` group with a `- [ ]` task line under it, or undefined when every task is ticked. */
+export function nextGroup(changeDir: string): number | undefined {
+	const path = join(changeDir, "tasks.md");
+	if (!existsSync(path)) throw new ChangeNotFoundError(`${path} does not exist, so there is no next group`);
+	let group: number | undefined;
+	for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
+		const heading = /^## (\d+)\./.exec(line);
+		if (heading !== null) group = Number(heading[1]);
+		else if (group !== undefined && /^\s*- \[ \]/.test(line)) return group;
+	}
+	return undefined;
+}
+
 /** The id of the first `- [ ]` task in the change's tasks.md, in file order, or undefined when every task is ticked. */
 export function nextTask(changeDir: string): string | undefined {
 	const path = join(changeDir, "tasks.md");

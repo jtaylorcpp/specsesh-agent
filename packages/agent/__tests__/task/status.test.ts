@@ -69,7 +69,7 @@ describe("task/cli: The CLI has four commands and prints usage otherwise", () =>
 	it("Scenario: No command prints usage", async () => {
 		const r = await cli([]);
 		expect(r.err.startsWith("usage:")).toBe(true);
-		expect(r.err).toContain("agentscript-task run <change> <task-id>|--next [--db <path>] [options]");
+		expect(r.err).toContain("agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]");
 		expect(r.err).toContain("agentscript-task resume <loop-id> [--db <path>] [--json]");
 		expect(r.err).toContain("agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--json]");
 		expect(r.err).toContain("agentscript-task status [--db <path>]");

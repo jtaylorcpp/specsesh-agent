@@ -3,7 +3,7 @@
  * agentscript-task — run the task loop for one task of an OpenSpec change,
  * durably, on a Node SQLite database, unattended.
  *
- *   agentscript-task run <change> <task-id>|--next [--db <path>] [--script <name|path>] [--workspace <dir>]
+ *   agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [--script <name|path>] [--workspace <dir>]
  *                    [--check <command>]... [--allow <word>]... [--max-iterations <n>]
  *                    [--escalate-to principal|agent] [--provider <id>] [--model <id>]
  *                    [--allow-dirty] [--worktree] [--json]
@@ -42,9 +42,13 @@ import {
 	TASK_LOOP,
 	TaskLoop,
 	answerEscalation,
+	groupLoopExtensions,
+	startGroupLoop,
 	startTaskLoop,
 	taskLoopExtensions,
+	waitForGroupLoop,
 	waitForTaskLoopResult,
+	type GroupLoopOptions,
 	type LoopWorktree,
 	type TaskLoopInput,
 	type TaskLoopOptions,
@@ -63,7 +67,7 @@ import {
 import { LoopWatcher, jsonLines, now, type EventSink, type TaskEvent } from "../task/events.js";
 import { changedBetween, insideGit, repoRoot, snapshot, status } from "../task/git.js";
 import { DatabaseLockedError, lockDatabase, type DbLock } from "../task/lock.js";
-import { ChangeNotFoundError, nextTask, resolveChange } from "../task/resolve.js";
+import { ChangeNotFoundError, nextGroup, nextTask, resolveChange } from "../task/resolve.js";
 import { changeOf, formatLoop, listLoops, scriptOf } from "../task/status.js";
 import { WorktreeRefusedError, checkWorktree, createWorktree, inRepo, planWorktree, rebase, runSetup } from "../task/worktree.js";
 
@@ -73,7 +77,7 @@ export { DEFAULT_MODEL, DEFAULT_PROVIDER };
 export const DIRTY_LISTED = 20;
 
 const USAGE = `usage:
-  agentscript-task run <change> <task-id>|--next [--db <path>] [options]
+  agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]
       options: --script <name|path>  --workspace <dir>  --check <command>...  --allow <word>...
                --max-iterations <n>  --escalate-to principal|agent  --provider <id>  --model <id>
                --allow-dirty  --worktree  --json
@@ -141,6 +145,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 				provider: { type: "string" },
 				model: { type: "string" },
 				next: { type: "boolean", default: false },
+				"next-group": { type: "boolean", default: false },
 				"allow-dirty": { type: "boolean", default: false },
 				worktree: { type: "boolean" },
 				by: { type: "string" },
@@ -200,11 +205,8 @@ async function run(
 	io: Io,
 	usage: (text?: string) => number,
 ): Promise<number> {
-	const [changeArg, taskArg, extra] = positionals;
-	const next = values["next"] === true;
-	if (changeArg === undefined || extra !== undefined) return usage();
-	if (taskArg !== undefined && next) return usage("give a task id or --next, not both");
-	if (taskArg === undefined && !next) return usage();
+	const target = parseTarget(positionals, { next: values["next"] === true, nextGroup: values["next-group"] === true });
+	if (target.kind === "usage") return usage(target.reason);
 	const maxIterations = values["max-iterations"] as string | undefined;
 	if (maxIterations !== undefined && !/^[1-9][0-9]*$/.test(maxIterations)) {
 		return usage(`--max-iterations must be a positive integer, got "${maxIterations}"`);
@@ -239,11 +241,16 @@ async function run(
 	const db = settings.db;
 	if (db === undefined) return usage("run needs --db <path>, or a db in agentscript.config.json");
 
-	const change = resolveChange(changeArg, settings.changesDir, cwd);
-	const task = taskArg ?? nextTask(change.dir);
-	if (task === undefined) {
+	const change = resolveChange(target.change, settings.changesDir, cwd);
+	const group = target.kind === "group" ? target.group : target.kind === "next-group" ? nextGroup(change.dir) : undefined;
+	const task = target.kind === "task" ? target.task : target.kind === "next" ? nextTask(change.dir) : undefined;
+	if (group === undefined && task === undefined) {
 		io.out(`no unticked task in ${change.id}`);
 		return 0;
+	}
+	if (group !== undefined && settings.worktree) {
+		io.err("--worktree is not supported for a group yet");
+		return 2;
 	}
 
 	const models = await (deps.models ?? builtin)();
@@ -262,7 +269,7 @@ async function run(
 		const plan = planWorktree({
 			cwd,
 			changeId: change.id,
-			taskId: task,
+			taskId: task ?? "",
 			...(settings.worktreeDir !== undefined ? { worktreeDir: settings.worktreeDir } : {}),
 		});
 		checkWorktree(plan, change.dir);
@@ -298,9 +305,8 @@ async function run(
 	const lock = lockDatabase(db.path);
 	if (lock.staleFrom !== undefined) warnings.push(`took over a stale lock on ${db.label} left by process ${lock.staleFrom}, which is no longer running`);
 	try {
-		const options: TaskLoopOptions = {
+		const options: Omit<TaskLoopOptions, "task"> = {
 			change: { dir: changeDir },
-			task,
 			script: { path: settings.script.path },
 			workspace,
 			budget: { maxIterations: settings.maxIterations },
@@ -313,12 +319,15 @@ async function run(
 			...(worktree !== undefined ? { worktree } : {}),
 		};
 		const registry = createRegistry();
-		for (const extension of taskLoopExtensions(options)) registry.install(extension);
+		const extensions = group !== undefined ? groupLoopExtensions(options) : taskLoopExtensions(options);
+		for (const extension of extensions) registry.install(extension);
 		const harness = await Harness.open(await openNodeSqliteStorage(db.path), { models, registry }, BACKGROUND_CONTEXT);
 		try {
+			if (group !== undefined) return await runGroup(harness, { ...options, group }, io);
+			if (task === undefined) return usage();
 			let id: LoopId;
 			try {
-				id = await startTaskLoop(harness, options, BACKGROUND_CONTEXT);
+				id = await startTaskLoop(harness, { ...options, task }, BACKGROUND_CONTEXT);
 			} catch (error) {
 				io.err(message(error));
 				return 2;
@@ -335,6 +344,44 @@ async function run(
 	} finally {
 		lock.release();
 	}
+}
+
+/** What `run` was told to work, with the change already checked; or the usage failure. */
+type RunTarget =
+	| { kind: "task"; change: string; task: string }
+	| { kind: "group"; change: string; group: number }
+	| { kind: "next"; change: string }
+	| { kind: "next-group"; change: string }
+	| { kind: "usage"; reason?: string };
+
+/** Exactly one of a task id, a group number, `--next` or `--next-group`, after the change. */
+function parseTarget(positionals: readonly string[], flags: { next: boolean; nextGroup: boolean }): RunTarget {
+	const [change, positional, ...extra] = positionals;
+	if (change === undefined || extra.length > 0) return { kind: "usage" };
+	const given = (positional !== undefined ? 1 : 0) + (flags.next ? 1 : 0) + (flags.nextGroup ? 1 : 0);
+	if (given !== 1) return { kind: "usage", reason: "give exactly one of a task id, a group number, --next or --next-group" };
+	if (flags.next) return { kind: "next", change };
+	if (flags.nextGroup) return { kind: "next-group", change };
+	if (positional === undefined) return { kind: "usage" };
+	if (/^[1-9]\d*$/.test(positional)) return { kind: "group", change, group: Number(positional) };
+	return { kind: "task", change, task: positional };
+}
+
+/** Start a group loop and wait for it. Output is minimal until the group's own formatting lands. */
+async function runGroup(harness: Harness, options: GroupLoopOptions, io: Io): Promise<number> {
+	let id;
+	try {
+		id = await startGroupLoop(harness, options, BACKGROUND_CONTEXT);
+	} catch (error) {
+		io.err(message(error));
+		return 2;
+	}
+	io.err(`group loop ${id}`);
+	harness.resume();
+	const outcome = await waitForGroupLoop(harness, id, BACKGROUND_CONTEXT);
+	if (io.json === true) io.out(JSON.stringify({ loop: id, ...outcome }, null, 2));
+	else io.out(`# group loop ${id} — ${outcome.status}`);
+	return outcome.status === "converged" ? 0 : 1;
 }
 
 /** `resume` and `answer`: the loop's workspace, checks, allowlist, delegate and worktree come from the database. */
