@@ -16,6 +16,13 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 - **core: mixed-type `<`/`>` comparisons coerce** the JavaScript way (`"10" < 9` is false).
 - **core: answered / cut-short outcomes are not validated** (`text`, `turns` pass through as given).
 
+- **pi cli: `--max-tokens abc` passes `NaN`** as `maxTokens` to pi; no validation.
+- **pi cli: `models <unknown provider>` prints nothing and exits 0**, where `run` fails such a provider by name.
+- **pi cli: `main` is not exported**, so the CLI can only be tested by spawning the bin (the durable CLI takes injected deps).
+- **claude-code provider registers only four ids** (`claude-haiku-4-5`, `haiku`, `sonnet`, `opus`). `claudeCodeModel(id)` builds any other but does not register it, so `agentscript-durable --provider claude-code --model claude-sonnet-4-5` is refused as an unknown model, while `agentscript-pi` accepts any id.
+- **claude-code: a timeout is reported as `claude exited by signal without a JSON result`**, never naming the timeout.
+- **claude-code: `spawnRunner` never removes its abort listener** from a long-lived signal.
+
 ## Not verified
 
 - A Lifecycle alarm waking an idle Durable Object with no incoming request. The crash test's restarted object is woken by a GET.
