@@ -171,4 +171,18 @@ describe("platform-agentscript-interpreter: A Step Ends Answered, Cut Short, Or 
 		// category, the other says someone named one we do not know.
 		expect(outcome.category).not.toBe("unrecognised");
 	});
+	it("Regression: a port's own `unknown` stays `unknown`, not `layer_unknown`", async () => {
+		// The port is typed to report OUR category. `run()` used to pass it through
+		// `toFailureCategory` again, which renames the layer's "unknown" — so a port
+		// saying "nobody named a category" came out as "the layer said unknown".
+		const { outcome } = await settle({ kind: "failed", category: "unknown", message: "boom" });
+		expect(outcome).toEqual({ kind: "failed", category: "unknown", message: "boom" });
+	});
+
+	it("Regression: every one of our categories survives the runner unchanged", async () => {
+		for (const category of ["layer_unknown", "unrecognised", "unknown", "rate_limit", "max_output_tokens"] as const) {
+			const { outcome } = await settle({ kind: "failed", category, message: "m" });
+			expect(outcome, category).toEqual({ kind: "failed", category, message: "m" });
+		}
+	});
 });

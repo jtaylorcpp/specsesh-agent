@@ -1,0 +1,28 @@
+{
+  "name": "@coopcli/agentscript",
+  "version": "2026.817.1",
+  "private": true,
+  "description": "Agent Script as an authoring format, plus an interpreter over a declared subset of it. Never compiles to the Salesforce runtime specification.",
+  "type": "module",
+  "exports": {
+    "./authoring": "./src/authoring/index.ts",
+    "./interpreter": "./src/interpreter/index.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "node scripts/check-subset-conformance.mjs && vitest run",
+    "conformance": "node scripts/check-subset-conformance.mjs",
+    "lint": "echo 'no lint configured'"
+  },
+  "dependencies": {
+    "@sf-agentscript/agentforce-dialect": "2.53.0",
+    "@sf-agentscript/agentscript-dialect": "3.4.0",
+    "@sf-agentscript/language": "3.2.3",
+    "@sf-agentscript/parser-javascript": "3.1.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.11"
+  }
+}

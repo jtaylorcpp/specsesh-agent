@@ -15,6 +15,7 @@
 
 export {
 	KNOWN_FAILURE_CATEGORIES,
+	isFailureCategory,
 	NoReasoningPortError,
 	toFailureCategory,
 	type FailureCategory,

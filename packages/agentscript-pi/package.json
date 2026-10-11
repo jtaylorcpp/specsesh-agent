@@ -1,0 +1,28 @@
+{
+  "name": "agentscript-pi",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A ReasoningPort for @coopcli/agentscript backed by pi-ai, so any pi provider can run a script.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "agentscript-pi": "./bin/agentscript-pi.mjs"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "agent": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@coopcli/agentscript": "workspace:*",
+    "@earendil-works/pi-ai": "1.1.0",
+    "tsx": "^4.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.11"
+  }
+}

@@ -150,6 +150,24 @@ const KNOWN: Readonly<Record<string, FailureCategory>> = {
 	unknown: "layer_unknown",
 };
 
+/** Every value of `FailureCategory`, including the three that are ours rather than a layer's. */
+const OWN_CATEGORIES: ReadonlySet<string> = new Set<FailureCategory>([
+	...Object.values(KNOWN),
+	"unrecognised",
+	"unknown",
+]);
+
+/**
+ * Whether a string is already one of OUR categories, as a port is typed to report.
+ *
+ * `run()` keeps such a value as-is. Re-normalising it would turn a port's honest
+ * `unknown` (nobody named a category) into `layer_unknown` (the layer said
+ * "unknown"), which is the opposite fact.
+ */
+export function isFailureCategory(value: string): value is FailureCategory {
+	return OWN_CATEGORIES.has(value);
+}
+
 /** Every category string this runtime can name, for a caller that needs the set. */
 export const KNOWN_FAILURE_CATEGORIES: readonly string[] = Object.keys(KNOWN);
 

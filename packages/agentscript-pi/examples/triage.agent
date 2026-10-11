@@ -1,0 +1,24 @@
+config:
+    agent_name: "bug-triage"
+
+system:
+    instructions: |
+        You triage bug reports for a small developer tool. Be brief and concrete.
+
+variables:
+    report: mutable string = "The CLI crashes with ENOENT when run outside a git repo."
+        description: "the bug report to triage"
+    severity: mutable string = ""
+        description: "low | medium | high"
+    summary: mutable string = ""
+        description: "one-sentence summary of the problem"
+
+subagent triage:
+    description: "Classify the report"
+
+    reasoning:
+        instructions: ->
+            | Triage this bug report: {!@variables.report}
+            | Pick a severity of low, medium or high, and write a one-sentence summary.
+            set @variables.severity = @outputs.severity
+            set @variables.summary = @outputs.summary

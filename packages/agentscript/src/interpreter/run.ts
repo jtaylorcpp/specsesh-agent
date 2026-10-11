@@ -37,6 +37,7 @@ import {
 	type ReasoningPort,
 	type ReasoningRequest,
 	type StepOutcome,
+	isFailureCategory,
 	toFailureCategory,
 } from "./port.js";
 import { UnsupportedConstructError, scanDocument } from "./scan.js";
@@ -332,7 +333,12 @@ function normalise(outcome: StepOutcome): StepOutcome {
 		const message = (outcome as { message?: unknown }).message;
 		return {
 			kind: "failed",
-			category: toFailureCategory(typeof reported === "string" ? reported : undefined),
+			// The port is typed to report OUR category, so one we recognise is kept as-is.
+			// Only a foreign string is normalised; see `isFailureCategory`.
+			category:
+				typeof reported === "string" && isFailureCategory(reported)
+					? reported
+					: toFailureCategory(typeof reported === "string" ? reported : undefined),
 			message: typeof message === "string" ? message : "the port reported a failure with no message",
 		};
 	}
