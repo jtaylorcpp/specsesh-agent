@@ -105,6 +105,20 @@ describe("task/agent: Ticking never writes in doubt and never unticks", () => {
 		}
 		expect(readFileSync(tasks, "utf8")).toBe(before);
 	});
+
+	it("the task loop still never unticks", async () => {
+		const path = join(temp("tick-"), "tasks.md");
+		const before = "## 2. Second\n\n- [x] 2.4 done already\n- [ ] 2.5 not yet\n";
+		writeFileSync(path, before);
+		writes.paths.length = 0;
+		expect(tickTask(path, "2.4")).toEqual({ ticked: false, note: expect.stringContaining("already ticked") });
+		expect(readFileSync(path, "utf8")).toBe(before);
+		expect(writes.paths).toEqual([]);
+
+		// The task loop's public entry offers no way to untick; only the group loop's rework does.
+		const entry = await import("../../src/task/index.js");
+		expect(Object.keys(entry).filter((name) => /untick/i.test(name))).toEqual([]);
+	});
 });
 
 describe("task/agent: untick, for a group's rework only", () => {
