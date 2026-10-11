@@ -23,9 +23,9 @@ The library is going to be used from other projects through npm, and today it ca
 - Publishing automation (CI, trusted publishing) and versioning policy beyond `0.1.0`.
 - Any behaviour change other than the renamed wording. The parked bugs stay parked.
 
-## Open question
+## Decided
 
-- **License.** A public package needs one. Proposed: MIT.
+- **License: Apache-2.0** (decided). `LICENSE` holds the Apache License 2.0 text and `package.json` carries `"license": "Apache-2.0"`.
 
 ## Impact
 
