@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JsonObject, TaskId } from "@earendil-works/pi-durable";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GroupOutcome, LoopOutcome, TaskOutcome, check } from "../../src/openspec/index.js";
+import { GroupOutcome, Iteration, LoopOutcome, TaskOutcome, check } from "../../src/openspec/index.js";
 import { TaskLoopStartError } from "../../src/task/index.js";
 import {
 	DEFAULT_MAX_REWORKS,
@@ -11,8 +11,14 @@ import {
 	GROUP_LOOP_VERSION,
 	GroupLoopTask,
 	blockedBy,
+	buildGroupOutcome,
 	decodeCheckpoint,
 	encodeCheckpoint,
+	endedGroup,
+	finishGroup,
+	recordEntry,
+	roundIteration,
+	type GroupEntry,
 	formatCheckOutput,
 	initialGroupCheckpoint,
 	type GroupCheckpoint,
@@ -22,6 +28,7 @@ import {
 	validateGroupStart,
 	type GroupLoopOptions,
 } from "../../src/task/group.js";
+import type { GroupVerdict } from "../../src/task/group-judge.js";
 import { DELTA, JUDGE_ONLY, PROPOSAL } from "./helpers.js";
 
 // Every file read, so a test can count one read per source.
@@ -239,7 +246,7 @@ describe("task/group: The group loop is a durable task over a queue", () => {
 		expect(decodeCheckpoint(encoded)).toEqual(cp);
 		expect(JSON.parse(JSON.stringify(encoded))).toEqual(encoded);
 		const { carried: _carried, child: _child, ...bare } = cp;
-		expect(Object.keys(encodeCheckpoint(bare))).toEqual(["phase", "queue", "entries", "reworks"]);
+		expect(Object.keys(encodeCheckpoint(bare))).toEqual(["phase", "queue", "entries", "reworks", "iterations"]);
 		const withId = encodeCheckpoint({ ...cp, child: { task: "1.2", id: 7 as TaskId } });
 		expect(decodeCheckpoint(withId).child).toEqual({ task: "1.2", id: 7 });
 	});
@@ -335,7 +342,7 @@ describe("task/group: The group loop is a durable task over a queue", () => {
 					{ id: "1.2", text: "second", ticked: false },
 				],
 			};
-			const at = { phase: "task" as const, queue: ["1.2"], entries: [], reworks: 0 };
+			const at = { phase: "task" as const, queue: ["1.2"], entries: [], reworks: 0, iterations: [] };
 			const started = await runTask({ ...at, child: { task: "1.1" } }, undefined, twoTasks);
 			expect(started.created.map((c) => c.input.task)).toEqual(["1.1"]);
 
@@ -367,7 +374,7 @@ describe("task/group: The group loop is a durable task over a queue", () => {
 		for (const status of ["blocked", "exhausted"] as const) {
 			it(`Scenario: A task still queued when the group ends has no entry (${status})`, async () => {
 				const { created, commit } = await runTask(
-					{ phase: "task", queue: ["1.2", "1.3"], entries: [], reworks: 0, child: { task: "1.1", id: 42 as TaskId } },
+					{ phase: "task", queue: ["1.2", "1.3"], entries: [], reworks: 0, iterations: [], child: { task: "1.1", id: 42 as TaskId } },
 					status === "blocked" ? blocked() : ({ status, iterations: [] } as Outcome),
 				);
 				expect(created).toHaveLength(0);
@@ -386,7 +393,7 @@ describe("task/group: The group loop is a durable task over a queue", () => {
 			temps.push(dir);
 			const committed: { status: string; checkpoint?: JsonObject; outcome?: { result: { outcome: JsonObject; notes: string[] } } }[] = [];
 			const runtime = { commit: async (fn: () => unknown) => void committed.push(fn() as (typeof committed)[number]) };
-			const cp: GroupCheckpoint = { phase: "check", queue: [], entries: [], reworks: 0, ...checkpoint };
+			const cp: GroupCheckpoint = { phase: "check", queue: [], entries: [], reworks: 0, iterations: [], ...checkpoint };
 			const handler = GroupLoopTask.definition.phases.check as unknown as (t: unknown, r: unknown, c: unknown) => Promise<void>;
 			await handler({ state: { checkpoint: encodeCheckpoint(cp) }, input: { ...input(), checks, workspace: dir } }, runtime, undefined);
 			expect(committed).toHaveLength(1);
@@ -454,5 +461,263 @@ describe("task/group: The group loop is a durable task over a queue", () => {
 		expect(() => decodeCheckpoint({ ...good, queue: [1] })).toThrow("malformed: queue");
 		expect(() => decodeCheckpoint({ ...good, entries: "x" })).toThrow("malformed: entries");
 		expect(() => decodeCheckpoint({ ...good, reworks: "0" })).toThrow("malformed: reworks");
+	});
+});
+
+describe("task/group: Each group check round is an ontology Iteration", () => {
+	const groupInput = (checks: string[], dir: string) =>
+		({ ...validateGroupStart(options()), checks, workspace: dir }) as ReturnType<typeof validateGroupStart>;
+	const FAIL = "node -e process.exit(1)";
+	const PASS = "node -e process.exit(0)";
+
+	type Commit = { status: string; checkpoint?: JsonObject; outcome?: { result: { outcome: JsonObject; notes: string[] } } };
+	const phase = async (name: "check" | "judge", cp: GroupCheckpoint, input: ReturnType<typeof validateGroupStart>, settled?: unknown) => {
+		const committed: Commit[] = [];
+		const runtime = {
+			commit: async (fn: () => unknown) => void committed.push(fn() as Commit),
+			waitForTask: async () => ({ state: { outcome: { status: "completed", result: settled } } }),
+		};
+		const handler = GroupLoopTask.definition.phases[name] as unknown as (t: unknown, r: unknown, c: unknown) => Promise<void>;
+		await handler({ state: { checkpoint: encodeCheckpoint(cp) }, input }, runtime, undefined);
+		expect(committed).toHaveLength(1);
+		return committed[0] as Commit;
+	};
+	// The scripted judge's final variables.
+	const judged = (vars: Record<string, string>) => ({
+		kind: "completed",
+		variables: { next_action: "", rework_task: "", feedback: "", question: "", ...vars },
+	});
+	const dirOf = () => {
+		const dir = mkdtempSync(join(tmpdir(), "group-round-"));
+		temps.push(dir);
+		return dir;
+	};
+	const start = (input: ReturnType<typeof validateGroupStart>): GroupCheckpoint => ({
+		...initialGroupCheckpoint(input.tasks),
+		phase: "check",
+		queue: [],
+	});
+	const atJudge = async (checks: string[]) => {
+		const input = groupInput(checks, dirOf());
+		const commit = await phase("check", start(input), input);
+		return { input, cp: { ...decodeCheckpoint(commit.checkpoint as JsonObject), child: { task: "judge", id: 9 as TaskId } } };
+	};
+
+	it("Scenario: A failed check round is recorded", async () => {
+		const { input, cp } = await atJudge([FAIL]);
+		expect(cp.phase).toBe("judge");
+		expect(cp.iterations).toEqual([]);
+
+		const reworked = await phase("judge", cp, input, judged({ next_action: "rework", rework_task: "1.1", feedback: "fix it" }));
+		const next = decodeCheckpoint(reworked.checkpoint as JsonObject);
+		expect(next.phase).toBe("next");
+		expect(next.iterations).toHaveLength(1);
+		const [round] = next.iterations;
+		expect(round).toMatchObject({
+			n: 1,
+			actions: [],
+			evidence: [{ kind: "check", command: FAIL, exitCode: 1, output: expect.any(String) }],
+			verdict: { met: false, unmet: [{ target: { check: "group 1" } }] },
+			feedback: [{ action: "rework-task", from: { kind: "code-defect", target: { check: "group 1" } } }],
+		});
+		expect(round?.feedback[0]?.from.message).toContain("1.1");
+		expect(round?.feedback[0]?.from.message).toContain("fix it");
+		expect(check(Iteration, round)).toBe(true);
+
+		const second = await phase("check", { ...next, phase: "check", queue: [] }, groupInput([PASS], dirOf()));
+		const outcome = second.outcome?.result.outcome as unknown as LoopOutcome<GroupOutcome>;
+		expect(outcome.status).toBe("converged");
+		expect(outcome.iterations.map((i) => [i.n, i.verdict.met])).toEqual([[1, false], [2, true]]);
+		expect(check(LoopOutcome(GroupOutcome), outcome)).toBe(true);
+	});
+
+	for (const [action, kind, feedback] of [
+		["ask", "needs-decision", "ask"],
+		["amend-spec", "spec-defect", "amend-spec"],
+	] as const) {
+		it(`a ${action} round is a ${kind} finding with ${feedback} feedback`, async () => {
+			const { input, cp } = await atJudge([FAIL]);
+			const commit = await phase("judge", cp, input, judged({ next_action: action, question: "Which?" }));
+			const outcome = commit.outcome?.result.outcome as unknown as LoopOutcome<GroupOutcome>;
+			expect(outcome.status).toBe("blocked");
+			expect(outcome.iterations).toHaveLength(1);
+			expect(outcome.iterations[0]?.feedback).toMatchObject([{ action: feedback, from: { kind, message: "Which?" } }]);
+		});
+	}
+
+	it("two checks give two evidence entries in order, and one failure is unmet", () => {
+		const round = roundIteration({
+			groupNumber: 1,
+			round: 1,
+			checks: [
+				{ command: "a", exitCode: 0, output: "fine" },
+				{ command: "b", exitCode: 2, output: "bad" },
+			],
+		});
+		expect(round.evidence).toEqual([
+			{ kind: "check", command: "a", exitCode: 0, output: "fine" },
+			{ kind: "check", command: "b", exitCode: 2, output: "bad" },
+		]);
+		expect(round.verdict.met).toBe(false);
+		expect(check(Iteration, round)).toBe(true);
+		expect(roundIteration({ groupNumber: 1, round: 1, checks: [{ command: "a", exitCode: 0, output: "" }] }).verdict.met).toBe(true);
+	});
+
+	it("a verdict outside the contract still records the round, and the run fails", async () => {
+		const { input, cp } = await atJudge([FAIL]);
+		const commit = await phase("judge", cp, input, judged({ next_action: "rework", rework_task: "9.9" }));
+		const outcome = commit.outcome?.result.outcome as unknown as LoopOutcome<GroupOutcome>;
+		expect(outcome.status).toBe("failed");
+		expect(outcome.iterations).toHaveLength(1);
+		expect(outcome.iterations[0]?.verdict.met).toBe(false);
+		expect(check(LoopOutcome(GroupOutcome), outcome)).toBe(true);
+	});
+
+	it("a resume during check leaves no duplicate iteration", async () => {
+		const input = groupInput([FAIL], dirOf());
+		const before = start(input);
+		const first = await phase("check", before, input);
+		const again = await phase("check", before, input); // the replay after a crash
+		for (const commit of [first, again]) expect(decodeCheckpoint(commit.checkpoint as JsonObject).iterations).toEqual([]);
+
+		const passing = groupInput([PASS], dirOf());
+		const a = await phase("check", start(passing), passing);
+		const b = await phase("check", start(passing), passing);
+		for (const commit of [a, b]) {
+			expect((commit.outcome?.result.outcome as unknown as LoopOutcome<GroupOutcome>).iterations).toHaveLength(1);
+		}
+	});
+});
+
+describe("task/group: The outcome is a LoopOutcome of GroupOutcome", () => {
+	const tasks = [
+		{ id: "1.1", text: "first", ticked: false },
+		{ id: "1.2", text: "second", ticked: false },
+		{ id: "1.3", text: "third", ticked: false },
+	];
+	const ref = { group: 1, tasks };
+	const converged = (task: string): GroupEntry["outcome"] => ({ status: "converged", iterations: [], result: { task, ticked: true } });
+	const blocked: GroupEntry["outcome"] = {
+		status: "blocked",
+		iterations: [],
+		escalation: { level: "task", to: "principal", reason: "needs-decision: ask", question: "Which API?" },
+	};
+	const met = (round: number) =>
+		roundIteration({ groupNumber: 1, round, checks: [{ command: "pnpm test", exitCode: 0, output: "" }] });
+	const unmet = (round: number, verdict?: GroupVerdict) =>
+		roundIteration({ groupNumber: 1, round, checks: [{ command: "pnpm test", exitCode: 1, output: "boom" }], verdict });
+	const entries: GroupEntry[] = [
+		{ task: "1.1", outcome: converged("1.1"), runs: 1 },
+		{ task: "1.2", outcome: blocked, runs: 1 },
+	];
+
+	it("Scenario: The outcome checks against the ontology", () => {
+		const cp = { entries, iterations: [unmet(1, { kind: "rework", task: "1.1", feedback: "x" }), met(2)] };
+		const results = [
+			finishGroup("converged", cp, { input: ref }),
+			endedGroup(ref, { entries, iterations: [] }, "1.2", blocked),
+			finishGroup("blocked", { entries, iterations: [unmet(1, { kind: "ask", question: "Q?" })] }, {
+				input: ref,
+				escalation: { level: "group", to: "principal", reason: "needs-decision: ask", question: "Q?" },
+			}),
+			finishGroup("exhausted", { entries, iterations: [unmet(1, { kind: "rework", task: "1.1", feedback: "x" })] }, { input: ref }),
+			endedGroup(ref, { entries, iterations: [] }, "1.2", { status: "failed", iterations: [] }),
+		];
+		expect(results.map((r) => r.outcome.status)).toEqual(["converged", "blocked", "blocked", "exhausted", "failed"]);
+		for (const { outcome } of results) expect(check(LoopOutcome(GroupOutcome), outcome)).toBe(true);
+	});
+
+	it("entries are in file order after a rework ran 1.1 after 1.2; a queued task has no entry", () => {
+		const reworked: GroupEntry[] = [
+			{ task: "1.2", outcome: converged("1.2"), runs: 1 },
+			{ task: "1.1", outcome: converged("1.1"), runs: 2 },
+		];
+		const outcome = buildGroupOutcome("exhausted", { entries: reworked, iterations: [] }, { input: ref });
+		expect(outcome.result?.tasks.map((t) => [t.task, t.runs])).toEqual([["1.1", 2], ["1.2", 1]]);
+	});
+
+	it("an outcome that breaks the ontology is stored as failed with a note; one that cannot be fixed throws", () => {
+		// Blocked without an escalation breaks the ontology; the same entries as a failed run do not.
+		const done = finishGroup("blocked", { entries, iterations: [] }, { input: ref });
+		expect(done.outcome.status).toBe("failed");
+		expect(done.notes.join("\n")).toContain("broke the ontology");
+		expect(check(LoopOutcome(GroupOutcome), done.outcome)).toBe(true);
+		const badRound = { ...met(1), n: 5 };
+		expect(() => finishGroup("converged", { entries, iterations: [badRound] }, { input: ref })).toThrow("ontology refuses");
+	});
+});
+
+describe("task/group: a round's verdict target is the group number, not the round number", () => {
+	const TWO_GROUPS = ["## 1. Setup", "", "- [x] 1.1 first", "", "## 2. Build", "", "- [ ] 2.1 build", "- [ ] 2.2 test", ""].join("\n");
+	const FAIL = "node -e process.exit(1)";
+	const PASS = "node -e process.exit(0)";
+	const TARGET = { check: "group 2" };
+	type Input = ReturnType<typeof validateGroupStart>;
+	type Commit = { checkpoint?: JsonObject; outcome?: { result: { outcome: JsonObject } } };
+
+	const groupTwo = (check: string): Input => {
+		const dir = mkdtempSync(join(tmpdir(), "group-two-"));
+		temps.push(dir);
+		const base = options({ group: 2, change: { proposal: { text: PROPOSAL }, deltas: [{ text: DELTA }], tasks: { text: TWO_GROUPS } } });
+		return { ...validateGroupStart(base), checks: [check], workspace: dir } as Input;
+	};
+	const phase = async (name: "check" | "judge", cp: GroupCheckpoint, input: Input, settled?: unknown) => {
+		const committed: Commit[] = [];
+		const runtime = {
+			commit: async (fn: () => unknown) => void committed.push(fn() as Commit),
+			waitForTask: async () => ({ state: { outcome: { status: "completed", result: settled } } }),
+		};
+		const handler = GroupLoopTask.definition.phases[name] as unknown as (t: unknown, r: unknown, c: unknown) => Promise<void>;
+		await handler({ state: { checkpoint: encodeCheckpoint(cp) }, input }, runtime, undefined);
+		expect(committed).toHaveLength(1);
+		return committed[0] as Commit;
+	};
+	const judged = (vars: Record<string, string>) => ({
+		kind: "completed",
+		variables: { next_action: "", rework_task: "", feedback: "", question: "", ...vars },
+	});
+	const converged = (task: string): GroupEntry["outcome"] => ({ status: "converged", iterations: [], result: { task, ticked: true } });
+	const toJudge = async (input: Input) => {
+		const cp: GroupCheckpoint = { ...initialGroupCheckpoint(input.tasks), phase: "check", queue: [] };
+		const commit = await phase("check", cp, input);
+		return { ...decodeCheckpoint(commit.checkpoint as JsonObject), child: { task: "judge", id: 9 as TaskId } };
+	};
+
+	it("Scenario: A failed check round is recorded, on group 2 in every round", async () => {
+		const failing = groupTwo(FAIL);
+		expect(failing.group).toBe(2);
+		const atJudge = await toJudge(failing);
+		const reworked = await phase("judge", atJudge, failing, judged({ next_action: "rework", rework_task: "2.1", feedback: "fix it" }));
+		const next = decodeCheckpoint(reworked.checkpoint as JsonObject);
+		const [first] = next.iterations;
+		expect(first?.n).toBe(1);
+		expect(first?.verdict).toMatchObject({ met: false, unmet: [{ target: TARGET }] });
+		expect(first?.feedback).toMatchObject([{ action: "rework-task", from: { kind: "code-defect", target: TARGET } }]);
+		expect(first?.feedback[0]?.from.message).toContain("2.1");
+
+		// The rework ran 2.1 again (a second run) after 2.1 and 2.2 each ran once; the check now passes.
+		let entries = recordEntry([], "2.1", converged("2.1"));
+		entries = recordEntry(entries, "2.2", converged("2.2"));
+		entries = recordEntry(entries, "2.1", converged("2.1"));
+		const second = await phase("check", { ...next, phase: "check", queue: [], entries }, groupTwo(PASS));
+		const outcome = second.outcome?.result.outcome as unknown as LoopOutcome<GroupOutcome>;
+		expect(outcome.status).toBe("converged");
+		expect(outcome.iterations.map((i) => i.n)).toEqual([1, 2]);
+		expect(outcome.iterations[1]?.verdict).toMatchObject({ met: true, satisfied: [TARGET], unmet: [] });
+		for (const iteration of outcome.iterations) {
+			expect([...iteration.verdict.satisfied, ...iteration.verdict.unmet.map((u) => u.target)]).toEqual([TARGET]);
+			expect(JSON.stringify(iteration)).not.toMatch(/group [13-9]/);
+		}
+		expect(outcome.result?.tasks.map((t) => [t.task, t.runs])).toEqual([["2.1", 2], ["2.2", 1]]);
+		expect(check(LoopOutcome(GroupOutcome), outcome)).toBe(true);
+	});
+
+	it("an ask on group 2 targets group 2 as needs-decision / ask", async () => {
+		const input = groupTwo(FAIL);
+		const commit = await phase("judge", await toJudge(input), input, judged({ next_action: "ask", question: "Which?" }));
+		const outcome = commit.outcome?.result.outcome as unknown as LoopOutcome<GroupOutcome>;
+		expect(outcome.status).toBe("blocked");
+		expect(outcome.iterations[0]?.verdict.unmet.map((u) => u.target)).toEqual([TARGET]);
+		expect(outcome.iterations[0]?.feedback).toMatchObject([{ action: "ask", from: { kind: "needs-decision", target: TARGET } }]);
 	});
 });

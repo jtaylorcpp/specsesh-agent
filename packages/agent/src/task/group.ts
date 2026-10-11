@@ -14,7 +14,23 @@ import {
 	type Task,
 	type TaskId,
 } from "@earendil-works/pi-durable";
-import { GroupOutcome, LoopOutcome, check, explain, type Escalation, type Recipient, type TaskOutcome } from "../openspec/index.js";
+import {
+	GroupOutcome,
+	LoopOutcome,
+	check,
+	explain,
+	feedbackFor,
+	type Action,
+	type CheckEvidence,
+	type Escalation,
+	type Feedback,
+	type Finding,
+	type FindingKind,
+	type Iteration,
+	type Recipient,
+	type Target,
+	type TaskOutcome,
+} from "../openspec/index.js";
 import { AgentScriptRun, DEFAULT_TIMEOUT_MS, runArgv, splitCommand, type RunInput } from "../durable/index.js";
 import type { RunResult } from "../interpreter/index.js";
 import { concatDeltas } from "./deltas.js";
@@ -211,6 +227,8 @@ export type GroupCheckpoint = {
 	queue: string[];
 	entries: GroupEntry[];
 	reworks: number;
+	/** One ontology `Iteration` per finished check round, appended in the commit that ends the round. */
+	iterations: Iteration[];
 	carried?: string;
 	child?: { task: string; id?: TaskId };
 	/** Every check's result, set by the `check` phase when it hands a failure to the judge. */
@@ -233,6 +251,7 @@ export function encodeCheckpoint(cp: GroupCheckpoint): JsonObject {
 		queue: [...cp.queue],
 		entries: cp.entries,
 		reworks: cp.reworks,
+		iterations: cp.iterations as unknown as JsonValue,
 		...(cp.carried !== undefined ? { carried: cp.carried } : {}),
 		...(cp.child !== undefined
 			? { child: { task: cp.child.task, ...(cp.child.id !== undefined ? { id: cp.child.id } : {}) } }
@@ -256,6 +275,7 @@ export function decodeCheckpoint(raw: JsonValue): GroupCheckpoint {
 	if (!Array.isArray(queue) || !queue.every((id) => typeof id === "string")) return malformed("queue");
 	if (!Array.isArray(o.entries)) return malformed("entries");
 	if (typeof o.reworks !== "number") return malformed("reworks");
+	if (o.iterations !== undefined && !Array.isArray(o.iterations)) return malformed("iterations");
 	if (o.carried !== undefined && typeof o.carried !== "string") return malformed("carried");
 	const child = o.child;
 	if (child !== undefined) {
@@ -285,6 +305,7 @@ export function decodeCheckpoint(raw: JsonValue): GroupCheckpoint {
 		queue: queue as string[],
 		entries: o.entries as unknown as GroupEntry[],
 		reworks: o.reworks,
+		iterations: (o.iterations ?? []) as unknown as Iteration[],
 		...(typeof o.carried === "string" ? { carried: o.carried } : {}),
 		...(child !== undefined
 			? { child: { task: (child as JsonObject).task as string, ...(typeof (child as JsonObject).id === "number" ? { id: (child as JsonObject).id as TaskId } : {}) } }
@@ -331,31 +352,111 @@ export function initialGroupCheckpoint(tasks: readonly { id: string; ticked: boo
 				runs: 0,
 			})),
 		reworks: 0,
+		iterations: [],
 	};
 }
 
 const GroupLoopOutcome = LoopOutcome(GroupOutcome);
 
+type GroupStatus = "converged" | "blocked" | "exhausted" | "failed";
+
 /**
- * The group's result: one entry per task in file order, `runs` 0 for a task ticked
- * before the group loop began. A task not yet reached has no entry.
+ * The group's outcome: the checkpoint's iterations, and one entry per task that was ticked or ran,
+ * in the group's file order (not insertion order), `runs` 0 for a task ticked before the group loop
+ * began. A task not yet reached has no entry.
  */
-export function groupOutcome(
-	input: Pick<GroupLoopInput, "group" | "tasks">,
-	entries: readonly GroupEntry[],
-	status: "converged" | "blocked" | "exhausted" | "failed",
-	escalation?: Escalation,
+export function buildGroupOutcome(
+	status: GroupStatus,
+	checkpoint: Pick<GroupCheckpoint, "entries" | "iterations">,
+	extra: { input: Pick<GroupLoopInput, "group" | "tasks">; escalation?: Escalation },
 ): LoopOutcome<GroupOutcome> & JsonObject {
-	const tasks = input.tasks.flatMap((t) => {
-		const entry = entries.find((e) => e.task === t.id);
+	const tasks = extra.input.tasks.flatMap((t) => {
+		const entry = checkpoint.entries.find((e) => e.task === t.id);
 		return entry !== undefined ? [{ task: entry.task, outcome: entry.outcome, runs: entry.runs }] : [];
 	});
-	const result = { group: input.group, tasks };
+	const result = { group: extra.input.group, tasks };
+	const iterations = checkpoint.iterations;
 	return (
 		status === "blocked"
-			? { status, iterations: [], result, escalation: escalation as Escalation }
-			: { status, iterations: [], result }
+			? { status, iterations, result, escalation: extra.escalation as Escalation }
+			: { status, iterations, result }
 	) as unknown as LoopOutcome<GroupOutcome> & JsonObject;
+}
+
+/**
+ * The terminal result, checked against the ontology before it is stored. An outcome the ontology
+ * refuses is replaced by a `failed` one noting it; if that is refused too, this throws so the
+ * durable task records the error.
+ */
+export function finishGroup(
+	status: GroupStatus,
+	checkpoint: Pick<GroupCheckpoint, "entries" | "iterations">,
+	extra: { input: Pick<GroupLoopInput, "group" | "tasks">; escalation?: Escalation; notes?: string[] },
+): GroupLoopResult {
+	const notes = extra.notes ?? [];
+	const done: GroupLoopResult = { outcome: buildGroupOutcome(status, checkpoint, extra), notes };
+	if (check(GroupLoopOutcome, done.outcome)) return done;
+	const reason = explain(GroupLoopOutcome, done.outcome).join("; ");
+	const failed: GroupLoopResult = {
+		outcome: buildGroupOutcome("failed", checkpoint, { input: extra.input }),
+		notes: [...notes, `the group's ${status} outcome broke the ontology: ${reason}`],
+	};
+	if (!check(GroupLoopOutcome, failed.outcome)) {
+		throw new Error(`the group loop built an outcome the ontology refuses: ${explain(GroupLoopOutcome, failed.outcome).join("; ")}`);
+	}
+	return failed;
+}
+
+/** The check evidence of one round: one entry per configured check, in check order. */
+export function checkEvidence(runs: readonly CheckRun[]): CheckEvidence[] {
+	return runs.map((r) => ({ kind: "check", command: r.command, exitCode: r.exitCode, output: r.output }));
+}
+
+/** The one target every group check round judges. */
+export const roundTarget = (groupNumber: number): Target => ({ check: `group ${groupNumber}` });
+
+/**
+ * Round `round` of group `groupNumber`'s check as an ontology `Iteration`: no actions, one `CheckEvidence`
+ * per check, and a verdict on `{ check: "group <groupNumber>" }` (the same target every round), met only
+ * when every check exits 0. An unmet round has one
+ * finding and its feedback, chosen by the judge's verdict: `rework` is a `code-defect` / `rework-task`
+ * (the message names the task), `ask` a `needs-decision` / `ask`, `amend-spec` a `spec-defect` /
+ * `amend-spec`. With no verdict, or one outside the contract, the finding is an `environment` one.
+ */
+export function roundIteration(args: {
+	readonly groupNumber: number;
+	readonly round: number;
+	readonly checks: readonly CheckRun[];
+	readonly verdict?: GroupVerdict;
+}): Iteration {
+	const { groupNumber, round, checks: checkResults, verdict } = args;
+	const evidence = checkEvidence(checkResults);
+	const target = roundTarget(groupNumber);
+	const base = { n: round, plan: "", actions: [] as Action[], evidence };
+	if (checkResults.every((r) => r.exitCode === 0)) {
+		return { ...base, verdict: { met: true, satisfied: [target], unmet: [] }, feedback: [] };
+	}
+	const failing = formatCheckOutput(checkResults);
+	const reason = `group check failed:\n${failing}`;
+	const finding = (kind: FindingKind, message: string): Finding => ({ kind, target, evidence, message });
+	let feedback: Feedback;
+	switch (verdict?.kind) {
+		case "rework":
+			feedback = { from: finding("code-defect", `rework ${verdict.task}: ${verdict.feedback}`), action: "rework-task" };
+			break;
+		case "ask":
+		case "amend-spec":
+			feedback = feedbackFor(
+				finding(verdict.kind === "ask" ? "needs-decision" : "spec-defect", verdict.question.trim() || (failing.split("\n")[0] ?? reason)),
+			);
+			break;
+		case "contract-broken":
+			feedback = feedbackFor(finding("environment", `the group script broke its contract: ${verdict.reason}`));
+			break;
+		default:
+			feedback = feedbackFor(finding("environment", reason));
+	}
+	return { ...base, verdict: { met: false, satisfied: [], unmet: [{ target, reason }] }, feedback: [feedback] };
 }
 
 /** The entry for `task` with `outcome` as its latest run: replaced in place, or appended; `runs` counted. */
@@ -392,18 +493,13 @@ export function taskLoopInputFor(input: GroupLoopInput, task: string, carried: s
 /** The terminal result for a task that did not converge, checked against the ontology. */
 export function endedGroup(
 	input: Pick<GroupLoopInput, "group" | "tasks">,
-	entries: readonly GroupEntry[],
+	cp: Pick<GroupCheckpoint, "entries" | "iterations">,
 	task: string,
 	outcome: GroupEntry["outcome"],
 ): GroupLoopResult {
-	const done: GroupLoopResult =
-		outcome.status === "blocked"
-			? { outcome: groupOutcome(input, entries, "blocked", { ...outcome.escalation, level: "group" }), notes: [] }
-			: { outcome: groupOutcome(input, entries, "failed"), notes: [`task ${task} ended ${outcome.status}`] };
-	if (!check(GroupLoopOutcome, done.outcome)) {
-		throw new Error(`the group loop built an outcome the ontology refuses: ${explain(GroupLoopOutcome, done.outcome).join("; ")}`);
-	}
-	return done;
+	return outcome.status === "blocked"
+		? finishGroup("blocked", cp, { input, escalation: { ...outcome.escalation, level: "group" } })
+		: finishGroup("failed", cp, { input, notes: [`task ${task} ended ${outcome.status}`] });
 }
 
 /**
@@ -435,13 +531,14 @@ export function formatCheckOutput(runs: readonly CheckRun[]): string {
 		.join("\n\n");
 }
 
-/** The terminal result when every check passed, checked against the ontology. */
-export function convergedGroup(input: Pick<GroupLoopInput, "group" | "tasks">, entries: readonly GroupEntry[]): GroupLoopResult {
-	const done: GroupLoopResult = { outcome: groupOutcome(input, entries, "converged"), notes: [] };
-	if (!check(GroupLoopOutcome, done.outcome)) {
-		throw new Error(`the group loop built an outcome the ontology refuses: ${explain(GroupLoopOutcome, done.outcome).join("; ")}`);
-	}
-	return done;
+/** The terminal result when every check passed: the checkpoint's iterations plus the met round. */
+export function convergedGroup(
+	input: Pick<GroupLoopInput, "group" | "tasks">,
+	cp: Pick<GroupCheckpoint, "entries" | "iterations">,
+	runs: readonly CheckRun[],
+): GroupLoopResult {
+	const iterations = [...cp.iterations, roundIteration({ groupNumber: input.group, round: cp.iterations.length + 1, checks: runs })];
+	return finishGroup("converged", { entries: cp.entries, iterations }, { input });
 }
 
 /** What the judge phase does with a verdict: go round again with this checkpoint, or end. */
@@ -449,30 +546,40 @@ export type JudgeDecision =
 	| { readonly kind: "rework"; readonly task: string; readonly checkpoint: GroupCheckpoint }
 	| { readonly kind: "end"; readonly done: GroupLoopResult };
 
-function endedWith(
-	input: Pick<GroupLoopInput, "group" | "tasks">,
-	entries: readonly GroupEntry[],
+/** The checkpoint with this round's iteration, built from the check results the `judge` checkpoint kept. */
+function withRound(input: Pick<GroupLoopInput, "group">, cp: GroupCheckpoint, verdict?: GroupVerdict): GroupCheckpoint {
+	const round = cp.iterations.length + 1;
+	return {
+		...cp,
+		iterations: [...cp.iterations, roundIteration({ groupNumber: input.group, round, checks: cp.checkOutput ?? [], verdict })],
+	};
+}
+
+/** The group ends `status` with the round recorded; used by the judge phase for every ending. */
+export function endedRound(
+	input: GroupLoopInput,
+	cp: GroupCheckpoint,
 	status: "blocked" | "exhausted" | "failed",
 	notes: string[],
+	verdict?: GroupVerdict,
 	escalation?: Escalation,
 ): GroupLoopResult {
-	const done: GroupLoopResult = { outcome: groupOutcome(input, entries, status, escalation), notes };
-	if (!check(GroupLoopOutcome, done.outcome)) {
-		throw new Error(`the group loop built an outcome the ontology refuses: ${explain(GroupLoopOutcome, done.outcome).join("; ")}`);
-	}
-	return done;
+	return finishGroup(status, withRound(input, cp, verdict), { input, notes, ...(escalation !== undefined ? { escalation } : {}) });
 }
 
 /**
  * The judge phase's mapping, pure. A verdict outside the contract fails the group before
  * the rework budget is looked at; `entries` are kept as they are on every ending but a rework.
- * The finding and feedback of the round's `Iteration` are recorded with the iterations, not here.
+ * Every ending, and a rework, appends the round's `Iteration` with its finding and feedback.
  */
 export function decideJudge(verdict: GroupVerdict, cp: GroupCheckpoint, input: GroupLoopInput): JudgeDecision {
 	const checkOutput = formatCheckOutput(cp.checkOutput ?? []);
 	switch (verdict.kind) {
 		case "contract-broken":
-			return { kind: "end", done: endedWith(input, cp.entries, "failed", [`the group script broke its contract: ${verdict.reason}`]) };
+			return {
+				kind: "end",
+				done: endedRound(input, cp, "failed", [`the group script broke its contract: ${verdict.reason}`], verdict),
+			};
 		case "ask":
 		case "amend-spec": {
 			const escalation: Escalation = {
@@ -481,16 +588,16 @@ export function decideJudge(verdict: GroupVerdict, cp: GroupCheckpoint, input: G
 				reason: verdict.kind === "amend-spec" ? "spec-defect: amend-spec" : "needs-decision: ask",
 				question: verdict.question.trim() || (checkOutput.split("\n")[0] ?? "") || `How should group ${input.group} proceed?`,
 			};
-			return { kind: "end", done: endedWith(input, cp.entries, "blocked", [], escalation) };
+			return { kind: "end", done: endedRound(input, cp, "blocked", [], verdict, escalation) };
 		}
 		case "rework": {
 			if (cp.reworks >= input.budget.maxReworks) {
 				return {
 					kind: "end",
-					done: endedWith(input, cp.entries, "exhausted", [`group ${input.group} used its ${input.budget.maxReworks} reworks`]),
+					done: endedRound(input, cp, "exhausted", [`group ${input.group} used its ${input.budget.maxReworks} reworks`], verdict),
 				};
 			}
-			const { child: _child, checkOutput: _checkOutput, ...kept } = cp;
+			const { child: _child, checkOutput: _checkOutput, ...kept } = withRound(input, cp, verdict);
 			const checkpoint: GroupCheckpoint = {
 				...kept,
 				phase: "next",
@@ -577,7 +684,7 @@ export const GroupLoopTask: Task<GroupLoopInput, StoredGroupCheckpoint, GroupLoo
 				await runtime.commit(() => ({ status: "running", checkpoint: stored({ ...kept, phase: "next", entries }) }), context);
 				return;
 			}
-			const done = endedGroup(task.input, entries, current, outcome);
+			const done = endedGroup(task.input, { entries, iterations: cp.iterations }, current, outcome);
 			await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
 		},
 		// Nothing is stored before the checks finish, so a process that dies here reruns them all.
@@ -585,7 +692,7 @@ export const GroupLoopTask: Task<GroupLoopInput, StoredGroupCheckpoint, GroupLoo
 			const cp = decodeCheckpoint(task.state.checkpoint);
 			const runs = await runGroupChecks(task.input.checks, task.input.workspace);
 			if (runs.every((r) => r.exitCode === 0)) {
-				const done = convergedGroup(task.input, cp.entries);
+				const done = convergedGroup(task.input, cp, runs);
 				await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
 				return;
 			}
@@ -619,7 +726,7 @@ export const GroupLoopTask: Task<GroupLoopInput, StoredGroupCheckpoint, GroupLoo
 			const ids = input.tasks.map((t) => t.id);
 			if (ended.status !== "completed" || ended.result.kind !== "completed") {
 				const how = ended.status === "completed" ? ended.result.kind : ended.status;
-				const done = endedWith(input, cp.entries, "failed", [`the group judge's run ended ${how}`]);
+				const done = endedRound(input, cp, "failed", [`the group judge's run ended ${how}`]);
 				await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
 				return;
 			}
