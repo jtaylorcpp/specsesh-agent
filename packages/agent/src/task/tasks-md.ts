@@ -39,6 +39,18 @@ export function findTask(tasksMd: string, id: string, label: string): string {
 }
 
 /**
+ * The file with only the task's `- [x]` turned into `- [ ]`, or why it was left
+ * alone: the line is already unticked, or no longer there.
+ */
+export function untickLine(tasksMd: string, id: string): { text: string } | { reason: "unticked" | "missing" } {
+	const line = taskLines(tasksMd).find((l) => l.id === id);
+	if (line === undefined) return { reason: "missing" };
+	if (!line.done) return { reason: "unticked" };
+	const box = line.offset + "- [".length;
+	return { text: `${tasksMd.slice(0, box)} ${tasksMd.slice(box + 1)}` };
+}
+
+/**
  * The file with only the task's `- [ ]` turned into `- [x]`, or why it was left
  * alone: the line is already ticked, or no longer there.
  */

@@ -15,11 +15,13 @@ import {
 	type TaskId,
 } from "@earendil-works/pi-durable";
 import { GroupOutcome, LoopOutcome, check, explain, type Escalation, type Recipient, type TaskOutcome } from "../openspec/index.js";
-import { DEFAULT_TIMEOUT_MS, runArgv, splitCommand } from "../durable/index.js";
+import { AgentScriptRun, DEFAULT_TIMEOUT_MS, runArgv, splitCommand, type RunInput } from "../durable/index.js";
+import type { RunResult } from "../interpreter/index.js";
 import { concatDeltas } from "./deltas.js";
 import { TaskLoopStartError } from "./errors.js";
+import { readGroupVerdict, seedGroupJudge, type GroupVerdict } from "./group-judge.js";
 import type { TaskLoopInput, TaskLoopResult } from "./loop-input.js";
-import { TaskLoopTask } from "./loop.js";
+import { TaskLoopTask, subagentsOf } from "./loop.js";
 import {
 	BUNDLED_SCRIPTS,
 	DEFAULT_ESCALATE_TO,
@@ -29,6 +31,7 @@ import {
 	type TaskLoopOptions,
 } from "./options.js";
 import { readChange, readScript, readSource } from "./sources.js";
+import { untick } from "./tick.js";
 
 /** Any JSON value; pi-durable exports `JsonObject` but not its value type. */
 type JsonValue = JsonObject[string];
@@ -333,10 +336,6 @@ export function initialGroupCheckpoint(tasks: readonly { id: string; ticked: boo
 
 const GroupLoopOutcome = LoopOutcome(GroupOutcome);
 
-function notYet(phase: GroupPhase, task: string): never {
-	throw new Error(`group-loop phase ${phase} not implemented yet (task ${task})`);
-}
-
 /**
  * The group's result: one entry per task in file order, `runs` 0 for a task ticked
  * before the group loop began. A task not yet reached has no entry.
@@ -344,7 +343,7 @@ function notYet(phase: GroupPhase, task: string): never {
 export function groupOutcome(
 	input: Pick<GroupLoopInput, "group" | "tasks">,
 	entries: readonly GroupEntry[],
-	status: "converged" | "blocked" | "failed",
+	status: "converged" | "blocked" | "exhausted" | "failed",
 	escalation?: Escalation,
 ): LoopOutcome<GroupOutcome> & JsonObject {
 	const tasks = input.tasks.flatMap((t) => {
@@ -445,6 +444,82 @@ export function convergedGroup(input: Pick<GroupLoopInput, "group" | "tasks">, e
 	return done;
 }
 
+/** What the judge phase does with a verdict: go round again with this checkpoint, or end. */
+export type JudgeDecision =
+	| { readonly kind: "rework"; readonly task: string; readonly checkpoint: GroupCheckpoint }
+	| { readonly kind: "end"; readonly done: GroupLoopResult };
+
+function endedWith(
+	input: Pick<GroupLoopInput, "group" | "tasks">,
+	entries: readonly GroupEntry[],
+	status: "blocked" | "exhausted" | "failed",
+	notes: string[],
+	escalation?: Escalation,
+): GroupLoopResult {
+	const done: GroupLoopResult = { outcome: groupOutcome(input, entries, status, escalation), notes };
+	if (!check(GroupLoopOutcome, done.outcome)) {
+		throw new Error(`the group loop built an outcome the ontology refuses: ${explain(GroupLoopOutcome, done.outcome).join("; ")}`);
+	}
+	return done;
+}
+
+/**
+ * The judge phase's mapping, pure. A verdict outside the contract fails the group before
+ * the rework budget is looked at; `entries` are kept as they are on every ending but a rework.
+ * The finding and feedback of the round's `Iteration` are recorded with the iterations, not here.
+ */
+export function decideJudge(verdict: GroupVerdict, cp: GroupCheckpoint, input: GroupLoopInput): JudgeDecision {
+	const checkOutput = formatCheckOutput(cp.checkOutput ?? []);
+	switch (verdict.kind) {
+		case "contract-broken":
+			return { kind: "end", done: endedWith(input, cp.entries, "failed", [`the group script broke its contract: ${verdict.reason}`]) };
+		case "ask":
+		case "amend-spec": {
+			const escalation: Escalation = {
+				level: "group",
+				to: input.escalateTo,
+				reason: verdict.kind === "amend-spec" ? "spec-defect: amend-spec" : "needs-decision: ask",
+				question: verdict.question.trim() || (checkOutput.split("\n")[0] ?? "") || `How should group ${input.group} proceed?`,
+			};
+			return { kind: "end", done: endedWith(input, cp.entries, "blocked", [], escalation) };
+		}
+		case "rework": {
+			if (cp.reworks >= input.budget.maxReworks) {
+				return {
+					kind: "end",
+					done: endedWith(input, cp.entries, "exhausted", [`group ${input.group} used its ${input.budget.maxReworks} reworks`]),
+				};
+			}
+			const { child: _child, checkOutput: _checkOutput, ...kept } = cp;
+			const checkpoint: GroupCheckpoint = {
+				...kept,
+				phase: "next",
+				queue: [...cp.queue, verdict.task],
+				reworks: cp.reworks + 1,
+				carried: `${checkOutput}\n\n${verdict.feedback}`,
+			};
+			return { kind: "rework", task: verdict.task, checkpoint };
+		}
+	}
+}
+
+/** The judge's seed: the group, each task's last status, and every check's result. */
+function judgeSeed(cp: GroupCheckpoint, input: GroupLoopInput) {
+	return seedGroupJudge({
+		group: input.group,
+		title: input.groupTitle,
+		tasks: input.tasks.map((t) => ({
+			id: t.id,
+			text: t.text,
+			status: cp.entries.find((e) => e.task === t.id)?.outcome.status ?? "pending",
+		})),
+		proposal: input.proposal,
+		deltas: input.deltas,
+		checks: cp.checkOutput ?? [],
+		reworks: cp.reworks,
+	});
+}
+
 /** Pops the queue head into `task`, or goes to `check` when the queue is empty. No model request, no command. */
 export function nextCheckpoint(cp: GroupCheckpoint): GroupCheckpoint {
 	const { child: _child, ...kept } = cp;
@@ -516,7 +591,46 @@ export const GroupLoopTask: Task<GroupLoopInput, StoredGroupCheckpoint, GroupLoo
 			}
 			await runtime.commit(() => ({ status: "running", checkpoint: stored({ ...cp, phase: "judge", checkOutput: runs }) }), context);
 		},
-		judge: async () => notYet("judge", "2.3"),
+		// Like `task`: the judge's run is created and its id stored in one commit; a later entry
+		// waits for that id, reads the four variables back and decides.
+		judge: async (task, runtime, context) => {
+			const cp = decodeCheckpoint(task.state.checkpoint);
+			const input = task.input;
+
+			if (cp.child?.id === undefined) {
+				const runTask = runtime.registry.task(AgentScriptRun.definition.name) as typeof AgentScriptRun | undefined;
+				if (runTask === undefined) {
+					throw new Error(`${GROUP_LOOP_NAME} needs ${AgentScriptRun.definition.name} installed: install groupLoopExtensions(...)`);
+				}
+				const runInput: RunInput = {
+					source: input.groupScript,
+					options: { entry: subagentsOf(input.groupScript), variables: judgeSeed(cp, input) },
+					...(input.model !== undefined ? { model: input.model } : {}),
+				};
+				await runtime.commit(async (tx) => {
+					const id = await tx.createTask(runTask, runInput, { ownership: { kind: "task", taskId: runtime.taskId } });
+					return { status: "waiting", checkpoint: stored({ ...cp, child: { task: "judge", id } }), on: [id], policy: "allSettled" };
+				}, context);
+				return;
+			}
+
+			const settled = await runtime.waitForTask(cp.child.id as TaskId<RunResult>, context);
+			const ended = settled.state.outcome;
+			const ids = input.tasks.map((t) => t.id);
+			if (ended.status !== "completed" || ended.result.kind !== "completed") {
+				const how = ended.status === "completed" ? ended.result.kind : ended.status;
+				const done = endedWith(input, cp.entries, "failed", [`the group judge's run ended ${how}`]);
+				await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
+				return;
+			}
+			const decision = decideJudge(readGroupVerdict(ended.result.variables, ids), cp, input);
+			if (decision.kind === "end") {
+				await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: decision.done } }), context);
+				return;
+			}
+			untick(input.tasksPath, decision.task);
+			await runtime.commit(() => ({ status: "running", checkpoint: stored(decision.checkpoint) }), context);
+		},
 	},
 	abort: async (_task, runtime, context) => {
 		await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted", reason: "aborted" } }), context);
