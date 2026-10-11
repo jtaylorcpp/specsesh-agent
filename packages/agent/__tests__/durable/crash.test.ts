@@ -34,7 +34,7 @@ function crashChild(dbPath: string, crashAt = 2): { out: string; status: number 
 }
 
 describe("a run that survives its process dying", () => {
-	it("resumes from SQLite after a crash mid-run, without re-running the finished step", async () => {
+	it("Scenario: A crash during the second model request resumes at the second step", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "agentscript-crash-"));
 		dirs.push(dir);
 		const dbPath = join(dir, "run.sqlite");
@@ -64,7 +64,7 @@ describe("a run that survives its process dying", () => {
 		expect(JSON.stringify(env.requests[0])).toContain("Write an urgent reply about: it crashes");
 	}, 90_000);
 
-	it("resumes a run that died on its very first model request, and runs every step", async () => {
+	it("Scenario: A crash during the very first model request resumes and runs every step", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "agentscript-crash-"));
 		dirs.push(dir);
 		const dbPath = join(dir, "run.sqlite");
