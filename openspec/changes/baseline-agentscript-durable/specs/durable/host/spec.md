@@ -53,10 +53,10 @@
 - **THEN** it SHALL resolve, not reject, to a `RunResult` with `kind: "failed"`
 
 ### Requirement: waitForScript refuses a task that is not terminal
-When `harness.waitForTask` hands back a record whose `state.status` is not `terminal`, `waitForScript` SHALL throw an error whose message is `agentscript run <id> is <status>, not finished. Task IDs are numbers; check the ID passed in.`. This covers pi-durable's behaviour of returning the current record for an ID it is not tracking, such as a task ID passed as a string.
+When `harness.waitForTask` hands back a record whose `state.status` is not `terminal`, `waitForScript` SHALL throw an error whose message is `agentscript run <id> is <status>, not finished. Task IDs are numbers; check the ID passed in.`. On node SQLite storage (the CLI's), pi-durable matches a string ID such as `"7"` to task 7 and returns its live record, so this message is what a caller who forgot `Number(...)` sees. On `MemoryStorage`, pi-durable itself throws `Task 7 does not exist` first.
 
 #### Scenario: A string task ID is caught by name
-- **GIVEN** a running task whose ID was read from text and passed without `Number(...)`
+- **GIVEN** a running task on node SQLite storage whose ID was read from text and passed without `Number(...)`
 - **WHEN** a host calls `waitForScript` with the string
 - **THEN** it SHALL reject with a message containing `not finished` and `Task IDs are numbers`
 
