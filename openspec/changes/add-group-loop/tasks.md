@@ -27,7 +27,7 @@
 
 ## 4. Tests (vitest; faux provider and fake `claude` only, no live calls)
 
-- [ ] 4.1 `packages/agent/__tests__/task/group.test.ts`: one test per `task/group` scenario, named `Scenario: <exact scenario name>`
+- [x] 4.1 `packages/agent/__tests__/task/group.test.ts`: one test per `task/group` scenario, named `Scenario: <exact scenario name>`
 - [ ] 4.2 `packages/agent/__tests__/task/group-e2e.test.ts`: a two-task group on the faux provider in a temp workspace: both tasks converge, the group check fails once, the judge reworks `1.1`, its loop converges, the check passes; asserts `converged`, `1.1` at `runs` `2`, `1.2` at `runs` `1`, `1.1` ticked again, and the outcome passing `check`
 - [ ] 4.3 `packages/agent/__tests__/task/group-crash.test.ts`: `Scenario: Killed during a task`: kill the process mid-task (exit 137), resume from the same database, no second child loop
 - [ ] 4.4 `packages/agent/__tests__/task/cli-group.test.ts`: one test per new and modified `task/cli` and `task/headless` scenario (group positional, `--next-group`, flags, events, worktree, status, resume, answer, text and JSON output, exit codes), via the built bin and a fake `claude`

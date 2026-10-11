@@ -1,10 +1,23 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { JsonObject, TaskId } from "@earendil-works/pi-durable";
+import { fauxAssistantMessage, fauxToolCall, type AssistantMessage } from "@earendil-works/pi-ai";
+import type { Harness, JsonObject, TaskId } from "@earendil-works/pi-durable";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GroupOutcome, Iteration, LoopOutcome, TaskOutcome, check } from "../../src/openspec/index.js";
-import { TaskLoopStartError } from "../../src/task/index.js";
+import { analyze } from "../../src/authoring/index.js";
+import { RESULT_TOOL } from "../../src/durable/index.js";
+import { scanDocument } from "../../src/interpreter/index.js";
+import { GroupOutcome, Iteration, LoopOutcome, TaskOutcome, check, type Escalation } from "../../src/openspec/index.js";
+import {
+	BUNDLED_SCRIPTS,
+	TASK_LOOP,
+	TaskLoopStartError,
+	answerGroupEscalation,
+	groupLoopExtensions,
+	startGroupLoop,
+	waitForGroupLoop,
+} from "../../src/task/index.js";
 import {
 	DEFAULT_MAX_REWORKS,
 	GROUP_LOOP_NAME,
@@ -30,8 +43,9 @@ import {
 	validateGroupStart,
 	type GroupLoopOptions,
 } from "../../src/task/group.js";
-import type { GroupVerdict } from "../../src/task/group-judge.js";
-import { DELTA, JUDGE_ONLY, PROPOSAL } from "./helpers.js";
+import { groupContractProblems, readGroupVerdict, type GroupVerdict } from "../../src/task/group-judge.js";
+import { openHarness, setup } from "../durable/helpers.js";
+import { DELTA, GROUP_JUDGE, JUDGE_ONLY, PROPOSAL, cleanTemps, context, prompts, temp, tinyChange, verdict } from "./helpers.js";
 
 // Every file read, so a test can count one read per source.
 const reads = vi.hoisted(() => ({ paths: [] as string[] }));
@@ -83,12 +97,12 @@ const refusal = (fn: () => unknown) => {
 };
 
 describe("task/group: A group is found by its number in tasks.md", () => {
-	it("Scenario: An unknown group lists the groups", () => {
+	it("validateGroupStart: an unknown group lists the groups", () => {
 		const message = refusal(() => validateGroupStart(options({ group: 9 })));
 		expect(message).toBe("no group 9 in tasks.md; groups: 1, 2");
 	});
 
-	it("Scenario: A group needs a check", () => {
+	it("validateGroupStart: a group needs a check", () => {
 		expect(refusal(() => validateGroupStart(options({ checks: [] })))).toContain("at least one check");
 		expect(refusal(() => validateGroupStart(options({ checks: undefined })))).toContain("at least one check");
 	});
@@ -115,7 +129,7 @@ describe("task/group: A group is found by its number in tasks.md", () => {
 });
 
 describe("task/group: Group options are the task options with a group, a judge script and a rework budget", () => {
-	it("Scenario: Defaults for a group", () => {
+	it("resolveGroupOptions: defaults for a group", () => {
 		const { groupScript: _omit, ...rest } = options();
 		const resolved = resolveGroupOptions(rest);
 		expect(resolved.groupScript).toEqual({ bundled: "group" });
@@ -187,7 +201,7 @@ describe("task/group: The group loop is a durable task over a queue", () => {
 		expect(GROUP_LOOP_VERSION).toBe(1);
 	});
 
-	it("Scenario: A ticked task is not run again", () => {
+	it("initialGroupCheckpoint: a ticked task is not queued", () => {
 		const checkpoint = initialGroupCheckpoint(input().tasks);
 		expect(checkpoint.phase).toBe("next");
 		expect(checkpoint.queue).toEqual(["1.2"]);
@@ -208,7 +222,7 @@ describe("task/group: The group loop is a durable task over a queue", () => {
 		expect(checkpoint).toEqual({ ...start, phase: "task", queue: ["1.2"], child: { task: "1.1" } });
 	});
 
-	it("Scenario: An empty queue goes to the check", async () => {
+	it("next phase: an empty queue goes to the check", async () => {
 		const { checkpoint } = await runNext({ ...initialGroupCheckpoint(input().tasks), queue: [], child: { task: "1.2" } });
 		expect(checkpoint.phase).toBe("check");
 		expect(checkpoint.queue).toEqual([]);
@@ -309,7 +323,7 @@ describe("task/group: The group loop is a durable task over a queue", () => {
 			expect(decodeCheckpoint(commit.checkpoint as JsonObject).child).toEqual({ task: "1.2", id: 42 });
 		});
 
-		it("Scenario: Killed during a task", async () => {
+		it("task phase: a stored child id is waited on, not created again", async () => {
 			const { created, commit } = await runTask(atTask({ child: { task: "1.2", id: 42 as TaskId } }), converged("1.2"));
 			expect(created).toHaveLength(0);
 			const cp = decodeCheckpoint(commit.checkpoint as JsonObject);
@@ -360,7 +374,7 @@ describe("task/group: The group loop is a durable task over a queue", () => {
 		});
 
 		for (const status of ["exhausted", "failed"] as const) {
-			it(`Scenario: An exhausted task fails the group (${status})`, async () => {
+			it(`task phase: a ${status} task fails the group`, async () => {
 				const { commit } = await runTask(
 					atTask({ child: { task: "1.2", id: 42 as TaskId } }),
 					{ status, iterations: [] } as Outcome,
@@ -374,7 +388,7 @@ describe("task/group: The group loop is a durable task over a queue", () => {
 		}
 
 		for (const status of ["blocked", "exhausted"] as const) {
-			it(`Scenario: A task still queued when the group ends has no entry (${status})`, async () => {
+			it(`${status === "blocked" ? "Scenario: A task still queued when the group ends has no entry" : "task phase: a task still queued when the group is exhausted has no entry"}`, async () => {
 				const { created, commit } = await runTask(
 					{ phase: "task", queue: ["1.2", "1.3"], entries: [], reworks: 0, iterations: [], child: { task: "1.1", id: 42 as TaskId } },
 					status === "blocked" ? blocked() : ({ status, iterations: [] } as Outcome),
@@ -685,7 +699,7 @@ describe("task/group: a round's verdict target is the group number, not the roun
 		return { ...decodeCheckpoint(commit.checkpoint as JsonObject), child: { task: "judge", id: 9 as TaskId } };
 	};
 
-	it("Scenario: A failed check round is recorded, on group 2 in every round", async () => {
+	it("group loop: a failed check round targets group 2 in every round", async () => {
 		const failing = groupTwo(FAIL);
 		expect(failing.group).toBe(2);
 		const atJudge = await toJudge(failing);
@@ -762,5 +776,324 @@ describe("task/group: taskLoopInputFor carries the group's worktree to every chi
 	it("leaves worktree out of a child when the group has none", () => {
 		const { worktree: _dropped, ...plain } = input;
 		expect("worktree" in taskLoopInputFor(plain, "2.1", "")).toBe(false);
+	});
+});
+
+// Full runs: a real SQLite store, the faux model, fake check commands. No live model.
+type Responses = Parameters<ReturnType<typeof setup>["faux"]["setResponses"]>[0];
+
+const RUN_PASS = "node -e process.exit(0)";
+const RUN_FAIL = "node -e process.exit(1)";
+/** Fails the first time it runs in a workspace, passes after. */
+const FAIL_ONCE = [
+	'const fs = require("fs");',
+	'if (fs.existsSync("seen")) process.exit(0);',
+	'fs.writeFileSync("seen", "");',
+	'console.log("import missing");',
+	"process.exit(1);",
+	"",
+].join("\n");
+
+const judgeSays = (vars: Record<string, string>) =>
+	fauxAssistantMessage([fauxToolCall(RESULT_TOOL, { next_action: "", rework_task: "", feedback: "", question: "", ...vars })], {
+		stopReason: "toolUse",
+	});
+const rework = (task: string, feedback = "restore the import") => judgeSays({ next_action: "rework", rework_task: task, feedback });
+
+type Deferred<T> = { promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void };
+function deferred<T>(): Deferred<T> {
+	const d = {} as Deferred<T>;
+	d.promise = new Promise<T>((resolve, reject) => {
+		d.resolve = resolve;
+		d.reject = reject;
+	});
+	d.promise.catch(() => undefined); // a rejection nobody awaits is not an unhandled one
+	return d;
+}
+const killed = () => Object.assign(new Error("killed"), { name: "AbortError" });
+
+describe("task/group: a group loop on a real store", () => {
+	const opened: Harness[] = [];
+	const restores: (() => void)[] = [];
+	const hangs: Deferred<AssistantMessage>[] = [];
+	const closed = new Set<Harness>();
+	afterEach(async () => {
+		// Settle planted hangs first, so a failing assertion cannot leave one holding close().
+		for (const hang of hangs.splice(0)) hang.reject(killed());
+		for (const harness of opened.splice(0)) if (!closed.has(harness)) await harness.close(context).catch(() => undefined);
+		closed.clear();
+		for (const restore of restores.splice(0)) restore();
+		cleanTemps();
+	});
+
+	async function openRun(responses: Responses, over: Partial<GroupLoopOptions> = {}, tasks?: string) {
+		const dir = mkdtempSync(join(tmpdir(), "group-run-"));
+		temps.push(dir);
+		const workspace = join(dir, "ws");
+		mkdirSync(workspace);
+		const checks = over.checks ?? [RUN_PASS];
+		const env = setup();
+		for (const extension of groupLoopExtensions({ workspace, checks })) env.registry.install(extension);
+		const db = join(dir, "loops.sqlite");
+		const storage = await openNodeSqliteStorage(db);
+		const harness = await openHarness(storage, env);
+		opened.push(harness);
+		env.faux.setResponses(responses);
+		const changeDir = tinyChange(tasks === undefined ? {} : { tasks });
+		const options: GroupLoopOptions = {
+			change: { dir: changeDir },
+			group: 1,
+			script: { text: JUDGE_ONLY },
+			groupScript: { text: GROUP_JUDGE },
+			workspace,
+			checks,
+			model: env.model,
+			...over,
+		};
+		return { env, storage, harness, db, workspace, changeDir, options };
+	}
+	type Run = Awaited<ReturnType<typeof openRun>>;
+
+	async function runGroup(r: Run) {
+		const id = await startGroupLoop(r.harness, r.options, context);
+		r.harness.resume();
+		const outcome = await waitForGroupLoop(r.harness, id, context);
+		return { id, outcome };
+	}
+
+	const scan = async (storage: Run["storage"], kind: string) => (await storage.scanTasks({ kind }, 50, undefined, context)).items;
+	const children = async (storage: Run["storage"]) =>
+		(await scan(storage, TASK_LOOP)).map((t) => t.input as unknown as { task: string; carried: string });
+	const notesOf = async (r: Run, id: unknown) => {
+		const settled = await r.harness.waitForTask(id as TaskId<never>, context);
+		return ((settled.state.outcome as unknown as { result?: { notes: string[] } }).result?.notes ?? []) as string[];
+	};
+	const escalationOf = (outcome: LoopOutcome<GroupOutcome>) => (outcome as unknown as { escalation: Escalation }).escalation;
+
+	/** A `pnpm` first on PATH that prints `output` and exits 1. */
+	function failingPnpm(output: string): void {
+		const bin = temp("group-bin-");
+		writeFileSync(join(bin, "pnpm"), `#!${process.execPath}\nprocess.stdout.write(${JSON.stringify(output)});\nprocess.exit(1);\n`, { mode: 0o755 });
+		const saved = process.env.PATH;
+		process.env.PATH = `${bin}:${saved ?? ""}`;
+		restores.push(() => {
+			process.env.PATH = saved;
+		});
+	}
+
+	it("Scenario: A host starts and awaits a group loop", async () => {
+		const r = await openRun([verdict(true), verdict(true)]);
+		const { outcome } = await runGroup(r);
+		expect(outcome.status).toBe("converged");
+		expect(outcome.result?.group).toBe(1);
+	});
+
+	it("Scenario: Defaults for a group", async () => {
+		const r = await openRun([]);
+		const { groupScript: _script, budget: _budget, ...bare } = r.options;
+		await startGroupLoop(r.harness, bare, context);
+		const [stored] = await scan(r.storage, GROUP_LOOP_NAME);
+		const input = stored?.input as unknown as GroupLoopInput;
+		expect(input.groupScript).toBe(readFileSync(BUNDLED_SCRIPTS.group, "utf8"));
+		expect(input.budget.maxReworks).toBe(2);
+	});
+
+	it("Scenario: An unknown group lists the groups", async () => {
+		const r = await openRun([], { group: 9 }, "## 1. Value\n\n- [ ] 1.1 a\n\n## 2. More\n\n- [ ] 2.1 b\n");
+		const start = startGroupLoop(r.harness, r.options, context);
+		await expect(start).rejects.toThrow(TaskLoopStartError);
+		await expect(start).rejects.toThrow(/group 9.*groups: 1, 2/);
+		expect(await scan(r.storage, GROUP_LOOP_NAME)).toHaveLength(0);
+	});
+
+	it("Scenario: A group needs a check", async () => {
+		const r = await openRun([], { checks: [] });
+		await expect(startGroupLoop(r.harness, r.options, context)).rejects.toThrow(/a group needs at least one check/);
+		expect(await scan(r.storage, GROUP_LOOP_NAME)).toHaveLength(0);
+	});
+
+	it("Scenario: A ticked task is not run again", async () => {
+		const r = await openRun([verdict(true)], {}, "## 1. Value\n\n- [x] 1.1 done\n- [ ] 1.2 todo\n");
+		const { outcome } = await runGroup(r);
+		expect(outcome.status).toBe("converged");
+		expect((await children(r.storage)).map((c) => c.task)).toEqual(["1.2"]);
+		const first = outcome.result?.tasks.find((t) => t.task === "1.1");
+		expect(first?.runs).toBe(0);
+		expect(first?.outcome).toEqual({ status: "converged", iterations: [], result: { task: "1.1", ticked: true } });
+	});
+
+	it("Scenario: Two tasks and a passing check", async () => {
+		const seen: string[] = [];
+		const phases = GroupLoopTask.definition.phases as unknown as Record<string, (...args: unknown[]) => Promise<void>>;
+		for (const name of ["next", "task", "check", "judge"]) {
+			const original = phases[name] as (...args: unknown[]) => Promise<void>;
+			const spy = vi.spyOn(phases, name).mockImplementation(async (...args: unknown[]) => {
+				const { state } = args[0] as { state: { checkpoint: JsonObject } };
+				const entry = name === "task" ? `task(${decodeCheckpoint(state.checkpoint).child?.task})` : name;
+				if (seen.at(-1) !== entry) seen.push(entry);
+				return original(...args);
+			});
+			restores.push(() => spy.mockRestore());
+		}
+		const r = await openRun([verdict(true), verdict(true)]);
+		const { outcome } = await runGroup(r);
+		expect(seen).toEqual(["next", "task(1.1)", "next", "task(1.2)", "next", "check"]);
+		expect(outcome.status).toBe("converged");
+	});
+
+	it("Scenario: An empty queue goes to the check", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "group-empty-"));
+		temps.push(dir);
+		const marker = join(dir, "ran");
+		const input = { ...validateGroupStart(options()), workspace: dir, checks: [`node -e require("fs").writeFileSync("${marker}","")`] };
+		const committed: { status: string; checkpoint: JsonObject }[] = [];
+		// The runtime offers commit and nothing else: a model request or a child task would throw.
+		const runtime = { commit: async (fn: () => unknown) => void committed.push(fn() as (typeof committed)[number]) };
+		const handler = GroupLoopTask.definition.phases.next as unknown as (t: unknown, r: unknown, c: unknown) => Promise<void>;
+		const at: GroupCheckpoint = { phase: "next", queue: [], entries: [], reworks: 0, iterations: [] };
+		await handler({ state: { checkpoint: encodeCheckpoint(at) }, input }, runtime, undefined);
+		expect(committed).toHaveLength(1);
+		expect(decodeCheckpoint(committed[0]?.checkpoint as JsonObject).phase).toBe("check");
+		expect(existsSync(marker)).toBe(false);
+	});
+
+	it("Scenario: An exhausted task fails the group", async () => {
+		const r = await openRun([verdict(false, "nope")], { budget: { maxIterations: 1 } });
+		const { id, outcome } = await runGroup(r);
+		expect(outcome.status).toBe("failed");
+		expect(outcome.result?.tasks.map((t) => [t.task, t.outcome.status])).toEqual([["1.1", "exhausted"]]);
+		expect((await notesOf(r, id)).join("\n")).toContain("1.1");
+		expect(r.env.requests).toHaveLength(1);
+	});
+
+	it("Scenario: The judge sees the check output", async () => {
+		failingPnpm("2 failed: value.test.ts");
+		const r = await openRun([verdict(true), verdict(true), judgeSays({ next_action: "ask", question: "Which?" })], { checks: ["pnpm test"] });
+		await runGroup(r);
+		const seen = prompts(r.env.requests)[2] ?? "";
+		expect(seen).toContain("pnpm test");
+		expect(seen).toContain("exit 1");
+		expect(seen).toContain("2 failed: value.test.ts");
+	});
+
+	it("Scenario: A rework verdict names a task", () => {
+		const vars = { next_action: "rework", rework_task: "1.1", feedback: "restore the import", question: "" };
+		expect(readGroupVerdict(vars, ["1.1", "1.2"])).toEqual({ kind: "rework", task: "1.1", feedback: "restore the import" });
+	});
+
+	it("Scenario: A script without rework_task is refused", async () => {
+		const groupScript = { text: GROUP_JUDGE.replace('    rework_task: mutable string = ""\n', "") };
+		const r = await openRun([], { groupScript });
+		await expect(startGroupLoop(r.harness, r.options, context)).rejects.toThrow(/rework_task/);
+		expect(await scan(r.storage, GROUP_LOOP_NAME)).toHaveLength(0);
+		expect(r.env.requests).toHaveLength(0);
+	});
+
+	it("Scenario: A failed check is fixed by reworking a task", async () => {
+		const r = await openRun([verdict(true), verdict(true), rework("1.1"), verdict(true)], { checks: ["node check.js"] });
+		writeFileSync(join(r.workspace, "check.js"), FAIL_ONCE);
+		const { outcome } = await runGroup(r);
+		expect(outcome.status).toBe("converged");
+		expect(outcome.result?.tasks.map((t) => [t.task, t.runs])).toEqual([["1.1", 2], ["1.2", 1]]);
+		expect(readFileSync(join(r.changeDir, "tasks.md"), "utf8")).toContain("- [x] 1.1 ");
+		const ones = (await children(r.storage)).filter((c) => c.task === "1.1");
+		expect(ones).toHaveLength(2);
+		expect(ones[1]?.carried).toContain("import missing");
+	});
+
+	it("Scenario: The rework budget runs out", async () => {
+		const r = await openRun([verdict(true), verdict(true), rework("1.1"), verdict(true), rework("1.1")], {
+			checks: [RUN_FAIL],
+			budget: { maxReworks: 1 },
+		});
+		const { outcome } = await runGroup(r);
+		expect(outcome.status).toBe("exhausted");
+		expect(outcome.result?.tasks.find((t) => t.task === "1.1")?.runs).toBe(2);
+	});
+
+	it("Scenario: The judge asks the principal", async () => {
+		const r = await openRun([verdict(true), verdict(true), judgeSays({ next_action: "ask", question: "Drop scenario X?" })], { checks: [RUN_FAIL] });
+		const { outcome } = await runGroup(r);
+		expect(outcome.status).toBe("blocked");
+		expect(escalationOf(outcome)).toMatchObject({ level: "group", to: "principal", question: "Drop scenario X?" });
+	});
+
+	it("Scenario: A task outside the group is refused", async () => {
+		const r = await openRun([verdict(true), verdict(true), rework("3.1")], { checks: [RUN_FAIL] });
+		const { id, outcome } = await runGroup(r);
+		expect(outcome.status).toBe("failed");
+		expect((await notesOf(r, id)).join("\n")).toContain("3.1");
+	});
+
+	it("Scenario: Killed during a task", async () => {
+		// 1.1 converges; 1.2's first model request hangs on a promise the test owns, as if the process died there.
+		const hang = deferred<AssistantMessage>();
+		const reached = deferred<void>();
+		hangs.push(hang);
+		const block = (_context: unknown, options?: { signal?: AbortSignal }): Promise<AssistantMessage> => {
+			options?.signal?.addEventListener("abort", () => hang.reject(killed()), { once: true });
+			reached.resolve();
+			return hang.promise;
+		};
+		const r = await openRun([verdict(true), block]);
+		const id = await startGroupLoop(r.harness, r.options, context);
+		r.harness.resume();
+		await reached.promise;
+
+		// The group is parked in its task phase on 1.2, with the child already recorded.
+		const [group] = await scan(r.storage, GROUP_LOOP_NAME);
+		const parked = decodeCheckpoint((group?.state as unknown as { checkpoint: JsonObject }).checkpoint);
+		expect(parked.phase).toBe("task");
+		expect(parked.child?.task).toBe("1.2");
+		const childId = parked.child?.id;
+		expect(childId).toBeDefined();
+
+		// Kill: close first so the child cannot commit a failure, then release the hang.
+		closed.add(r.harness);
+		const closing = r.harness.close(context);
+		hang.reject(killed());
+		await closing;
+
+		const storage = await openNodeSqliteStorage(r.db);
+		const ones = () => scan(storage, TASK_LOOP).then((all) => all.filter((t) => (t.input as unknown as { task: string }).task === "1.2"));
+		const [stranded] = await ones();
+		expect(stranded?.id).toBe(childId);
+		expect(["completed", "failed", "cancelled"]).not.toContain((stranded?.state as unknown as { status: string }).status);
+
+		const harness = await openHarness(storage, r.env);
+		opened.push(harness);
+		r.env.faux.setResponses([verdict(true)]);
+		harness.resume();
+		const outcome = await waitForGroupLoop(harness, id, context);
+		expect(outcome.status).toBe("converged");
+		expect((await ones()).map((t) => t.id)).toEqual([childId]);
+		expect(outcome.result?.tasks.find((t) => t.task === "1.2")?.runs).toBe(1);
+		expect(check(LoopOutcome(GroupOutcome), outcome)).toBe(true);
+	}, 30_000);
+
+	it("Scenario: Answering a blocked task resumes the group", async () => {
+		const r = await openRun([verdict(false, "which API?", "amend-spec", "Which API?")]);
+		const { id, outcome } = await runGroup(r);
+		expect(outcome.status).toBe("blocked");
+		r.env.faux.appendResponses([verdict(true), verdict(true)]);
+		const answer = { escalation: escalationOf(outcome), by: "principal" as const, decision: "Use the v2 API", feedback: [] };
+		const next = await answerGroupEscalation(r.harness, id, answer, context);
+		const resumed = await waitForGroupLoop(r.harness, next, context);
+		expect(resumed.status).toBe("converged");
+		expect((await children(r.storage)).map((c) => [c.task, c.carried])).toEqual([
+			["1.1", ""],
+			["1.1", "Use the v2 API"],
+			["1.2", ""],
+		]);
+	});
+
+	it("Scenario: The bundled judge script is clean", () => {
+		const source = readFileSync(BUNDLED_SCRIPTS.group, "utf8");
+		const analysis = analyze(source);
+		expect(analysis.diagnostics).toEqual([]);
+		expect(scanDocument(analysis.parsed)).toEqual([]);
+		expect(source).not.toMatch(/^\s*actions:/m);
+		expect(source).not.toContain("@actions");
+		expect(groupContractProblems(source)).toEqual([]);
 	});
 });
