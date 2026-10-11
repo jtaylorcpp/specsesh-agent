@@ -10,6 +10,11 @@
     "check": "pnpm -r check",
     "test": "pnpm -r test",
     "agent": "node packages/agentscript-pi/bin/agentscript-pi.mjs",
-    "durable": "node packages/agentscript-durable/bin/agentscript-durable.mjs"
+    "durable": "node packages/agentscript-durable/bin/agentscript-durable.mjs",
+    "spec:check": "OPENSPEC_TELEMETRY=0 openspec validate --all --strict",
+    "spec:archive": "node scripts/spec-archive.mjs"
+  },
+  "devDependencies": {
+    "@fission-ai/openspec": "1.14.1"
   }
 }

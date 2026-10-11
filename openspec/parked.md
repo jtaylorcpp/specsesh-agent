@@ -1,0 +1,31 @@
+# Parked
+
+Found while writing the baseline specs. Each needs its own change; none is in `baseline-agentscript-durable`, which specs behaviour as it is.
+
+## Possible bugs
+
+- **cloudflare: faux responses leak across runs.** A start body's `faux` is queued before `startScript`; if the script is refused (422) they stay queued and answer the next run.
+- **cloudflare: malformed JSON body → unhandled 500**, not a 4xx.
+- **cloudflare: `GET /runs/<host>/abc`** passes `NaN` to `getTask`; untested whether that 404s or throws.
+- **cloudflare: a missing `AI` binding** outside faux mode is cast, not checked, so it fails late.
+- **cli: some usage errors exit 1, not 2.** A bad `--var`, a missing file and an unknown flag throw instead of printing usage.
+- **cli: an unknown model still creates the SQLite file.** `Harness.open` runs before the model check (no task is created). The test name "before creating anything" overstates it.
+- **durable: no bound on `submit_result` retries** within a step, beyond whatever pi-durable has.
+- **core: undeclared variables never reach `UndeclaredVariableError`** through `start`; the dialect's lint reports them as errors first, so callers get `UnparsedDocumentError`.
+- **core: mixed-type `<`/`>` comparisons coerce** the JavaScript way (`"10" < 9` is false).
+- **core: answered / cut-short outcomes are not validated** (`text`, `turns` pass through as given).
+
+## Not verified
+
+- A Lifecycle alarm waking an idle Durable Object with no incoming request. The crash test's restarted object is woken by a GET.
+- Which model a step uses when `RunInput.model` is absent (`host.ts` says "copies of that conversation's agent"; dispatch creates a fresh conversation).
+
+## Stale comments and wording
+
+- Singular `@output` in `compose.ts` (header, `PendingAssignment.field`) and `scan.ts`; the namespace is `@outputs`.
+- `run.ts`: `RunStateError` doc says `next` throws on an awaiting state (it re-returns the request); `hashSource` doc says "8 hex digits" (it is `<length hex>-<8 hex>`).
+- `port.ts`: "four … the other five" for ten categories; specsketch and "private workspace package" history in `port.ts` and `port-shape.test.ts`.
+- `authoring/index.ts` lists the base `agentscript-dialect`; the code parses with `agentforce-dialect`. `document.ts` says `topic`; the vocabulary is `subagent`.
+- `agentscript-cloudflare/src/index.ts` header: GET also returns `task`/`phase`/`step`; POST returns 202.
+- User-facing messages (`NoReasoningPortError`, the scan refusal) name `@coopcli/agentscript`; they change with the package rename.
+- Persistence is specced in both `core/composition` and `core/step-machine`; fold into one when either changes.
