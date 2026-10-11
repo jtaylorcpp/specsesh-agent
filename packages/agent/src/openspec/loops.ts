@@ -130,7 +130,12 @@ export type LoopStatus = Static<typeof LoopStatus>;
 export const TaskOutcome = closed({ task: TaskId, ticked: Type.Boolean() });
 export type TaskOutcome = Static<typeof TaskOutcome>;
 
-/** One entry per task (its latest run), each id within the group. */
+/**
+ * One entry per task that was ticked before the loop or whose loop ran, in group order, each id
+ * within the group; a task still queued when the group ends early has none. `outcome` is the
+ * task's latest run, whatever its status; `runs` counts this group loop's runs, `0` if the task
+ * was ticked before it began.
+ */
 export const GroupOutcome = Type.Refine(
 	closed({
 		group: Int({ minimum: 1 }),

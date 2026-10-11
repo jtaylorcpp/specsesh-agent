@@ -273,7 +273,7 @@ describe("The change loop makes the spec real", () => {
 	});
 });
 
-describe("A group outcome has one entry per task", () => {
+describe("A group outcome has one entry per task that was ticked or ran", () => {
 	it("Scenario: A reworked task appears once", () => {
 		let group: GroupOutcome = { group: 2, tasks: [] };
 		group = recordTaskRun(group, "2.4", taskConverged("2.4"));
@@ -289,6 +289,14 @@ describe("A group outcome has one entry per task", () => {
 		const ticked = { task: "2.1", outcome: { status: "converged", iterations: [], result: { task: "2.1", ticked: true } }, runs: 0 };
 		expect(check(GroupOutcomeSchema, { group: 2, tasks: [ticked] })).toBe(true);
 		expect(check(GroupOutcomeSchema, { group: 2, tasks: [{ ...ticked, runs: -1 }] })).toBe(false);
+		expect(check(GroupOutcomeSchema, { group: 2, tasks: [{ ...ticked, runs: 1.5 }] })).toBe(false);
+		const { runs: _runs, ...missing } = ticked;
+		expect(check(GroupOutcomeSchema, { group: 2, tasks: [missing] })).toBe(false);
+	});
+
+	it("Scenario: A task still queued when the group ends has no entry", () => {
+		const entry = (task: string) => ({ task, outcome: taskConverged(task), runs: 1 });
+		expect(check(GroupOutcomeSchema, { group: 2, tasks: [entry("2.1"), entry("2.2")] })).toBe(true);
 	});
 
 	it("Scenario: A task that never converged is still listed", () => {
