@@ -21,7 +21,8 @@
  *
  * `run` refuses a dirty working tree unless `--allow-dirty`, and never commits:
  * it prints the files the loop changed. `--worktree` runs the loop in a new git
- * worktree on `task/<change-id>/<task-id>` instead, and needs its own `--db`.
+ * worktree on `task/<change-id>/<task-id>` (a group: `task/<change-id>/<group>`,
+ * one worktree for all its tasks) instead, and needs its own `--db`.
  * A database is held by one live process at a time (`<db>.lock`).
  *
  * `--provider claude-code` runs each step through your own `claude` binary; pair
@@ -259,10 +260,6 @@ async function run(
 		io.out(`no unticked task in ${change.id}`);
 		return 0;
 	}
-	if (group !== undefined && settings.worktree) {
-		io.err("--worktree is not supported for a group yet");
-		return 2;
-	}
 
 	// A missing group script refuses the run here, before any model or database is touched.
 	const groupScript = group !== undefined ? resolveGroupScript(settings.groupScript.value, settings.groupScript.base) : undefined;
@@ -283,7 +280,7 @@ async function run(
 		const plan = planWorktree({
 			cwd,
 			changeId: change.id,
-			taskId: task ?? "",
+			target: group !== undefined ? { kind: "group", group } : { kind: "task", task: task ?? "" },
 			...(settings.worktreeDir !== undefined ? { worktreeDir: settings.worktreeDir } : {}),
 		});
 		checkWorktree(plan, change.dir);

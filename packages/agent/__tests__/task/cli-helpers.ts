@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { main } from "../../src/bin/agentscript-task.js";
+import { GROUP_LOOP_NAME, type GroupLoopInput } from "../../src/task/group.js";
 import { TASK_LOOP, type TaskLoopInput } from "../../src/task/index.js";
 import { JUDGE_ONLY, PROPOSAL, DELTA, TASKS, context, temp } from "./helpers.js";
 
@@ -72,6 +73,18 @@ export async function storedLoops(db: string) {
 	const runs = await storage.scanTasks({ kind: "agentscript.run" }, 10, undefined, context);
 	await storage.close(context);
 	return { loops: page.items, inputs: page.items.map((t) => t.input as unknown as TaskLoopInput), runs: runs.items };
+}
+
+/** The stored group loops and task loops in a database, with their inputs. */
+export async function storedGroupLoops(db: string) {
+	const storage = await openNodeSqliteStorage(db);
+	const groups = await storage.scanTasks({ kind: GROUP_LOOP_NAME }, 10, undefined, context);
+	const tasks = await storage.scanTasks({ kind: TASK_LOOP }, 10, undefined, context);
+	await storage.close(context);
+	return {
+		groups: groups.items.map((t) => t.input as unknown as GroupLoopInput),
+		tasks: tasks.items.map((t) => t.input as unknown as TaskLoopInput),
+	};
 }
 
 /** The JSON events after the resume hint. Throws on a line that is not JSON. */
@@ -169,6 +182,44 @@ setTimeout(() => {
 	}
 	process.stdout.write(JSON.stringify(out));
 }, Number(process.env.FAKE_CLAUDE_SLEEP_MS || 0));
+`,
+	);
+	chmodSync(path, 0o755);
+	return bin;
+}
+
+/**
+ * A fake `claude` whose delegate writes the next of `files` into its cwd on each
+ * delegate call (one per task, in run order) and converges; steps answer as `fakeClaude` does.
+ */
+export function fakeClaudeWriting(files: readonly string[]): string {
+	const bin = temp("task-fake-bin-");
+	const path = join(bin, "claude");
+	writeFileSync(join(bin, "files.json"), JSON.stringify(files));
+	writeFileSync(
+		path,
+		`#!${process.execPath}
+const fs = require("node:fs");
+const path = require("node:path");
+const argv = process.argv.slice(2);
+try { fs.readFileSync(0, "utf8"); } catch {}
+const schemaAt = argv.indexOf("--json-schema");
+let out;
+if (schemaAt >= 0) {
+	const schema = JSON.parse(argv[schemaAt + 1]);
+	const structured = !("next_action" in (schema.properties || {}))
+		? { plan: "write the file" }
+		: { met: true, unmet: "", next_action: "retry", question: "" };
+	out = { type: "result", is_error: false, result: "", structured_output: structured };
+} else {
+	const file = path.join(__dirname, "files.json");
+	const queue = JSON.parse(fs.readFileSync(file, "utf8"));
+	const next = queue.shift();
+	fs.writeFileSync(file, JSON.stringify(queue));
+	fs.writeFileSync(path.join(process.cwd(), next), "written\\n");
+	out = { type: "result", is_error: false, result: "Wrote " + next };
+}
+process.stdout.write(JSON.stringify(out));
 `,
 	);
 	chmodSync(path, 0o755);

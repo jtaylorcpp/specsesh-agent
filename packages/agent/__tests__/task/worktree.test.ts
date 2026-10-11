@@ -6,15 +6,18 @@ import {
 	cli,
 	events,
 	fakeClaude,
+	fakeClaudeWriting,
 	fauxModels,
 	gitIn,
 	gitRepo,
 	spawnBin,
+	storedGroupLoops,
 	storedLoops,
 	workdir,
 	write,
 } from "./cli-helpers.js";
-import { PROPOSAL, DELTA, TASKS, cleanTemps, verdict } from "./helpers.js";
+import { checkWorktree, createWorktree, planWorktree, runSetup, worktreeBranch, worktreeSlug } from "../../src/task/worktree.js";
+import { PROPOSAL, DELTA, TASKS, cleanTemps, temp, verdict } from "./helpers.js";
 
 afterEach(() => cleanTemps());
 
@@ -201,6 +204,83 @@ describe("task/headless: Worktree tasks can run in parallel", () => {
 	});
 });
 
+/** Where worktree mode puts tiny's group by default: `../<repo-dir-name>-worktrees/tiny-<group>`. */
+const groupWorktreeOf = (repo: string, group: number) => join(dirname(repo), "repo-worktrees", `tiny-${group}`);
+
+/** `run tiny <group> --worktree` in process, on the faux model; the refusals under test come before any model turn. */
+async function runGroupWorktree(repo: string, group = 1, extra: string[] = []) {
+	const { db } = workdir();
+	const env = fauxModels();
+	const r = await cli(["run", "tiny", String(group), "--worktree", "--db", db, ...env.args, ...extra], env, { cwd: repo });
+	return { ...r, db };
+}
+
+describe("task/headless: A group runs in one worktree", () => {
+	it("names a group's worktree and branch after the change and the group", () => {
+		expect(worktreeSlug("add-group-loop", { kind: "group", group: 2 })).toBe("add-group-loop-2");
+		expect(worktreeBranch("add-group-loop", { kind: "group", group: 2 })).toBe("task/add-group-loop/2");
+	});
+
+	it("keeps a task's worktree and branch names", () => {
+		expect(worktreeSlug("tiny", { kind: "task", task: "1.1" })).toBe("tiny-1.1");
+		expect(worktreeBranch("tiny", { kind: "task", task: "1.1" })).toBe("task/tiny/1.1");
+	});
+
+	it("Scenario: A group runs in its own worktree (plan, create and setup)", () => {
+		const repo = gitRepo();
+		const head = gitIn(repo, "rev-parse", "HEAD").trim();
+		const plan = planWorktree({ cwd: repo, changeId: "tiny", target: { kind: "group", group: 1 } });
+		expect(plan.path).toBe(groupWorktreeOf(repo, 1));
+		expect(plan.branch).toBe("task/tiny/1");
+		checkWorktree(plan, join(repo, "openspec/changes/tiny"));
+		createWorktree(plan);
+		expect(gitIn(plan.path, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("task/tiny/1");
+		expect(runSetup(["git status"], plan.path)).toEqual({ ok: true });
+		expect(gitIn(repo, "rev-parse", "HEAD").trim()).toBe(head);
+		expect(gitIn(repo, "status", "--porcelain")).toBe("");
+	});
+
+	it("an existing branch or path for the group refuses and is left alone", () => {
+		const repo = gitRepo();
+		const change = join(repo, "openspec/changes/tiny");
+		gitIn(repo, "branch", "task/tiny/1");
+		const plan = planWorktree({ cwd: repo, changeId: "tiny", target: { kind: "group", group: 1 } });
+		expect(() => checkWorktree(plan, change)).toThrow(/task\/tiny\/1/);
+		gitIn(repo, "branch", "-D", "task/tiny/1");
+		mkdirSync(plan.path, { recursive: true });
+		writeFileSync(join(plan.path, "keep.txt"), "mine");
+		expect(() => checkWorktree(plan, change)).toThrow(plan.path);
+		expect(readFileSync(join(plan.path, "keep.txt"), "utf8")).toBe("mine");
+		expect(gitIn(repo, "branch", "--list", "task/*").trim()).toBe("");
+	});
+
+	it("an uncommitted change refuses worktree mode for a group", () => {
+		const repo = gitRepo();
+		write(repo, { "openspec/changes/fresh/proposal.md": PROPOSAL, "openspec/changes/fresh/specs/v/spec.md": DELTA, "openspec/changes/fresh/tasks.md": TASKS });
+		const plan = planWorktree({ cwd: repo, changeId: "fresh", target: { kind: "group", group: 1 } });
+		expect(() => checkWorktree(plan, join(repo, "openspec/changes/fresh"))).toThrow(/not committed at HEAD/);
+		expect(existsSync(plan.path)).toBe(false);
+	});
+
+	it("a group worktree run without --db is refused", async () => {
+		const repo = gitRepo({ "agentscript.config.json": FAKE_CLAUDE_CONFIG });
+		const r = await cli(["run", "tiny", "1", "--worktree"], fauxModels(), { cwd: repo });
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("worktree mode needs --db");
+		expect(existsSync(groupWorktreeOf(repo, 1))).toBe(false);
+	});
+
+	it("an existing group branch refuses the run before anything is created", async () => {
+		const repo = gitRepo();
+		gitIn(repo, "branch", "task/tiny/1");
+		const r = await runGroupWorktree(repo);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("task/tiny/1");
+		expect(existsSync(groupWorktreeOf(repo, 1))).toBe(false);
+		expect(existsSync(r.db)).toBe(false);
+	});
+});
+
 describe("task/headless: The loop remembers its worktree", () => {
 	it("Scenario: Resume finds the worktree", async () => {
 		const repo = gitRepo({ "agentscript.config.json": FAKE_CLAUDE_CONFIG });
@@ -241,5 +321,83 @@ describe("task/headless: The loop remembers its worktree", () => {
 		expect(r.out).toContain(`git worktree remove ${worktree}`);
 		const status = await cli(["status", "--db", r.db]);
 		expect(status.out).toMatch(/^loop \d+ {2}tiny {2}1\.1 {2}converged {2}1 iteration {2}task\/tiny\/1\.1$/);
+	});
+});
+
+const GROUP_TASKS = "## 1. Setup\n\n- [x] 1.1 done already\n\n## 2. Build\n\n- [ ] 2.1 write `a.txt`\n- [ ] 2.2 write `b.txt`\n";
+
+/**
+ * `add-group-loop`, committed in a repo named `agentscript` so the default worktree
+ * directory is the sibling `agentscript-worktrees`; group 2 run with `--worktree`
+ * on a fake `claude` whose delegate writes `a.txt`, then `b.txt`.
+ */
+async function runGroupTwo() {
+	const repo = gitRepo(
+		{
+			"agentscript.config.json": JSON.stringify({
+				task: { provider: "claude-code", model: "claude-haiku-4-5", delegateModel: "sonnet", script: "task-delegate", checks: ["true"], allow: ["true"] },
+			}),
+			"openspec/changes/add-group-loop/proposal.md": PROPOSAL,
+			"openspec/changes/add-group-loop/specs/value/file/spec.md": DELTA,
+			"openspec/changes/add-group-loop/tasks.md": GROUP_TASKS,
+		},
+		{ name: "agentscript" },
+	);
+	const db = join(temp("group-db-"), "group-2.sqlite");
+	const bin = fakeClaudeWriting(["a.txt", "b.txt"]);
+	const args = ["run", "add-group-loop", "2", "--worktree", "--db", db];
+	const r = await spawnBin(args, { cwd: repo, bin });
+	const worktree = join(dirname(repo), "agentscript-worktrees", "add-group-loop-2");
+	return { repo, db, bin, args, r, worktree };
+}
+
+describe("task/headless: A group runs in its own worktree", () => {
+	it("Scenario: A group runs in its own worktree", async () => {
+		const { repo, r, worktree } = await runGroupTwo();
+		expect(r.code, r.stderr).toBe(0);
+		expect(existsSync(worktree)).toBe(true);
+		expect(gitIn(worktree, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("task/add-group-loop/2");
+		expect(existsSync(join(worktree, "a.txt"))).toBe(true);
+		expect(existsSync(join(worktree, "b.txt"))).toBe(true);
+		const ticked = readFileSync(join(worktree, "openspec/changes/add-group-loop/tasks.md"), "utf8");
+		expect(ticked).toContain("- [x] 2.1 ");
+		expect(ticked).toContain("- [x] 2.2 ");
+		// The main tree: no edit, no tick.
+		expect(existsSync(join(repo, "a.txt"))).toBe(false);
+		expect(existsSync(join(repo, "b.txt"))).toBe(false);
+		expect(readFileSync(join(repo, "openspec/changes/add-group-loop/tasks.md"), "utf8")).toBe(GROUP_TASKS);
+		expect(gitIn(repo, "status", "--porcelain")).toBe("");
+	});
+
+	it("a second run with the same group is refused and leaves the worktree untouched", async () => {
+		const { repo, db, args, r, worktree } = await runGroupTwo();
+		expect(r.code, r.stderr).toBe(0);
+		const before = readFileSync(join(worktree, "openspec/changes/add-group-loop/tasks.md"), "utf8");
+		const again = await spawnBin(args, { cwd: repo, bin: fakeClaudeWriting(["c.txt", "d.txt"]) });
+		expect(again.code).toBe(2);
+		expect(again.stderr).toContain("task/add-group-loop/2");
+		expect(gitIn(worktree, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("task/add-group-loop/2");
+		expect(readFileSync(join(worktree, "openspec/changes/add-group-loop/tasks.md"), "utf8")).toBe(before);
+		expect(existsSync(join(worktree, "c.txt"))).toBe(false);
+		expect(existsSync(join(worktree, "d.txt"))).toBe(false);
+		expect((await storedGroupLoops(db)).groups).toHaveLength(1);
+	});
+});
+
+describe("task/headless: A group loop remembers its worktree", () => {
+	it("stores the worktree on the group loop and on each child task loop", async () => {
+		const { db, r, worktree } = await runGroupTwo();
+		expect(r.code, r.stderr).toBe(0);
+		const stored = await storedGroupLoops(db);
+		const expected = { path: worktree, branch: "task/add-group-loop/2" };
+		expect(stored.groups).toHaveLength(1);
+		expect(stored.groups[0]?.worktree).toEqual(expected);
+		expect(stored.groups[0]?.workspace).toBe(worktree);
+		expect(stored.tasks.map((t) => t.task).sort()).toEqual(["2.1", "2.2"]);
+		for (const child of stored.tasks) {
+			expect(child.worktree).toEqual(expected);
+			expect(child.workspace).toBe(worktree);
+			expect(child.tasksPath).toBe(join(worktree, "openspec/changes/add-group-loop/tasks.md"));
+		}
 	});
 });

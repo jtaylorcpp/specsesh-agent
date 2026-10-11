@@ -1,9 +1,10 @@
 /**
- * Worktree mode: the task runs in a new git worktree on its own branch, from
- * `HEAD`, so the main tree stays untouched and several tasks can run at once.
+ * Worktree mode: the task, or the group of tasks, runs in a new git worktree on
+ * its own branch, from `HEAD`, so the main tree stays untouched and several runs
+ * can go at once.
  *
- *   path   = <worktreeDir>/<change-id>-<task-id>   (default ../<repo-dir-name>-worktrees)
- *   branch = task/<change-id>/<task-id>
+ *   path   = <worktreeDir>/<change-id>-<task-id|group>   (default ../<repo-dir-name>-worktrees)
+ *   branch = task/<change-id>/<task-id|group>
  *
  * A worktree is never reused or clobbered: an existing branch or path refuses
  * the run. Neither is one ever removed here: the runner leaves it for review.
@@ -27,14 +28,33 @@ export interface WorktreePlan {
 	readonly branch: string;
 }
 
-/** Where the worktree for this task goes, and its branch. Refuses outside git. */
-export function planWorktree(options: { cwd: string; changeId: string; taskId: string; worktreeDir?: string }): WorktreePlan {
+/** What a worktree is for: one task, or a whole group that runs all its tasks in it. */
+export type WorktreeTarget = { readonly kind: "task"; readonly task: string } | { readonly kind: "group"; readonly group: number };
+
+const targetId = (target: WorktreeTarget) => (target.kind === "task" ? target.task : String(target.group));
+
+/** The worktree directory's name: `<change-id>-<task-id>` or `<change-id>-<group>`. */
+export function worktreeSlug(changeId: string, target: WorktreeTarget): string {
+	return `${changeId}-${targetId(target)}`;
+}
+
+/** The worktree's branch: `task/<change-id>/<task-id>` or `task/<change-id>/<group>`. */
+export function worktreeBranch(changeId: string, target: WorktreeTarget): string {
+	return `task/${changeId}/${targetId(target)}`;
+}
+
+/** Where the worktree for this task or group goes, and its branch. Refuses outside git. */
+export function planWorktree(options: { cwd: string; changeId: string; target: WorktreeTarget; worktreeDir?: string }): WorktreePlan {
 	if (!insideGit(options.cwd)) {
 		throw new WorktreeRefusedError(`worktree mode needs a git repository, and ${options.cwd} is not inside one`);
 	}
 	const repo = repoRoot(options.cwd);
 	const dir = options.worktreeDir ?? resolve(repo, "..", `${basename(repo)}-worktrees`);
-	return { repo, path: join(dir, `${options.changeId}-${options.taskId}`), branch: `task/${options.changeId}/${options.taskId}` };
+	return {
+		repo,
+		path: join(dir, worktreeSlug(options.changeId, options.target)),
+		branch: worktreeBranch(options.changeId, options.target),
+	};
 }
 
 const real = (path: string) => (existsSync(path) ? realpathSync(path) : resolve(path));

@@ -18,7 +18,9 @@ import {
 	finishGroup,
 	recordEntry,
 	roundIteration,
+	taskLoopInputFor,
 	type GroupEntry,
+	type GroupLoopInput,
 	formatCheckOutput,
 	initialGroupCheckpoint,
 	type GroupCheckpoint,
@@ -719,5 +721,46 @@ describe("task/group: a round's verdict target is the group number, not the roun
 		expect(outcome.status).toBe("blocked");
 		expect(outcome.iterations[0]?.verdict.unmet.map((u) => u.target)).toEqual([TARGET]);
 		expect(outcome.iterations[0]?.feedback).toMatchObject([{ action: "ask", from: { kind: "needs-decision", target: TARGET } }]);
+	});
+});
+
+describe("task/group: taskLoopInputFor carries the group's worktree to every child task loop", () => {
+	const worktree = { path: "/tmp/repo-worktrees/add-group-loop-2", branch: "task/add-group-loop/2" };
+	const tasksPath = `${worktree.path}/openspec/changes/add-group-loop/tasks.md`;
+	const input: GroupLoopInput = {
+		group: 2,
+		groupTitle: "Build",
+		tasks: [
+			{ id: "2.1", text: "first", ticked: false },
+			{ id: "2.2", text: "second", ticked: false },
+		],
+		proposal: PROPOSAL,
+		design: "",
+		deltas: DELTA,
+		tasksText: TASKS,
+		tasksPath,
+		script: JUDGE_ONLY,
+		groupScript: JUDGE_ONLY,
+		workspace: worktree.path,
+		budget: { maxIterations: 3, maxReworks: 2 },
+		checks: ["true"],
+		allow: ["true"],
+		escalateTo: "principal",
+		worktree,
+	};
+
+	it("keeps the worktree, the rebased workspace and the rebased tasks.md path", () => {
+		for (const task of ["2.1", "2.2"]) {
+			const child = taskLoopInputFor(input, task, "");
+			expect(child.worktree).toEqual(worktree);
+			expect(child.workspace).toBe(worktree.path);
+			expect(child.tasksPath).toBe(tasksPath);
+			expect(child.task).toBe(task);
+		}
+	});
+
+	it("leaves worktree out of a child when the group has none", () => {
+		const { worktree: _dropped, ...plain } = input;
+		expect("worktree" in taskLoopInputFor(plain, "2.1", "")).toBe(false);
 	});
 });
