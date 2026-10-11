@@ -37,6 +37,18 @@ export interface TaskLoopOptions {
 	readonly escalateTo?: Recipient;
 	/** The model every step runs on. Defaults to the owning conversation's model. */
 	readonly model?: ModelRef;
+	/** `--model` for `delegate_claude_code`. Unset: Claude Code's default. */
+	readonly delegateModel?: string;
+	/** Files appended to the delegate's system prompt, resolved against the workspace. */
+	readonly delegateContext?: readonly string[];
+	/** The git worktree a host created for this loop, recorded so a resume or a status can name it. */
+	readonly worktree?: LoopWorktree;
+}
+
+/** A git worktree a loop runs in. */
+export interface LoopWorktree {
+	readonly path: string;
+	readonly branch: string;
 }
 
 export const DEFAULT_MAX_ITERATIONS = 3;

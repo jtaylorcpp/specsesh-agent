@@ -18,6 +18,9 @@
  * `delegate_claude_code` keeps this project's hard lines: `claude -p --safe-mode`,
  * never `--bare`, `ANTHROPIC_API_KEY` and `CLAUDECODE` stripped, and Claude
  * Code's OAuth token never read, copied or forwarded — the child logs in as you.
+ * It runs headless without ever prompting: `--permission-mode dontAsk` with an
+ * `--allowedTools` list built from the same allowlist `run_command` uses, so a
+ * tool use outside it comes back to Claude Code as a denial instead of a wait.
  */
 
 import { spawn } from "node:child_process";
@@ -57,12 +60,15 @@ export interface BuiltinActionOptions {
 	readonly timeoutMs?: number;
 	/** The Claude Code binary `delegate_claude_code` runs. Defaults to `claude` on PATH. */
 	readonly claudeBinary?: string;
-	/** Claude Code tools the delegate may use. Defaults to file reads and edits and Bash. */
-	readonly delegateTools?: readonly string[];
+	/** `--model` for the delegate. Unset: Claude Code's own default. */
+	readonly delegateModel?: string;
+	/** Files appended to the delegate's system prompt, in order, resolved against the workspace. */
+	readonly delegateContext?: readonly string[];
 }
 
 const DEFAULT_TIMEOUT_MS = 600_000;
-const DEFAULT_DELEGATE_TOOLS = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
+/** Claude Code's file tools, always allowed; `Bash` is enabled but allowed only per allowlist entry. */
+const DELEGATE_FILE_TOOLS = ["Read", "Edit", "Write", "Glob", "Grep"];
 
 export function builtinActions(options: BuiltinActionOptions): HostAction[] {
 	const workspace = resolve(options.workspace);
@@ -186,7 +192,16 @@ export function builtinActions(options: BuiltinActionOptions): HostAction[] {
 		async execute(inputs, context) {
 			const instructions = String(inputs["instructions"]);
 			const binary = options.claudeBinary ?? "claude";
-			const args = delegateArgs(options.delegateTools ?? DEFAULT_DELEGATE_TOOLS);
+			const contextFiles = (options.delegateContext ?? []).map((file) => resolve(workspace, file));
+			const missing = contextFiles.find((file) => !existsSync(file));
+			if (missing !== undefined) {
+				return { ok: false, message: `delegate context file ${missing} does not exist; Claude Code was not started` };
+			}
+			const args = delegateArgs({
+				allow,
+				...(options.delegateModel !== undefined ? { model: options.delegateModel } : {}),
+				context: contextFiles,
+			});
 			const ran = await runArgv([binary, ...args], {
 				cwd: workspace,
 				timeoutMs,
@@ -212,25 +227,34 @@ export function builtinActions(options: BuiltinActionOptions): HostAction[] {
 	return [readFileAction, editFileAction, runCommandAction, runChecksAction, delegateAction];
 }
 
+export interface DelegateArgsOptions {
+	/** First words the delegate's Bash may run: one `Bash(<word>:*)` each. */
+	readonly allow: readonly string[];
+	readonly model?: string;
+	/** Absolute paths, each passed as `--append-system-prompt-file`. */
+	readonly context?: readonly string[];
+}
+
 /**
- * The delegate's argv after the binary. `-p --safe-mode` first, then its tools;
- * never `--bare` (it forces API-key auth) and never `--tools ""`. The
- * instructions go on stdin.
+ * The delegate's argv after the binary. `-p --safe-mode` first, then its tools,
+ * `dontAsk` and the allowed list; never `--bare` (it forces API-key auth) and
+ * never `--tools ""`. The instructions go on stdin.
  */
-export function delegateArgs(tools: readonly string[]): string[] {
-	return [
-		"-p",
-		"--safe-mode",
-		"--tools",
-		tools.join(","),
-		"--allowedTools",
-		tools.join(","),
-		"--permission-mode",
-		"acceptEdits",
-		"--no-session-persistence",
+export function delegateArgs(options: DelegateArgsOptions): string[] {
+	const args = ["-p", "--safe-mode"];
+	if (options.model !== undefined) args.push("--model", options.model);
+	args.push(
 		"--output-format",
 		"json",
-	];
+		"--no-session-persistence",
+		"--tools",
+		[...DELEGATE_FILE_TOOLS, "Bash"].join(","),
+		"--permission-mode",
+		"dontAsk",
+	);
+	for (const file of options.context ?? []) args.push("--append-system-prompt-file", file);
+	args.push("--allowedTools", ...DELEGATE_FILE_TOOLS, ...options.allow.map((word) => `Bash(${word}:*)`));
+	return args;
 }
 
 function readDelegateResult(code: number, stdout: string, stderr: string): { ok: boolean; summary: string } {

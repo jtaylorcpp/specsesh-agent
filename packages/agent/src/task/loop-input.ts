@@ -1,6 +1,7 @@
 import type { JsonObject, ModelRef, TaskId } from "@earendil-works/pi-durable";
 import type { Escalation, Iteration, LoopOutcome, Recipient, TaskOutcome } from "../openspec/index.js";
 import type { IterationRead } from "./iteration.js";
+import type { LoopWorktree } from "./options.js";
 
 /** The durable input of `agentscript.task-loop`: every source already read into text. */
 export interface TaskLoopInput {
@@ -19,6 +20,9 @@ export interface TaskLoopInput {
 	readonly allow: readonly string[];
 	readonly escalateTo: Recipient;
 	readonly model?: ModelRef;
+	readonly delegateModel?: string;
+	readonly delegateContext?: readonly string[];
+	readonly worktree?: LoopWorktree;
 	/** What the first iteration of this run is seeded with: `""`, or an answered escalation's decision. */
 	readonly carried: string;
 	/** Iterations an earlier, blocked run of this loop recorded. This run numbers on from them. */

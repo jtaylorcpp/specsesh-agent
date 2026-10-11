@@ -84,8 +84,7 @@ pnpm agent models anthropic     # list a provider's models
 pnpm durable run <file> --db runs.sqlite [--provider --model --entry --var --json]   # durable, pi-ai
 pnpm durable resume <task-id> --db runs.sqlite                                      # finish a crashed run
 pnpm durable run <file> --db runs.sqlite --provider claude-code                     # durable, on your subscription
-node packages/agent/dist/bin/agentscript-task.js run <change-dir> <task-id> --db loops.sqlite --check "pnpm test" --allow pnpm
-node packages/agent/dist/bin/agentscript-task.js resume <loop-id> --db loops.sqlite  # or: answer <loop-id> --by principal --decision <text>
+pnpm task <change-id> <task-id>                      # see "Running a task"
 pnpm --filter hello-world-example start [name]                                      # the example app, on Haiku
 pnpm --filter cloudflare-worker-example dev    # wrangler dev; add --var AGENTSCRIPT_FAUX:1 without an account
 pnpm test:cloudflare            # opt-in, not in `pnpm test`: crash/resume (kill -9 mid-step) + route scripts, local DO storage
@@ -97,6 +96,38 @@ pnpm docs:check                 # docs/ concept pages: front matter, ids, README
 Provider/model also come from `AGENTSCRIPT_PROVIDER` / `AGENTSCRIPT_MODEL`; credentials are pi's
 env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...). The bins are compiled JavaScript;
 nothing needs `tsx`.
+
+## Running a task
+
+`agentscript.config.json` holds the task runner's defaults for this repo: the claude-code provider
+(your subscription) running the bundled `task-delegate` script, Haiku for orient and judge, Sonnet
+for the delegate, checks `pnpm check` and `pnpm test`, allowlist `pnpm` and `node`, `CLAUDE.md` as the
+delegate's context, and the database `.agentscript/task-loops.sqlite` (gitignored). Build first
+(`pnpm build`); flags override any config value.
+
+```bash
+pnpm task <change-id> <task-id>        # work one task of openspec/changes/<change-id>, unattended
+pnpm task <change-id> --next           # the first unticked task; prints "no unticked task in …" when done
+pnpm task <change-id> <task-id> --worktree --db .agentscript/<change-id>-<task-id>.sqlite
+pnpm task status                       # loops: id, change, task, status, iterations (and branch)
+pnpm task resume <loop-id>             # finish a loop whose process died (worktree loops: same --db)
+pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop prints this exact command
+```
+
+- **Headless.** It never prompts. Progress is JSON Lines on stderr after the resume hint; the outcome
+  is on stdout. Exit `0` converged, `1` blocked/exhausted/failed, `2` refused.
+- **Clean tree.** `run` refuses uncommitted changes (listing them) so every edit after it is the
+  loop's; `--allow-dirty` overrides. `loop-ended.changed` lists the files the loop changed.
+- **It never commits.** It runs only `git status`, `rev-parse`, `worktree add` and `worktree list`.
+  Review the diff and commit yourself.
+- **`--worktree`** runs the task in `../<repo>-worktrees/<change-id>-<task-id>` on branch
+  `task/<change-id>/<task-id>`, from `HEAD` (commit the change first), after
+  `pnpm install --frozen-lockfile --offline`. The main tree is untouched, so you can keep working and
+  run several tasks at once, each with its own `--db` (mandatory here). Review with
+  `git -C <path> diff`; remove with `git worktree remove <path>` (and `git branch -D <branch>`).
+- One live process per database (`<db>.lock`); a second is refused, naming the holder's pid.
+- `pnpm test:live` (opt-in, never in `pnpm test`) runs it for real on a copy of this repo, on your
+  subscription; it skips when `claude` is missing or not logged in.
 
 ## Specs (OpenSpec 1.14.1, pinned)
 

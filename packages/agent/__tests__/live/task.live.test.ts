@@ -1,0 +1,173 @@
+/**
+ * `pnpm test:live`: the task runner, headless, on a copy of this repo, on your
+ * Claude subscription. The only test that makes real model calls; never part of
+ * `pnpm test` (vitest.config.ts excludes `__tests__/live/`).
+ *
+ * The copy is this working tree without `.git` and `node_modules` (each
+ * `node_modules` is symlinked back, and excluded from git), committed in a fresh
+ * repository with a fixture change, `fixture-live-task`, whose one task replaces a
+ * stale comment. The run uses the repo config, with `--check` narrowed to the
+ * fixture's own vitest file so a run costs one small task, not the whole suite.
+ *
+ * It needs `claude` installed and logged in, and skips saying why otherwise. Login
+ * is asked of `claude auth status`; set AGENTSCRIPT_LIVE_FORCE=1 to skip that
+ * question if your claude has no such command.
+ */
+
+import { execFileSync, spawn } from "node:child_process";
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { claudeReady } from "./ready.js";
+
+const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
+const CHANGE = "fixture-live-task";
+const TARGET = "packages/agent/__tests__/live-fixture/target.ts";
+const STALE = "// STALE: this comment describes the old regex parser.";
+const FRESH = "// Parsed by the agentforce dialect.";
+const CHECK = "pnpm --filter @specsesh/agent exec vitest run --config __tests__/live-fixture/vitest.config.ts";
+
+const ready = claudeReady();
+if (!ready.ok) console.warn(`pnpm test:live skipped: ${ready.reason}`);
+
+const git = (cwd: string, ...args: string[]) =>
+	execFileSync("git", ["-c", "user.email=live@example.com", "-c", "user.name=live", ...args], { cwd, encoding: "utf8" });
+
+/** Every `node_modules` directory of the workspace, outside other `node_modules`. */
+function nodeModulesDirs(dir: string, depth = 0): string[] {
+	if (depth > 3) return [];
+	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+		if (!entry.isDirectory() || entry.name === ".git") return [];
+		const path = join(dir, entry.name);
+		return entry.name === "node_modules" ? [path] : nodeModulesDirs(path, depth + 1);
+	});
+}
+
+let tmp = "";
+let copy = "";
+
+beforeAll(() => {
+	if (!ready.ok) return;
+	tmp = mkdtempSync(join(tmpdir(), "agentscript-live-"));
+	copy = join(tmp, basename(REPO));
+	const skip = new Set(["node_modules", ".git", ".agentscript", ".wrangler"]);
+	cpSync(REPO, copy, { recursive: true, filter: (src) => !skip.has(basename(src)) });
+	for (const modules of nodeModulesDirs(REPO)) symlinkSync(modules, join(copy, relative(REPO, modules)));
+
+	const fixture = join(copy, "packages/agent/__tests__/live-fixture");
+	mkdirSync(fixture, { recursive: true });
+	writeFileSync(join(copy, TARGET), `${STALE}\nexport const fixture = 1;\n`);
+	writeFileSync(
+		join(fixture, "target.test.ts"),
+		`import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+describe("fixture-live-task", () => {
+	it("the comment is current", () => {
+		const text = readFileSync(new URL("./target.ts", import.meta.url), "utf8");
+		expect(text.split("\\n")[0]).toBe(${JSON.stringify(FRESH)});
+		expect(text).not.toContain("STALE");
+	});
+});
+`,
+	);
+	writeFileSync(
+		join(fixture, "vitest.config.ts"),
+		`import { defineConfig } from "vitest/config";\nexport default defineConfig({ test: { include: ["__tests__/live-fixture/target.test.ts"] } });\n`,
+	);
+	const change = join(copy, "openspec/changes", CHANGE);
+	mkdirSync(join(change, "specs/live/fixture"), { recursive: true });
+	writeFileSync(join(change, "proposal.md"), "## Why\n\nA stale comment in the live fixture misleads readers.\n\n## What Changes\n\n- Replace it with the current one.\n");
+	writeFileSync(
+		join(change, "specs/live/fixture/spec.md"),
+		`## ADDED Requirements\n\n### Requirement: The fixture comment is current\n\`${TARGET}\` SHALL begin with the line \`${FRESH}\`.\n\n#### Scenario: The comment is current\n- **WHEN** \`${TARGET}\` is read\n- **THEN** its first line SHALL be \`${FRESH}\`\n`,
+	);
+	writeFileSync(
+		join(change, "tasks.md"),
+		`## 1. Fixture\n\n- [ ] 1.1 In \`${TARGET}\`, replace the line \`${STALE}\` with exactly \`${FRESH}\`. Change nothing else.\n`,
+	);
+
+	git(copy, "init", "-q", "-b", "main");
+	appendFileSync(join(copy, ".git/info/exclude"), "node_modules\n");
+	git(copy, "add", "-A");
+	git(copy, "commit", "-q", "-m", "live copy");
+}, 600_000);
+
+afterAll(() => {
+	if (tmp !== "") rmSync(tmp, { recursive: true, force: true });
+});
+
+interface Run {
+	readonly code: number;
+	readonly stdout: string;
+	readonly events: Record<string, unknown>[];
+	readonly stderr: string;
+}
+
+/** The copy's built bin, headless: stdin closed, no AGENTSCRIPT_* overrides, so the repo config decides. */
+function runTask(args: string[]): Promise<Run> {
+	return new Promise((resolve, reject) => {
+		const env = { ...process.env };
+		delete env.AGENTSCRIPT_PROVIDER;
+		delete env.AGENTSCRIPT_MODEL;
+		const child = spawn(process.execPath, [join(copy, "packages/agent/dist/bin/agentscript-task.js"), ...args], {
+			cwd: copy,
+			env,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		let stdout = "";
+		let stderr = "";
+		child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
+		child.stderr.on("data", (chunk: Buffer) => {
+			stderr += chunk.toString();
+			process.stderr.write(chunk);
+		});
+		child.on("error", reject);
+		child.on("close", (code) => {
+			const events = stderr
+				.trimEnd()
+				.split("\n")
+				.slice(1)
+				.flatMap((line) => {
+					try {
+						return [JSON.parse(line) as Record<string, unknown>];
+					} catch {
+						return [];
+					}
+				});
+			resolve({ code: code ?? -1, stdout, stderr, events });
+		});
+	});
+}
+
+describe("task/headless: An opt-in live run proves it works on this repo", () => {
+	it("Scenario: The live run converges and ticks the task", async (ctx) => {
+		if (!ready.ok) return ctx.skip(ready.reason);
+		const r = await runTask(["run", CHANGE, "1.1", "--check", CHECK]);
+		expect(r.code, `${r.stdout}\n${r.stderr}`).toBe(0);
+		expect(r.events.at(-1)).toMatchObject({ event: "loop-ended", status: "converged", ticked: true, changed: [TARGET] });
+		expect(readFileSync(join(copy, "openspec/changes", CHANGE, "tasks.md"), "utf8")).toContain("- [x] 1.1 ");
+		expect(readFileSync(join(copy, TARGET), "utf8").split("\n")[0]).toBe(FRESH);
+	});
+
+	it("and again in a worktree, leaving the main copy's HEAD and files as they were", async (ctx) => {
+		if (!ready.ok) return ctx.skip(ready.reason);
+		const head = git(copy, "rev-parse", "HEAD").trim();
+		const status = git(copy, "status", "--porcelain");
+		const target = readFileSync(join(copy, TARGET), "utf8");
+		const r = await runTask(["run", CHANGE, "1.1", "--worktree", "--db", ".agentscript/live-worktree.sqlite", "--check", CHECK]);
+		expect(r.code, `${r.stdout}\n${r.stderr}`).toBe(0);
+		const worktree = join(tmp, `${basename(copy)}-worktrees`, `${CHANGE}-1.1`);
+		expect(existsSync(worktree)).toBe(true);
+		expect(git(worktree, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe(`task/${CHANGE}/1.1`);
+		expect(readFileSync(join(worktree, TARGET), "utf8").split("\n")[0]).toBe(FRESH);
+		expect(readFileSync(join(worktree, "openspec/changes", CHANGE, "tasks.md"), "utf8")).toContain("- [x] 1.1 ");
+		expect(git(copy, "rev-parse", "HEAD").trim()).toBe(head);
+		expect(git(copy, "status", "--porcelain")).toBe(status);
+		expect(readFileSync(join(copy, TARGET), "utf8")).toBe(target);
+		expect(r.stdout).toContain(`git worktree remove ${worktree}`);
+	});
+
+});

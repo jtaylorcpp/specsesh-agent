@@ -1,94 +1,14 @@
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { Harness, createRegistry } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, main } from "../../src/bin/agentscript-task.js";
-import { TASK_LOOP, startTaskLoop, taskLoopExtensions, type TaskLoopInput } from "../../src/task/index.js";
+import { startTaskLoop, taskLoopExtensions } from "../../src/task/index.js";
+import { cli, fauxModels, storedLoops, workdir } from "./cli-helpers.js";
 import { JUDGE_ONLY, baselineDir, cleanTemps, context, temp, tinyChange, verdict } from "./helpers.js";
 
-const savedEnv = { provider: process.env.AGENTSCRIPT_PROVIDER, model: process.env.AGENTSCRIPT_MODEL };
-afterEach(() => {
-	cleanTemps();
-	for (const [key, value] of [["AGENTSCRIPT_PROVIDER", savedEnv.provider], ["AGENTSCRIPT_MODEL", savedEnv.model]] as const) {
-		if (value === undefined) delete process.env[key];
-		else process.env[key] = value;
-	}
-});
-
-/** A faux model collection, under the faux provider's ids or the ones given. */
-function fauxModels(provider?: string, modelId?: string) {
-	const faux = fauxProvider(provider !== undefined ? { provider, models: [{ id: modelId ?? "m" }] } : undefined);
-	const models = createModels();
-	models.setProvider(faux.provider);
-	const model = faux.getModel();
-	return { faux, models, args: ["--provider", model.provider, "--model", model.id] };
-}
-
-/** A temp directory with JUDGE_ONLY as a script file and a database path in it. */
-function workdir() {
-	const dir = temp("task-cli-");
-	const script = join(dir, "judge.agent");
-	writeFileSync(script, JUDGE_ONLY);
-	return { dir, script, db: join(dir, "loops.sqlite") };
-}
-
-async function cli(argv: string[], env = fauxModels()) {
-	const out: string[] = [];
-	const err: string[] = [];
-	const code = await main(argv, { models: () => env.models, out: (l) => out.push(l), err: (l) => err.push(l) });
-	return { code, out: out.join("\n"), err: err.join("\n"), errLines: err, env };
-}
-
-/** The stored loop inputs in a database. */
-async function storedLoops(db: string) {
-	const storage = await openNodeSqliteStorage(db);
-	const page = await storage.scanTasks({ kind: TASK_LOOP }, 10, undefined, context);
-	const runs = await storage.scanTasks({ kind: "agentscript.run" }, 10, undefined, context);
-	await storage.close(context);
-	return { loops: page.items, inputs: page.items.map((t) => t.input as unknown as TaskLoopInput), runs: runs.items };
-}
-
-describe("task/cli: The CLI has exactly three commands and prints usage otherwise", () => {
-	it("Scenario: An unknown command prints usage", async () => {
-		const r = await cli(["frobnicate"]);
-		expect(r.err).toContain("usage:");
-		expect(r.code).toBe(2);
-	});
-
-	it("Scenario: No command prints usage", async () => {
-		const r = await cli([]);
-		expect(r.err.startsWith("usage:")).toBe(true);
-		expect(r.err).toContain("agentscript-task run <change-dir> <task-id> --db <path> [options]");
-		expect(r.err).toContain("agentscript-task resume <loop-id> --db <path> [--json]");
-		expect(r.err).toContain("agentscript-task answer <loop-id> --db <path> --by principal|agent --decision <text> [--json]");
-		expect(r.code).toBe(2);
-	});
-
-	it("an unknown flag prints the reason and usage, exit 2", async () => {
-		const r = await cli(["run", "x", "1.1", "--db", "y", "--frob"]);
-		expect(r.code).toBe(2);
-		expect(r.err).toContain("--frob");
-		expect(r.err).toContain("usage:");
-	});
-});
-
-describe("task/cli: run takes a change directory, a task id and a database", () => {
-	it("Scenario: run without --db prints usage", async () => {
-		const r = await cli(["run", baselineDir(), "2.4"]);
-		expect(r.code).toBe(2);
-		expect(r.err).toContain("usage:");
-	});
-
-	it("Scenario: run without a task id prints usage", async () => {
-		const { db } = workdir();
-		const r = await cli(["run", baselineDir(), "--db", db]);
-		expect(r.code).toBe(2);
-		expect(r.err).toContain("usage:");
-		expect(existsSync(db)).toBe(false);
-	});
-});
+afterEach(() => cleanTemps());
 
 describe("task/cli: run maps its flags onto the task loop options", () => {
 	it("Scenario: Repeated checks are kept in order", async () => {
@@ -109,10 +29,11 @@ describe("task/cli: run maps its flags onto the task loop options", () => {
 		const { script, db } = workdir();
 		const env = fauxModels();
 		env.faux.setResponses([verdict(true)]);
-		const r = await cli(["run", tinyChange(), "1.1", "--db", db, "--script", script, ...env.args], env);
+		const cwd = temp("task-cwd-");
+		const r = await cli(["run", tinyChange(), "1.1", "--db", db, "--script", script, ...env.args], env, { cwd });
 		expect(r.code, r.err).toBe(0);
 		const { inputs } = await storedLoops(db);
-		expect(inputs[0]?.workspace).toBe(process.cwd());
+		expect(inputs[0]?.workspace).toBe(cwd);
 	});
 
 	it("--workspace and no --script: the given workspace and the bundled task.agent", async () => {
@@ -153,8 +74,6 @@ describe("task/cli: run rejects malformed flag values with usage", () => {
 
 describe("task/cli: run resolves provider and model like agentscript-durable", () => {
 	it("Scenario: Defaults apply when nothing is set", async () => {
-		delete process.env.AGENTSCRIPT_PROVIDER;
-		delete process.env.AGENTSCRIPT_MODEL;
 		const { script, db } = workdir();
 		const env = fauxModels(DEFAULT_PROVIDER, DEFAULT_MODEL);
 		env.faux.setResponses([verdict(true)]);
@@ -169,10 +88,10 @@ describe("task/cli: run resolves provider and model like agentscript-durable", (
 	it("takes the provider and model from the environment", async () => {
 		const { script, db } = workdir();
 		const env = fauxModels("envprov", "envmodel");
-		process.env.AGENTSCRIPT_PROVIDER = "envprov";
-		process.env.AGENTSCRIPT_MODEL = "envmodel";
 		env.faux.setResponses([verdict(true)]);
-		const r = await cli(["run", tinyChange(), "1.1", "--db", db, "--script", script], env);
+		const r = await cli(["run", tinyChange(), "1.1", "--db", db, "--script", script], env, {
+			env: { AGENTSCRIPT_PROVIDER: "envprov", AGENTSCRIPT_MODEL: "envmodel" },
+		});
 		expect(r.code, r.err).toBe(0);
 		expect((await storedLoops(db)).inputs[0]?.model).toEqual({ provider: "envprov", modelId: "envmodel" });
 	});
@@ -218,6 +137,8 @@ describe("task/cli: run prints the loop id before any model call", () => {
 		const err: string[] = [];
 		const code = await main(["run", tinyChange(), "1.1", "--db", db, "--script", script, ...env.args], {
 			models: () => env.models,
+			cwd: temp("task-cwd-"),
+			env: {},
 			out: () => {},
 			err: (line) => {
 				if (err.length === 0) callsAtHint = env.faux.state.callCount;
@@ -335,6 +256,16 @@ describe("task/cli: Text output reports each iteration and the outcome", () => {
 		expect(r.out).toContain("## iteration 1: unmet\nnot yet: the value is 1");
 		expect(r.out).toContain("## iteration 2: met");
 		expect(r.out).toContain("ticked: true");
+	});
+
+	it("Scenario: A blocked loop ends with the answer command", async () => {
+		const { dir, script } = workdir();
+		const env = fauxModels();
+		env.faux.setResponses([verdict(false, "two ways", "ask", "Which way?")]);
+		const r = await cli(["run", tinyChange(), "1.1", "--db", "loops.sqlite", "--script", script, ...env.args], env, { cwd: dir });
+		expect(r.code).toBe(1);
+		const id = /^loop (\d+)/.exec(r.errLines[0] ?? "")?.[1];
+		expect(r.out.split("\n").at(-1)).toBe(`agentscript-task answer ${id} --db loops.sqlite --by principal --decision "…"`);
 	});
 
 	it("a blocked loop prints the escalation's recipient and question", async () => {

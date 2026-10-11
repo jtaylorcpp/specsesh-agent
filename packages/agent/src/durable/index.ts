@@ -23,6 +23,6 @@ export {
 	type ActionRegistry,
 	type HostAction,
 } from "./actions.js";
-export { builtinActions, confine, delegateArgs, splitCommand, type ActionRecord, type BuiltinActionOptions } from "./builtins.js";
+export { builtinActions, confine, delegateArgs, splitCommand, type ActionRecord, type BuiltinActionOptions, type DelegateArgsOptions } from "./builtins.js";
 export { runScript, startScript, waitForScript, type StartScriptOptions } from "./host.js";
 export { checkResult } from "./result.js";

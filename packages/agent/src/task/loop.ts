@@ -147,9 +147,11 @@ export interface TaskLoopActionOptions {
 	readonly allow?: readonly string[];
 	/** The Claude Code binary `delegate_claude_code` runs. Defaults to `claude` on PATH. */
 	readonly claudeBinary?: string;
+	readonly delegateModel?: string;
+	readonly delegateContext?: readonly string[];
 }
 
-/** The registry `startTaskLoop` checks a script against: the built-ins for the loop's workspace, checks and allowlist. */
+/** The registry `startTaskLoop` checks a script against: the built-ins for the loop's workspace, checks, allowlist and delegate. */
 export function taskLoopRegistry(options: TaskLoopActionOptions) {
 	return createActionRegistry(
 		builtinActions({
@@ -157,14 +159,17 @@ export function taskLoopRegistry(options: TaskLoopActionOptions) {
 			checks: options.checks ?? [],
 			allow: options.allow ?? [],
 			...(options.claudeBinary !== undefined ? { claudeBinary: options.claudeBinary } : {}),
+			...(options.delegateModel !== undefined ? { delegateModel: options.delegateModel } : {}),
+			...(options.delegateContext !== undefined ? { delegateContext: options.delegateContext } : {}),
 		}),
 	);
 }
 
 /**
  * What a harness running task loops installs: `TaskLoop`, and the run and step
- * extensions over the built-in actions for one workspace, check list and
- * allowlist. A harness runs the loops of that one configuration.
+ * extensions over the built-in actions for one workspace, check list,
+ * allowlist and delegate configuration. A harness runs the loops of that one
+ * configuration.
  */
 export function taskLoopExtensions(options: TaskLoopActionOptions): readonly [Extension, Extension, Extension] {
 	const { run, step } = agentScriptExtensions({ actions: taskLoopRegistry(options), workspace: options.workspace });

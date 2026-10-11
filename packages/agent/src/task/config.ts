@@ -1,0 +1,260 @@
+/**
+ * The repo config: `agentscript.config.json`, found by walking up from the
+ * current directory, of which only the `task` object is read.
+ *
+ * Every field is optional and typed. An unknown key or a wrongly typed value
+ * refuses the run, naming the key and the file: a typo must never fall back
+ * to a default silently. Values resolve field by field as flag, then
+ * environment (`AGENTSCRIPT_PROVIDER`, `AGENTSCRIPT_MODEL`), then config, then
+ * default; paths from the config are relative to the config's directory.
+ */
+
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { BUNDLED_SCRIPTS, DEFAULT_ESCALATE_TO, DEFAULT_MAX_ITERATIONS } from "./options.js";
+
+export const CONFIG_FILE = "agentscript.config.json";
+
+export const DEFAULT_PROVIDER = "anthropic";
+export const DEFAULT_MODEL = "claude-haiku-4-5";
+export const DEFAULT_CHANGES_DIR = "openspec/changes";
+
+type FieldKind = "string" | "strings" | "positive-integer" | "recipient" | "boolean";
+
+const FIELDS = {
+	changesDir: "string",
+	db: "string",
+	provider: "string",
+	model: "string",
+	delegateModel: "string",
+	script: "string",
+	checks: "strings",
+	allow: "strings",
+	maxIterations: "positive-integer",
+	escalateTo: "recipient",
+	delegateContext: "strings",
+	requireCleanTree: "boolean",
+	worktree: "boolean",
+	worktreeDir: "string",
+	worktreeSetup: "strings",
+} as const satisfies Record<string, FieldKind>;
+
+const DESCRIBE: Record<FieldKind, string> = {
+	string: "a string",
+	strings: "an array of strings",
+	"positive-integer": "a positive integer",
+	recipient: '"principal" or "agent"',
+	boolean: "true or false",
+};
+
+/** The `task` object, as validated. */
+export interface TaskConfig {
+	readonly changesDir?: string;
+	readonly db?: string;
+	readonly provider?: string;
+	readonly model?: string;
+	readonly delegateModel?: string;
+	readonly script?: string;
+	readonly checks?: readonly string[];
+	readonly allow?: readonly string[];
+	readonly maxIterations?: number;
+	readonly escalateTo?: "principal" | "agent";
+	readonly delegateContext?: readonly string[];
+	readonly requireCleanTree?: boolean;
+	readonly worktree?: boolean;
+	readonly worktreeDir?: string;
+	readonly worktreeSetup?: readonly string[];
+}
+
+export interface LoadedConfig {
+	/** The config file, when one was found. */
+	readonly path?: string;
+	/** The directory config paths are relative to: the file's, or the current directory without one. */
+	readonly dir: string;
+	readonly task: TaskConfig;
+}
+
+/** A config the CLI refuses to run with. Exit 2. */
+export class ConfigError extends Error {
+	override readonly name = "ConfigError";
+}
+
+/** The nearest `agentscript.config.json`: `cwd`, then each parent up to the root. */
+export function findConfig(cwd: string): string | undefined {
+	let dir = resolve(cwd);
+	for (;;) {
+		const candidate = join(dir, CONFIG_FILE);
+		if (existsSync(candidate)) return candidate;
+		const parent = dirname(dir);
+		if (parent === dir) return undefined;
+		dir = parent;
+	}
+}
+
+function matches(kind: FieldKind, value: unknown): boolean {
+	switch (kind) {
+		case "string":
+			return typeof value === "string";
+		case "strings":
+			return Array.isArray(value) && value.every((item) => typeof item === "string");
+		case "positive-integer":
+			return typeof value === "number" && Number.isInteger(value) && value >= 1;
+		case "recipient":
+			return value === "principal" || value === "agent";
+		case "boolean":
+			return typeof value === "boolean";
+	}
+}
+
+/** Validate a parsed config file's `task` object, naming the first bad key. */
+export function validateTaskConfig(value: unknown, path: string): TaskConfig {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		throw new ConfigError(`${path}: "task" must be an object`);
+	}
+	for (const [key, field] of Object.entries(value)) {
+		const kind = (FIELDS as Record<string, FieldKind>)[key];
+		if (kind === undefined) {
+			throw new ConfigError(`${path}: unknown key "task.${key}" (known: ${Object.keys(FIELDS).join(", ")})`);
+		}
+		if (!matches(kind, field)) {
+			throw new ConfigError(`${path}: "task.${key}" must be ${DESCRIBE[kind]}, got ${JSON.stringify(field)}`);
+		}
+	}
+	return value as TaskConfig;
+}
+
+/** The nearest config's `task` object, or an empty one when there is no config. */
+export function loadConfig(cwd: string): LoadedConfig {
+	const path = findConfig(cwd);
+	if (path === undefined) return { dir: resolve(cwd), task: {} };
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(readFileSync(path, "utf8"));
+	} catch (error) {
+		throw new ConfigError(`${path}: not valid JSON (${error instanceof Error ? error.message : String(error)})`);
+	}
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+		throw new ConfigError(`${path}: the file must hold a JSON object`);
+	}
+	const task = (parsed as Record<string, unknown>)["task"];
+	return { path, dir: dirname(path), task: task === undefined ? {} : validateTaskConfig(task, path) };
+}
+
+/** The bundled scripts by name. */
+export const BUNDLED_SCRIPT_NAMES: Readonly<Record<string, URL>> = {
+	task: BUNDLED_SCRIPTS.task,
+	"task-delegate": BUNDLED_SCRIPTS.delegate,
+};
+
+/** A resolved script: a bundled one's file, or a `.agent` file that exists. */
+export interface ResolvedScript {
+	/** As given: the bundled name or the path. */
+	readonly label: string;
+	/** Absolute. */
+	readonly path: string;
+}
+
+/**
+ * `task` or `task-delegate` select the bundled script; anything else is a path
+ * relative to `base`. A path that does not exist refuses the run.
+ */
+export function resolveScript(value: string, base: string): ResolvedScript {
+	const bundled = BUNDLED_SCRIPT_NAMES[value];
+	if (bundled !== undefined) return { label: value, path: fileURLToPath(bundled) };
+	const path = resolve(base, value);
+	if (!existsSync(path)) throw new ConfigError(`the script ${value} does not exist (looked for ${path})`);
+	return { label: value, path };
+}
+
+/** The flags `run` reads, as parsed; each undefined when not given. */
+export interface RunFlags {
+	readonly db?: string;
+	readonly script?: string;
+	readonly workspace?: string;
+	readonly check?: readonly string[];
+	readonly allow?: readonly string[];
+	readonly maxIterations?: number;
+	readonly escalateTo?: "principal" | "agent";
+	readonly provider?: string;
+	readonly model?: string;
+	readonly allowDirty?: boolean;
+	readonly worktree?: boolean;
+}
+
+/** A database: the path to open, and how messages and hints name it (as given, or absolute from the config). */
+export interface DbPath {
+	readonly path: string;
+	readonly label: string;
+}
+
+/** Every value `run` runs with, resolved flag → environment → config → default. Paths absolute. */
+export interface RunSettings {
+	readonly changesDir: string;
+	/** Undefined when neither `--db` nor the config gives one (or worktree mode without `--db`). */
+	readonly db?: DbPath;
+	readonly provider: string;
+	readonly model: string;
+	readonly delegateModel: string;
+	readonly script: ResolvedScript;
+	readonly workspace: string;
+	readonly checks: readonly string[];
+	readonly allow: readonly string[];
+	readonly maxIterations: number;
+	readonly escalateTo: "principal" | "agent";
+	readonly delegateContext: readonly string[];
+	readonly requireCleanTree: boolean;
+	readonly worktree: boolean;
+	/** Absolute; undefined means the default beside the repository. */
+	readonly worktreeDir?: string;
+	readonly worktreeSetup: readonly string[];
+}
+
+/**
+ * Resolve each value on its own. Flag paths are relative to `cwd`, config paths
+ * to the config's directory. In worktree mode only `--db` names the database.
+ */
+export function resolveRunSettings(
+	flags: RunFlags,
+	env: Readonly<Record<string, string | undefined>>,
+	config: LoadedConfig,
+	cwd: string,
+): RunSettings {
+	const task = config.task;
+	const fromConfig = (path: string) => resolve(config.dir, path);
+	const worktree = flags.worktree ?? task.worktree ?? false;
+	const db = worktree && flags.db === undefined ? undefined : resolveDb(flags.db, config, cwd);
+	const model = flags.model ?? env["AGENTSCRIPT_MODEL"] ?? task.model ?? DEFAULT_MODEL;
+	const script =
+		flags.script !== undefined
+			? resolveScript(flags.script, cwd)
+			: task.script !== undefined
+				? resolveScript(task.script, config.dir)
+				: resolveScript("task", config.dir);
+	return {
+		changesDir: fromConfig(task.changesDir ?? DEFAULT_CHANGES_DIR),
+		...(db !== undefined ? { db } : {}),
+		provider: flags.provider ?? env["AGENTSCRIPT_PROVIDER"] ?? task.provider ?? DEFAULT_PROVIDER,
+		model,
+		delegateModel: task.delegateModel ?? model,
+		script,
+		workspace: resolve(cwd, flags.workspace ?? "."),
+		checks: flags.check ?? task.checks ?? [],
+		allow: flags.allow ?? task.allow ?? [],
+		maxIterations: flags.maxIterations ?? task.maxIterations ?? DEFAULT_MAX_ITERATIONS,
+		escalateTo: flags.escalateTo ?? task.escalateTo ?? DEFAULT_ESCALATE_TO,
+		delegateContext: (task.delegateContext ?? []).map(fromConfig),
+		requireCleanTree: flags.allowDirty === true ? false : (task.requireCleanTree ?? true),
+		worktree,
+		...(task.worktreeDir !== undefined ? { worktreeDir: fromConfig(task.worktreeDir) } : {}),
+		worktreeSetup: task.worktreeSetup ?? [],
+	};
+}
+
+/** The database `resume`, `answer` and `status` use: `--db`, else the config's. */
+export function resolveDb(flag: string | undefined, config: LoadedConfig, cwd: string): DbPath | undefined {
+	if (flag !== undefined) return { path: resolve(cwd, flag), label: flag };
+	if (config.task.db === undefined) return undefined;
+	const path = resolve(config.dir, config.task.db);
+	return { path, label: path };
+}

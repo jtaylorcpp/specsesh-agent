@@ -59,11 +59,14 @@ no files and runs no loop.
   lists a provider's models. Needs `@earendil-works/pi-ai`.
 - `agentscript-durable run <file> --db <path> [...]` runs a script as a durable task on a Node SQLite file;
   `agentscript-durable resume <task-id> --db <path>` finishes one whose process died. Needs the durable peers.
-- `agentscript-task run <change-dir> <task-id> --db <path> [...]` works one task of an OpenSpec change as a
+- `agentscript-task run <change> <task-id>|--next [--db <path>] [...]` works one task of an OpenSpec change as a
   durable task loop (plan, act, check, judge, again) until it converges, blocks, or spends its budget, and
-  ticks the task in tasks.md when it converges; `agentscript-task resume <loop-id> --db <path>` finishes one
-  whose process died, and `agentscript-task answer <loop-id> --db <path> --by principal --decision <text>`
-  answers a blocked loop's escalation. Needs the durable peers.
+  ticks the task in tasks.md when it converges; `agentscript-task resume <loop-id>` finishes one whose process
+  died, `agentscript-task answer <loop-id> --by principal --decision <text>` answers a blocked loop's
+  escalation, and `agentscript-task status` lists the loops in a database. Defaults come from the nearest
+  `agentscript.config.json` (`task` object); `<change>` is an id under its `changesDir`, or a path. It runs
+  headless (JSON Lines progress on stderr), refuses a dirty git tree unless `--allow-dirty`, never commits,
+  and with `--worktree` runs the task in a new git worktree on `task/<change>/<task-id>`. Needs the durable peers.
 
 Credentials are pi-ai's own environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, ...).
 

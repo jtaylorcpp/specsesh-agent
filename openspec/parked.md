@@ -47,3 +47,11 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 
 - **A crash between ticking and the judge's commit reports `ticked: false`.** The judge phase writes tasks.md, then commits the outcome. If the process dies in between, the re-run judge finds the line already ticked and reports `ticked: false` with "already ticked", though this loop ticked it. Recording the tick's intent in the checkpoint first would close it.
 - **One harness, one action configuration.** `agentScriptExtensions` binds one registry and workspace per harness, so loops with different workspaces, checks or allowlists need separate harnesses. The CLI's `resume`/`answer` install the stored configuration after opening the harness; a library host must do the same.
+
+## Headless runner (from add-headless-task-runner)
+
+- **`changed` after `resume` is measured from the resume, not the loop's start.** The porcelain snapshot is taken when the process starts waiting, so edits made before a crash are not listed by the resumed run.
+- **`--json` carries neither `changed` nor the worktree's review lines.** Both are on the event stream (`loop-ended`) and in the text outcome; the JSON outcome stays `{ loop, ...outcome }`.
+- **`worktreeSetup` commands have no timeout**, and their output is shown only when one fails.
+- **`pnpm task` runs from the repository root** (pnpm's working directory), so a relative `--db` is relative to the root wherever you type it.
+- **`pnpm test:live` asks `claude auth status` whether you are logged in.** Not yet checked against the installed `claude` (its flags were not exercised here); `AGENTSCRIPT_LIVE_FORCE=1` bypasses the question.

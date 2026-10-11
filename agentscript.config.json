@@ -1,0 +1,17 @@
+{
+  "task": {
+    "changesDir": "openspec/changes",
+    "db": ".agentscript/task-loops.sqlite",
+    "provider": "claude-code",
+    "model": "claude-haiku-4-5",
+    "delegateModel": "sonnet",
+    "script": "task-delegate",
+    "checks": ["pnpm check", "pnpm test"],
+    "allow": ["pnpm", "node"],
+    "maxIterations": 3,
+    "escalateTo": "principal",
+    "delegateContext": ["CLAUDE.md"],
+    "requireCleanTree": true,
+    "worktreeSetup": ["pnpm install --frozen-lockfile --offline"]
+  }
+}

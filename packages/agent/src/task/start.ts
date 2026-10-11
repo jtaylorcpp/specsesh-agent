@@ -52,6 +52,9 @@ export function prepareTaskLoop(options: TaskLoopOptions): TaskLoopInput {
 		allow,
 		escalateTo: options.escalateTo ?? DEFAULT_ESCALATE_TO,
 		...(options.model !== undefined ? { model: options.model } : {}),
+		...(options.delegateModel !== undefined ? { delegateModel: options.delegateModel } : {}),
+		...(options.delegateContext !== undefined ? { delegateContext: [...options.delegateContext] } : {}),
+		...(options.worktree !== undefined ? { worktree: { path: options.worktree.path, branch: options.worktree.branch } } : {}),
 		carried: "",
 		earlier: [],
 	};
