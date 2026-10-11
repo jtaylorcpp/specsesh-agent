@@ -23,4 +23,4 @@
 ## 5. Close
 
 - [x] 5.1 `pnpm -r check`, `pnpm -r test`, `pnpm pack:check`, `pnpm spec:check`, `pnpm docs:check` pass
-- [ ] 5.2 `pnpm spec:archive switch-ontology-to-typebox` (its trial fold must validate)
+- [x] 5.2 `pnpm spec:archive switch-ontology-to-typebox` (its trial fold must validate)
