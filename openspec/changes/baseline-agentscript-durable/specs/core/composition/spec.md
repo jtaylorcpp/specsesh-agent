@@ -134,17 +134,18 @@ The interpreter SHALL evaluate logic lines (`if` / `else`, `set @variables.x = <
 - **AND** neither run SHALL dispatch a request
 
 ### Requirement: Statements run top to bottom and branch on truthiness
-Statements SHALL run in source order, and a `set` SHALL take effect immediately, so later statements in the step read the new value. An `if` SHALL walk only its body when the condition is truthy, otherwise its `else:` block if any. Nested `if`s SHALL follow the same rule.
+Statements SHALL run in source order, and a `set` SHALL take effect immediately, so later statements in the step read the new value. An `if` SHALL walk only its body when the condition is truthy, otherwise its `else:` block if any. A nested `if` MUST NOT run: the dialect reports it as an error, so the run is refused before anything is dispatched.
 
 #### Scenario: A set feeds a later condition
 - **GIVEN** `set @variables.count = 2` followed by `if @variables.count > 1:` holding `| Many.`
 - **WHEN** it is composed
 - **THEN** the prompt SHALL be `Many.`
 
-#### Scenario: Nested conditions
-- **GIVEN** `if @variables.a:` containing `if @variables.b:` holding `| Both.`, with `a` true and `b` false
-- **WHEN** it is composed
-- **THEN** the prompt SHALL be empty of `Both.`
+#### Scenario: A nested if is refused before running
+- **GIVEN** `if @variables.a:` containing `if @variables.b:` holding `| Both.`
+- **WHEN** it is run
+- **THEN** it SHALL reject with `UnparsedDocumentError` whose diagnostics include the dialect's `does not support nested 'if' statements`
+- **AND** the port SHALL receive zero requests
 
 ### Requirement: Literals and references evaluate to their values
 A `StringLiteral` SHALL evaluate to its string, a `NumberLiteral` to `Number(value)`, a `BooleanLiteral` to `true` exactly when written `True`, and `@variables.x` to x's current value. Any other expression kind SHALL evaluate to `""`; the subset scan refuses such kinds before a run starts.
@@ -193,44 +194,44 @@ A boolean SHALL be truthy when it is `true`. A number SHALL be truthy exactly wh
 - **THEN** `stage` SHALL be `"taken"`
 
 ### Requirement: Every undeclared reference is refused before anything runs
-A document that mentions `@variables.<name>` anywhere without declaring it SHALL be refused with `UndeclaredVariableError` before any request or variable change. This covers every subagent (selected by `entry` or not) and both branches of every `if`, and the reference SHALL NOT be resolved to `""`, `0` or `false`.
+A document that mentions `@variables.<name>` anywhere without declaring it SHALL be refused before any request or variable change, and the reference SHALL NOT be resolved to `""`, `0` or `false`. The dialect's lint reports it first, as the error `'<name>' is not defined in variables`, so `run` and `start` reject with `UnparsedDocumentError`. This covers every subagent, entered or not, and both branches of every `if`.
 
 #### Scenario: An undeclared variable is refused by name
 - **GIVEN** a prompt line interpolating `{!@variables.missing}` and no `missing` declared
 - **WHEN** it is run
-- **THEN** it SHALL reject with `UndeclaredVariableError` whose `variable` is `"missing"`
+- **THEN** it SHALL reject with `UnparsedDocumentError` whose message contains `'missing' is not defined in variables`
 - **AND** the port SHALL receive zero requests
 
 #### Scenario: An undeclared reference on a branch nobody takes
 - **GIVEN** an `else:` branch, never taken, that sets `@variables.ghost`
 - **WHEN** it is run
-- **THEN** it SHALL reject with `UndeclaredVariableError` naming `ghost` before any request
+- **THEN** it SHALL reject with `UnparsedDocumentError` naming `ghost` before any request
 
 #### Scenario: An undeclared reference in a subagent the run never enters
 - **GIVEN** a second subagent reading `@variables.ghost` and `entry` naming only the first
 - **WHEN** it is run
-- **THEN** it SHALL reject with `UndeclaredVariableError` naming `ghost`
+- **THEN** it SHALL reject with `UnparsedDocumentError` naming `ghost`
 
 ### Requirement: The undeclared check covers every reading and writing position
-The check SHALL cover interpolations in prompt lines, every `@variables` read in a condition (both sides of `and`, `or` and comparisons, and the operand of `not`), every `set` target, and every `@variables` read in a `set` value. The first undeclared reference in source order SHALL be thrown.
+The refusal SHALL cover interpolations in prompt lines, every `@variables` read in a condition (both sides of `and`, `or` and comparisons, and the operand of `not`), every `set` target, and every `@variables` read in a `set` value. The interpreter keeps its own whole-document check behind the lint, which raises `UndeclaredVariableError` for the first undeclared reference in source order if the lint ever stops reporting one.
 
 #### Scenario: An undeclared set target
 - **GIVEN** `set @variables.nowhere = "x"` with no `nowhere` declared
 - **WHEN** it is run
-- **THEN** it SHALL reject with `UndeclaredVariableError` naming `nowhere`
+- **THEN** it SHALL reject with `UnparsedDocumentError` naming `nowhere`
 
 #### Scenario: An undeclared read on the right of or
 - **GIVEN** `if @variables.ok or @variables.ghost:` with `ok` declared true and `ghost` undeclared
 - **WHEN** it is run
-- **THEN** it SHALL reject with `UndeclaredVariableError` naming `ghost`, even though `or` would not evaluate it
+- **THEN** it SHALL reject with `UnparsedDocumentError` naming `ghost`, even though `or` would not evaluate it
 
 ### Requirement: An undeclared reference error names the reference and its position
-`UndeclaredVariableError` SHALL have `name` `"UndeclaredVariableError"`, expose `variable` and `range`, and carry a message containing `@variables.<name>`, the 1-based `line:character` and `declares no such variable`. `range` SHALL be the reference's own range, not the range of the line holding it.
+Each undeclared reference SHALL be reported at its own position, not the position of the line holding it. The interpreter's `UndeclaredVariableError` SHALL have `name` `"UndeclaredVariableError"`, expose `variable` and `range`, and carry a message containing `@variables.<name>`, the 1-based `line:character` and `declares no such variable`.
 
 #### Scenario: Each reference reports its own position
 - **GIVEN** `| {!@variables.stage} then {!@variables.bad}.` with `stage` declared and `bad` not
 - **WHEN** it is run
-- **THEN** the error's `range` SHALL start at `{!@variables.bad}`, not at the start of the line
+- **THEN** the refusal's diagnostic for `bad` SHALL start at `{!@variables.bad}`, not at the start of the line
 
 ### Requirement: Assignments from the structured result wait for the answer
 `set @variables.<x> = @outputs.<f>` SHALL be recorded as a pending assignment `{ variable: "<x>", field: "<f>" }`, in source order, and SHALL NOT change `<x>` while composing. One on an untaken branch SHALL NOT be recorded. `PendingAssignment` SHALL have exactly `variable` and `field`.
