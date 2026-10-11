@@ -7,7 +7,7 @@
   "scripts": {
     "check": "tsc --noEmit",
     "dev": "wrangler dev",
-    "test": "bash test/crash-resume.sh && bash test/routes.sh"
+    "test:cloudflare": "bash test/crash-resume.sh && bash test/routes.sh"
   },
   "dependencies": {
     "@specsesh/agent": "workspace:*",

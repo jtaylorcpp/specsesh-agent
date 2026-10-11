@@ -64,14 +64,16 @@ package through `workspace:*` and its public entries only.
   `--json-schema` (returned as a tool call). Refuses requests offering more than one tool.
 - **This is a library** consumed from other projects, not a deployed service. `examples/` holds
   consumers. `pnpm build` (tsc) emits `packages/agent/dist/`, which the exports, the bins and the examples use;
-  `pnpm pack:check` proves the packed tarball installs and runs in an empty project.
+  `pnpm pack:check` proves the packed tarball installs and runs in an empty project. Cloudflare is not
+  deployed yet: never `wrangler deploy`.
 
 ## Commands
 
 ```bash
 pnpm check                      # tsc in every package (builds packages/agent/dist first)
-pnpm test                       # agent: conformance + vitest (core, pi, durable, package); Worker scripts
-pnpm pack:check                 # build, npm pack, install into empty projects, import every entry, run the bins
+pnpm test                       # agent: conformance + vitest (core, pi, durable, package); no network, no wrangler
+pnpm pack:check                 # vitest (__tests__/package/pack.test.ts): npm pack, install into empty projects,
+                                # import every entry, run the bins. Needs the npm registry, so not in `pnpm test`
 pnpm build                      # tsc → packages/agent/dist (the bins below run from it)
 pnpm agent run packages/agent/examples/triage.agent --provider claude-code   # your subscription
 pnpm agent run packages/agent/examples/triage.agent        # pi, needs ANTHROPIC_API_KEY
@@ -82,7 +84,7 @@ pnpm durable resume <task-id> --db runs.sqlite                                  
 pnpm durable run <file> --db runs.sqlite --provider claude-code                     # durable, on your subscription
 pnpm --filter hello-world-example start [name]                                      # the example app, on Haiku
 pnpm --filter cloudflare-worker-example dev    # wrangler dev; add --var AGENTSCRIPT_FAUX:1 without an account
-pnpm --filter cloudflare-worker-example test   # crash/resume (kill -9 mid-step) + route checks, on local DO storage
+pnpm test:cloudflare            # opt-in, not in `pnpm test`: crash/resume (kill -9 mid-step) + route scripts, local DO storage
 pnpm spec:check                 # openspec validate --all --strict
 pnpm spec:archive <change-id>   # archive, but only after validate --strict passes
 pnpm docs:check                 # docs/ concept pages: front matter, ids, README index, spec refs, links

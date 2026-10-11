@@ -13,5 +13,5 @@
     "types": ["node", "@cloudflare/workers-types"],
     "noEmit": true
   },
-  "include": ["src", "__tests__", "vitest.config.ts", "vitest.setup.ts"]
+  "include": ["src", "__tests__", "vitest.config.ts", "vitest.pack.config.ts", "vitest.setup.ts"]
 }

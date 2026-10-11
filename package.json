@@ -10,9 +10,10 @@
     "check": "pnpm -r check",
     "build": "pnpm --filter @specsesh/agent build",
     "test": "pnpm -r test",
+    "test:cloudflare": "pnpm --filter cloudflare-worker-example test:cloudflare",
     "agent": "node packages/agent/dist/bin/agentscript-pi.js",
     "durable": "node packages/agent/dist/bin/agentscript-durable.js",
-    "pack:check": "node scripts/pack-check.mjs",
+    "pack:check": "pnpm --filter @specsesh/agent pack:check",
     "spec:check": "OPENSPEC_TELEMETRY=0 openspec validate --all --strict",
     "spec:archive": "node scripts/spec-archive.mjs",
     "docs:check": "node scripts/docs-check.mjs"
