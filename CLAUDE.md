@@ -69,12 +69,30 @@ pnpm durable resume <task-id> --db runs.sqlite                                  
 pnpm durable run <file> --db runs.sqlite --provider claude-code                     # durable, on your subscription
 pnpm --filter hello-world-example start [name]                                      # the example app, on Haiku
 pnpm --filter agentscript-cloudflare dev    # wrangler dev; add --var AGENTSCRIPT_FAUX:1 without an account
-pnpm --filter agentscript-cloudflare test   # kill -9 mid-step crash/resume on local DO storage (~40s)
+pnpm --filter agentscript-cloudflare test   # crash/resume (kill -9 mid-step) + route checks, on local DO storage
+pnpm spec:check                 # openspec validate --all --strict
+pnpm spec:archive <change-id>   # archive, but only after validate --strict passes
 ```
 
 Provider/model also come from `AGENTSCRIPT_PROVIDER` / `AGENTSCRIPT_MODEL`; credentials are pi's
 env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...). The CLI runs through `tsx`
 because the core ships raw `.ts` with `.js`-suffixed imports.
+
+## Specs (OpenSpec 1.14.1, pinned)
+
+`openspec/specs/<area>/<capability>/spec.md` is the contract: `core/{authoring,subset,composition,
+reasoning-port,step-machine}` and `durable/{run-task,host,cli,cloudflare}`. Specs state public
+behaviour only; internals go in a change's `design.md`. Stock `spec-driven` schema.
+
+- Every behaviour change starts as `openspec new change <verb-led-id>` with deltas against these specs.
+- One test per scenario, named `Scenario: <exact scenario name>`.
+- **Never `openspec archive` directly.** 1.14.1 archives invalid changes with exit 0 and drops
+  requirements; `pnpm spec:archive` refuses unless `validate --strict` passes.
+- A delta that creates a capability should carry `## Purpose`: it is only read at creation, and
+  archive otherwise writes a placeholder that `spec:check` rejects.
+- Requirement text (before its scenarios) must stay under 500 characters, or strict fails.
+- Ideas and bugs outside the current change go in `openspec/parked.md`.
+- Set `OPENSPEC_TELEMETRY=0` when calling `openspec` by hand (the scripts already do).
 
 ## Hard lines (see README.md for the reasoning)
 
