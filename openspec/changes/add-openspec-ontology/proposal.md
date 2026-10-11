@@ -10,7 +10,7 @@ This change writes down the model: a taxonomy of everything a change is made of,
 
 ## What Changes
 
-Modelling only. This change adds specs and a design, and no code. The types it describes become real in a later change.
+This change adds the specs and design, and implements the types they describe as a new entry, `@specsesh/agent/openspec`: each type is one TypeBox schema with its static type derived from it, plus pure functions for the rules (references, unclaimed scenarios, evidence, state transitions, loop status). It adds no parser and no loop runner.
 
 - **New capability `openspec/model`:** the taxonomy, meaning the typed nouns. These are a planning root, capabilities, requirements, scenarios and their clauses, changes, proposals, deltas (added, modified, removed, renamed), designs, task lists, task groups and tasks. It also types the links from a task to the requirements and scenarios it serves, inferred from the task's prose, each carrying how it was inferred.
 - **New capability `openspec/process`:** the lifecycle as steps: propose, specify, design, plan, validate, approve, execute, archive. Each step has a named input type and output type, and the change moves through a state machine.
@@ -20,16 +20,16 @@ Modelling only. This change adds specs and a design, and no code. The types it d
 
 ## Out of scope
 
-- Implementing the types, parsers that read a real change into them, or anything that runs a loop. Each of those is a later change.
+- Parsers that read a real change into these types, or anything that runs a loop. Each of those is a later change.
 - Changing OpenSpec itself or its file formats. The model reads `tasks.md` as it is written today (links are inferred, not declared).
 - Extending Agent Script so a step can return the rich outputs modelled here. Today a step returns flat scalar fields only; that gap is recorded in the design, not closed.
 
 ## Capabilities
 
 - **New:** `openspec/model`, `openspec/process`, `openspec/loops`, `openspec/evidence`.
-- **Modified:** none now. When this is made real after `package-specsesh-agent` is archived, `package/distribution` gains a seventh entry, `@specsesh/agent/openspec`.
+- **Modified:** `package/distribution`: the exports map gains a seventh entry, `./openspec`; TypeBox (`typebox`, exact-pinned) becomes an allowed required dependency; `src/openspec/` joins the layer rule, importing only `typebox` and itself.
 
 ## Impact
 
-- New specs under `openspec/specs/openspec/` once archived. No code, dependencies or behaviour change.
-- The future entry `@specsesh/agent/openspec` must stay free of model clients and runtime dependencies other than its schema library, like the interpreter entries.
+- New specs under `openspec/specs/openspec/` once archived, and a new entry `@specsesh/agent/openspec` (`packages/agent/src/openspec/`). No existing entry changes behaviour.
+- One new required dependency, `typebox` `1.3.27` (exact, the version pi-ai already pins). The entry stays free of model clients, Node I/O and peers: it imports only `typebox` and its own files.
