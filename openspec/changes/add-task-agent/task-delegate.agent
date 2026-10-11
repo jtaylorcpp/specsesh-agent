@@ -1,0 +1,118 @@
+config:
+    agent_name: "task-agent-delegate"
+    description: "One task-loop iteration that acts through Claude Code on your subscription"
+
+system:
+    instructions: |
+        You implement one task of an OpenSpec change, in a real workspace, one iteration at a time.
+        The spec deltas are the contract. The task names what to do now. Feedback from earlier
+        iterations says what was still unmet. Change only what the task needs; never tick boxes,
+        never edit the spec. If the spec itself looks wrong, say so instead of coding around it.
+
+variables:
+    task_id: mutable string = ""
+        description: "the task's id, e.g. 2.4"
+    task_text: mutable string = ""
+        description: "the task's text from tasks.md"
+    proposal: mutable string = ""
+        description: "the change's proposal.md"
+    design: mutable string = ""
+        description: "the change's design.md, or empty"
+    deltas: mutable string = ""
+        description: "every spec delta of the change, concatenated"
+    iteration: mutable number = 1
+        description: "which iteration of the task loop this is"
+    carried: mutable string = ""
+        description: "feedback carried from earlier iterations or an escalation answer"
+    plan: mutable string = ""
+        description: "this iteration's plan"
+    act_ok: mutable boolean = False
+        description: "whether the delegated agent finished"
+    act_summary: mutable string = ""
+        description: "what the delegated agent says it changed"
+    checks_passed: mutable boolean = False
+        description: "whether the task's checks passed"
+    check_output: mutable string = ""
+        description: "the checks' output"
+    met: mutable boolean = False
+        description: "the judge's verdict"
+    unmet: mutable string = ""
+        description: "what is still unmet, for the next iteration"
+    next_action: mutable string = "retry"
+        description: "retry, amend-spec or ask"
+    question: mutable string = ""
+        description: "the question to escalate when next_action is ask or amend-spec"
+
+subagent orient:
+    description: "Plan this iteration"
+
+    reasoning:
+        instructions: ->
+            | Task {!@variables.task_id}: {!@variables.task_text}
+            | Proposal:
+            | {!@variables.proposal}
+            | Design:
+            | {!@variables.design}
+            | Spec deltas:
+            | {!@variables.deltas}
+            if @variables.iteration > 1:
+                | This is iteration {!@variables.iteration}. Still unmet from before: {!@variables.carried}
+            | Write a short, concrete plan for this iteration: which files, which changes, which scenarios it satisfies.
+            set @variables.plan = @outputs.plan
+
+subagent act:
+    description: "Hand the plan to Claude Code in the workspace, without the model choosing tools here"
+
+    actions:
+        delegate_claude_code:
+            description: "Run headless Claude Code with its edit and bash tools in the workspace"
+            inputs:
+                instructions: string
+            outputs:
+                ok: boolean
+                summary: string
+            target: "mcpTool://delegate_claude_code"
+
+    reasoning:
+        instructions: ->
+            run @actions.delegate_claude_code
+                with instructions = @variables.plan
+                set @variables.act_ok = @outputs.ok
+                set @variables.act_summary = @outputs.summary
+
+subagent check:
+    description: "Run the task's checks, without the model"
+
+    actions:
+        run_checks:
+            description: "Run the checks configured for this task"
+            inputs:
+                task_id: string
+            outputs:
+                passed: boolean
+                output: string
+            target: "mcpTool://run_checks"
+
+    reasoning:
+        instructions: ->
+            run @actions.run_checks
+                with task_id = @variables.task_id
+                set @variables.checks_passed = @outputs.passed
+                set @variables.check_output = @outputs.output
+
+subagent judge:
+    description: "Decide whether the task is done"
+
+    reasoning:
+        instructions: ->
+            | Task {!@variables.task_id}: {!@variables.task_text}
+            | Plan: {!@variables.plan}
+            | What the delegated agent reports: {!@variables.act_summary}
+            | Checks passed: {!@variables.checks_passed}
+            | Check output:
+            | {!@variables.check_output}
+            | Is the task done against the spec deltas? If not, say what is unmet. Choose next_action: retry when another iteration can fix it, amend-spec when the spec is wrong, ask when a decision is needed.
+            set @variables.met = @outputs.met
+            set @variables.unmet = @outputs.unmet
+            set @variables.next_action = @outputs.next_action
+            set @variables.question = @outputs.question
