@@ -87,7 +87,7 @@ pnpm --filter hello-world-example start [name]                                  
 pnpm --filter cloudflare-worker-example dev    # wrangler dev; add --var AGENTSCRIPT_FAUX:1 without an account
 pnpm test:cloudflare            # opt-in, not in `pnpm test`: crash/resume (kill -9 mid-step) + route scripts, local DO storage
 pnpm spec:check                 # openspec validate --all --strict
-pnpm spec:archive <change-id>   # archive, but only after validate --strict passes
+pnpm spec:archive <change-id>   # archive, only if the change and a trial fold both validate --strict
 pnpm docs:check                 # docs/ concept pages: front matter, ids, README index, spec refs, links
 ```
 
@@ -105,7 +105,7 @@ behaviour only; internals go in a change's `design.md`. Stock `spec-driven` sche
 - Every behaviour change starts as `openspec new change <verb-led-id>` with deltas against these specs.
 - One test per scenario, named `Scenario: <exact scenario name>`.
 - **Never `openspec archive` directly.** 1.14.1 archives invalid changes with exit 0 and drops
-  requirements; `pnpm spec:archive` refuses unless `validate --strict` passes.
+  requirements; `pnpm spec:archive` refuses unless the change validates and a trial fold into a temp copy of `openspec/` validates too.
 - A delta that creates a capability should carry `## Purpose`: it is only read at creation, and
   archive otherwise writes a placeholder that `spec:check` rejects.
 - Requirement text (before its scenarios) must stay under 500 characters, or strict fails.
