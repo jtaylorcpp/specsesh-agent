@@ -10,7 +10,7 @@ const ROOT = join(PKG_DIR, "..", "..");
 const MANIFEST_TEXT = readFileSync(join(PKG_DIR, "package.json"), "utf8");
 const manifest = JSON.parse(MANIFEST_TEXT);
 
-const ENTRIES = ["authoring", "interpreter", "pi", "claude-code", "durable", "cloudflare", "openspec"];
+const ENTRIES = ["authoring", "interpreter", "pi", "claude-code", "durable", "cloudflare", "openspec", "task"];
 const SF = {
 	"@sf-agentscript/agentforce-dialect": "2.53.0",
 	"@sf-agentscript/agentscript-dialect": "3.4.0",
@@ -65,7 +65,7 @@ describe("The package is @specsesh/agent 0.1.0 under Apache-2.0", () => {
 	});
 });
 
-describe("The package exports exactly seven entry points", () => {
+describe("The package exports exactly eight entry points", () => {
 	it("Scenario: The exports map is exact", () => {
 		expect(Object.keys(manifest.exports)).toEqual(ENTRIES.map((entry) => `./${entry}`));
 		expect(manifest.exports["./durable"]).toEqual({
@@ -75,6 +75,10 @@ describe("The package exports exactly seven entry points", () => {
 		expect(manifest.exports["./openspec"]).toEqual({
 			types: "./dist/openspec/index.d.ts",
 			import: "./dist/openspec/index.js",
+		});
+		expect(manifest.exports["./task"]).toEqual({
+			types: "./dist/task/index.d.ts",
+			import: "./dist/task/index.js",
 		});
 		for (const entry of ENTRIES) {
 			expect(manifest.exports[`./${entry}`]).toEqual({
@@ -91,11 +95,12 @@ describe("The tarball holds only the build, the readme and the license", () => {
 	});
 });
 
-describe("The two CLIs are compiled bins", () => {
+describe("The three CLIs are compiled bins", () => {
 	it("Scenario: The bins are wired to compiled files", () => {
 		expect(manifest.bin).toEqual({
 			"agentscript-pi": "./dist/bin/agentscript-pi.js",
 			"agentscript-durable": "./dist/bin/agentscript-durable.js",
+			"agentscript-task": "./dist/bin/agentscript-task.js",
 		});
 		for (const target of Object.values(manifest.bin) as string[]) {
 			const path = join(PKG_DIR, target);
@@ -159,6 +164,7 @@ describe("The readme lists the entry points", () => {
 		for (const entry of ENTRIES) expect(readme).toContain(`@specsesh/agent/${entry}`);
 		expect(readme).toContain("agentscript-pi");
 		expect(readme).toContain("agentscript-durable");
+		expect(readme).toContain("agentscript-task");
 	});
 });
 

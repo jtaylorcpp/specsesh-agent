@@ -35,11 +35,16 @@
     "./openspec": {
       "types": "./dist/openspec/index.d.ts",
       "import": "./dist/openspec/index.js"
+    },
+    "./task": {
+      "types": "./dist/task/index.d.ts",
+      "import": "./dist/task/index.js"
     }
   },
   "bin": {
     "agentscript-pi": "./dist/bin/agentscript-pi.js",
-    "agentscript-durable": "./dist/bin/agentscript-durable.js"
+    "agentscript-durable": "./dist/bin/agentscript-durable.js",
+    "agentscript-task": "./dist/bin/agentscript-task.js"
   },
   "files": [
     "dist",
@@ -47,7 +52,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && mkdir -p dist/task/scripts && cp src/task/scripts/*.agent dist/task/scripts/",
     "check": "tsc --noEmit && tsc -p tsconfig.build.json",
     "test": "node scripts/check-subset-conformance.mjs && vitest run",
     "conformance": "node scripts/check-subset-conformance.mjs",

@@ -1,0 +1,25 @@
+/**
+ * The task loop from the OpenSpec ontology, made runnable.
+ *
+ * Hand it a change, a task id and an Agent Script, and a durable pi-durable
+ * task (`agentscript.task-loop`) runs the script once per iteration, as an
+ * `agentscript.run` child, until the task converges, blocks with an
+ * escalation, exhausts its budget or fails. The result is the ontology's
+ * `LoopOutcome<TaskOutcome>`.
+ *
+ * A harness runs the loops of one workspace, check list and allowlist: install
+ * the three extensions `taskLoopExtensions({ workspace, checks, allow })`
+ * returns, then `startTaskLoop` and `waitForTaskLoop`.
+ *
+ * A task script is any Agent Script declaring the contract variables (see
+ * `SEEDED` and `READ_BACK`). The bundled `task.agent` acts with model-callable
+ * tools; `task-delegate.agent` hands the work to headless Claude Code.
+ */
+
+export { EscalationAnswerError, TaskLoopStartError } from "./errors.js";
+export { NEXT_ACTIONS, READ_BACK, SEEDED, checkContract, contractProblems, type ContractType } from "./contract.js";
+export { TASK_LOOP, TaskLoop, TaskLoopTask, taskLoopExtensions, type TaskLoopActionOptions } from "./loop.js";
+export type { LoopCheckpoint, TaskLoopInput, TaskLoopResult } from "./loop-input.js";
+export { BUNDLED_SCRIPTS, DEFAULT_ESCALATE_TO, DEFAULT_MAX_ITERATIONS, type ChangeSource, type Source, type TaskLoopOptions } from "./options.js";
+export { prepareTaskLoop, startTaskLoop } from "./start.js";
+export { answerEscalation, waitForTaskLoop, waitForTaskLoopResult } from "./answer.js";

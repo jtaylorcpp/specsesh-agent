@@ -19,7 +19,8 @@ The layer boundaries are directories, enforced by `__tests__/package/layers.test
 | `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). |
 | `src/cloudflare` → `./cloudflare` | `AgentScriptHost`, the Durable Object class (via Cloudflare's `PiHarness`, `agents` 0.28.0), Workers AI by default. |
 | `src/openspec` → `./openspec` | The OpenSpec ontology (`openspec/{model,process,loops,evidence}`): zod schemas with `z.infer` static types and refinements, plus pure rules. Imports only `zod`; no parser, no loop runner. |
-| `src/bin` | The `agentscript-pi` and `agentscript-durable` bins. |
+| `src/task` → `./task` | The task loop (`agentscript.task-loop`): an Agent Script run once per iteration as an `agentscript.run` child until the task converges, blocks, exhausts or fails; ticks tasks.md. Bundled scripts in `src/task/scripts/` (copied into `dist/` by the build). Adds `src/durable`. |
+| `src/bin` | The `agentscript-pi`, `agentscript-durable` and `agentscript-task` bins. |
 
 pi-ai, pi-durable, chord and `agents` are optional peers (dev dependencies here); only the four
 `@sf-agentscript/*` packages and `zod` (exact `4.6.5`, the version pi-ai's dependencies resolve) are required. `examples/hello-world` and `examples/cloudflare-worker`
@@ -83,6 +84,8 @@ pnpm agent models anthropic     # list a provider's models
 pnpm durable run <file> --db runs.sqlite [--provider --model --entry --var --json]   # durable, pi-ai
 pnpm durable resume <task-id> --db runs.sqlite                                      # finish a crashed run
 pnpm durable run <file> --db runs.sqlite --provider claude-code                     # durable, on your subscription
+node packages/agent/dist/bin/agentscript-task.js run <change-dir> <task-id> --db loops.sqlite --check "pnpm test" --allow pnpm
+node packages/agent/dist/bin/agentscript-task.js resume <loop-id> --db loops.sqlite  # or: answer <loop-id> --by principal --decision <text>
 pnpm --filter hello-world-example start [name]                                      # the example app, on Haiku
 pnpm --filter cloudflare-worker-example dev    # wrangler dev; add --var AGENTSCRIPT_FAUX:1 without an account
 pnpm test:cloudflare            # opt-in, not in `pnpm test`: crash/resume (kill -9 mid-step) + route scripts, local DO storage

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -24,9 +24,17 @@ describe("The build emits JavaScript and declarations file for file", () => {
 				expect(existsSync(join(PKG_DIR, out)), `${source} has no ${out}`).toBe(true);
 			}
 		}
-		// Nothing in dist/ comes from anywhere but src/: every output maps back to a source.
+		// The bundled task scripts are copied as they are, and are the only files not compiled.
+		const scripts = filesUnder(join(PKG_DIR, "src", "task", "scripts")).filter((file) => file.endsWith(".agent"));
+		expect(scripts.length).toBeGreaterThan(0);
+		const copied = filesUnder(join(PKG_DIR, "dist", "task", "scripts"));
+		expect(copied.sort()).toEqual(scripts.map((file) => file.replace(/^src\//, "dist/")).sort());
+		for (const script of scripts) {
+			expect(readFileSync(join(PKG_DIR, script.replace(/^src\//, "dist/")), "utf8"), script).toBe(readFileSync(join(PKG_DIR, script), "utf8"));
+		}
+		// Nothing else in dist/ comes from anywhere but src/: every output maps back to a source.
 		const sourceSet = new Set(sources);
-		const outputs = filesUnder(join(PKG_DIR, "dist"));
+		const outputs = filesUnder(join(PKG_DIR, "dist")).filter((out) => !copied.includes(out));
 		expect(outputs.length).toBe(sources.length * 3);
 		for (const out of outputs) {
 			expect(out, `${out} came from the tests`).not.toMatch(/__tests__|\.test\./);

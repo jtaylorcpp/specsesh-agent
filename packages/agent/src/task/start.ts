@@ -1,0 +1,78 @@
+/**
+ * Starting a task loop: read every source, find the task, check the script
+ * against the contract and the host's actions, and only then create the task.
+ * A refusal creates nothing and calls no model.
+ */
+
+import { start } from "../interpreter/index.js";
+import type { Context } from "@earendil-works/chord";
+import type { Harness, TaskId } from "@earendil-works/pi-durable";
+import { checkBindings } from "../durable/index.js";
+import { TaskId as OntologyTaskId, check, type LoopOutcome, type TaskOutcome } from "../openspec/index.js";
+import { checkContract } from "./contract.js";
+import { concatDeltas } from "./deltas.js";
+import { TaskLoopStartError } from "./errors.js";
+import type { TaskLoopInput } from "./loop-input.js";
+import { TaskLoopTask, subagentsOf, taskLoopRegistry } from "./loop.js";
+import { DEFAULT_ESCALATE_TO, DEFAULT_MAX_ITERATIONS, type TaskLoopOptions } from "./options.js";
+import { readChange, readScript } from "./sources.js";
+import { findTask } from "./tasks-md.js";
+
+/** The loop's durable input, or the refusal. Reads every source once. */
+export function prepareTaskLoop(options: TaskLoopOptions): TaskLoopInput {
+	if (!check(OntologyTaskId, options.task)) {
+		throw new TaskLoopStartError(`"${options.task}" is not a task id; task ids look like 2.4`);
+	}
+	const maxIterations = options.budget?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+	if (!Number.isInteger(maxIterations) || maxIterations < 1) {
+		throw new TaskLoopStartError(`budget.maxIterations must be a positive integer, got ${maxIterations}`);
+	}
+	const script = readScript(options.script);
+	const change = readChange(options.change);
+	const taskText = findTask(change.tasks, options.task, change.tasksLabel);
+
+	checkContract(script);
+	// The whole document, as a run would check it: parse, lint, subset, entries.
+	start(script, { entry: subagentsOf(script) });
+	const checks = [...(options.checks ?? [])];
+	const allow = [...(options.allow ?? [])];
+	checkBindings(script, taskLoopRegistry({ workspace: options.workspace, checks, allow }));
+
+	return {
+		task: options.task,
+		taskText,
+		proposal: change.proposal,
+		design: change.design,
+		deltas: concatDeltas(change.deltas),
+		...(change.tasksPath !== undefined ? { tasksPath: change.tasksPath } : {}),
+		script,
+		workspace: options.workspace,
+		budget: { maxIterations },
+		checks,
+		allow,
+		escalateTo: options.escalateTo ?? DEFAULT_ESCALATE_TO,
+		...(options.model !== undefined ? { model: options.model } : {}),
+		carried: "",
+		earlier: [],
+	};
+}
+
+/** Durably create the loop task and return its ID. It runs as soon as the scheduler does. */
+export async function startTaskLoop(
+	harness: Harness,
+	options: TaskLoopOptions,
+	context: Context,
+): Promise<TaskId<LoopOutcome<TaskOutcome>>> {
+	const input = prepareTaskLoop(options);
+	return createLoop(harness, input, context);
+}
+
+export async function createLoop(harness: Harness, input: TaskLoopInput, context: Context): Promise<TaskId<LoopOutcome<TaskOutcome>>> {
+	const owner = await harness.root(context);
+	const id = await owner.commit(
+		(tx) => tx.createTask(TaskLoopTask, input, { ownership: { kind: "conversation" } }),
+		context,
+	);
+	// The durable result is `{ outcome, notes }`; `waitForTaskLoop` hands back the outcome.
+	return id as unknown as TaskId<LoopOutcome<TaskOutcome>>;
+}

@@ -22,6 +22,7 @@ peer dependencies, so a consumer of the interpreter alone installs none of them.
 | `@specsesh/agent/durable` | The pi-durable extensions and `startScript` / `waitForScript` / `runScript` | `@earendil-works/pi-ai`, `@earendil-works/pi-durable`, `@earendil-works/chord` |
 | `@specsesh/agent/cloudflare` | `AgentScriptHost`, a Durable Object class for a Worker to re-export (workerd only) | the durable peers and `agents` |
 | `@specsesh/agent/openspec` | The OpenSpec ontology: typed schemas for a change, its lifecycle steps, its execution loops and their evidence | none (uses the `zod` dependency) |
+| `@specsesh/agent/task` | The task loop: `startTaskLoop` / `waitForTaskLoop` / `answerEscalation`, `taskLoopExtensions`, and the bundled `task.agent` and `task-delegate.agent` (Node only) | the durable peers |
 
 The authoring, interpreter and openspec entries run on Node and on Workers.
 
@@ -57,6 +58,11 @@ no files and runs no loop.
   lists a provider's models. Needs `@earendil-works/pi-ai`.
 - `agentscript-durable run <file> --db <path> [...]` runs a script as a durable task on a Node SQLite file;
   `agentscript-durable resume <task-id> --db <path>` finishes one whose process died. Needs the durable peers.
+- `agentscript-task run <change-dir> <task-id> --db <path> [...]` works one task of an OpenSpec change as a
+  durable task loop (plan, act, check, judge, again) until it converges, blocks, or spends its budget, and
+  ticks the task in tasks.md when it converges; `agentscript-task resume <loop-id> --db <path>` finishes one
+  whose process died, and `agentscript-task answer <loop-id> --db <path> --by principal --decision <text>`
+  answers a blocked loop's escalation. Needs the durable peers.
 
 Credentials are pi-ai's own environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, ...).
 

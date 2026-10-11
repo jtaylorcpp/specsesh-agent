@@ -5,12 +5,20 @@ The task loop from the ontology, made runnable: given an OpenSpec change, a task
 ## ADDED Requirements
 
 ### Requirement: The task entry exports the task loop
-`@specsesh/agent/task` SHALL export `startTaskLoop(harness, options, context)`, returning `Promise<TaskId<LoopOutcome<TaskOutcome>>>`, `waitForTaskLoop(harness, id, context)`, returning `Promise<LoopOutcome<TaskOutcome>>`, `answerEscalation(harness, id, answer, context)`, the `TaskLoop` extension, and the types `TaskLoopOptions` and `Source`.
+`@specsesh/agent/task` SHALL export `startTaskLoop(harness, options, context)`, returning `Promise<TaskId<LoopOutcome<TaskOutcome>>>`, `waitForTaskLoop(harness, id, context)`, returning `Promise<LoopOutcome<TaskOutcome>>`, `waitForTaskLoopResult`, `answerEscalation(harness, id, answer, context)`, the `TaskLoop` extension, `taskLoopExtensions`, and the types `TaskLoopOptions` and `Source`.
 
 #### Scenario: A host starts and awaits a task loop
-- **GIVEN** a harness with the `TaskLoop` extension installed
+- **GIVEN** a harness with the extensions `taskLoopExtensions` returns installed
 - **WHEN** it calls `startTaskLoop` for task `2.4` of `baseline-agentscript-durable` and then `waitForTaskLoop` with the returned id
 - **THEN** it SHALL receive a `LoopOutcome<TaskOutcome>`
+
+### Requirement: A harness binds the loop's actions to one workspace
+`taskLoopExtensions({ workspace, checks, allow })` SHALL return `TaskLoop` and the two extensions `agentScriptExtensions` builds over the built-in actions for that workspace, check list and allowlist. A harness running task loops installs all three. `startTaskLoop` SHALL check the script's actions against the built-ins for the options' `workspace`, `checks` and `allow`.
+
+#### Scenario: The extensions run the loop's actions in its workspace
+- **GIVEN** a harness with `taskLoopExtensions({ workspace, checks: ["pnpm test"], allow: ["pnpm"] })` installed
+- **WHEN** a loop over that workspace edits a file
+- **THEN** the file SHALL change inside `workspace`
 
 ### Requirement: Options name the change, the task, the script and the workspace
 `TaskLoopOptions` SHALL be `{ change, task: TaskId, script?: Source, workspace: string, budget?: { maxIterations: number }, checks?: string[], allow?: string[], escalateTo?: "principal" | "agent", model?: ModelRef }`. `change` SHALL be `{ dir: string }` or `{ proposal: Source, design?: Source, deltas: Source[], tasks: Source }`. `Source` SHALL be `{ text: string }` or `{ path: string }`.
@@ -150,11 +158,11 @@ When `met` is false and `next_action` is `"ask"`, the loop SHALL end `"blocked"`
 - **THEN** the loop SHALL end `"blocked"`, its escalation's `question` SHALL be that text, `to` SHALL be `"principal"`, and a `"spec-defect"` finding SHALL be recorded
 
 ### Requirement: Judge fails a run that breaks the contract
-When `met` is false and `next_action` is none of `"retry"`, `"amend-spec"` or `"ask"`, the loop SHALL end `"failed"` with a message saying the script broke the task-script contract and naming the value received.
+When `met` is false and `next_action` is none of `"retry"`, `"amend-spec"` or `"ask"`, the loop SHALL end `"failed"` with a note saying the script broke the task-script contract and naming the value received.
 
 #### Scenario: An unknown next_action fails the loop
 - **WHEN** an iteration ends with `met` `False` and `next_action` `"done"`
-- **THEN** the loop SHALL end `"failed"` with a message naming `"done"`
+- **THEN** the loop SHALL end `"failed"` with a note naming `"done"`
 
 ### Requirement: Each iteration is recorded as an ontology Iteration
 For every iteration, the loop SHALL record an `Iteration` with `n`, `plan` set to the run's `plan` variable when the script declares one and `""` otherwise, `actions` and `evidence` set to the `Action`s and `Evidence` the run's host actions recorded, `verdict` from `met` and `unmet`, and `feedback` from `next_action`.
@@ -162,6 +170,13 @@ For every iteration, the loop SHALL record an `Iteration` with `n`, `plan` set t
 #### Scenario: Actions and evidence are kept per iteration
 - **WHEN** iteration 1 edits one file and runs `pnpm test`
 - **THEN** its `Iteration` SHALL hold an `edit` action with `DiffEvidence` and a `command` action with `CheckEvidence`
+
+### Requirement: An unmet iteration carries one finding
+An iteration's verdict SHALL judge the one target `{ check: "task <id>" }`. When it is unmet, its `feedback` SHALL be one `Feedback` on that target: finding kind `code-defect` with action `retry` for retry, `needs-decision` with `ask` for ask, `spec-defect` with `amend-spec` for amend-spec, and `environment` with `retry` for a failed run or a broken contract. The finding's evidence SHALL be the run's evidence plus the judge's `ReviewEvidence`, or the failure's `CheckEvidence`.
+
+#### Scenario: A retry verdict is a code defect
+- **WHEN** an iteration of task `2.4` ends with `met` `False` and `next_action` `"retry"`
+- **THEN** its feedback SHALL be one item with action `"retry"` whose finding has kind `"code-defect"` and target `{ check: "task 2.4" }`
 
 ### Requirement: An answered escalation resumes the loop as a new run
 `answerEscalation(harness, id, answer, context)` SHALL accept an `EscalationAnswer` only for a loop that ended `"blocked"` and only when `answer.by` equals the escalation's `to`; otherwise it MUST reject as invalid input. An accepted answer SHALL start a new run of the same loop with `carried` set to `answer.decision`, keeping the earlier iterations recorded.
@@ -185,7 +200,7 @@ When the loop converges and `tasks.md` came from a path (directly or through `{ 
 - **THEN** the only difference SHALL be `- [ ] 2.4` becoming `- [x] 2.4`
 
 ### Requirement: Ticking never writes in doubt and never unticks
-The loop MUST NOT write `tasks.md` when it came from text, when the task's line is already ticked, or when the line can no longer be found by id. In each case `TaskOutcome.ticked` SHALL be false, with a note saying why. No loop outcome SHALL ever untick a task.
+The loop MUST NOT write `tasks.md` when it came from text, when the task's line is already ticked, or when the line can no longer be found by id. In each case `TaskOutcome.ticked` SHALL be false, with a note in the loop's notes saying why. No loop outcome SHALL ever untick a task.
 
 #### Scenario: Text input is never written
 - **GIVEN** a loop whose `tasks` was `{ text }`
@@ -198,7 +213,7 @@ The loop MUST NOT write `tasks.md` when it came from text, when the task's line 
 - **THEN** the file SHALL be unchanged and `ticked` SHALL be `false`, with a note naming `2.4`
 
 ### Requirement: The outcome is a LoopOutcome of TaskOutcome
-`waitForTaskLoop` SHALL return `LoopOutcome<TaskOutcome>` with every iteration recorded. `result` SHALL be present, holding `{ task, ticked }`, exactly when `status` is `"converged"`, and `escalation` exactly when it is `"blocked"`.
+`waitForTaskLoop` SHALL return `LoopOutcome<TaskOutcome>` with every iteration recorded, checked against the ontology schema. `result` SHALL be present, holding `{ task, ticked }`, exactly when `status` is `"converged"`, and `escalation` exactly when it is `"blocked"`. `waitForTaskLoopResult` SHALL return `{ outcome, notes }`, `notes` being the loop's notes as strings.
 
 #### Scenario: A blocked outcome carries an escalation and no result
 - **WHEN** a loop ends `"blocked"`

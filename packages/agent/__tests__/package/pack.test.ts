@@ -181,7 +181,7 @@ describe("pack:check proves the tarball installs and runs", () => {
 	}, 60_000);
 });
 
-describe("The package exports exactly seven entry points", () => {
+describe("The package exports exactly eight entry points", () => {
 	for (const [name, specifier] of [
 		["Scenario: A deep import is refused", "@specsesh/agent/dist/interpreter/run.js"],
 		["Scenario: The bare package name is not importable", "@specsesh/agent"],
@@ -192,6 +192,27 @@ describe("The package exports exactly seven entry points", () => {
 			expect(r.stderr).toContain("ERR_PACKAGE_PATH_NOT_EXPORTED");
 		});
 	}
+});
+
+describe("pack:check proves the tarball installs and runs", () => {
+	it("Scenario: The installed task bin prints its usage", () => {
+		const r = spawnSync(join(full, "node_modules", ".bin", "agentscript-task"), [], { cwd: full, encoding: "utf8" });
+		expect(r.status, r.stderr).toBe(2);
+		expect(r.stderr.startsWith("usage:")).toBe(true);
+		expect(r.stderr).toContain("agentscript-task run <change-dir> <task-id> --db <path>");
+		// The installed ./task entry finds its bundled script beside the compiled module.
+		const s = node(
+			full,
+			`import { readFileSync } from "node:fs";
+import { BUNDLED_SCRIPTS, contractProblems } from "@specsesh/agent/task";
+const source = readFileSync(BUNDLED_SCRIPTS.task, "utf8");
+if (contractProblems(source).length > 0) throw new Error("the bundled task.agent breaks the contract");
+console.log(source.includes('agent_name: "task-agent"') ? "found" : "missing");
+`,
+		);
+		expect(s.status, s.stderr).toBe(0);
+		expect(s.stdout.trim()).toBe("found");
+	});
 });
 
 describe("The core entries work with no peer installed", () => {
