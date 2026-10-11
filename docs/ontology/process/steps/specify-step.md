@@ -7,7 +7,7 @@ spec:
   - "openspec/process: Specify turns a proposal into deltas"
   - "openspec/process: Each forward transition follows its step"
 related: [step, proposal, capability, delta, propose-step, design-step, change-state]
-status: modelled
+status: implemented
 ---
 
 # specify

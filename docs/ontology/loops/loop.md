@@ -6,7 +6,7 @@ area: loops
 spec:
   - "openspec/loops: A loop has one shape at every level"
 related: [loop-input, iteration, verdict, feedback, loop-outcome, task-loop, group-loop, change-loop]
-status: modelled
+status: implemented
 ---
 
 # Loop

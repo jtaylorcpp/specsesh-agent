@@ -6,7 +6,7 @@ area: taxonomy
 spec:
   - "openspec/model: A scenario is a name and ordered clauses"
 related: [clause, requirement, scenario-ref, unclaimed-scenario, test-evidence]
-status: modelled
+status: implemented
 ---
 
 # Scenario

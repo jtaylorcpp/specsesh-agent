@@ -7,7 +7,7 @@ spec:
   - "openspec/model: A task list is numbered groups of tasks"
   - "openspec/model: A task id is its group number and its position"
 related: [task-list, task, task-id, group-loop]
-status: modelled
+status: implemented
 ---
 
 # TaskGroup

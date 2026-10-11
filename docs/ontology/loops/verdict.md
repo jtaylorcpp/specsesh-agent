@@ -8,7 +8,7 @@ spec:
   - "openspec/evidence: A passing claiming test satisfies a scenario target"
   - "openspec/evidence: A requirement target needs every scenario"
 related: [iteration, target, feedback, evidence]
-status: modelled
+status: implemented
 ---
 
 # Verdict

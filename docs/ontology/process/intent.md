@@ -6,7 +6,7 @@ area: process
 spec:
   - "openspec/process: Propose turns intent into a proposal"
 related: [propose-step, capability-index, proposal]
-status: modelled
+status: implemented
 ---
 
 # Intent

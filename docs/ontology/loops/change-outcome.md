@@ -6,7 +6,7 @@ area: loops
 spec:
   - "openspec/loops: The change loop reports its groups and what was unclaimed"
 related: [change-loop, group-outcome, scenario-ref, unclaimed-scenario, archive-step, loop-outcome, execute-step]
-status: modelled
+status: implemented
 ---
 
 # ChangeOutcome

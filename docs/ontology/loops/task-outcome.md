@@ -7,7 +7,7 @@ spec:
   - "openspec/loops: The task loop drives one task to its targets"
   - "openspec/loops: Only a converged task loop ticks its box"
 related: [task-loop, task-id, group-outcome, loop-outcome]
-status: modelled
+status: implemented
 ---
 
 # TaskOutcome

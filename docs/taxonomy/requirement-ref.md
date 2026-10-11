@@ -7,7 +7,7 @@ spec:
   - "openspec/model: A task link targets a requirement or a scenario"
   - "openspec/model: References serialise to one line of text"
 related: [requirement, capability-path, scenario-ref, task-link, target, context-ref]
-status: modelled
+status: implemented
 ---
 
 # RequirementRef

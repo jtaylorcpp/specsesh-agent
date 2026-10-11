@@ -7,7 +7,7 @@ spec:
   - "openspec/loops: A verdict lists satisfied and unmet targets"
   - "openspec/evidence: A check is evidence for its command only"
 related: [verdict, requirement-ref, scenario-ref, check-evidence]
-status: modelled
+status: implemented
 ---
 
 # Target

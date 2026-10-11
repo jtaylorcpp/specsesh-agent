@@ -6,7 +6,7 @@ area: evidence
 spec:
   - "openspec/evidence: Evidence is one of five kinds"
 related: [test-evidence, validation-evidence, check-evidence, diff-evidence, review-evidence, verdict, finding]
-status: modelled
+status: implemented
 ---
 
 # Evidence

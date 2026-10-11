@@ -6,7 +6,7 @@ area: taxonomy
 spec:
   - "openspec/model: Root locates a planning home"
 related: [capability, change, capability-path]
-status: modelled
+status: implemented
 ---
 
 # Root

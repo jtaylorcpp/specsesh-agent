@@ -7,7 +7,7 @@ spec:
   - "openspec/loops: A loop input carries the goal, context, budget and carried feedback"
   - "openspec/loops: Each status has one cause"
 related: [loop-input, loop-outcome]
-status: modelled
+status: implemented
 ---
 
 # Budget

@@ -7,7 +7,7 @@ The taxonomy and ontology for executing OpenSpec changes, written down before it
 - **[overview.md](overview.md)**: the whole model on one page. Start here.
 - **[CONVENTIONS.md](CONVENTIONS.md)**: how a concept page is written, and how `pnpm docs:check` keeps this directory honest.
 
-Status: **modelled**. The source of truth is the OpenSpec change `add-openspec-ontology` (capabilities `openspec/model`, `openspec/process`, `openspec/loops`, `openspec/evidence`). Each page names the requirement it restates.
+Status: **implemented** as `@specsesh/agent/openspec`: each type is a TypeBox schema with its static type derived from it. The source of truth is the specs `openspec/model`, `openspec/process`, `openspec/loops` and `openspec/evidence`. Each page names the requirement it restates.
 
 ## Taxonomy
 

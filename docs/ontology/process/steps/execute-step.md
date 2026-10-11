@@ -8,7 +8,7 @@ spec:
   - "openspec/process: Execution needs approval"
   - "openspec/process: Archiving needs convergence and a fresh valid report"
 related: [step, change, change-loop, change-outcome, loop-outcome, approve-step, archive-step, change-state]
-status: modelled
+status: implemented
 ---
 
 # execute

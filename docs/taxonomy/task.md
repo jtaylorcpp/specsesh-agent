@@ -6,7 +6,7 @@ area: taxonomy
 spec:
   - "openspec/model: A task has an id, text, a done flag, files and links"
 related: [task-id, task-link, task-group, task-loop, task-outcome]
-status: modelled
+status: implemented
 ---
 
 # Task

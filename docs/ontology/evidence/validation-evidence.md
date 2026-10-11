@@ -6,7 +6,7 @@ area: evidence
 spec:
   - "openspec/evidence: The other evidence kinds have fixed fields"
 related: [evidence, validation-report, change-loop]
-status: modelled
+status: implemented
 ---
 
 # ValidationEvidence

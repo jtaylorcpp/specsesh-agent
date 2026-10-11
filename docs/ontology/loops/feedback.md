@@ -8,7 +8,7 @@ spec:
   - "openspec/loops: Feedback retries inside a loop"
   - "openspec/loops: Feedback rises to the enclosing loop"
 related: [finding, iteration, loop-input, escalation, task-loop, group-loop, change-loop]
-status: modelled
+status: implemented
 ---
 
 # Feedback

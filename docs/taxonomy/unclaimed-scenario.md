@@ -6,7 +6,7 @@ area: taxonomy
 spec:
   - "openspec/model: An unclaimed scenario is a coverage gap"
 related: [scenario-ref, task-link, link-basis, change-loop, change-outcome]
-status: modelled
+status: implemented
 ---
 
 # Unclaimed scenario

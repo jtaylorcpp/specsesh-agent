@@ -6,7 +6,7 @@ area: loops
 spec:
   - "openspec/loops: An iteration plans, acts, gathers evidence and judges"
 related: [loop, action, evidence, verdict, feedback]
-status: modelled
+status: implemented
 ---
 
 # Iteration

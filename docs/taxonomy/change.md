@@ -7,7 +7,7 @@ spec:
   - "openspec/model: A change gathers its artifacts and its state"
   - "openspec/model: Every model type has a static type and a JSON Schema"
 related: [proposal, delta, design, task-list, change-state, root]
-status: modelled
+status: implemented
 ---
 
 # Change

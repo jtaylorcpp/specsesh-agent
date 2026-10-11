@@ -7,7 +7,7 @@ spec:
   - "openspec/loops: A loop outcome has one of four statuses"
   - "openspec/loops: Each status has one cause"
 related: [loop, iteration, escalation, budget, task-outcome, group-outcome, change-outcome]
-status: modelled
+status: implemented
 ---
 
 # LoopOutcome

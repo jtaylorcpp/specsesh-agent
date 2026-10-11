@@ -9,7 +9,7 @@ spec:
   - "openspec/evidence: A passing claiming test satisfies a scenario target"
   - "openspec/evidence: A skipped test satisfies nothing"
 related: [evidence, scenario-ref, target, verdict]
-status: modelled
+status: implemented
 ---
 
 # TestEvidence

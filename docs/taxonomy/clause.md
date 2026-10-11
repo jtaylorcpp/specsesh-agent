@@ -7,7 +7,7 @@ spec:
   - "openspec/model: A scenario is a name and ordered clauses"
   - "openspec/model: Every model type has a static type and a JSON Schema"
 related: [scenario]
-status: modelled
+status: implemented
 ---
 
 # Clause

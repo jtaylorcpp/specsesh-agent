@@ -7,7 +7,7 @@ spec:
   - "openspec/loops: An action records what an iteration did"
   - "openspec/loops: An iteration plans, acts, gathers evidence and judges"
 related: [iteration, diff-evidence, check-evidence, evidence]
-status: modelled
+status: implemented
 ---
 
 # Action

@@ -6,7 +6,7 @@ area: loops
 spec:
   - "openspec/loops: A loop input carries the goal, context, budget and carried feedback"
 related: [loop, budget, feedback, escalation-answer, context-ref]
-status: modelled
+status: implemented
 ---
 
 # LoopInput
