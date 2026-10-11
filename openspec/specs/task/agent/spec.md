@@ -206,7 +206,7 @@ When the loop converges and `tasks.md` came from a path (directly or through `{ 
 - **THEN** the only difference SHALL be `- [ ] 2.4` becoming `- [x] 2.4`
 
 ### Requirement: Ticking never writes in doubt and never unticks
-The loop MUST NOT write `tasks.md` when it came from text, when the task's line is already ticked, or when the line can no longer be found by id. In each case `TaskOutcome.ticked` SHALL be false, with a note in the loop's notes saying why. No loop outcome SHALL ever untick a task.
+The loop MUST NOT write `tasks.md` when it came from text, when the task's line is already ticked, or when the line can no longer be found by id. In each case `TaskOutcome.ticked` SHALL be false, with a note in the loop's notes saying why. No task loop SHALL ever untick a task; only a group loop's rework does (see `task/group`).
 
 #### Scenario: Text input is never written
 - **GIVEN** a loop whose `tasks` was `{ text }`

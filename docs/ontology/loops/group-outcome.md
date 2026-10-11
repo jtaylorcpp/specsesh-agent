@@ -5,14 +5,14 @@ kind: type
 area: loops
 spec:
   - "openspec/loops: The group loop drives one feature set"
-  - "openspec/loops: A group outcome has one entry per task"
+  - "openspec/loops: A group outcome has one entry per task that was ticked or ran"
 related: [group-loop, task-outcome, change-outcome, loop-outcome, task-id]
 status: implemented
 ---
 
 # GroupOutcome
 
-A group loop's result: the group's number and one entry per task, each holding that task's latest loop outcome and how many times it ran.
+A group loop's result: the group's number and one entry per task that was ticked or ran, each holding that task's latest loop outcome and how many times it ran.
 
 ## Definition
 
@@ -25,14 +25,14 @@ GroupOutcome { group: integer, tasks: { task: TaskId, outcome: LoopOutcome<TaskO
 | Field | Type | Meaning |
 |---|---|---|
 | group | `integer` | The task group's number. |
-| tasks | `{ task, outcome, runs }[]` | Exactly one entry per task, in group order. |
+| tasks | `{ task, outcome, runs }[]` | One entry per task that was ticked or ran, in group order; a task still queued when the group ends early has none. |
 | tasks[].task | `TaskId` | The task. |
 | tasks[].outcome | `LoopOutcome<TaskOutcome>` | The task's latest loop run, whatever its status. |
 | tasks[].runs | `integer` | How many times the task's loop ran (more than 1 after rework). |
 
 ## Invariants
 
-- Exactly one entry per task, in group order, including tasks whose loop ended `"exhausted"`, `"blocked"` or `"failed"`.
+- One entry per task that was ticked before the loop or whose loop ran, in group order, including tasks whose loop ended `"exhausted"`, `"blocked"` or `"failed"`. A task still queued when the group ends early has no entry.
 - `outcome` is the latest run; earlier runs stay in their own iterations, and `runs` counts them all.
 
 ## Relations
@@ -47,4 +47,4 @@ Group `2` of `baseline-agentscript-durable` converging gives `{ group: 2, tasks:
 ## Spec
 
 - `openspec/loops: The group loop drives one feature set`
-- `openspec/loops: A group outcome has one entry per task`
+- `openspec/loops: A group outcome has one entry per task that was ticked or ran`
