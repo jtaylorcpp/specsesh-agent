@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Every model type has a static type and a JSON Schema
-The model SHALL declare every type in `openspec/model`, `openspec/process`, `openspec/loops` and `openspec/evidence` once, as a TypeBox schema, which is itself a JSON Schema, with its static type derived by `Static`. Rules JSON Schema cannot state (one field against another) MUST be refinements on the TypeBox schema. A value crossing a boundary without a compiler (a tool call, a checkpoint, another process) MUST be checkable. The static type may be wider; the check is the authority.
+The model SHALL declare every type in `openspec/model`, `openspec/process`, `openspec/loops` and `openspec/evidence` once, as a TypeBox schema (itself a JSON Schema), its static type derived by `Static`. Rules JSON Schema cannot state (one field against another) MUST be refinements on that schema. A value crossing a boundary without a compiler (a tool call, a checkpoint, another process) MUST be checkable. The static type may be wider; the check is the authority.
 
 #### Scenario: A schema rejects what the static type rejects
 - **GIVEN** the `Clause` type, whose `keyword` is one of `"GIVEN"`, `"WHEN"`, `"THEN"`, `"AND"`

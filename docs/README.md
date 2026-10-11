@@ -7,7 +7,7 @@ The taxonomy and ontology for executing OpenSpec changes, written down before it
 - **[overview.md](overview.md)**: the whole model on one page. Start here.
 - **[CONVENTIONS.md](CONVENTIONS.md)**: how a concept page is written, and how `pnpm docs:check` keeps this directory honest.
 
-Status: **implemented** as `@specsesh/agent/openspec`: each type is a zod schema, its static type `z.infer` of it and its JSON Schema from `toJSONSchema`. The source of truth is the specs `openspec/model`, `openspec/process`, `openspec/loops` and `openspec/evidence`. Each page names the requirement it restates.
+Status: **implemented** as `@specsesh/agent/openspec`: each type is a TypeBox schema, which is itself a JSON Schema (`toJSONSchema` returns it as plain JSON), with its static type `Static` of it. The source of truth is the specs `openspec/model`, `openspec/process`, `openspec/loops` and `openspec/evidence`. Each page names the requirement it restates.
 
 ## Taxonomy
 
