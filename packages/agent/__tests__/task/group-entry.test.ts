@@ -14,39 +14,9 @@ import {
 	type GroupLoopOptions,
 } from "../../src/task/index.js";
 import { setup } from "../durable/helpers.js";
-import { JUDGE_ONLY, cleanTemps, context, loopHarness, temp, tinyChange, verdict } from "./helpers.js";
+import { GROUP_JUDGE, JUDGE_ONLY, cleanTemps, context, loopHarness, temp, tinyChange, verdict } from "./helpers.js";
 
 afterEach(cleanTemps);
-
-/** The group judge's contract and nothing more. */
-const GROUP_JUDGE = `config:
-    agent_name: "group-judge"
-
-variables:
-    group_number: mutable number = 1
-    group_title: mutable string = ""
-    tasks: mutable string = ""
-    proposal: mutable string = ""
-    deltas: mutable string = ""
-    check_output: mutable string = ""
-    rework_count: mutable number = 0
-    next_action: mutable string = "rework"
-    rework_task: mutable string = ""
-    feedback: mutable string = ""
-    question: mutable string = ""
-
-subagent judge:
-    description: "Judge the group"
-
-    reasoning:
-        instructions: ->
-            | Group {!@variables.group_number}: {!@variables.group_title}
-            | Check output: {!@variables.check_output}
-            set @variables.next_action = @outputs.next_action
-            set @variables.rework_task = @outputs.rework_task
-            set @variables.feedback = @outputs.feedback
-            set @variables.question = @outputs.question
-`;
 
 const PASSING = "node -e process.exit(0)";
 

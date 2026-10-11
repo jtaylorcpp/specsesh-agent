@@ -106,6 +106,8 @@ export interface GroupLoopInput {
 	readonly delegateModel?: string;
 	readonly delegateContext?: readonly string[];
 	readonly worktree?: LoopWorktree;
+	/** Set only on a run that answers a blocked group loop: the encoded checkpoint it starts from, and the loop it answers. */
+	readonly resume?: { readonly checkpoint: JsonObject; readonly answers: number };
 }
 
 function positiveInteger(name: string, value: unknown): number {
@@ -233,6 +235,8 @@ export type GroupCheckpoint = {
 	child?: { task: string; id?: TaskId };
 	/** Every check's result, set by the `check` phase when it hands a failure to the judge. */
 	checkOutput?: CheckRun[];
+	/** An answered judge escalation's decision, kept from `check` to `judge`, where it is appended to `check_output`. */
+	decision?: string;
 };
 
 /** One group check's result: the command as configured, its exit code and its stdout and stderr combined. */
@@ -259,6 +263,7 @@ export function encodeCheckpoint(cp: GroupCheckpoint): JsonObject {
 		...(cp.checkOutput !== undefined
 			? { checkOutput: cp.checkOutput.map((r) => ({ command: r.command, exitCode: r.exitCode, output: r.output })) }
 			: {}),
+		...(cp.decision !== undefined ? { decision: cp.decision } : {}),
 	};
 }
 
@@ -277,6 +282,7 @@ export function decodeCheckpoint(raw: JsonValue): GroupCheckpoint {
 	if (typeof o.reworks !== "number") return malformed("reworks");
 	if (o.iterations !== undefined && !Array.isArray(o.iterations)) return malformed("iterations");
 	if (o.carried !== undefined && typeof o.carried !== "string") return malformed("carried");
+	if (o.decision !== undefined && typeof o.decision !== "string") return malformed("decision");
 	const child = o.child;
 	if (child !== undefined) {
 		if (child === null || typeof child !== "object" || Array.isArray(child) || typeof child.task !== "string") {
@@ -311,6 +317,7 @@ export function decodeCheckpoint(raw: JsonValue): GroupCheckpoint {
 			? { child: { task: (child as JsonObject).task as string, ...(typeof (child as JsonObject).id === "number" ? { id: (child as JsonObject).id as TaskId } : {}) } }
 			: {}),
 		...(checkOutput !== undefined ? { checkOutput: checkOutput as unknown as CheckRun[] } : {}),
+		...(typeof o.decision === "string" ? { decision: o.decision } : {}),
 	};
 }
 
@@ -597,7 +604,7 @@ export function decideJudge(verdict: GroupVerdict, cp: GroupCheckpoint, input: G
 					done: endedRound(input, cp, "exhausted", [`group ${input.group} used its ${input.budget.maxReworks} reworks`], verdict),
 				};
 			}
-			const { child: _child, checkOutput: _checkOutput, ...kept } = withRound(input, cp, verdict);
+			const { child: _child, checkOutput: _checkOutput, decision: _decision, ...kept } = withRound(input, cp, verdict);
 			const checkpoint: GroupCheckpoint = {
 				...kept,
 				phase: "next",
@@ -612,7 +619,7 @@ export function decideJudge(verdict: GroupVerdict, cp: GroupCheckpoint, input: G
 
 /** The judge's seed: the group, each task's last status, and every check's result. */
 function judgeSeed(cp: GroupCheckpoint, input: GroupLoopInput) {
-	return seedGroupJudge({
+	const seed = seedGroupJudge({
 		group: input.group,
 		title: input.groupTitle,
 		tasks: input.tasks.map((t) => ({
@@ -625,6 +632,9 @@ function judgeSeed(cp: GroupCheckpoint, input: GroupLoopInput) {
 		checks: cp.checkOutput ?? [],
 		reworks: cp.reworks,
 	});
+	return cp.decision === undefined
+		? seed
+		: { ...seed, check_output: `${seed.check_output}\n\nAnswer to the escalation: ${cp.decision}` };
 }
 
 /** Pops the queue head into `task`, or goes to `check` when the queue is empty. No model request, no command. */
@@ -643,7 +653,8 @@ export const GroupLoopTask: Task<GroupLoopInput, StoredGroupCheckpoint, GroupLoo
 >({
 	name: GROUP_LOOP_NAME,
 	version: GROUP_LOOP_VERSION,
-	initial: (input) => stored(initialGroupCheckpoint(input.tasks)),
+	initial: (input) =>
+		input.resume !== undefined ? stored(decodeCheckpoint(input.resume.checkpoint)) : stored(initialGroupCheckpoint(input.tasks)),
 	phases: {
 		next: async (task, runtime, context) => {
 			const cp = decodeCheckpoint(task.state.checkpoint);
