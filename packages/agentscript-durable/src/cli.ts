@@ -9,8 +9,9 @@
  * `resume` with that ID on the same database finishes the run from its last step.
  * The script is stored in the task, so `resume` does not need the file.
  *
- * Credentials are pi-ai's (ANTHROPIC_API_KEY, OPENAI_API_KEY, ...). The Claude
- * subscription path is not available here: durable steps run through pi-ai.
+ * Credentials are pi-ai's (ANTHROPIC_API_KEY, OPENAI_API_KEY, ...).
+ * `--provider claude-code` runs each step through your own `claude` binary on your
+ * Claude subscription (agentscript-pi's claudeCodeProvider), for local work.
  */
 
 import { readFileSync } from "node:fs";
@@ -50,7 +51,10 @@ export function parseVar(raw: string): [string, VariableValue] {
 
 async function builtin(): Promise<Models> {
 	const { builtinModels } = await import("@earendil-works/pi-ai/providers/all");
-	return builtinModels();
+	const { claudeCodeProvider } = await import("agentscript-pi");
+	const models = builtinModels();
+	models.setProvider(claudeCodeProvider());
+	return models;
 }
 
 export async function main(argv: readonly string[], deps: CliDeps = {}): Promise<number> {

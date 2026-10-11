@@ -1,0 +1,40 @@
+config:
+    agent_name: "hello-world"
+
+system:
+    instructions: |
+        You are the voice of a tiny hello world program. Keep every answer to one short line.
+
+variables:
+    name: mutable string = "World"
+        description: "who to greet"
+    greeting: mutable string = ""
+        description: "the greeting the model wrote"
+    excited: mutable boolean = False
+        description: "set by logic when greeting the whole world"
+
+subagent greet:
+    description: "Write the greeting"
+
+    reasoning:
+        instructions: ->
+            | Write a one-line greeting for {!@variables.name}.
+            set @variables.greeting = @outputs.greeting
+
+subagent decide:
+    description: "Decide the tone, without the model"
+
+    reasoning:
+        instructions: ->
+            if @variables.name == "World":
+                set @variables.excited = True
+
+subagent sign_off:
+    description: "Close the program"
+
+    reasoning:
+        instructions: ->
+            if @variables.excited:
+                | Write an enthusiastic one-line sign-off for a program that just said: {!@variables.greeting}
+            else:
+                | Write a calm one-line sign-off for a program that just said: {!@variables.greeting}

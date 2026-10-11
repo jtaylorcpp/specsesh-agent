@@ -74,21 +74,38 @@ export interface ClaudeCodeResult {
 }
 
 export function claudeCodeArgs(request: ReasoningRequest, options: ClaudeCodeReasoningPortOptions): string[] {
+	return claudeArgs({
+		system: request.systemInstructions,
+		model: options.model ?? "claude-haiku-4-5",
+		...(request.outputSchema !== undefined ? { schema: request.outputSchema } : {}),
+		...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
+	});
+}
+
+/** One headless `claude -p` invocation, minus the prompt (which goes on stdin). */
+export interface ClaudeInvocation {
+	readonly system: string;
+	readonly model: string;
+	readonly schema?: Record<string, unknown>;
+	readonly maxTurns?: number;
+}
+
+export function claudeArgs(invocation: ClaudeInvocation): string[] {
 	const args = [
 		"-p",
 		"--safe-mode",
 		"--model",
-		options.model ?? "claude-haiku-4-5",
+		invocation.model,
 		"--tools",
 		"",
 		"--no-session-persistence",
 		"--output-format",
 		"json",
 		"--system-prompt",
-		request.systemInstructions,
+		invocation.system,
 	];
-	if (request.outputSchema !== undefined) args.push("--json-schema", JSON.stringify(request.outputSchema));
-	if (options.maxTurns !== undefined) args.push("--max-turns", String(options.maxTurns));
+	if (invocation.schema !== undefined) args.push("--json-schema", JSON.stringify(invocation.schema));
+	if (invocation.maxTurns !== undefined) args.push("--max-turns", String(invocation.maxTurns));
 	return args;
 }
 
@@ -160,7 +177,7 @@ export function toClaudeCodeOutcome(
 	return { parsed, step: { kind: "answered", text } };
 }
 
-function spawnRunner(binary: string, timeoutMs: number): Runner {
+export function spawnRunner(binary: string, timeoutMs: number, signal?: AbortSignal): Runner {
 	return (args, input, env) =>
 		new Promise((resolve) => {
 			// Run outside any project so no project-level settings are picked up either.
@@ -168,6 +185,7 @@ function spawnRunner(binary: string, timeoutMs: number): Runner {
 			let stdout = "";
 			let stderr = "";
 			const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+			signal?.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });
 			child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
 			child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
 			child.on("error", (spawnError) => {

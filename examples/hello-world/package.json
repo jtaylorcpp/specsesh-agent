@@ -1,0 +1,23 @@
+{
+  "name": "hello-world-example",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A hello world app built on agentscript-durable: one Agent Script file, run durably on Claude Haiku.",
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "start": "tsx main.ts"
+  },
+  "dependencies": {
+    "@earendil-works/chord": "1.1.0",
+    "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-durable": "1.1.0",
+    "agentscript-durable": "workspace:*",
+    "agentscript-pi": "workspace:*",
+    "tsx": "^4.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

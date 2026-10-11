@@ -45,8 +45,15 @@ flow does **not** apply here.
   back a stale record.
 - Verified: crash/resume on node SQLite (child process `exit(137)` mid-step, fresh harness finishes)
   and on local Durable Object storage (`kill -9` workerd mid-step, restart, run completes).
-  Not yet verified: a live model through pi-durable (no API key here), and Lifecycle's alarm
-  waking an idle object with no incoming request.
+  Live: `examples/hello-world` ran durably on Claude Haiku 4.5 via the claude-code pi provider,
+  both branches (2026-10-10). Not yet verified: Lifecycle's alarm waking an idle Durable Object
+  with no incoming request.
+- **claude-code pi provider** (`agentscript-pi/src/claude-code-provider.ts`): lets any pi host,
+  pi-durable included, run on your subscription locally. Flattens system sections into
+  `--system-prompt`, the transcript into the stdin prompt, and one offered tool into
+  `--json-schema` (returned as a tool call). Refuses requests offering more than one tool.
+- **This is a library** consumed from other projects, not a deployed service. `examples/` holds
+  consumers (`hello-world`). Packages still export raw `.ts` with no build step.
 
 ## Commands
 
@@ -59,6 +66,8 @@ pnpm agent run <file> --provider openai --model gpt-4o-mini --var name=value --j
 pnpm agent models anthropic     # list a provider's models
 pnpm durable run <file> --db runs.sqlite [--provider --model --entry --var --json]   # durable, pi-ai
 pnpm durable resume <task-id> --db runs.sqlite                                      # finish a crashed run
+pnpm durable run <file> --db runs.sqlite --provider claude-code                     # durable, on your subscription
+pnpm --filter hello-world-example start [name]                                      # the example app, on Haiku
 pnpm --filter agentscript-cloudflare dev    # wrangler dev; add --var AGENTSCRIPT_FAUX:1 without an account
 pnpm --filter agentscript-cloudflare test   # kill -9 mid-step crash/resume on local DO storage (~40s)
 ```
