@@ -93,3 +93,16 @@ Converged with `tasks.md` from a path: the task's line, matched by id, changes f
 
 - **The judge's verdict is the model's word.** The deterministic `check` subagent runs the checks first and the judge sees their output. Per-scenario evidence targets, the ontology's stricter rule, wait for the parser.
 - **Large changes make large prompts.** All deltas go to every orient and judge step. Context selection, the ontology's `ContextRef`, is the follow-up.
+
+## Reconciled with what landed (2026-10-11)
+
+Specced before packaging, the ontology and actions archived. What changed on contact:
+
+- **Actions bind per harness.** `agentScriptExtensions({ actions, workspace })` closes over one registry and one workspace, and `agentscript.run` resolves by name in the harness. So a harness runs loops for one workspace, check list and allowlist: `taskLoopExtensions({ workspace, checks, allow })` returns `TaskLoop` plus the run and step extensions over `builtinActions(...)`. `startTaskLoop` checks bindings against the built-ins for the options' values; the child run checks again against what is installed. The CLI's `resume` and `answer` read those values from the stored loop and install the extensions before resuming.
+- **The ontology's outcome is closed.** `LoopOutcome`, `TaskOutcome` and `Iteration` are strict, so a tick note or a failure message has no field there. The loop task's durable result is `{ outcome, notes }`; `waitForTaskLoop` returns the outcome, `waitForTaskLoopResult` both.
+- **A verdict needs a target, an unmet target needs feedback, a finding needs evidence.** Each iteration judges one target, `{ check: "task <id>" }`. An unmet verdict carries one `Feedback` whose finding kind follows the ontology's own `feedbackFor`: `code-defect`/`retry`, `needs-decision`/`ask`, `spec-defect`/`amend-spec`, and `environment`/`retry` for a failed run or a broken contract. Its evidence is the run's evidence plus the judge's `ReviewEvidence { reviewer: "agent" }`, or, for a failed run, a `CheckEvidence` for `agentscript.run` with exit code 1 and the failure as output.
+- **`Escalation.question` is non-empty.** An empty `question` falls back to `unmet`, then to a stock question naming the task.
+- **The status rule is the ontology's.** `outcomeStatus` decides converged, blocked, exhausted or going on, over this run's iterations only: an answered escalation's new run gets a fresh budget, and its iterations are numbered on from the earlier ones.
+- **Text deltas.** A `{ dir }` delta's capability path is its directory under `specs/`; a `{ path }` delta's is the part between `specs/` and `/spec.md` when it has one, else the path; a `{ text }` delta is `delta <n>`.
+- **The bundled scripts ship in `dist/`.** `pnpm build` copies `src/task/scripts/*.agent` to `dist/task/scripts/`, so `files` stays `["dist", "README.md", "LICENSE"]` and the default script resolves next to the compiled module.
+- **The contract is checked before the lint.** A script missing a contract variable but still setting it fails the dialect's lint as an undeclared reference; the contract check runs on the parsed declarations first, so the refusal names the variable and its type.

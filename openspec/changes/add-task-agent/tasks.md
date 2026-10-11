@@ -17,7 +17,7 @@ Depends on `package-specsesh-agent`, `add-openspec-ontology` and `add-agentscrip
 - [ ] 3.1 `packages/agent/src/task/loop.ts`: pi-durable task `agentscript.task-loop` v1 with phases `iterate` (start an `agentscript.run` child, variables seeded, entry = subagents in source order), `await` (idempotent by child id) and `judge`
 - [ ] 3.2 `packages/agent/src/task/judge.ts`: every mapping row: run not completed or kind ≠ completed → `failed` + `environment` finding; met → `converged`; retry with budget → next iteration with `carried = unmet`; retry without budget → `exhausted`; ask → `blocked` with `Escalation { level: "task", to: escalateTo, reason: unmet, question }`; amend-spec → the same plus a `spec-defect` finding; any other `next_action` → `failed` naming the value
 - [ ] 3.3 `packages/agent/src/task/iteration.ts`: record each `Iteration` (`n`, `plan` from the run's `plan` variable or `""`, the host actions' `Action`s and `Evidence`, `verdict` from met/unmet, `feedback` from `next_action`)
-- [ ] 3.4 `packages/agent/src/task/index.ts`: `startTaskLoop`, `waitForTaskLoop`, `TaskLoop` extension, exports; result `{ task, ticked }` present exactly when converged, escalation exactly when blocked
+- [ ] 3.4 `packages/agent/src/task/index.ts`: `startTaskLoop`, `waitForTaskLoop`, `waitForTaskLoopResult`, `TaskLoop` and `taskLoopExtensions`, exports; result `{ task, ticked }` present exactly when converged, escalation exactly when blocked; the outcome checked with the ontology's `LoopOutcome(TaskOutcome)`
 
 ## 4. Ticking
 
@@ -29,14 +29,15 @@ Depends on `package-specsesh-agent`, `add-openspec-ontology` and `add-agentscrip
 
 ## 6. Bundled scripts
 
-- [ ] 6.1 Move `openspec/changes/add-task-agent/task.agent` and `task-delegate.agent` to `packages/agent/src/task/scripts/`, include them in `files`, and resolve the default script from the installed package
+- [ ] 6.1 Move `openspec/changes/add-task-agent/task.agent` and `task-delegate.agent` to `packages/agent/src/task/scripts/`, copy them into `dist/task/scripts/` in `pnpm build` (so `files` stays `dist`), point `__tests__/core/helpers/actions.ts` at the new location, and resolve the default script from the installed package
 
 ## 7. CLI
 
 - [ ] 7.1 `packages/agent/src/bin/agentscript-task.ts`: `run <change-dir> <task-id>`, `resume <loop-id>`, `answer <loop-id>`; usage and exit 2 cases; flag mapping (`--script`, `--workspace` default cwd, repeatable `--check`/`--allow`, `--max-iterations`, `--escalate-to`, `--db`); malformed flag values exit 2
 - [ ] 7.2 Provider and model resolution as `agentscript-durable` (flag, env, `anthropic`/`claude-haiku-4-5`), unknown model exits 2 before a task exists; a refused start exits 2; the loop-id resume hint on stderr before any model call
 - [ ] 7.3 Text and `--json` output; exit 0 converged, 1 blocked/exhausted/failed; harness closed in every path
-- [ ] 7.4 Add the `agentscript-task` bin and the `./task` entry to `packages/agent/package.json`
+- [ ] 7.4 Add the `agentscript-task` bin and the `./task` entry to `packages/agent/package.json`; list both in `packages/agent/README.md`
+- [ ] 7.5 `packages/agent/__tests__/package/{manifest,layers,build,pack}.test.ts`: every scenario of the `package/distribution` deltas (eight entries, three bins, `src/task/` layer, bundled scripts in `dist/`, the installed task bin's usage)
 
 ## 8. Tests (one per scenario, named `Scenario: <exact name>`)
 

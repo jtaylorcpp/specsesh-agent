@@ -39,7 +39,7 @@ The ontology says a task is a feedback loop: plan, act, check, judge, and go aga
 - **New:**
   - `task/agent`: inputs, the script contract, the loop, the verdict mapping, ticking and escalation;
   - `task/cli`: the command line.
-- **Modified:** none. This builds on `add-agentscript-actions` and the ontology without changing them.
+- **Modified:** `package/distribution`: the eighth entry `./task`, the third bin `agentscript-task`, `src/task/` in the layer rule, the bundled scripts copied into `dist/`, and the pack check running the task bin. It builds on `add-agentscript-actions` and the ontology without changing them.
 
 ## Impact
 
