@@ -31,7 +31,7 @@ The outcome this change is for: **the moment it merges, `pnpm task <change-id> <
 
   Anything not pre-allowed is denied, never prompted. The configured context files reach it through `--append-system-prompt-file`, so it knows the repo's conventions without `--safe-mode` being lifted. A separate `delegateModel` lets orient and judge run on Haiku while the delegate runs on a stronger model.
 - **A clean-tree guard.** By default `run` refuses to start when the git working tree has uncommitted changes, naming them, so every edit after it is the loop's. `--allow-dirty` overrides. The runner never commits; it prints the files the loop changed.
-- **Worktree mode.** With `--worktree` (or `worktree: true` in the config), `run` creates a git worktree for the task on branch `task/<change-id>/<task-id>`, from `HEAD`, runs the configured setup commands there (this repo: `pnpm install --frozen-lockfile --offline`), and runs the loop inside it.
+- **Worktree mode.** With `--worktree` (or `worktree: true` in the config), `run` creates a git worktree for the task on branch `task/<change-id>/<task-id>`, from `HEAD`, runs the configured setup commands there (this repo: `pnpm install --frozen-lockfile --prefer-offline`), and runs the loop inside it.
   - **The main tree stays untouched,** so the clean-tree guard does not apply to it; you can keep working while a task runs.
   - **Uncommitted main-tree changes are not carried over.** A warning says how many there are.
   - **`--db` is mandatory in worktree mode,** and the config's `db` is not used, so each worktree run names its own database.

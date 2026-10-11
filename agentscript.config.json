@@ -12,6 +12,6 @@
     "escalateTo": "principal",
     "delegateContext": ["CLAUDE.md"],
     "requireCleanTree": true,
-    "worktreeSetup": ["pnpm install --frozen-lockfile --offline"]
+    "worktreeSetup": ["pnpm install --frozen-lockfile --prefer-offline"]
   }
 }

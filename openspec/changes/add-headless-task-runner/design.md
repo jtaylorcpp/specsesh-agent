@@ -95,7 +95,7 @@ agentscript-task run <change-id> <task-id> --worktree
 - **A database is held by one process.** `run` and `resume` take an exclusive lock, `<db>.lock` holding the process id, and refuse (exit `2`) when another live process holds it, naming that pid. A lock left by a dead process is taken over, with a `warning` event.
 - **Git commands the runner may run:** `status`, `rev-parse`, `worktree add` and `worktree list`. It still never commits, adds, stashes, checks out or removes anything.
 
-Config: `worktree` (boolean, default `false`), `worktreeDir` (string), `worktreeSetup` (string array, default `[]`). This repo's config sets `worktreeSetup: ["pnpm install --frozen-lockfile --offline"]`; `worktree` stays `false` by default and is turned on per run with `--worktree`.
+Config: `worktree` (boolean, default `false`), `worktreeDir` (string), `worktreeSetup` (string array, default `[]`). This repo's config sets `worktreeSetup: ["pnpm install --frozen-lockfile --prefer-offline"]`; `worktree` stays `false` by default and is turned on per run with `--worktree`.
 
 ## Acceptance: `pnpm test:live`
 

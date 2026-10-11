@@ -69,8 +69,8 @@
 
 ## 10b. Fixes from the first live run (2026-10-11)
 
-- [ ] 10b.1 `agentscript.config.json`: `worktreeSetup` uses `--prefer-offline` (the `/tmp` worktree's pnpm store lacked `undici-types-6.21.0`, and `--offline` refused to fetch it); update the shipped-config test
-- [ ] 10b.2 `packages/agent/__tests__/live/task.live.test.ts`: spawn the runner `detached` in its own process group, give each run a limit below the test timeout, and kill the group (`process.kill(-pid)`) at the limit and in `afterEach`/`afterAll`; `Scenario: A stalled live run is killed with its children`, proven offline with a fake `claude` that never answers
+- [x] 10b.1 `agentscript.config.json`: `worktreeSetup` uses `--prefer-offline` (the `/tmp` worktree's pnpm store lacked `undici-types-6.21.0`, and `--offline` refused to fetch it); update the shipped-config test
+- [x] 10b.2 `packages/agent/__tests__/live/task.live.test.ts`: spawn the runner `detached` in its own process group, give each run a limit below the test timeout, and kill the group (`process.kill(-pid)`) at the limit and in `afterEach`/`afterAll`; `Scenario: A stalled live run is killed with its children`, proven offline with a fake `claude` that never answers
 - [ ] 10b.3 Depends on `bound-step-results` (a typed judge result and the refusal bound); re-run `pnpm test:live` after both land
 
 ## 11. Close

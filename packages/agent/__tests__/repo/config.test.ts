@@ -25,7 +25,7 @@ describe("task/headless: This repo ships a config for its own tasks", () => {
 			escalateTo: "principal",
 			delegateContext: ["CLAUDE.md"],
 			requireCleanTree: true,
-			worktreeSetup: ["pnpm install --frozen-lockfile --offline"],
+			worktreeSetup: ["pnpm install --frozen-lockfile --prefer-offline"],
 		});
 		// Every value resolves: the script is the bundled task-delegate, the context file exists.
 		const settings = resolveRunSettings({}, {}, config, REPO);

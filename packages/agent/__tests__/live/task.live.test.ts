@@ -8,19 +8,22 @@
  * repository with a fixture change, `fixture-live-task`, whose one task replaces a
  * stale comment. The run uses the repo config, with `--check` narrowed to the
  * fixture's own vitest file so a run costs one small task, not the whole suite.
+ * Each run has a limit below the test timeout and never outlives its test: see
+ * spawn.ts.
  *
  * It needs `claude` installed and logged in, and skips saying why otherwise. Login
  * is asked of `claude auth status`; set AGENTSCRIPT_LIVE_FORCE=1 to skip that
  * question if your claude has no such command.
  */
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { claudeReady } from "./ready.js";
+import { killRunning, RUN_LIMIT_MS, startDetached, type Run } from "./spawn.js";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 const CHANGE = "fixture-live-task";
@@ -95,51 +98,29 @@ describe("fixture-live-task", () => {
 	git(copy, "commit", "-q", "-m", "live copy");
 }, 600_000);
 
+// No run outlives its test: whatever ended the test, its runner's process group goes too.
+afterEach(killRunning);
+
 afterAll(() => {
+	killRunning();
 	if (tmp !== "") rmSync(tmp, { recursive: true, force: true });
 });
 
-interface Run {
-	readonly code: number;
-	readonly stdout: string;
-	readonly events: Record<string, unknown>[];
-	readonly stderr: string;
-}
-
-/** The copy's built bin, headless: stdin closed, no AGENTSCRIPT_* overrides, so the repo config decides. */
+/**
+ * The copy's built bin, headless: stdin closed, no AGENTSCRIPT_* overrides, so the
+ * repo config decides. In its own process group, killed with its `claude` children
+ * at RUN_LIMIT_MS, which fails the test saying so.
+ */
 function runTask(args: string[]): Promise<Run> {
-	return new Promise((resolve, reject) => {
-		const env = { ...process.env };
-		delete env.AGENTSCRIPT_PROVIDER;
-		delete env.AGENTSCRIPT_MODEL;
-		const child = spawn(process.execPath, [join(copy, "packages/agent/dist/bin/agentscript-task.js"), ...args], {
-			cwd: copy,
-			env,
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		let stdout = "";
-		let stderr = "";
-		child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
-		child.stderr.on("data", (chunk: Buffer) => {
-			stderr += chunk.toString();
-			process.stderr.write(chunk);
-		});
-		child.on("error", reject);
-		child.on("close", (code) => {
-			const events = stderr
-				.trimEnd()
-				.split("\n")
-				.slice(1)
-				.flatMap((line) => {
-					try {
-						return [JSON.parse(line) as Record<string, unknown>];
-					} catch {
-						return [];
-					}
-				});
-			resolve({ code: code ?? -1, stdout, stderr, events });
-		});
-	});
+	const env = { ...process.env };
+	delete env.AGENTSCRIPT_PROVIDER;
+	delete env.AGENTSCRIPT_MODEL;
+	return startDetached(process.execPath, [join(copy, "packages/agent/dist/bin/agentscript-task.js"), ...args], {
+		cwd: copy,
+		env,
+		limitMs: RUN_LIMIT_MS,
+		echo: true,
+	}).done;
 }
 
 describe("task/headless: An opt-in live run proves it works on this repo", () => {
