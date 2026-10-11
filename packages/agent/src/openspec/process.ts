@@ -7,7 +7,7 @@
  * schema before the step's body sees it.
  */
 
-import Type, { type Static, type TSchema, type TUnsafe } from "typebox";
+import { z } from "zod";
 import { Finding, ValidationReport } from "./evidence.js";
 import { ChangeOutcome, LoopOutcome } from "./loops.js";
 import {
@@ -26,10 +26,10 @@ import { Name, check, closed, explain, literals, sameValue } from "./schema.js";
 // ── Steps ───────────────────────────────────────────────────────────────────
 
 export const StepName = literals("propose", "specify", "design", "plan", "validate", "approve", "execute", "archive");
-export type StepName = Static<typeof StepName>;
+export type StepName = z.infer<typeof StepName>;
 
-export const StepActor = Type.Union([Type.Literal("principal"), Type.Literal("agent"), Type.Literal("tool"), Type.Literal("loop")]);
-export type StepActor = Static<typeof StepActor>;
+export const StepActor = literals("principal", "agent", "tool", "loop");
+export type StepActor = z.infer<typeof StepActor>;
 
 /**
  * A step as it crosses a boundary: its name, its actor, and the names of its
@@ -37,54 +37,54 @@ export type StepActor = Static<typeof StepActor>;
  * denote; the schemas themselves are in `STEP_SCHEMAS`.
  */
 export const Step = closed({ name: StepName, actor: StepActor, input: Name(), output: Name() });
-export type Step<_In = unknown, _Out = unknown> = Static<typeof Step>;
+export type Step<_In = unknown, _Out = unknown> = z.infer<typeof Step>;
 
 export const StepFailure = closed({
 	step: Name(),
-	kind: Type.Union([Type.Literal("invalid-input"), Type.Literal("refused"), Type.Literal("blocked"), Type.Literal("error")]),
-	message: Type.String(),
-	findings: Type.Array(Finding),
+	kind: literals("invalid-input", "refused", "blocked", "error"),
+	message: z.string(),
+	findings: z.array(Finding),
 });
-export type StepFailure = Static<typeof StepFailure>;
+export type StepFailure = z.infer<typeof StepFailure>;
 
-export const StepResult = <Out extends TSchema>(out: Out) =>
-	Type.Union([closed({ ok: Type.Literal(true), value: out }), closed({ ok: Type.Literal(false), failure: StepFailure })]);
-export type StepResult<Out> = Static<ReturnType<typeof StepResult<TUnsafe<Out>>>>;
+export const StepResult = <Out extends z.ZodType>(out: Out) =>
+	z.union([closed({ ok: z.literal(true), value: out }), closed({ ok: z.literal(false), failure: StepFailure })]);
+export type StepResult<Out> = z.infer<ReturnType<typeof StepResult<z.ZodType<Out>>>>;
 
 /** Every existing capability path with its purpose. */
-export const CapabilityIndex = Type.Array(closed({ path: CapabilityPath, purpose: Type.String() }));
-export type CapabilityIndex = Static<typeof CapabilityIndex>;
+export const CapabilityIndex = z.array(closed({ path: CapabilityPath, purpose: z.string() }));
+export type CapabilityIndex = z.infer<typeof CapabilityIndex>;
 
-export const Intent = closed({ words: Type.String(), existing: CapabilityIndex });
-export type Intent = Static<typeof Intent>;
+export const Intent = closed({ words: z.string(), existing: CapabilityIndex });
+export type Intent = z.infer<typeof Intent>;
 
-export const SpecifyInput = closed({ proposal: Proposal, base: Type.Array(Capability) });
-export type SpecifyInput = Static<typeof SpecifyInput>;
+export const SpecifyInput = closed({ proposal: Proposal, base: z.array(Capability) });
+export type SpecifyInput = z.infer<typeof SpecifyInput>;
 
-export const DesignInput = closed({ proposal: Proposal, deltas: Type.Array(Delta) });
-export type DesignInput = Static<typeof DesignInput>;
+export const DesignInput = closed({ proposal: Proposal, deltas: z.array(Delta) });
+export type DesignInput = z.infer<typeof DesignInput>;
 
-export const PlanInput = closed({ proposal: Proposal, deltas: Type.Array(Delta), design: Design });
-export type PlanInput = Static<typeof PlanInput>;
+export const PlanInput = closed({ proposal: Proposal, deltas: z.array(Delta), design: Design });
+export type PlanInput = z.infer<typeof PlanInput>;
 
 /** Only the principal approves: `by` admits nothing else. */
-export const Approval = closed({ approved: Type.Boolean(), by: Type.Literal("principal"), principal: Name(), notes: Type.String() });
-export type Approval = Static<typeof Approval>;
+export const Approval = closed({ approved: z.boolean(), by: z.literal("principal"), principal: Name(), notes: z.string() });
+export type Approval = z.infer<typeof Approval>;
 
 export const ApproveInput = closed({ change: Change, report: ValidationReport });
-export type ApproveInput = Static<typeof ApproveInput>;
+export type ApproveInput = z.infer<typeof ApproveInput>;
 
 export const ArchiveInput = closed({ change: Change, outcome: LoopOutcome(ChangeOutcome) });
-export type ArchiveInput = Static<typeof ArchiveInput>;
+export type ArchiveInput = z.infer<typeof ArchiveInput>;
 
-const Count = () => Type.Integer({ minimum: 0 });
+const Count = () => z.int().min(0);
 
 export const ArchiveResult = closed({
 	archivedAs: Name(),
 	totals: closed({ added: Count(), modified: Count(), removed: Count(), renamed: Count() }),
-	specsUpdated: Type.Array(CapabilityPath),
+	specsUpdated: z.array(CapabilityPath),
 });
-export type ArchiveResult = Static<typeof ArchiveResult>;
+export type ArchiveResult = z.infer<typeof ArchiveResult>;
 
 /** The eight steps in lifecycle order. */
 export const STEPS = [
@@ -101,18 +101,18 @@ export const STEPS = [
 /** Each step's input and output schema. */
 export const STEP_SCHEMAS = {
 	propose: { input: Intent, output: Proposal },
-	specify: { input: SpecifyInput, output: Type.Array(Delta) },
+	specify: { input: SpecifyInput, output: z.array(Delta) },
 	design: { input: DesignInput, output: Design },
 	plan: { input: PlanInput, output: TaskList },
 	validate: { input: Change, output: ValidationReport },
 	approve: { input: ApproveInput, output: Approval },
 	execute: { input: Change, output: LoopOutcome(ChangeOutcome) },
 	archive: { input: ArchiveInput, output: ArchiveResult },
-} as const satisfies Record<StepName, { input: TSchema; output: TSchema }>;
+} as const satisfies Record<StepName, { input: z.ZodType; output: z.ZodType }>;
 
 type StepIO = typeof STEP_SCHEMAS;
-type StepIn<N extends StepName> = Static<StepIO[N]["input"]>;
-type StepOut<N extends StepName> = Static<StepIO[N]["output"]>;
+type StepIn<N extends StepName> = z.infer<StepIO[N]["input"]>;
+type StepOut<N extends StepName> = z.infer<StepIO[N]["output"]>;
 
 const failure = (step: string, kind: StepFailure["kind"], message: string, findings: Finding[] = []) =>
 	({ ok: false, failure: { step, kind, message, findings } }) as const;
@@ -199,26 +199,26 @@ export const newChange = (id: string, schema: string, proposal: Proposal): Chang
 });
 
 /** What moves a change: each step's result, or abandonment. */
-export const ChangeEvent = Type.Union([
-	closed({ on: Type.Literal("specify"), deltas: Type.Array(Delta) }),
-	closed({ on: Type.Literal("design"), design: Design }),
-	closed({ on: Type.Literal("plan"), tasks: TaskList }),
-	closed({ on: Type.Literal("validate"), report: ValidationReport }),
-	closed({ on: Type.Literal("approve"), approval: Approval }),
-	closed({ on: Type.Literal("execute") }),
-	closed({ on: Type.Literal("converge"), outcome: LoopOutcome(ChangeOutcome) }),
-	closed({ on: Type.Literal("amend"), finding: Finding }),
+export const ChangeEvent = z.union([
+	closed({ on: z.literal("specify"), deltas: z.array(Delta) }),
+	closed({ on: z.literal("design"), design: Design }),
+	closed({ on: z.literal("plan"), tasks: TaskList }),
+	closed({ on: z.literal("validate"), report: ValidationReport }),
+	closed({ on: z.literal("approve"), approval: Approval }),
+	closed({ on: z.literal("execute") }),
+	closed({ on: z.literal("converge"), outcome: LoopOutcome(ChangeOutcome) }),
+	closed({ on: z.literal("amend"), finding: Finding }),
 	/** `reportedAt` and `convergedAt` are ISO 8601 times; the report must come after convergence. */
-	closed({ on: Type.Literal("archive"), report: ValidationReport, reportedAt: Name(), convergedAt: Name() }),
-	closed({ on: Type.Literal("abandon") }),
+	closed({ on: z.literal("archive"), report: ValidationReport, reportedAt: Name(), convergedAt: Name() }),
+	closed({ on: z.literal("abandon") }),
 ]);
-export type ChangeEvent = Static<typeof ChangeEvent>;
+export type ChangeEvent = z.infer<typeof ChangeEvent>;
 
-export const TransitionResult = Type.Union([
-	closed({ ok: Type.Literal(true), state: ChangeState }),
-	closed({ ok: Type.Literal(false), reason: Type.String() }),
+export const TransitionResult = z.union([
+	closed({ ok: z.literal(true), state: ChangeState }),
+	closed({ ok: z.literal(false), reason: z.string() }),
 ]);
-export type TransitionResult = Static<typeof TransitionResult>;
+export type TransitionResult = z.infer<typeof TransitionResult>;
 
 /** The state each event leads to, from the one state it may leave. `abandon` and `validate` are handled apart. */
 const FORWARD: Partial<Record<ChangeEvent["on"], readonly [ChangeState, ChangeState]>> = {

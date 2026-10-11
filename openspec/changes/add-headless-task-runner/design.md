@@ -90,8 +90,9 @@ agentscript-task run <change-id> <task-id> --worktree
 ```
 
 - **The clean-tree guard checks the worktree, not the main tree.** It is clean by construction. Main-tree uncommitted changes produce a `warning` event with their count, because they are absent from the worktree.
-- **The database is the main repo's** (paths resolve from the config file). The loop's record holds `worktree: { path, branch }`; `resume` runs in that path and `status` shows it.
-- **One process per database at a time.** Parallel tasks in separate worktrees each need their own `--db` in this change; concurrent writers to one SQLite database are not supported yet.
+- **`--db` is mandatory in worktree mode.** The config's `db` is not used: `run --worktree` without an explicit `--db` exits `2`. Each worktree run names its own database, which is what makes parallel tasks safe. The loop's record holds `worktree: { path, branch }`; `resume` and `status` take the same `--db`, `resume` runs in the recorded path, and `status` shows the branch.
+- **Parallel tasks are supported:** several `run --worktree` processes, each on a different task, each with its own `--db`, run at the same time without sharing anything but the git repository.
+- **A database is held by one process.** `run` and `resume` take an exclusive lock, `<db>.lock` holding the process id, and refuse (exit `2`) when another live process holds it, naming that pid. A lock left by a dead process is taken over, with a `warning` event.
 - **Git commands the runner may run:** `status`, `rev-parse`, `worktree add` and `worktree list`. It still never commits, adds, stashes, checks out or removes anything.
 
 Config: `worktree` (boolean, default `false`), `worktreeDir` (string), `worktreeSetup` (string array, default `[]`). This repo's config sets `worktreeSetup: ["pnpm install --frozen-lockfile --offline"]`; `worktree` stays `false` by default and is turned on per run with `--worktree`.
