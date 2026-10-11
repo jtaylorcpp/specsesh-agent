@@ -44,7 +44,7 @@
 
 ## 8. Wiring this repo in
 
-- [x] 8.1 Root `agentscript.config.json` with exactly the values in "This repo ships a config for its own tasks", plus `worktreeSetup: ["pnpm install --frozen-lockfile --offline"]`
+- [x] 8.1 Root `agentscript.config.json` with exactly the values in "This repo ships a config for its own tasks", plus `worktreeSetup: ["pnpm install --frozen-lockfile --prefer-offline"]`
 - [x] 8.2 `.gitignore`: add `.agentscript/`
 - [x] 8.3 Root `package.json`: `task` → the built `agentscript-task` bin (through `scripts/task.mjs`, which implies `run` unless the first argument is a command, so `pnpm task status` still works); `test:live` → the live acceptance run
 - [x] 8.4 `CLAUDE.md`: a "Running a task" section: `pnpm task <change-id> <task-id>`, `--next`, `--worktree` (and reviewing/removing the worktree it leaves), `status`, answering an escalation, the clean-tree guard, and that the runner never commits
@@ -66,6 +66,12 @@
 
 - [ ] 10.1 (written, never run: it needs the principal's subscription; the orchestrator runs it after merge) `packages/agent/__tests__/live/task.live.test.ts` + `vitest.live.config.ts` (excluded from the default vitest config): copy the repo to a temp dir, `git init` + commit, add the fixture change `fixture-live-task` (task `1.1` replaces a named stale comment; its check is a vitest file asserting the new text), run `agentscript-task run fixture-live-task 1.1`, assert exit `0`, `loop-ended` converged, `1.1` ticked, only the target file in `changed`
 - [x] 10.2 The live test skips, saying why, when `claude` is missing or not logged in (`packages/agent/__tests__/live/ready.ts`, tested with fake `claude` binaries in `packages/agent/__tests__/task/live-skip.test.ts`)
+
+## 10b. Fixes from the first live run (2026-10-11)
+
+- [ ] 10b.1 `agentscript.config.json`: `worktreeSetup` uses `--prefer-offline` (the `/tmp` worktree's pnpm store lacked `undici-types-6.21.0`, and `--offline` refused to fetch it); update the shipped-config test
+- [ ] 10b.2 `packages/agent/__tests__/live/task.live.test.ts`: spawn the runner `detached` in its own process group, give each run a limit below the test timeout, and kill the group (`process.kill(-pid)`) at the limit and in `afterEach`/`afterAll`; `Scenario: A stalled live run is killed with its children`, proven offline with a fake `claude` that never answers
+- [ ] 10b.3 Depends on `bound-step-results` (a typed judge result and the refusal bound); re-run `pnpm test:live` after both land
 
 ## 11. Close
 
