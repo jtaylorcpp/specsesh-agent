@@ -1,25 +1,19 @@
 /**
  * Documents with actions, for the add-agentscript-actions scenarios.
  *
- * The task scripts are read from `add-task-agent`, the change that owns them,
- * wherever that change lives: in flight under `openspec/changes/`, or archived.
+ * The task scripts are the ones the package bundles, in `src/task/scripts/`.
  */
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ActionCall, ActionResult } from "../../../src/interpreter/index.js";
 
-const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "..");
+const SCRIPTS = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "src", "task", "scripts");
 
-/** A file of the add-task-agent change, in flight or archived. */
+/** A task script the package bundles. */
 export function taskAgentFile(name: "task.agent" | "task-delegate.agent"): string {
-	const live = join(REPO, "openspec/changes/add-task-agent", name);
-	if (existsSync(live)) return readFileSync(live, "utf8");
-	const archive = join(REPO, "openspec/changes/archive");
-	const dir = readdirSync(archive).find((d) => d.endsWith("-add-task-agent"));
-	if (dir === undefined) throw new Error("add-task-agent is neither in flight nor archived");
-	return readFileSync(join(archive, dir, name), "utf8");
+	return readFileSync(join(SCRIPTS, name), "utf8");
 }
 
 /** The `run_checks` action definition, indented for a subagent's `actions:` block. */

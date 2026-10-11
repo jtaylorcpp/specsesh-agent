@@ -84,7 +84,7 @@ Converged with `tasks.md` from a path: the task's line, matched by id, changes f
 
 ## The default script
 
-`task.agent` sits beside this design. It lints with zero diagnostics against the pinned dialect. Today the runtime refuses only its `actions` and `run`, which is exactly what `add-agentscript-actions` adds.
+`task.agent` (moved by task 6.1 to `packages/agent/src/task/scripts/`) lints with zero diagnostics against the pinned dialect. Today the runtime refuses only its `actions` and `run`, which is exactly what `add-agentscript-actions` adds.
 
 - **Fine-tuning is editing a copy:** change prompts, add subagents (a `review` step), swap `run_command` for `delegate_claude_code`, or add actions. The contract is the only fixed surface.
 - **A subscription variant ships too:** `task-delegate.agent` acts through `delegate_claude_code`, because the claude-code provider can't serve model-callable tools.
