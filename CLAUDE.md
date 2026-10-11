@@ -18,11 +18,11 @@ The layer boundaries are directories, enforced by `__tests__/package/layers.test
 | `src/claude-code` → `./claude-code` | The claude-code port and pi provider (Node only). |
 | `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). |
 | `src/cloudflare` → `./cloudflare` | `AgentScriptHost`, the Durable Object class (via Cloudflare's `PiHarness`, `agents` 0.28.0), Workers AI by default. |
-| `src/openspec` → `./openspec` | The OpenSpec ontology (`openspec/{model,process,loops,evidence}`): TypeBox schemas with derived static types, plus pure rules. Imports only `typebox`; no parser, no loop runner. |
+| `src/openspec` → `./openspec` | The OpenSpec ontology (`openspec/{model,process,loops,evidence}`): zod schemas with `z.infer` static types and refinements, plus pure rules. Imports only `zod`; no parser, no loop runner. |
 | `src/bin` | The `agentscript-pi` and `agentscript-durable` bins. |
 
 pi-ai, pi-durable, chord and `agents` are optional peers (dev dependencies here); only the four
-`@sf-agentscript/*` packages and `typebox` (exact, the version pi-ai pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
+`@sf-agentscript/*` packages and `zod` (exact `4.6.5`, the version pi-ai's dependencies resolve) are required. `examples/hello-world` and `examples/cloudflare-worker`
 (the Worker, with `FauxAgentScriptHost` adding `AGENTSCRIPT_FAUX=1` for local tests) consume the
 package through `workspace:*` and its public entries only.
 
