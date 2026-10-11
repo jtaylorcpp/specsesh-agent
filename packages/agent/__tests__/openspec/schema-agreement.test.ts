@@ -156,7 +156,7 @@ describe("Every model type has a static type and a JSON Schema", () => {
 		expect(new Set(types).size, "a type is declared twice").toBe(types.length);
 		// Every type the specs define is among them, and the list is the specs' own.
 		const specText = Object.keys(SPEC_TYPES)
-			.map((capability) => read(`openspec/changes/add-openspec-ontology/specs/${capability}/spec.md`))
+			.map((capability) => read(`openspec/specs/${capability}/spec.md`))
 			.join("\n");
 		for (const [capability, names] of Object.entries(SPEC_TYPES)) {
 			for (const name of names) {

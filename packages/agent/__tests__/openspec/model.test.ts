@@ -131,7 +131,7 @@ describe("A proposal states why, what, which capabilities and what not", () => {
 		expect(check(Proposal, OWN_PROPOSAL)).toBe(true);
 		expect(OWN_PROPOSAL.capabilities.modified).toEqual([]);
 		// The proposal names the four new capabilities.
-		const proposal = read("openspec/changes/add-openspec-ontology/proposal.md");
+		const proposal = read("openspec/changes/archive/2026-10-11-add-openspec-ontology/proposal.md");
 		for (const path of OWN_PROPOSAL.capabilities.new) expect(proposal).toContain(`\`${formatRef(path)}\``);
 	});
 

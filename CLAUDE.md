@@ -109,6 +109,8 @@ behaviour only; internals go in a change's `design.md`. Stock `spec-driven` sche
 - A delta that creates a capability should carry `## Purpose`: it is only read at creation, and
   archive otherwise writes a placeholder that `spec:check` rejects.
 - Requirement text (before its scenarios) must stay under 500 characters, or strict fails.
+- Tests never read `openspec/changes/<id>/` for their own change: archiving moves it. Read the folded
+  spec from `openspec/specs/` or the archived copy under `openspec/changes/archive/<date>-<id>/`.
 - Ideas and bugs outside the current change go in `openspec/parked.md`.
 - `docs/` holds the OpenSpec taxonomy and ontology, one concept per file; `docs/README.md` is the
   directory and `docs/CONVENTIONS.md` the page format. A change to the ontology specs updates the
