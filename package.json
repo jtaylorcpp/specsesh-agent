@@ -12,7 +12,8 @@
     "agent": "node packages/agentscript-pi/bin/agentscript-pi.mjs",
     "durable": "node packages/agentscript-durable/bin/agentscript-durable.mjs",
     "spec:check": "OPENSPEC_TELEMETRY=0 openspec validate --all --strict",
-    "spec:archive": "node scripts/spec-archive.mjs"
+    "spec:archive": "node scripts/spec-archive.mjs",
+    "docs:check": "node scripts/docs-check.mjs"
   },
   "devDependencies": {
     "@fission-ai/openspec": "1.14.1"
