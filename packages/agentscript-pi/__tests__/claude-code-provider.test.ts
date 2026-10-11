@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createModels, Type, type Context, type Message } from "@earendil-works/pi-ai";
 import type { ProcessResult, Runner } from "../src/claude-code.js";
+import { CLAUDE_CODE_API, CLAUDE_CODE_PROVIDER, CLAUDE_CODE_PROVIDER_ID } from "../src/index.js";
 import { claudeCodeModel, claudeCodeProvider, promptOf, systemPromptOf } from "../src/claude-code-provider.js";
 
 const ok = (result: Record<string, unknown>): ProcessResult => ({
@@ -101,5 +102,33 @@ describe("flattening", () => {
 		expect(prompt).toContain('[called submit_result with {"greeting":3}]');
 		expect(prompt).toContain("Tool submit_result returned an error: must be a string");
 		expect(prompt).toMatch(/Continue from here as the assistant\.$/);
+	});
+});
+
+describe("The provider registers claude-code with four models", () => {
+	it("Scenario: Only the four listed ids are registered", () => {
+		const h = harness(ok({ result: "x" }));
+		expect(h.models.getModel("claude-code", "claude-sonnet-4-5")).toBeUndefined();
+		for (const id of ["claude-haiku-4-5", "haiku", "sonnet", "opus"]) {
+			expect(h.models.getModel("claude-code", id)?.id).toBe(id);
+		}
+		expect(h.models.getModels("claude-code").map((m) => m.id).sort()).toEqual(["claude-haiku-4-5", "haiku", "opus", "sonnet"]);
+	});
+});
+
+describe("Provider usage is Claude Code's reported tokens and cost", () => {
+	it("Scenario: Usage is carried through", async () => {
+		const h = harness(ok({ result: "x" }));
+		const message = await h.models.complete(h.model, { messages: [user("x")] });
+		expect(message.usage).toMatchObject({ input: 10, output: 5, totalTokens: 15, cacheRead: 0, cacheWrite: 0 });
+		expect(message.usage.cost.total).toBe(0.001);
+	});
+});
+
+describe("The claude-code surface is exported from the root entry", () => {
+	it("Scenario: The provider id and API are claude-code", () => {
+		expect(CLAUDE_CODE_PROVIDER).toBe("claude-code");
+		expect(CLAUDE_CODE_PROVIDER_ID).toBe("claude-code");
+		expect(CLAUDE_CODE_API).toBe("claude-code");
 	});
 });

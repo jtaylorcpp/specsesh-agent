@@ -16,7 +16,7 @@ import {
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { categoryFromStatus } from "../src/categories.js";
 import { parseVar } from "../src/cli.js";
-import { resolveModel } from "../src/models.js";
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, resolveModel } from "../src/models.js";
 import { createPiReasoningPort, forceTool, RESULT_TOOL, toOutcome } from "../src/port.js";
 
 const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -230,5 +230,180 @@ describe("parseVar", () => {
 
 	it("rejects a value with no name", () => {
 		expect(() => parseVar("=x")).toThrow(/name=value/);
+	});
+});
+
+const TWO_STEPS = `config:
+    agent_name: "pair"
+
+system:
+    instructions: |
+        You are terse.
+
+subagent first:
+    description: "First"
+
+    reasoning:
+        instructions: ->
+            | Say one word.
+
+subagent second:
+    description: "Second"
+
+    reasoning:
+        instructions: ->
+            | Say another word.
+`;
+
+const messageOf = (over: Partial<AssistantMessage>): AssistantMessage =>
+	({ ...fauxAssistantMessage([fauxText("partial")]), ...over }) as AssistantMessage;
+
+describe("The pi adapter exports its port, mapping and model helpers", () => {
+	it("Scenario: The result tool name is stable", () => {
+		expect(RESULT_TOOL).toBe("submit_result");
+	});
+});
+
+describe("Request options default the output cap and pass the rest through", () => {
+	it("Scenario: The default output cap is 4096", async () => {
+		const h = harness();
+		h.faux.setResponses([fauxAssistantMessage([fauxText("ok")])]);
+		await run(TEXT_ONLY, { port: createPiReasoningPort(h) });
+		expect(h.sent).toHaveLength(1);
+		expect(h.sent[0]!.options?.maxTokens).toBe(4096);
+	});
+
+	it("Scenario: onMessage sees every raw message", async () => {
+		const h = harness();
+		const first = fauxAssistantMessage([fauxText("one")]);
+		const second = fauxAssistantMessage([fauxText("two")]);
+		h.faux.setResponses([first, second]);
+		const seen: AssistantMessage[] = [];
+		const result = await run(TWO_STEPS, {
+			port: createPiReasoningPort({ ...h, onMessage: (m) => seen.push(m) }),
+			entry: ["first", "second"],
+		});
+		expect(result.steps).toHaveLength(2);
+		expect(seen).toHaveLength(2);
+		expect(seen.map((m) => m.content)).toEqual([[{ type: "text", text: "one" }], [{ type: "text", text: "two" }]]);
+		expect(seen.every((m) => m.role === "assistant" && m.usage !== undefined)).toBe(true);
+	});
+});
+
+describe("A structured step offers exactly one result tool", () => {
+	const schema = { type: "object", properties: { severity: { type: "string" } }, required: ["severity"] };
+
+	it("Scenario: A structured step offers the result tool", async () => {
+		const h = harness();
+		h.faux.setResponses([fauxAssistantMessage([fauxText("ok")])]);
+		await createPiReasoningPort(h).reason({ systemInstructions: "s", prompt: "p", outputSchema: schema });
+		const tools = h.sent[0]!.context.tools;
+		expect(tools).toHaveLength(1);
+		expect(tools![0]).toEqual({
+			name: "submit_result",
+			description:
+				"Submit this step's result. Call this exactly once with every field filled; it is the only way the result is recorded.",
+			parameters: schema,
+			constrainedSampling: { type: "json_schema", strict: "prefer" },
+		});
+		expect(tools![0]!.parameters).toBe(schema);
+	});
+
+	it("Scenario: A text-only step offers no tools", async () => {
+		const h = harness();
+		h.faux.setResponses([fauxAssistantMessage([fauxText("ok")])]);
+		await createPiReasoningPort(h).reason({ systemInstructions: "s", prompt: "p" });
+		expect(h.sent).toHaveLength(1);
+		expect("tools" in h.sent[0]!.context).toBe(false);
+	});
+});
+
+describe("forceTool names the result tool per wire API", () => {
+	it("Scenario: Bedrock forces the tool by name", () => {
+		expect(forceTool({ api: "bedrock-converse-stream" } as never)).toEqual({
+			toolChoice: { type: "tool", name: "submit_result" },
+		});
+	});
+
+	it("Scenario: OpenAI and Azure responses force the function by name", () => {
+		for (const api of ["openai-responses", "azure-openai-responses"]) {
+			expect(forceTool({ api } as never)).toEqual({ toolChoice: { type: "function", name: "submit_result" } });
+		}
+	});
+
+	it("Scenario: Google and Mistral require some tool", () => {
+		for (const api of ["google-generative-ai", "google-vertex", "mistral-conversations"]) {
+			expect(forceTool({ api } as never)).toEqual({ toolChoice: "any" });
+		}
+	});
+});
+
+describe("A stop or tool-use message is answered", () => {
+	it("Scenario: A text step ignores any tool call", () => {
+		const message = messageOf({
+			stopReason: "toolUse",
+			content: [fauxToolCall(RESULT_TOOL, { severity: "high" })],
+		});
+		const outcome = toOutcome(message, false);
+		expect(outcome).toEqual({ kind: "answered", text: "" });
+		expect("structured" in outcome).toBe(false);
+	});
+});
+
+describe("Length, abort and error stops are failures with a structured category", () => {
+	it("Scenario: An error with no message names its stop reason", () => {
+		const message = messageOf({ stopReason: "error" });
+		delete (message as { errorMessage?: string }).errorMessage;
+		expect(toOutcome(message, false)).toEqual({
+			kind: "failed",
+			category: "unknown",
+			message: 'the request ended with stopReason "error"',
+		});
+	});
+});
+
+describe("categoryFromStatus maps HTTP statuses only", () => {
+	it("Scenario: Each mapped status", () => {
+		const codes: (number | string)[] = [401, 403, 402, 404, 429, 529, 503, 400, 413, 422, 500, "502"];
+		expect(codes.map((code) => categoryFromStatus(code))).toEqual([
+			"authentication_failed",
+			"authentication_failed",
+			"billing_error",
+			"model_not_found",
+			"rate_limit",
+			"overloaded",
+			"overloaded",
+			"invalid_request",
+			"invalid_request",
+			"invalid_request",
+			"server_error",
+			"server_error",
+		]);
+	});
+});
+
+describe("The testing default is Claude Haiku on Anthropic", () => {
+	it("Scenario: The defaults", () => {
+		expect(DEFAULT_PROVIDER).toBe("anthropic");
+		expect(DEFAULT_MODEL).toBe("claude-haiku-4-5");
+	});
+});
+
+describe("resolveModel fails by name instead of returning undefined", () => {
+	it("Scenario: An unknown model lists real ones", () => {
+		const models = builtinModels();
+		const available = models.getModels("anthropic").length;
+		expect(available).toBeGreaterThan(12);
+
+		let message = "";
+		try {
+			resolveModel(models, "anthropic", "claude-nope");
+		} catch (error) {
+			expect((error as Error).name).toBe("UnknownModelError");
+			message = (error as Error).message;
+		}
+		expect(message).toContain('no model "claude-nope"');
+		const list = message.split("Known anthropic models include: ")[1]!.replace(/\.$/, "");
+		expect(list.split(", ")).toHaveLength(12);
 	});
 });

@@ -3,7 +3,10 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { run, type ReasoningRequest } from "@coopcli/agentscript/interpreter";
+import { CLAUDE_CODE_API, CLAUDE_CODE_PROVIDER_ID } from "../src/claude-code-provider.js";
 import {
+	CLAUDE_CODE_PROVIDER,
+	claudeArgs,
 	claudeCodeArgs,
 	claudeCodeEnv,
 	createClaudeCodeReasoningPort,
@@ -159,5 +162,53 @@ describe("toClaudeCodeOutcome", () => {
 		const step = toClaudeCodeOutcome({ code: 1, stdout: "", stderr: "Invalid API key · Please run /login" }, false).step;
 		expect(step).toMatchObject({ kind: "failed", category: "unknown" });
 		expect(step.kind === "failed" && step.message).toMatch(/exited 1.*Please run \/login/);
+	});
+});
+
+describe("The claude-code surface is exported from the root entry", () => {
+	it("Scenario: The provider id and API are claude-code", () => {
+		expect(CLAUDE_CODE_PROVIDER).toBe("claude-code");
+		expect(CLAUDE_CODE_PROVIDER_ID).toBe("claude-code");
+		expect(CLAUDE_CODE_API).toBe("claude-code");
+	});
+});
+
+describe("Each turn is one headless claude -p invocation with a fixed argv", () => {
+	it("Scenario: Headless, safe mode, no tools, no saved session", () => {
+		expect(claudeArgs({ system: "s", model: "m" })).toEqual([
+			"-p",
+			"--safe-mode",
+			"--model",
+			"m",
+			"--tools",
+			"",
+			"--no-session-persistence",
+			"--output-format",
+			"json",
+			"--system-prompt",
+			"s",
+		]);
+	});
+
+	it("Scenario: A schema and a turn bound are appended in order", () => {
+		const args = claudeArgs({ system: "s", model: "m", schema: { type: "object" }, maxTurns: 3 });
+		expect(args.slice(-4)).toEqual(["--json-schema", '{"type":"object"}', "--max-turns", "3"]);
+		expect(args.slice(0, -4)).toEqual(claudeArgs({ system: "s", model: "m" }));
+	});
+});
+
+describe("The port is one claude process per step and stateless", () => {
+	it("Scenario: onResult sees each parsed result", async () => {
+		const first = { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "one" };
+		const second = { ...first, result: "two", total_cost_usd: 0.5 };
+		const { runner } = fakeRunner(
+			{ code: 0, stdout: JSON.stringify(first), stderr: "" },
+			{ code: 0, stdout: JSON.stringify(second), stderr: "" },
+		);
+		const seen: unknown[] = [];
+		const port = createClaudeCodeReasoningPort({ runner, onResult: (r) => seen.push(r) });
+		await port.reason({ systemInstructions: "s", prompt: "p" });
+		await port.reason({ systemInstructions: "s", prompt: "p" });
+		expect(seen).toEqual([first, second]);
 	});
 });
