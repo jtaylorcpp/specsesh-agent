@@ -49,7 +49,7 @@ LinkBasis      = "scenario-named" | "requirement-named" | "capability-named" | "
 
 The lifecycle is a sequence of steps. Every step is `Step<In, Out>` with a named input and output type and a failure type:
 
-| Step | Input | Output | Who |
+| Step | Input | Output | Actor (`principal` · `agent` · `tool` · `loop`) |
 |---|---|---|---|
 | propose | `Intent { words, existing: CapabilityIndex }` | `Proposal` | principal intent, agent drafts |
 | specify | `{ proposal, base: Capability[] }` | `Delta[]` | agent |
@@ -75,7 +75,7 @@ drafting → specified → designed → planned → validated → approved → e
                                                └──── amended ◄──────────┘   (a spec-defect finding)
 ```
 
-Any state may go to `abandoned`. `approved → executing` needs an `Approval` with `approved: true`. `converged → archived` needs a fresh `ValidationReport` with `valid: true`; this is the guard `pnpm spec:archive` already enforces. `executing → amended` happens when execution finds the spec is wrong. The change returns to `validated` only after the amended deltas validate and are re-approved.
+Any state except `archived` may go to `abandoned`; `archived` and `abandoned` are terminal. `approved → executing` needs an `Approval` with `approved: true`. `converged → archived` needs a fresh `ValidationReport` with `valid: true`; this is the guard `pnpm spec:archive` already enforces. `executing → amended` happens when execution finds the spec is wrong. The change returns to `validated` only after the amended deltas validate and are re-approved.
 
 ## Loops
 
@@ -92,6 +92,7 @@ Budget     { maxIterations: int, maxWallMs?: int }
 Verdict    { met: boolean, satisfied: Target[], unmet: { target: Target, reason }[] }
 Feedback   { from: Finding, action: "retry" | "rework-task" | "add-task" | "amend-spec" | "ask" }
 Escalation { level: "task" | "group" | "change", reason, question }
+Target     = RequirementRef | ScenarioRef | { check: string }      // a named check, e.g. "strict validation"
 ```
 
 An iteration plans, acts, gathers evidence, and judges the evidence against the goal's targets. Its verdict's unmet targets become feedback for the next iteration. A loop ends:
@@ -114,7 +115,7 @@ An iteration plans, acts, gathers evidence, and judges the evidence against the 
   - A task loop that ends `exhausted` or `blocked` hands its outcome to the group loop.
   - The group check can answer with `rework-task` (reopen a converged task whose evidence regressed) or `add-task` (a target no task covered).
   - The change check can do the same with groups, and closes unclaimed scenarios by adding tasks.
-- **Out of the loops:** a finding of kind `spec-defect` becomes `amend-spec`. The change loop stops and the change moves to `amended`.
+- **Out of the loops:** a finding of kind `spec-defect` becomes `amend-spec`. The change loop ends `blocked`, with an escalation naming the defect, and the change moves to `amended`.
 
   This happened for real on 2026-10-11. Tests written for `baseline-agentscript-durable` showed that two requirements described the code wrongly (undeclared names and nested `if`s are refused by the dialect's lint first). The fix was a spec amendment, not a code change.
 - **To a person:** `ask` sets `escalation` and ends the loop `blocked`.
