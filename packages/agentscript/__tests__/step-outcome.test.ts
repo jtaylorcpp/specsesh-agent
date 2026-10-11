@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { analyze } from "../src/authoring/index.js";
 import type { StepOutcome } from "../src/interpreter/index.js";
 import { run } from "../src/interpreter/index.js";
-import { IN_SUBSET } from "./helpers/fixtures.js";
+import { IN_SUBSET, TWO_STEPS } from "./helpers/fixtures.js";
 import { recordingPort } from "./helpers/recording-port.js";
 
 const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -184,5 +184,43 @@ describe("platform-agentscript-interpreter: A Step Ends Answered, Cut Short, Or 
 			const { outcome } = await settle({ kind: "failed", category, message: "m" });
 			expect(outcome, category).toEqual({ kind: "failed", category, message: "m" });
 		}
+	});
+});
+
+describe("platform-agentscript-interpreter: A run's kind comes from its last step", () => {
+	it("Scenario: A failed step ends the run", async () => {
+		const failure: StepOutcome = { kind: "failed", category: "billing_error", message: "out of credit" };
+		const { port, requests } = recordingPort(failure, { kind: "answered", text: "never asked" });
+		const result = await run(TWO_STEPS, { port, entry: ["first", "second"] });
+
+		expect(result.kind).toBe("failed");
+		expect(requests).toHaveLength(1);
+		expect(requests[0]?.prompt).toBe("Draft the proposal.");
+		expect(result.steps.map((s) => s.subagent)).toEqual(["first"]);
+		expect(result.steps[0]?.outcome).toEqual(failure);
+		// `first` set stage by logic in the same step; the failure rolled it back.
+		expect(result.variables.stage).toBe("proposal");
+	});
+});
+
+describe("platform-agentscript-interpreter: A reported failure keeps our category and its message", () => {
+	it("Scenario: A foreign category is normalised", async () => {
+		const { outcome } = await settle({ kind: "failed", category: "quota_exceeded" as never, message: "m" });
+		expect(outcome).toEqual({ kind: "failed", category: "unrecognised", message: "m" });
+	});
+});
+
+describe("platform-agentscript-interpreter: A port's return value is never trusted to be well-formed", () => {
+	it("Scenario: A port that answers a string", async () => {
+		const port = { reason: async () => "ok" as unknown as StepOutcome };
+		const result = await run(IN_SUBSET, { port });
+
+		expect(result.kind).toBe("failed");
+		expect(result.steps).toHaveLength(1);
+		const outcome = result.steps[0]?.outcome;
+		if (outcome?.kind !== "failed") throw new Error("expected a failure");
+		expect(outcome.category).toBe("unknown");
+		expect(outcome.message.startsWith("the port returned string")).toBe(true);
+		expect(outcome.message).toContain("rather than an outcome");
 	});
 });
