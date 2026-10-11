@@ -9,7 +9,7 @@
 
 ## 2. The group judge
 
-- [ ] 2.1 `packages/agent/src/task/group-judge.ts`: seed `group_number`, `group_title`, `tasks`, `proposal`, `deltas`, `check_output`, `rework_count`; read back `next_action`, `rework_task`, `feedback`, `question`; the contract checked at start (missing or mistyped variable refused, naming it)
+- [x] 2.1 `packages/agent/src/task/group-judge.ts`: seed `group_number`, `group_title`, `tasks`, `proposal`, `deltas`, `check_output`, `rework_count`; read back `next_action`, `rework_task`, `feedback`, `question`; the contract checked at start (missing or mistyped variable refused, naming it)
 - [ ] 2.2 `packages/agent/src/task/scripts/group.agent`: the bundled judge, copied from `openspec/changes/add-group-loop/group.agent`; the build copies it to `dist/task/scripts/` with the task scripts
 - [ ] 2.3 `packages/agent/src/task/group.ts`: judge transitions: `rework` of a task in the group within budget → untick its line (path only), queue it, `carried` = check output + feedback, `reworks` + 1; budget spent → exhausted; `ask`/`amend-spec` → blocked (level `group`, `to` = `escalateTo`, `amend-spec` recorded as `spec-defect`); anything else or a task outside the group → failed
 - [ ] 2.4 `packages/agent/src/task/group.ts`: each check round recorded as an ontology `Iteration` (one `CheckEvidence` per check, target `{ check: "group <n>" }`, one finding and its feedback when unmet); the outcome built as `LoopOutcome<GroupOutcome>` and passed through `check` before it is stored
