@@ -1,0 +1,112 @@
+# task/cli Specification
+
+## Purpose
+The `agentscript-task` command: run the task loop for one task of an OpenSpec change durably on a Node SQLite database, resume it after the process dies, and answer its escalation.
+
+## Requirements
+
+### Requirement: The CLI has exactly three commands and prints usage otherwise
+`agentscript-task` SHALL accept `run`, `resume` or `answer` as its first argument. Any other first argument, or none, MUST print usage to stderr and exit `2`. The usage MUST begin with `usage:` and list `agentscript-task run <change-dir> <task-id> --db <path> [options]`, `agentscript-task resume <loop-id> --db <path> [--json]` and `agentscript-task answer <loop-id> --db <path> --by principal|agent --decision <text> [--json]`.
+
+#### Scenario: An unknown command prints usage
+- **WHEN** the CLI runs with `frobnicate`
+- **THEN** stderr SHALL contain `usage:` and the exit code SHALL be `2`
+
+#### Scenario: No command prints usage
+- **WHEN** the CLI runs with no arguments
+- **THEN** stderr SHALL contain `usage:` and the exit code SHALL be `2`
+
+### Requirement: run takes a change directory, a task id and a database
+`run` SHALL take the change directory and the task id as its two positionals and require `--db`. A missing positional or a missing `--db` MUST print usage and exit `2` before any database is opened.
+
+#### Scenario: run without --db prints usage
+- **WHEN** the CLI runs `run openspec/changes/archive/2026-10-11-baseline-agentscript-durable 2.4`
+- **THEN** the exit code SHALL be `2`
+
+#### Scenario: run without a task id prints usage
+- **WHEN** the CLI runs `run openspec/changes/archive/2026-10-11-baseline-agentscript-durable --db loops.sqlite`
+- **THEN** the exit code SHALL be `2`
+
+### Requirement: run maps its flags onto the task loop options
+`run` SHALL pass `{ change: { dir }, task, script, workspace, budget, checks, allow, escalateTo, model }`, where `--script <path>` gives `{ path }` (else the bundled default), `--workspace <dir>` defaults to the current directory, `--check <command>` and `--allow <word>` are repeatable, `--max-iterations <n>` sets `budget.maxIterations`, and `--escalate-to principal|agent` sets `escalateTo`.
+
+#### Scenario: Repeated checks are kept in order
+- **WHEN** the CLI runs with `--check "pnpm test" --check "pnpm check"`
+- **THEN** the loop's `checks` SHALL be `["pnpm test", "pnpm check"]`
+
+#### Scenario: The workspace defaults to the current directory
+- **WHEN** `run` is given no `--workspace`
+- **THEN** the loop's `workspace` SHALL be the process's current directory
+
+### Requirement: run rejects malformed flag values with usage
+`--max-iterations` whose value is not a positive integer, and `--escalate-to` whose value is not `principal` or `agent`, MUST print a message naming the flag and its value, followed by usage, and exit `2` before any database is opened.
+
+#### Scenario: A zero budget is refused
+- **WHEN** the CLI runs `run <dir> 2.4 --db loops.sqlite --max-iterations 0`
+- **THEN** stderr SHALL name `--max-iterations` and `0`, and the exit code SHALL be `2`
+
+### Requirement: run resolves provider and model like agentscript-durable
+The provider SHALL be `--provider`, else `AGENTSCRIPT_PROVIDER`, else `anthropic`; the model SHALL be `--model`, else `AGENTSCRIPT_MODEL`, else `claude-haiku-4-5`. The model collection SHALL be pi-ai's built-in providers plus the `claude-code` provider. An unknown model MUST print `no model "<model>" on provider "<provider>"` and exit `2` before a task exists.
+
+#### Scenario: Defaults apply when nothing is set
+- **GIVEN** no `--provider`, `--model`, `AGENTSCRIPT_PROVIDER` or `AGENTSCRIPT_MODEL`
+- **WHEN** `run` starts a loop
+- **THEN** every step SHALL use `anthropic/claude-haiku-4-5`
+
+#### Scenario: An unknown model is refused before a task exists
+- **WHEN** the CLI runs with `--model claude-nope`
+- **THEN** stderr SHALL contain `no model "claude-nope"`, the exit code SHALL be `2`, and no task SHALL exist in the database
+
+### Requirement: A refused start exits 2
+When `startTaskLoop` rejects (an unreadable source, a missing artifact, an unknown task id, a contract violation or an actions binding failure), `run` SHALL print the rejection's message to stderr and exit `2`.
+
+#### Scenario: An unknown task id exits 2 listing the ids
+- **WHEN** the CLI runs `run openspec/changes/archive/2026-10-11-baseline-agentscript-durable 9.9 --db loops.sqlite`
+- **THEN** stderr SHALL contain `9.9` and `2.4`, and the exit code SHALL be `2`
+
+### Requirement: run prints the loop id before any model call
+Immediately after the loop task is created and before the harness resumes, `run` SHALL print to stderr exactly `loop <id> — resume with: agentscript-task resume <id> --db <path>`.
+
+#### Scenario: The resume hint is the first stderr line
+- **WHEN** the CLI runs a loop
+- **THEN** stderr SHALL match `^loop \d+ — resume with: agentscript-task resume \d+ --db `
+
+### Requirement: resume continues a stored loop without the change files
+`resume <loop-id> --db <path>` SHALL wait for the stored loop and read no change file. A loop id that is not an integer or is not in the database MUST print `no loop <id> in <path>` and exit `2`.
+
+#### Scenario: An unknown loop id is refused
+- **WHEN** the CLI runs `resume 42 --db loops.sqlite` and the database has no loop 42
+- **THEN** stderr SHALL contain `no loop 42 in loops.sqlite` and the exit code SHALL be `2`
+
+### Requirement: answer submits an escalation answer and waits for the resumed loop
+`answer <loop-id> --db <path> --by principal|agent --decision <text>` SHALL call `answerEscalation` and then wait for the resumed loop. A missing or invalid `--by`, a missing `--decision`, or an answer the loop rejects (not blocked, or `--by` not the escalation's recipient) MUST print the reason and exit `2`.
+
+#### Scenario: The wrong recipient exits 2
+- **GIVEN** a blocked loop escalated to `principal`
+- **WHEN** the CLI runs `answer <id> --db loops.sqlite --by agent --decision "go"`
+- **THEN** the exit code SHALL be `2` and the loop SHALL stay blocked
+
+### Requirement: Text output reports each iteration and the outcome
+Without `--json`, the CLI SHALL print `# loop <id> — <status>`, then per iteration `## iteration <n>: <met|unmet>` followed by its unmet summary when not met, then the escalation's `to` and `question` when blocked, or `ticked: <true|false>` when converged.
+
+#### Scenario: A converged loop prints its iterations and ticked
+- **WHEN** a loop converges on iteration 2 with tasks.md from the change directory
+- **THEN** stdout SHALL contain `# loop`, `converged`, `## iteration 1: unmet`, `## iteration 2: met` and `ticked: true`
+
+### Requirement: JSON output is the loop id merged with the outcome
+With `--json`, the CLI SHALL print `JSON.stringify({ loop: id, ...outcome }, null, 2)` to stdout, where `outcome` is the `LoopOutcome<TaskOutcome>`.
+
+#### Scenario: JSON carries status and iterations
+- **WHEN** the CLI runs with `--json`
+- **THEN** stdout SHALL parse as JSON with an integer `loop`, a `status` and an `iterations` array
+
+### Requirement: The exit code says whether the task converged
+`run`, `resume` and `answer` SHALL exit `0` when the outcome's status is `"converged"` and `1` when it is `"blocked"`, `"exhausted"` or `"failed"`. The harness SHALL be closed before exiting, also after a refusal.
+
+#### Scenario: A blocked loop exits 1
+- **WHEN** a loop ends `"blocked"`
+- **THEN** the exit code SHALL be `1`
+
+#### Scenario: A converged loop exits 0
+- **WHEN** a loop ends `"converged"`
+- **THEN** the exit code SHALL be `0`

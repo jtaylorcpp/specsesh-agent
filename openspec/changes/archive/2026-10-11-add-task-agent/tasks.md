@@ -52,4 +52,4 @@ Depends on `package-specsesh-agent`, `add-openspec-ontology` and `add-agentscrip
 ## 9. Close
 
 - [x] 9.1 `pnpm test`, `pnpm check` and `pnpm pack:check` pass; `pnpm docs:check` passes after linking `docs/ontology/loops/task-loop.md` to the implementation and setting its `status` to `implemented`
-- [ ] 9.2 `pnpm spec:archive add-task-agent`, then `pnpm spec:check`
+- [x] 9.2 `pnpm spec:archive add-task-agent`, then `pnpm spec:check`

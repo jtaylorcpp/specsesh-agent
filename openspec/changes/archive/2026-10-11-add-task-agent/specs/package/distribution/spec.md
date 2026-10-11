@@ -77,7 +77,7 @@ The manifest's `bin` SHALL map `agentscript-pi` to `./dist/bin/agentscript-pi.js
 - **THEN** it SHALL contain `npm install @specsesh/agent`, each of the eight `@specsesh/agent/<entry>` strings, `agentscript-pi`, `agentscript-durable` and `agentscript-task`
 
 ### Requirement: pack:check proves the tarball installs and runs
-`pnpm pack:check` SHALL run `packages/agent/__tests__/package/pack.test.ts` under vitest (config `vitest.pack.config.ts`; not part of `pnpm test`, because it needs the npm registry). It SHALL `npm pack` the built package, install the tarball into fresh temp projects with and without the peers, import every entry except `./cloudflare` with plain Node, run the installed `agentscript-durable run` on a faux model to `completed` and the installed `agentscript-task` to its usage, fail naming what failed, and delete its temp directories.
+`pnpm pack:check` SHALL run `__tests__/package/pack.test.ts` under vitest (`vitest.pack.config.ts`; not in `pnpm test`: it needs the npm registry). It SHALL pack the built package, install it into temp projects with and without the peers, import every entry but `./cloudflare` with plain Node, run the installed `agentscript-durable run` on a faux model to `completed` and `agentscript-task` to its usage, name what failed, and clean up.
 
 #### Scenario: A clean tarball passes
 - **WHEN** `pnpm pack:check` runs on a clean checkout
