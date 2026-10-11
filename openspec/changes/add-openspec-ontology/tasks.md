@@ -25,7 +25,7 @@
 
 ## 5. Loop types and schemas
 
-- [ ] 5.1 `packages/agent/src/openspec/loops.ts`: `LoopInput`, `Budget`, `Iteration`, `Verdict`, `Target`, `Feedback`, `Escalation`, `LoopOutcome`
+- [ ] 5.1 `packages/agent/src/openspec/loops.ts`: `LoopInput`, `Budget`, `Iteration`, `Verdict`, `Target`, `Feedback`, `Escalation`, `EscalationAnswer`, `LoopOutcome`
 - [ ] 5.2 `packages/agent/src/openspec/loops.ts`: `TaskOutcome`, `GroupOutcome`, `ChangeOutcome`, and a pure `outcomeStatus(iterations, budget)` implementing the four status causes
 
 ## 6. Tests
