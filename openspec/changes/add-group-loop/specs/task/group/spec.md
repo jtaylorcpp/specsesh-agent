@@ -145,7 +145,7 @@ Each check, with its judge when it fails, SHALL be one `Iteration`: `actions` `[
 - **THEN** the round SHALL be recorded as an iteration with an unmet verdict, a `code-defect` finding and `rework-task` feedback
 
 ### Requirement: The outcome is a LoopOutcome of GroupOutcome
-The group loop's outcome SHALL be a `LoopOutcome<GroupOutcome>` whose result is `{ group, tasks }` with exactly one entry per task of the group, in file order, each its latest outcome and `runs`. It MUST pass the ontology's `check` before it is stored.
+The group loop's outcome SHALL be a `LoopOutcome<GroupOutcome>` whose result is `{ group, tasks }` with one entry per task that was ticked or ran, in file order, each its latest outcome and `runs`; tasks still queued when the group ends early have none. It MUST pass the ontology's `check` before it is stored.
 
 #### Scenario: The outcome checks against the ontology
 - **WHEN** a group loop ends
