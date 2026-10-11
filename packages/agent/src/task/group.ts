@@ -5,8 +5,16 @@
  */
 
 import { readFileSync } from "node:fs";
-import type { ModelRef } from "@earendil-works/pi-durable";
-import type { Recipient } from "../openspec/index.js";
+import {
+	defineExtension,
+	defineTask,
+	type Extension,
+	type JsonObject,
+	type ModelRef,
+	type Task,
+	type TaskId,
+} from "@earendil-works/pi-durable";
+import type { GroupOutcome, LoopOutcome, Recipient, TaskOutcome } from "../openspec/index.js";
 import { concatDeltas } from "./deltas.js";
 import { TaskLoopStartError } from "./errors.js";
 import {
@@ -18,6 +26,9 @@ import {
 	type TaskLoopOptions,
 } from "./options.js";
 import { readChange, readScript, readSource } from "./sources.js";
+
+/** Any JSON value; pi-durable exports `JsonObject` but not its value type. */
+type JsonValue = JsonObject[string];
 
 export const DEFAULT_MAX_REWORKS = 2;
 
@@ -166,3 +177,152 @@ export function validateGroupStart(options: GroupLoopOptions): GroupLoopInput {
 	if (input.checks.length === 0) throw new TaskLoopStartError("a group needs at least one check");
 	return input;
 }
+
+// ── The durable task ────────────────────────────────────────────────────────
+
+export const GROUP_LOOP_NAME = "agentscript.group-loop";
+export const GROUP_LOOP_VERSION = 1;
+export const GROUP_LOOP = GROUP_LOOP_NAME;
+
+export type GroupPhase = "next" | "task" | "check" | "judge";
+
+const GROUP_PHASES: readonly GroupPhase[] = ["next", "task", "check", "judge"];
+
+/** One row per task: its latest task-loop outcome and how many task loops this group ran for it. */
+export type GroupEntry = {
+	task: string;
+	outcome: LoopOutcome<TaskOutcome> & JsonObject;
+	runs: number;
+};
+
+/**
+ * The checkpoint as code reads it. `child.task` is the task the `task` phase works;
+ * `child.id` is its task loop, committed before it is awaited. pi-durable only ever
+ * sees the encoded form (`encodeCheckpoint`).
+ */
+export type GroupCheckpoint = {
+	phase: GroupPhase;
+	queue: string[];
+	entries: GroupEntry[];
+	reworks: number;
+	carried?: string;
+	child?: { task: string; id?: TaskId };
+};
+
+/** The checkpoint as pi-durable stores it: JSON, narrowed per phase so each handler's task type is not `never`. */
+export type StoredGroupCheckpoint = { [P in GroupPhase]: JsonObject & { phase: P } }[GroupPhase];
+
+/** Copy only the fields that are present; `undefined` is never written. */
+export function encodeCheckpoint(cp: GroupCheckpoint): JsonObject {
+	return {
+		phase: cp.phase,
+		queue: [...cp.queue],
+		entries: cp.entries,
+		reworks: cp.reworks,
+		...(cp.carried !== undefined ? { carried: cp.carried } : {}),
+		...(cp.child !== undefined
+			? { child: { task: cp.child.task, ...(cp.child.id !== undefined ? { id: cp.child.id } : {}) } }
+			: {}),
+	};
+}
+
+/** Check the required fields of a stored checkpoint; anything else throws `group-loop checkpoint malformed: <field>`. */
+export function decodeCheckpoint(raw: JsonValue): GroupCheckpoint {
+	const malformed = (field: string): never => {
+		throw new Error(`group-loop checkpoint malformed: ${field}`);
+	};
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return malformed("checkpoint");
+	const o = raw as JsonObject;
+	const phase = o.phase;
+	if (typeof phase !== "string" || !GROUP_PHASES.includes(phase as GroupPhase)) return malformed("phase");
+	const queue = o.queue;
+	if (!Array.isArray(queue) || !queue.every((id) => typeof id === "string")) return malformed("queue");
+	if (!Array.isArray(o.entries)) return malformed("entries");
+	if (typeof o.reworks !== "number") return malformed("reworks");
+	if (o.carried !== undefined && typeof o.carried !== "string") return malformed("carried");
+	const child = o.child;
+	if (child !== undefined) {
+		if (child === null || typeof child !== "object" || Array.isArray(child) || typeof child.task !== "string") {
+			return malformed("child");
+		}
+		if (child.id !== undefined && typeof child.id !== "number") return malformed("child");
+	}
+	return {
+		phase: phase as GroupPhase,
+		queue: queue as string[],
+		entries: o.entries as unknown as GroupEntry[],
+		reworks: o.reworks,
+		...(typeof o.carried === "string" ? { carried: o.carried } : {}),
+		...(child !== undefined
+			? { child: { task: (child as JsonObject).task as string, ...(typeof (child as JsonObject).id === "number" ? { id: (child as JsonObject).id as TaskId } : {}) } }
+			: {}),
+	};
+}
+
+/** The checkpoint in the form `commit` and `initial` take. */
+function stored(cp: GroupCheckpoint): StoredGroupCheckpoint {
+	return encodeCheckpoint(cp) as StoredGroupCheckpoint;
+}
+
+/** The group loop's durable result: the ontology's outcome, and notes it has no field for. */
+export interface GroupLoopResult extends JsonObject {
+	outcome: LoopOutcome<GroupOutcome> & JsonObject;
+	notes: string[];
+}
+
+/**
+ * The first checkpoint: the unticked tasks queued in file order, and every ticked
+ * task entered as converged with `runs` 0 (an earlier run converged it; no new loop).
+ */
+export function initialGroupCheckpoint(tasks: readonly { id: string; ticked: boolean }[]): GroupCheckpoint {
+	return {
+		phase: "next",
+		queue: tasks.filter((t) => !t.ticked).map((t) => t.id),
+		entries: tasks
+			.filter((t) => t.ticked)
+			.map((t) => ({
+				task: t.id,
+				outcome: { status: "converged", iterations: [], result: { task: t.id, ticked: true } },
+				runs: 0,
+			})),
+		reworks: 0,
+	};
+}
+
+function notYet(phase: GroupPhase, task: string): never {
+	throw new Error(`group-loop phase ${phase} not implemented yet (task ${task})`);
+}
+
+/** Pops the queue head into `task`, or goes to `check` when the queue is empty. No model request, no command. */
+export function nextCheckpoint(cp: GroupCheckpoint): GroupCheckpoint {
+	const { child: _child, ...kept } = cp;
+	const [head, ...rest] = cp.queue;
+	return head === undefined
+		? { ...kept, phase: "check", queue: [] }
+		: { ...kept, phase: "task", queue: rest, child: { task: head } };
+}
+
+export const GroupLoopTask: Task<GroupLoopInput, StoredGroupCheckpoint, GroupLoopResult, object> = defineTask<
+	GroupLoopInput,
+	StoredGroupCheckpoint,
+	GroupLoopResult
+>({
+	name: GROUP_LOOP_NAME,
+	version: GROUP_LOOP_VERSION,
+	initial: (input) => stored(initialGroupCheckpoint(input.tasks)),
+	phases: {
+		next: async (task, runtime, context) => {
+			const cp = decodeCheckpoint(task.state.checkpoint);
+			await runtime.commit(() => ({ status: "running", checkpoint: stored(nextCheckpoint(cp)) }), context);
+		},
+		task: async () => notYet("task", "1.3"),
+		check: async () => notYet("check", "1.4"),
+		judge: async () => notYet("judge", "2.3"),
+	},
+	abort: async (_task, runtime, context) => {
+		await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted", reason: "aborted" } }), context);
+	},
+});
+
+/** Brings the `agentscript.group-loop` task. Installed beside `taskLoopExtensions`, whose task loops are its children. */
+export const GroupLoop: Extension = defineExtension({ name: GROUP_LOOP, tasks: [GroupLoopTask] });
