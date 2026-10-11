@@ -6,7 +6,7 @@ Agent Script as a pi-durable extension: one agentscript.run task per run, checkp
 ## Requirements
 
 ### Requirement: The package exports two pi-durable extensions
-`agentscript-durable` SHALL export `AgentScript`, an extension named `agentscript` whose only task is `AgentScriptRun`, and `AgentScriptStepExtension`, an extension named `agentscript.step` carrying exactly one section (`result`) and exactly one tool (`submit_result`). A host MUST install both into the pi-durable registry it opens the harness with; the package registers nothing on its own.
+`@specsesh/agent/durable` SHALL export `AgentScript`, an extension named `agentscript` whose only task is `AgentScriptRun`, and `AgentScriptStepExtension`, an extension named `agentscript.step` carrying exactly one section (`result`) and exactly one tool (`submit_result`). A host MUST install both into the pi-durable registry it opens the harness with; the package registers nothing on its own.
 
 #### Scenario: A host installs both extensions
 - **GIVEN** a registry from `createRegistry()`
@@ -15,7 +15,7 @@ Agent Script as a pi-durable extension: one agentscript.run task per run, checkp
 - **AND** step conversations configured by that task can select the `agentscript.step` extension
 
 #### Scenario: The result tool name is a stable export
-- **WHEN** a caller reads `RESULT_TOOL` from `agentscript-durable`
+- **WHEN** a caller reads `RESULT_TOOL` from `@specsesh/agent/durable`
 - **THEN** it SHALL equal `"submit_result"`, the name the step's tool is registered under
 
 ### Requirement: A run is one durable task named agentscript.run
@@ -197,7 +197,7 @@ An answered submission SHALL map to `{ kind: "answered", text }`, plus `structur
 - **THEN** the step outcome SHALL equal `{ kind: "answered", text: "On it, urgently." }`
 
 ### Requirement: The agentscript.step doc holds each step's schema and accepted result
-The package SHALL export `AgentScriptStep`, defined with `defineDoc` as kind `agentscript.step`, version `1`, scope `conversation`, history `latest`, fork `initial`, and initial value `{ schema: null, result: null }`. `schema` MUST be the step's JSON Schema or `null` for a text-only step; `result` MUST be `null` until `submit_result` accepts a result, and then the accepted object.
+`@specsesh/agent/durable` SHALL export `AgentScriptStep`, defined with `defineDoc` as kind `agentscript.step`, version `1`, scope `conversation`, history `latest`, fork `initial`, and initial value `{ schema: null, result: null }`. `schema` MUST be the step's JSON Schema or `null` for a text-only step; `result` MUST be `null` until `submit_result` accepts a result, and then the accepted object.
 
 #### Scenario: A fresh step conversation starts empty and gets its schema at dispatch
 - **WHEN** dispatch configures a structured step
@@ -243,7 +243,7 @@ On each call `submit_result` SHALL read the conversation's `agentscript.step` do
 - **THEN** there SHALL be no `result` section
 
 ### Requirement: checkResult refuses a result with no schema or no object
-The package SHALL export `checkResult(schema, value): string | undefined`, returning `undefined` when the value is acceptable and otherwise one message for the model. When `schema` is `null` it MUST return `This step takes no structured result; answer in text instead.`; when `value` is `null`, not an object, or an array it MUST return `The result must be an object.`
+`@specsesh/agent/durable` SHALL export `checkResult(schema, value): string | undefined`, returning `undefined` when the value is acceptable and otherwise one message for the model. When `schema` is `null` it MUST return `This step takes no structured result; answer in text instead.`; when `value` is `null`, not an object, or an array it MUST return `The result must be an object.`
 
 #### Scenario: A non-object result is refused
 - **WHEN** `checkResult` is called on a schema with `null`, `"high"`, `3` or `["high"]`

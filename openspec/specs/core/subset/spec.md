@@ -6,7 +6,7 @@ The one declaration of which Agent Script constructs this runtime executes, and 
 ## Requirements
 
 ### Requirement: The supported subset is declared once, as SUPPORTED_CONSTRUCTS
-The `./interpreter` export SHALL declare the executable subset once: `SUPPORTED_CONSTRUCTS`, a plain array literal closed by `] as const;` in `src/interpreter/subset.ts`, with no second declaration in `src/`. Each entry SHALL be `{ id, summary, probe, kinds }`: a stable id, a summary, a probe that parses clean and produces every declared kind, and a non-empty list of node kinds. `SUPPORTED_CONSTRUCT_IDS` SHALL list the ids in order.
+`@specsesh/agent/interpreter` SHALL declare the executable subset once: `SUPPORTED_CONSTRUCTS`, a plain array literal closed by `] as const;` in `src/interpreter/subset.ts`, with no second declaration in `src/`. Each entry SHALL be `{ id, summary, probe, kinds }`: a stable id, a summary, a probe that parses clean and produces every declared kind, and a non-empty list of node kinds. `SUPPORTED_CONSTRUCT_IDS` SHALL list the ids in order.
 
 #### Scenario: The ten constructs, in order
 - **WHEN** `SUPPORTED_CONSTRUCT_IDS` is read
@@ -238,7 +238,7 @@ Each `UnsupportedConstruct` SHALL carry `construct` (in the author's vocabulary)
 
 #### Scenario: The exact message and error shape
 - **WHEN** a finding is reported
-- **THEN** its message SHALL read `<construct> <at>, in <where>, is unsupported by this runtime. It may well be valid Agent Script — @coopcli/agentscript implements an enumerated subset and does not execute this construct. Supported: <ids>.`, with `<at>` = `at <line+1>:<character+1>` from the key's range, else the child's span, else the value's span
+- **THEN** its message SHALL read `<construct> <at>, in <where>, is unsupported by this runtime. It may well be valid Agent Script — @specsesh/agent implements an enumerated subset and does not execute this construct. Supported: <ids>.`, with `<at>` = `at <line+1>:<character+1>` from the key's range, else the child's span, else the value's span
 - **AND** `UnsupportedConstructError` SHALL have name `UnsupportedConstructError`, carry `constructs`, and have message `this runtime does not implement <n> construct(s) used by the document:` followed by one `  - <message>` line per finding
 
 #### Scenario: An unsupported block is named with its real position

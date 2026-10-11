@@ -6,7 +6,7 @@ Starting and awaiting script runs from any host that holds a pi-durable Harness.
 ## Requirements
 
 ### Requirement: startScript durably creates a run task and returns its ID
-`agentscript-durable` SHALL export `startScript(harness, source, options, context): Promise<TaskId<RunResult>>`. It MUST create an `agentscript.run` task (see `durable/run-task`) in one commit on the owning conversation, with task ownership `{ kind: "conversation" }`, and resolve to the new task's numeric ID. The owner MUST be `options.conversation` when given, else `await harness.root(context)`.
+`@specsesh/agent/durable` SHALL export `startScript(harness, source, options, context): Promise<TaskId<RunResult>>`. It MUST create an `agentscript.run` task (see `durable/run-task`) in one commit on the owning conversation, with task ownership `{ kind: "conversation" }`, and resolve to the new task's numeric ID. The owner MUST be `options.conversation` when given, else `await harness.root(context)`.
 
 #### Scenario: A run is created on the root conversation by default
 - **GIVEN** an open harness and no `conversation` option
@@ -45,7 +45,7 @@ Starting and awaiting script runs from any host that holds a pi-durable Harness.
 - **THEN** the task input SHALL have no `model` key
 
 ### Requirement: waitForScript returns the result of a completed run
-`agentscript-durable` SHALL export `waitForScript(harness, id, context): Promise<RunResult>`, which awaits `harness.waitForTask(id, context)` and, when the task is terminal with outcome status `completed`, MUST resolve to that outcome's `RunResult` unchanged — including runs whose `kind` is `"failed"` or `"cut-short"`.
+`@specsesh/agent/durable` SHALL export `waitForScript(harness, id, context): Promise<RunResult>`, which awaits `harness.waitForTask(id, context)` and, when the task is terminal with outcome status `completed`, MUST resolve to that outcome's `RunResult` unchanged — including runs whose `kind` is `"failed"` or `"cut-short"`.
 
 #### Scenario: A completed run returns its result
 - **GIVEN** a pipeline run whose steps both answer
@@ -74,7 +74,7 @@ When the task is terminal with an outcome status other than `completed`, `waitFo
 - **THEN** it SHALL reject with a message matching `ended aborted`
 
 ### Requirement: runScript starts and waits in one call
-`agentscript-durable` SHALL export `runScript(harness, source, options, context): Promise<RunResult>`, equivalent to `waitForScript(harness, await startScript(harness, source, options, context), context)`. It MUST NOT call `harness.resume()`; resuming tasks left unfinished by an earlier process is the host's job.
+`@specsesh/agent/durable` SHALL export `runScript(harness, source, options, context): Promise<RunResult>`, equivalent to `waitForScript(harness, await startScript(harness, source, options, context), context)`. It MUST NOT call `harness.resume()`; resuming tasks left unfinished by an earlier process is the host's job.
 
 #### Scenario: A run end to end on an in-memory harness
 - **GIVEN** a harness on `MemoryStorage` with both extensions installed, and faux answers `{ severity: "high" }` then `On it, urgently.`

@@ -38,7 +38,7 @@ For both commands the CLI SHALL open `Harness.open(await openNodeSqliteStorage(<
 - **THEN** the harness SHALL have been closed before `main` returns
 
 ### Requirement: The model collection defaults to every built-in provider plus claude-code
-When no `models` dependency is injected, the CLI SHALL build its model collection from pi-ai's `builtinModels()` and then register the `claude-code` provider from `agentscript-pi` (`claudeCodeProvider()`), so `--provider claude-code` runs steps through the user's own `claude` binary. Credentials MUST be pi-ai's own environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, ...); the CLI reads no other credential.
+When no `models` dependency is injected, the CLI SHALL build its model collection from pi-ai's `builtinModels()` and then register the `claude-code` provider from `@specsesh/agent/claude-code` (`claudeCodeProvider()`), so `--provider claude-code` runs steps through the user's own `claude` binary. Credentials MUST be pi-ai's own environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, ...); the CLI reads no other credential.
 
 #### Scenario: claude-code is a selectable provider
 - **WHEN** the CLI runs `run hello.agent --db runs.sqlite --provider claude-code --model claude-haiku-4-5`
@@ -144,7 +144,7 @@ The CLI SHALL exit `0` when the `RunResult.kind` is `"completed"` and `1` when i
 - **THEN** the exit code SHALL be `0`
 
 ### Requirement: parseVar types a name=value pair the way the dialect spells values
-The package SHALL export `parseVar(raw)` from its CLI module, splitting at the first `=`. A raw string with no `=`, or with `=` as its first character, MUST throw `--var expects name=value, got "<raw>"`. The value MUST become `true` for exactly `True`, `false` for exactly `False`, a number when it is non-empty and matches `^-?\d+(\.\d+)?$`, and the string as written otherwise. Everything after the first `=` belongs to the value.
+The durable CLI module, `src/bin/agentscript-durable.ts`, SHALL export `parseVar(raw)` (not a public entry point), splitting at the first `=`. A raw string with no `=`, or with `=` as its first character, MUST throw `--var expects name=value, got "<raw>"`. The value MUST become `true` for exactly `True`, `false` for exactly `False`, a number when it is non-empty and matches `^-?\d+(\.\d+)?$`, and the string as written otherwise. Everything after the first `=` belongs to the value.
 
 #### Scenario: Values are typed
 - **WHEN** `parseVar` is called with `a=b`, `n=2`, `t=True` and `f=False`

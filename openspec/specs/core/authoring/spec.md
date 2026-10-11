@@ -6,12 +6,12 @@ Parse, lint and edit an Agent Script document as text, never compile it. Analysi
 ## Requirements
 
 ### Requirement: The authoring entry exports parse, analyse and a document, and nothing that compiles
-The core package's `./authoring` export SHALL expose exactly the authoring surface: `analyze`, `parse`, `Document`, the type `Analysis`, and a re-export of `SUPPORTED_CONSTRUCTS` (with its type `SupportedConstruct`) from the interpreter's subset declaration. No export path advertised by the package manifest SHALL have a name matching `/compile|emit-runtime|salesforce/i`. The manifest SHALL advertise `./authoring` and `./interpreter`, and every advertised target file SHALL exist.
+`@specsesh/agent/authoring` SHALL expose exactly the authoring surface: `analyze`, `parse`, `Document`, the type `Analysis`, and a re-export of `SUPPORTED_CONSTRUCTS` (with its type `SupportedConstruct`) from the interpreter's subset declaration. No export path advertised by the package manifest SHALL have a name matching `/compile|emit-runtime|salesforce/i`. The manifest SHALL advertise the entries `package/distribution` lists, and after `pnpm build` every advertised target file SHALL exist.
 
 #### Scenario: A consumer imports the authoring surface
-- **WHEN** a consumer imports `./authoring`
+- **WHEN** a consumer imports `@specsesh/agent/authoring`
 - **THEN** the module's keys SHALL include `Document`, `analyze`, `parse` and `SUPPORTED_CONSTRUCTS`
-- **AND** `SUPPORTED_CONSTRUCTS` SHALL be the same declaration the interpreter's `./interpreter` export reads, not a copy
+- **AND** `SUPPORTED_CONSTRUCTS` SHALL be the same declaration `@specsesh/agent/interpreter` reads, not a copy
 
 #### Scenario: No export offers compilation
 - **WHEN** the manifest's `exports` keys are listed
@@ -19,11 +19,11 @@ The core package's `./authoring` export SHALL expose exactly the authoring surfa
 - **AND** none SHALL match `/compile|emit-runtime|salesforce/i`
 
 #### Scenario: Every advertised entry point exists
-- **WHEN** each target in the manifest's `exports` is resolved against the package directory
+- **WHEN** the package is built and each target in the manifest's `exports` is resolved against the package directory
 - **THEN** each file SHALL exist on disk
 
 ### Requirement: The compiler is structurally unreachable
-The core package MUST NOT depend, directly or transitively, on `@sf-agentscript/agentforce` (the SDK carrying `compileSource()`) or `@sf-agentscript/compiler`, and its `src/` code MUST NOT call `compileSource(` or import either package; comments may discuss the compiler. `@sf-agentscript/agentforce-dialect` (schema and lint rules) is a legitimate dependency and SHALL NOT be mistaken for the compiler.
+`@specsesh/agent` MUST NOT depend, directly or transitively, on `@sf-agentscript/agentforce` (the SDK carrying `compileSource()`) or `@sf-agentscript/compiler`, and its `src/` code MUST NOT call `compileSource(` or import either package; comments may discuss the compiler. `@sf-agentscript/agentforce-dialect` (schema and lint rules) is a legitimate dependency and SHALL NOT be mistaken for the compiler.
 
 #### Scenario: Direct dependencies exclude the compiler
 - **WHEN** the manifest's `dependencies`, `peerDependencies` and `optionalDependencies` are merged
@@ -41,7 +41,7 @@ The core package MUST NOT depend, directly or transitively, on `@sf-agentscript/
 - **AND** no file SHALL match an import `from "@sf-agentscript/agentforce"` (without `-dialect`) or `from "@sf-agentscript/compiler"`
 
 ### Requirement: Upstream dependencies are pinned exactly
-Every dependency of the core package whose name starts with `@sf-agentscript/` SHALL be declared with an exact `major.minor.patch` version (matching `/^\d+\.\d+\.\d+$/`), never a range. The current pins are `@sf-agentscript/agentforce-dialect` `2.53.0`, `@sf-agentscript/agentscript-dialect` `3.4.0`, `@sf-agentscript/language` `3.2.3` and `@sf-agentscript/parser-javascript` `3.1.3`.
+Every dependency of `@specsesh/agent` whose name starts with `@sf-agentscript/` SHALL be declared with an exact `major.minor.patch` version (matching `/^\d+\.\d+\.\d+$/`), never a range. The current pins are `@sf-agentscript/agentforce-dialect` `2.53.0`, `@sf-agentscript/agentscript-dialect` `3.4.0`, `@sf-agentscript/language` `3.2.3` and `@sf-agentscript/parser-javascript` `3.1.3`.
 
 #### Scenario: Every upstream dependency is exact
 - **WHEN** the `@sf-agentscript/*` entries of the manifest's `dependencies` are listed
@@ -54,7 +54,7 @@ Every dependency of the core package whose name starts with `@sf-agentscript/` S
 - **THEN** it SHALL fail naming that dependency as not pinned exactly
 
 ### Requirement: The package's test script runs subset conformance against the pinned upstream
-The core package's `test` script SHALL run `scripts/check-subset-conformance.mjs` before the unit tests. The script SHALL read `SUPPORTED_CONSTRUCTS` from the text of `src/interpreter/subset.ts` (or the file named by `AGENTSCRIPT_SUBSET_FILE`) with no build step, check each probe parses with no diagnostics and produces every declared kind, and exit 0 only when nothing failed.
+The `test` script of `@specsesh/agent` SHALL run `scripts/check-subset-conformance.mjs` before the unit tests. The script SHALL read `SUPPORTED_CONSTRUCTS` from the text of `src/interpreter/subset.ts` (or the file named by `AGENTSCRIPT_SUBSET_FILE`) with no build step, check each probe parses with no diagnostics and produces every declared kind, and exit 0 only when nothing failed.
 
 #### Scenario: Failure ids and output shape
 - **WHEN** the script runs with `--json`
@@ -96,20 +96,20 @@ The core package's `test` script SHALL run `scripts/check-subset-conformance.mjs
 - **THEN** it SHALL exit non-zero, with `retired-construct` among the failure ids
 
 ### Requirement: The core package imports only its declared dependencies and stays inside itself
-Every import in the core package's `src/` SHALL resolve to a declared dependency, a Node builtin or a file under `src/`. The relative-import closure from every manifest export target SHALL stay inside `src/` and reach `run.ts`, `scan.ts` and `compose.ts`. The package SHALL depend on no private workspace package and its source SHALL read no credential.
+Every import in `src/authoring/` and `src/interpreter/` SHALL resolve to an `@sf-agentscript/*` dependency, a Node builtin, or a file in those two directories. The relative-import closure from the `./authoring` and `./interpreter` export targets SHALL stay inside them and reach `run.ts`, `scan.ts` and `compose.ts`. Their source SHALL read no credential. Neither directory SHALL import from `src/pi/`, `src/claude-code/`, `src/durable/` or `src/cloudflare/`.
 
 #### Scenario: The module graph closes inside the package
-- **WHEN** relative imports are followed from each advertised export target
+- **WHEN** relative imports are followed from the `./authoring` and `./interpreter` export targets, mapped back to their sources
 - **THEN** more than one entry point SHALL be seeded
-- **AND** every resolved file SHALL start with `src/` and exist
+- **AND** every resolved file SHALL start with `src/authoring/` or `src/interpreter/` and exist
 - **AND** `run.ts`, `scan.ts` and `compose.ts` SHALL be among the files reached
 
 #### Scenario: Only declared dependencies are imported
-- **WHEN** every bare import specifier in `src/` is reduced to its package name
-- **THEN** each SHALL be a declared dependency or a Node builtin
+- **WHEN** every bare import specifier in `src/authoring/` and `src/interpreter/` is reduced to its package name
+- **THEN** each SHALL start with `@sf-agentscript/` or be a Node builtin
 
 #### Scenario: No credential is read
-- **WHEN** the source under `src/` is scanned with comments stripped
+- **WHEN** the source under `src/authoring/` and `src/interpreter/` is scanned with comments stripped
 - **THEN** no file SHALL match `/process\.env|API_KEY|apiKey|ANTHROPIC_|OPENAI_|Bearer\s/i`
 
 ### Requirement: analyze parses with the Agentforce dialect and lints with its default rules
@@ -264,7 +264,7 @@ Each diagnostic `analyze` returns for a syntax error SHALL carry a non-empty mes
 - **THEN** `source` SHALL equal the original exactly
 
 ### Requirement: Every interpreter fixture is a document an author could save
-Every string fixture exported by the core package's test fixtures module SHALL be registered in its `FIXTURES` table with the identical source and an expected lint result. A fixture marked `clean` SHALL produce no diagnostics at all, not even warnings or hints. Any other fixture SHALL produce exactly its listed messages. The deliberately broken fixtures `UNDECLARED_REFERENCE` and `UNTERMINATED_STRING` SHALL each carry at least one diagnostic of severity 1.
+Every string fixture exported by the interpreter's test fixtures module (`__tests__/core/helpers/fixtures.ts`) SHALL be registered in its `FIXTURES` table with the identical source and an expected lint result. A fixture marked `clean` SHALL produce no diagnostics at all, not even warnings or hints. Any other fixture SHALL produce exactly its listed messages. The deliberately broken fixtures `UNDECLARED_REFERENCE` and `UNTERMINATED_STRING` SHALL each carry at least one diagnostic of severity 1.
 
 #### Scenario: Every exported fixture is registered
 - **WHEN** the fixtures module's string exports are compared with `FIXTURES`' keys

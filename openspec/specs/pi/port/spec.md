@@ -6,11 +6,15 @@ A `ReasoningPort` backed by pi-ai, so a script can run on any provider pi knows:
 ## Requirements
 
 ### Requirement: The pi adapter exports its port, mapping and model helpers
-`agentscript-pi` SHALL export `createPiReasoningPort`, `forceTool`, `toOutcome`, `RESULT_TOOL`, `categoryFromStatus`, `DEFAULT_PROVIDER`, `DEFAULT_MODEL` and `resolveModel` from its root entry, together with the claude-code exports defined by `pi/claude-code`. `RESULT_TOOL` MUST equal `"submit_result"`.
+`@specsesh/agent/pi` SHALL export `createPiReasoningPort`, `forceTool`, `toOutcome`, `RESULT_TOOL`, `categoryFromStatus`, `DEFAULT_PROVIDER`, `DEFAULT_MODEL` and `resolveModel`, and nothing from the claude-code layer, which has its own entry (`pi/claude-code`). `RESULT_TOOL` MUST equal `"submit_result"`.
 
 #### Scenario: The result tool name is stable
-- **WHEN** a caller reads `RESULT_TOOL` from `agentscript-pi`
+- **WHEN** a caller reads `RESULT_TOOL` from `@specsesh/agent/pi`
 - **THEN** it SHALL equal `"submit_result"`
+
+#### Scenario: The pi entry carries no claude-code exports
+- **WHEN** a caller imports `@specsesh/agent/pi`
+- **THEN** `createClaudeCodeReasoningPort` and `claudeCodeProvider` SHALL NOT be among its exports
 
 ### Requirement: One reason call is exactly one model request
 `createPiReasoningPort({ models, model, ... })` SHALL return a `ReasoningPort` whose `reason(request)` makes exactly one `models.complete(model, context, options)` call and no other model call. The port MUST NOT loop, run tools or feed a tool result back, so it never reports `cut-short`.

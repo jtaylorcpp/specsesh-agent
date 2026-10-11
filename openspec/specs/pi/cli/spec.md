@@ -16,13 +16,6 @@ The `agentscript-pi` command: run an Agent Script file once, in process, on any 
 - **WHEN** the CLI runs with no arguments
 - **THEN** stderr SHALL contain `usage:` and the exit code SHALL be `2`
 
-### Requirement: The bin runs the TypeScript CLI through tsx
-`bin/agentscript-pi.mjs` SHALL run `src/cli.ts` with the current Node binary and `tsx/cli`, passing every argument through with inherited stdio, and exit with the child's status, or `1` when it has none. tsx is needed because the core ships raw `.ts` with `.js`-suffixed imports.
-
-#### Scenario: Arguments and exit code pass through
-- **WHEN** the bin runs `frobnicate`
-- **THEN** it SHALL exit `2` with the usage on stderr
-
 ### Requirement: models lists a provider's models
 `models [provider]` SHALL print one line per model of the provider, `<id>\t<name>`, from pi-ai's built-in collection, and exit `0`. The provider SHALL default to `anthropic`. For `claude-code` it SHALL instead print `any id or alias \`claude --model\` accepts: haiku, sonnet, opus, claude-haiku-4-5, ...` and exit `0`. A provider pi does not know prints nothing and exits `0`.
 
@@ -99,3 +92,15 @@ With `--json`, `run` SHALL print `JSON.stringify({ provider, model, kind, steps,
 #### Scenario: A failed run exits 1
 - **WHEN** a run ends `failed`
 - **THEN** the exit code SHALL be `1`
+
+### Requirement: The bin is the compiled CLI
+The `agentscript-pi` bin SHALL be `dist/bin/agentscript-pi.js`, compiled from `src/bin/agentscript-pi.ts`, starting with `#!/usr/bin/env node`, and SHALL run the CLI in-process with no `tsx`. It SHALL exit with the CLI's exit code, and print an uncaught error as `<name>: <message>` on stderr and exit `1`.
+
+#### Scenario: Arguments and exit code pass through
+- **WHEN** the bin runs `frobnicate`
+- **THEN** it SHALL exit `2` with the usage on stderr
+
+#### Scenario: The installed bin needs no tsx
+- **GIVEN** the packed tarball installed in an empty project with no `tsx`
+- **WHEN** `npx agentscript-pi models claude-code` runs there
+- **THEN** it SHALL exit `0` and print the claude-code model hint

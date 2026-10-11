@@ -38,4 +38,4 @@
 ## 5. Close
 
 - [x] 5.1 `pnpm check`, `pnpm test` (core, pi, durable, package), `pnpm build`, `pnpm pack:check` all pass; `pnpm test:cloudflare` (crash-resume + routes) is opt-in and not part of the gate
-- [ ] 5.2 `pnpm spec:archive package-specsesh-agent`, then `pnpm spec:check`
+- [x] 5.2 `pnpm spec:archive package-specsesh-agent`, then `pnpm spec:check`
