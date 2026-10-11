@@ -37,10 +37,10 @@ The pack check SHALL import `@specsesh/agent/openspec` under plain Node from a p
 ## MODIFIED Requirements
 
 ### Requirement: Each layer imports only its own peers and the layers beneath it
-`src/pi/` SHALL import only `@earendil-works/pi-ai`, Node builtins, the core directories and itself. `src/claude-code/` adds `src/pi/`. `src/durable/` adds `@earendil-works/pi-durable`, `@earendil-works/chord`, `src/claude-code/` and `src/openspec/`. Only `src/cloudflare/` SHALL import `agents` or `cloudflare:workers`, and it adds `src/durable/`. `src/openspec/` SHALL import only `typebox` and itself. `src/bin/` may import any layer.
+`src/pi/` SHALL import only `@earendil-works/pi-ai`, Node builtins, the core directories and itself. `src/claude-code/` adds `src/pi/`. `src/durable/` adds `@earendil-works/pi-durable`, `@earendil-works/chord`, `src/claude-code/` and `src/openspec/`. `src/task/` adds `src/durable/`. Only `src/cloudflare/` SHALL import `agents` or `cloudflare:workers`, and it adds `src/durable/`. `src/openspec/` SHALL import only `typebox` and itself. `src/bin/` may import any layer.
 
 #### Scenario: The layer graph holds
-- **WHEN** every import under `src/pi/`, `src/claude-code/`, `src/durable/`, `src/cloudflare/` and `src/openspec/` is reduced to a package name or a top-level `src/` directory
+- **WHEN** every import under `src/pi/`, `src/claude-code/`, `src/durable/`, `src/task/`, `src/cloudflare/` and `src/openspec/` is reduced to a package name or a top-level `src/` directory
 - **THEN** each directory's set SHALL be within the set this requirement allows it
 - **AND** the scan SHALL have read at least one file in each directory
 

@@ -1,6 +1,6 @@
 ## 1. Before starting
 
-- [ ] 1.1 Merge `main` after `add-task-agent` has archived. If that change modified "Each layer imports only its own peers and the layers beneath it" (e.g. adding `src/task/`), rebase this change's MODIFIED delta onto the archived wording (header exact, full text, all scenarios), keeping only the `zod` → `typebox` edit
+- [x] 1.1 Merge `main` after `add-task-agent` has archived. If that change modified "Each layer imports only its own peers and the layers beneath it" (e.g. adding `src/task/`), rebase this change's MODIFIED delta onto the archived wording (header exact, full text, all scenarios), keeping only the `zod` → `typebox` edit
 
 ## 2. Schemas in TypeBox
 
