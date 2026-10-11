@@ -58,6 +58,7 @@ export function nextGroup(changeDir: string): number | undefined {
 	for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
 		const heading = /^## (\d+)\./.exec(line);
 		if (heading !== null) group = Number(heading[1]);
+		else if (line.startsWith("## ")) group = undefined;
 		else if (group !== undefined && /^\s*- \[ \]/.test(line)) return group;
 	}
 	return undefined;

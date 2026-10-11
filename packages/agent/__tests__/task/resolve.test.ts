@@ -2,7 +2,7 @@ import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { nextTask, openChanges, resolveChange } from "../../src/task/resolve.js";
+import { nextGroup, nextTask, openChanges, resolveChange } from "../../src/task/resolve.js";
 import { cli, fauxModels, storedLoops, workdir } from "./cli-helpers.js";
 import { baselineDir, cleanTemps, context, temp, tinyChange, verdict } from "./helpers.js";
 
@@ -119,6 +119,13 @@ describe("task/cli: run takes a group", () => {
 		expect(r.code).toBe(0);
 		expect(r.out).toMatch(/^no unticked task in /);
 		expect(existsSync(db)).toBe(false);
+	});
+
+	it("nextGroup skips ticked groups, treats [X] as ticked and ends a group at any ## heading", () => {
+		const open = (tasks: string) => nextGroup(tinyChange({ tasks }));
+		expect(open("## 1. A\n\n- [x] 1.1 a\n\n## 2. B\n\n- [ ] 2.1 b\n")).toBe(2);
+		expect(open("## 1. A\n\n- [X] 1.1 a\n")).toBeUndefined();
+		expect(open("## 1. A\n\n- [x] 1.1 a\n\n## Notes\n\n- [ ] 9.9 not a task of group 1\n")).toBeUndefined();
 	});
 
 	it("Scenario: An unknown group exits 2 listing the groups", async () => {
