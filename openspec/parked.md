@@ -9,7 +9,6 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 - **cloudflare: a missing `AI` binding** outside faux mode is cast, not checked, so it fails late.
 - **cli: some usage errors exit 1, not 2.** A bad `--var`, a missing file and an unknown flag throw instead of printing usage.
 - **cli: an unknown model still creates the SQLite file.** `Harness.open` runs before the model check (no task is created). The test name "before creating anything" overstates it.
-- **durable: no bound on `submit_result` retries** within a step, beyond whatever pi-durable has.
 - **core: undeclared variables never reach `UndeclaredVariableError`** through `start`; the dialect's lint reports them as errors first, so callers get `UnparsedDocumentError`.
 - **core: `UnreadableDocumentError` looks unreachable.** Every malformed input tried (empty, whitespace, comments, `}{`, NUL) yields a root or an error diagnostic first, so `UnparsedDocumentError` always wins. Candidate for removal; its scenario has no test.
 - **core: `integer` variables always warn.** The only default an `integer` can have (`= 0`) draws the dialect warning `declared as 'integer' but default value is 'number'`. A warning, so it runs.
@@ -40,7 +39,7 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 
 ## Actions (from add-agentscript-actions)
 
-- Offered tool names collide across concurrent runs in one harness. pi-durable resolves a conversation's tools by name, and `agentScriptExtensions` keeps one live tool per offer name (last registered wins). Two runs offering the same name (`note`, say) with different descriptions or input schemas share whichever definition was registered last, so one run's model can see the other's description and have its arguments validated against the other's schema. Execution is still correct: each call reads its own offer (bound inputs, action) from its step conversation's `agentscript.step-actions` doc. A crash during a model-callable tool call is also not yet tested (the act phase's crashes are).
+- Offered tool names collide across concurrent runs in one harness. pi-durable resolves a conversation's tools by name, and `agentScriptExtensions` keeps one live tool per offer name (last registered wins). Two runs offering the same name (`note`, say) with different descriptions or input schemas share whichever definition was registered last, so one run's model can see the other's description and have its arguments validated against the other's schema. Execution is still correct: each call reads its own offer (bound inputs, action) from its step conversation's `agentscript.step-actions` doc. Since `bound-step-results`, `submit_result`'s parameters are live the same way, so concurrent structured steps can show a provider another step's schema; the tool still checks against its own step doc's `schema`. A crash during a model-callable tool call is also not yet tested (the act phase's crashes are).
 - `agentscript-durable` installs the plain extensions, so a script with actions is refused there. Propose `--workspace <dir>` (plus `--allow` / `--check`) to install `agentScriptExtensions({ actions: builtinActions(...), workspace })`; the task CLI will install its own registry.
 
 ## Task loop (from add-task-agent)

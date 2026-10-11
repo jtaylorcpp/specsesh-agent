@@ -51,9 +51,10 @@ package through `workspace:*` and its public entries only.
 - **`./durable`**: task phases `next` → `dispatch` (create a task-owned child conversation
   for the step, in one commit) → `await` (submit with request ID `agentscript:<task>:<step>`, wait,
   `apply`). Each step is a fresh conversation: system block as `instructions`, its prompt, and
-  `submit_result` only when it writes variables. The tool validates against the step schema (in the
-  `agentscript.step` doc, shown via a `result` section), returns errors for the model to retry, and
-  ends the run with `control.terminate`. Task IDs are numbers; a string ID makes `waitForTask` hand
+  `submit_result` only when it writes variables, its parameters the step's schema (so
+  `claude --json-schema` enforces the types). The tool validates the call as sent against the step
+  schema (in the `agentscript.step` doc, shown via a `result` section), returns errors for the model
+  to retry, the third refusal failing the step, and ends the run with `control.terminate`. Task IDs are numbers; a string ID makes `waitForTask` hand
   back a stale record.
 - Verified: crash/resume on node SQLite (child process `exit(137)` mid-step, fresh harness finishes)
   and on local Durable Object storage (`kill -9` workerd mid-step, restart, run completes).
@@ -122,7 +123,7 @@ pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop pr
   Review the diff and commit yourself.
 - **`--worktree`** runs the task in `../<repo>-worktrees/<change-id>-<task-id>` on branch
   `task/<change-id>/<task-id>`, from `HEAD` (commit the change first), after
-  `pnpm install --frozen-lockfile --offline`. The main tree is untouched, so you can keep working and
+  `pnpm install --frozen-lockfile --prefer-offline`. The main tree is untouched, so you can keep working and
   run several tasks at once, each with its own `--db` (mandatory here). Review with
   `git -C <path> diff`; remove with `git worktree remove <path>` (and `git branch -D <branch>`).
 - One live process per database (`<db>.lock`); a second is refused, naming the holder's pid.

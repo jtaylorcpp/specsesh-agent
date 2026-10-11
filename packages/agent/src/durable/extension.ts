@@ -46,6 +46,7 @@ import {
 import type { Context, JsonValue } from "@earendil-works/chord";
 import { Type } from "@earendil-works/pi-ai";
 import {
+	AssistantEntry,
 	configure,
 	defineDoc,
 	defineExtension,
@@ -61,6 +62,7 @@ import {
 	type Task,
 	type TaskRuntime,
 	type ToolRegistration,
+	type Tx,
 } from "@earendil-works/pi-durable";
 import { type ActionRegistry, type HostAction, checkBindings } from "./actions.js";
 import { checkResult } from "./result.js";
@@ -74,6 +76,8 @@ export interface StepDoc extends JsonObject {
 	schema: JsonObject | null;
 	/** The accepted result, written by the tool once it passes the schema. */
 	result: JsonObject | null;
+	/** Refused `submit_result` calls; the third ends the step failed. */
+	refusals: number;
 }
 
 export const AgentScriptStep = defineDoc<StepDoc>({
@@ -82,7 +86,7 @@ export const AgentScriptStep = defineDoc<StepDoc>({
 	scope: "conversation",
 	history: "latest",
 	fork: "initial",
-	initial: () => ({ schema: null, result: null }),
+	initial: () => ({ schema: null, result: null, refusals: 0 }),
 });
 
 /** A step's offered action tools and what each call ran, on the step's own conversation. */
@@ -122,26 +126,78 @@ export type RunCheckpoint =
 
 type Runtime = TaskRuntime<RunInput, RunCheckpoint, RunResult, object>;
 
-const submitResult = defineTool({
-	name: RESULT_TOOL,
-	description:
-		"Submit this step's result as an object with exactly the fields the system prompt lists. " +
-		"Call it once; it ends the step.",
-	parameters: Type.Object({}, { additionalProperties: true }),
-	replay: "safe",
-	execute: async (args, api, context) => {
-		const doc = await api.snapshot(AgentScriptStep, api.conversationId, context);
-		const problem = checkResult(doc?.schema ?? null, args);
-		if (problem !== undefined) {
-			// The model gets this as an error result and can call again.
-			return { content: [{ type: "text", text: problem }], isError: true };
+/** Refused calls a step allows; the last one ends the step failed. */
+const MAX_REFUSALS = 3;
+
+const RESULT_DESCRIPTION =
+	"Submit this step's result as an object with exactly the fields the system prompt lists. " +
+	"Call it once; it ends the step.";
+
+/**
+ * A structured step's result tool. Its parameters are the step's schema, so a
+ * provider that constrains output to them (`claude --json-schema`) enforces the
+ * field types.
+ *
+ * pi validates a call against `parameters` before executing it, coercing what it
+ * can (`"true"` becomes `true`) and refusing the rest without running the tool. The
+ * tool has to see every call, to count refusals, and see it as the model sent it,
+ * so pi is always handed a stand-in that passes and `execute` reads the call's
+ * arguments from the transcript.
+ */
+function resultTool(schema: JsonObject): ToolRegistration {
+	return defineTool({
+		name: RESULT_TOOL,
+		description: RESULT_DESCRIPTION,
+		parameters: schema as unknown as ReturnType<typeof Type.Object>,
+		replay: "safe",
+		prepareArguments: () => standIn(schema),
+		execute: async (_args, api, context) => {
+			const verdict = await api.commit(async (tx) => {
+				const args = await sentArguments(tx, api.taskId, api.callId);
+				const doc = await tx.doc(AgentScriptStep, api.conversationId);
+				const problem = checkResult(doc.schema ?? null, args);
+				if (problem === undefined) {
+					doc.result = args as JsonObject;
+					return { problem, refusals: doc.refusals ?? 0 };
+				}
+				doc.refusals = (doc.refusals ?? 0) + 1;
+				return { problem, refusals: doc.refusals };
+			}, context);
+			if (verdict.problem === undefined) {
+				return { content: [{ type: "text", text: "Result recorded." }], control: { terminate: true } };
+			}
+			// The model gets this as an error result and can call again, until the last refusal ends the step.
+			return {
+				content: [{ type: "text", text: verdict.problem }],
+				isError: true,
+				...(verdict.refusals >= MAX_REFUSALS ? { control: { terminate: true } } : {}),
+			};
+		},
+	});
+}
+
+/** The arguments of tool call `callId` as the model sent them, before pi's validation. */
+async function sentArguments(tx: Tx, taskId: TaskId, callId: string): Promise<unknown> {
+	const input = (await tx.task(taskId))?.input as { assistant?: EntryId } | undefined;
+	const entry = input?.assistant !== undefined ? await tx.entry(AssistantEntry, input.assistant) : undefined;
+	for (const message of entry?.model ?? []) {
+		if (message.role !== "assistant") continue;
+		for (const block of message.content) {
+			if (block.type === "toolCall" && block.id === callId) return block.arguments;
 		}
-		await api.commit(async (tx) => {
-			(await tx.doc(AgentScriptStep, api.conversationId)).result = args as JsonObject;
-		}, context);
-		return { content: [{ type: "text", text: "Result recorded." }], control: { terminate: true } };
-	},
-});
+	}
+	throw new Error(`tool call ${callId} is not in its assistant entry`);
+}
+
+/** A value that passes `schema`: each property's type at its zero. */
+function standIn(schema: JsonObject): JsonObject {
+	const properties = (schema["properties"] ?? {}) as Record<string, { type?: string }>;
+	const zero = (type: string | undefined): JsonValue => (type === "number" ? 0 : type === "boolean" ? false : "");
+	return Object.fromEntries(Object.entries(properties).map(([field, spec]) => [field, zero(spec.type)]));
+}
+
+/** The result tool the plain step extension lists until a step registers its own. */
+const openResultTool = resultTool({ type: "object", properties: {} });
 
 /** Shows the model the step's result schema. Absent for a text-only step. */
 const resultSection = section("result", async (input, context) => {
@@ -188,21 +244,31 @@ function createExtensions(registry: ActionRegistry, workspace: string): AgentScr
 	 * Executing a call reads the offer from the step's own doc, never from here.
 	 */
 	const offerTools = new Map<string, ToolRegistration>();
+	/** The result tool, live the same way: parameters from the latest structured request. */
+	let liveResult = openResultTool;
 
-	const register = (offers: readonly ToolOffer[] | undefined): ToolRegistration[] =>
-		(offers ?? []).map((offer) => {
+	/** The step's tools, registered live: its result tool (structured steps only), then its offers. */
+	const register = (request: ReasoningRequest): ToolRegistration[] => {
+		const tools: ToolRegistration[] = [];
+		if (request.outputSchema !== undefined) {
+			liveResult = resultTool(request.outputSchema as JsonObject);
+			tools.push(liveResult);
+		}
+		for (const offer of request.tools ?? []) {
 			const tool = offerTool(offer, registry, workspace);
 			offerTools.set(offer.name, tool);
-			return tool;
-		});
+			tools.push(tool);
+		}
+		return tools;
+	};
 
 	const step: Extension = defineExtension({
 		name: "agentscript.step",
 		sections: [resultSection],
-		tools: [submitResult],
+		tools: [openResultTool],
 	});
 	Object.defineProperty(step, "tools", {
-		get: () => [submitResult, ...offerTools.values()],
+		get: () => [liveResult, ...offerTools.values()],
 		enumerable: true,
 	});
 
@@ -235,7 +301,7 @@ function createExtensions(registry: ActionRegistry, workspace: string): AgentScr
 				const { state, step } = task.state.checkpoint;
 				const request = awaitingRequest(state);
 				if (request === undefined) throw new Error("dispatch reached with no step awaiting");
-				const tools = register(request.tools);
+				const tools = register(request);
 				await runtime.commit(async (tx) => {
 					const child = await tx.createConversation({ ownership: { kind: "task", taskId: runtime.taskId } });
 					await configureStep(tx, child.id, request, tools, task.input.model);
@@ -246,7 +312,7 @@ function createExtensions(registry: ActionRegistry, workspace: string): AgentScr
 				const { state, step, conversationId } = task.state.checkpoint;
 				const request = awaitingRequest(state);
 				if (request === undefined) throw new Error("await reached with no step awaiting");
-				register(request.tools);
+				register(request);
 				const outcome = await answerStep(runtime, conversationId, request, step, context);
 				const after = apply(task.input.source, state, outcome);
 				await runtime.commit(() => ({ status: "running", checkpoint: { phase: "next", state: after } }), context);
@@ -361,14 +427,14 @@ async function configureStep(
 	tx: Parameters<Parameters<Runtime["commit"]>[0]>[0],
 	conversationId: ConversationId,
 	request: ReasoningRequest,
-	offered: readonly ToolRegistration[],
+	tools: readonly ToolRegistration[],
 	model: ModelRef | undefined,
 ): Promise<void> {
 	await configure(tx, conversationId, {
 		...(model !== undefined ? { model } : {}),
 		// Stored by name: whichever `agentscript.step` the host installed.
 		extensions: [AgentScriptStepExtension],
-		tools: [...(request.outputSchema !== undefined ? [submitResult] : []), ...offered],
+		tools: [...tools],
 		instructions: request.systemInstructions,
 	});
 	const doc = await tx.doc(AgentScriptStep, conversationId);
@@ -409,6 +475,13 @@ async function answerStep(
 	}
 
 	const doc = await runtime.snapshot(AgentScriptStep, conversationId, context);
+	if (request.outputSchema !== undefined && (doc?.result ?? null) === null && (doc?.refusals ?? 0) >= MAX_REFUSALS) {
+		return {
+			kind: "failed",
+			category: "unknown",
+			message: `the step's result was refused ${MAX_REFUSALS} times; last: ${await lastRefusal(runtime, conversationId, context)}`,
+		};
+	}
 	const text = await answerText(runtime, conversationId, settled.answer, context);
 	const toolCalls =
 		request.tools !== undefined
@@ -422,6 +495,18 @@ async function answerStep(
 			: {}),
 		...(toolCalls !== undefined ? { toolCalls } : {}),
 	};
+}
+
+/** The text of the step conversation's last `submit_result` error result. */
+async function lastRefusal(runtime: Runtime, conversationId: ConversationId, context: Context): Promise<string> {
+	const view = await runtime.context(conversationId, context);
+	const refused = view.entries
+		.flatMap((entry) => entry.model ?? [])
+		.filter((message) => message.role === "toolResult" && message.toolName === RESULT_TOOL && message.isError)
+		.at(-1);
+	return refused?.role === "toolResult"
+		? refused.content.map((block) => (block.type === "text" ? block.text : "")).join("")
+		: "";
 }
 
 /**

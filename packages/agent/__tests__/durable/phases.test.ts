@@ -356,6 +356,7 @@ describe("The agentscript.step doc holds each step's schema and accepted result"
 				additionalProperties: false,
 			},
 			result: null,
+			refusals: 0,
 		});
 	});
 
@@ -363,6 +364,6 @@ describe("The agentscript.step doc holds each step's schema and accepted result"
 		const docs = await stepDocsAtDispatch();
 
 		expect(docs).toHaveLength(2);
-		expect(docs[1]).toEqual({ schema: null, result: null });
+		expect(docs[1]).toEqual({ schema: null, result: null, refusals: 0 });
 	});
 });

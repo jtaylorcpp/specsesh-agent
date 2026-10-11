@@ -121,7 +121,7 @@ export function commitAll(repo: string, messageText = "more"): void {
 
 /**
  * A fake `claude` in a fresh bin directory, run by this Node. As a step (it is
- * given `--json-schema`) it answers the result schema its system prompt shows:
+ * given `--json-schema`) it answers that schema:
  * `plan`, or a verdict —
  * the next of `verdicts` (`met`, `retry` or `ask`), then `met` once they run
  * out. As the delegate (`--permission-mode`) it appends `// edited` to
@@ -148,10 +148,10 @@ setTimeout(() => {
 	const schemaAt = argv.indexOf("--json-schema");
 	let out;
 	if (schemaAt >= 0) {
-		// A durable step shows its result schema in the system prompt; the tool's own parameters are open.
-		const system = argv[argv.indexOf("--system-prompt") + 1] || "";
+		// A durable step's result tool carries the step's schema.
+		const schema = JSON.parse(argv[schemaAt + 1]);
 		let structured;
-		if (!system.includes('"next_action"')) structured = { plan: "edit src/a.ts" };
+		if (!("next_action" in (schema.properties || {}))) structured = { plan: "edit src/a.ts" };
 		else {
 			const file = path.join(__dirname, "verdicts.json");
 			const queue = JSON.parse(fs.readFileSync(file, "utf8"));
