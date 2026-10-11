@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { analyze } from "../src/authoring/index.js";
 import { compose, procedureStatements, readSubagents } from "../src/interpreter/compose.js";
 import type { VariableValue } from "../src/interpreter/index.js";
-import { run } from "../src/interpreter/index.js";
+import { UnparsedDocumentError, run } from "../src/interpreter/index.js";
 import { CONDITIONAL, LOGIC_ONLY } from "./helpers/fixtures.js";
 import { answered, recordingPort } from "./helpers/recording-port.js";
 
@@ -128,22 +128,17 @@ describe("core-composition: Statements run top to bottom and branch on truthines
 		expect(await promptOf(source)).toBe("Many.");
 	});
 
-	it("Scenario: Nested conditions", () => {
-		// Through `compose` and not `run`: the dialect reports a nested `if` as a
-		// diagnostic ("AgentScript does not support nested 'if' statements"), and
-		// the runner refuses a document with one before it composes anything. The
-		// composer still has to follow the rule for the tree it is handed.
-		const subagent = readSubagents(analyze(NESTED).parsed).get("draft");
-		const prompt = (variables: Record<string, VariableValue>) =>
-			compose(procedureStatements(subagent!), new Map(Object.entries(variables))).prompt;
+	it("Scenario: A nested if is refused before running", async () => {
+		const { port, requests } = recordingPort(answered());
+		const refusal = await run(NESTED, { port }).then(
+			() => undefined,
+			(error: unknown) => error,
+		);
 
-		const neither = prompt({ a: true, b: false });
-		expect(neither).toBe("Always.");
-		expect(neither).not.toContain("Both.");
-		// With both holding, the inner body is reached.
-		expect(prompt({ a: true, b: true })).toBe("Both.\nAlways.");
-		// With the outer condition false the inner one is never consulted.
-		expect(prompt({ a: false, b: true })).toBe("Always.");
+		expect(refusal).toBeInstanceOf(UnparsedDocumentError);
+		const messages = (refusal as UnparsedDocumentError).diagnostics.map((d) => d.message);
+		expect(messages.some((m) => m.includes("does not support nested 'if' statements"))).toBe(true);
+		expect(requests).toHaveLength(0);
 	});
 });
 
