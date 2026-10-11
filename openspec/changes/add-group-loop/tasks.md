@@ -29,7 +29,7 @@
 
 - [x] 4.1 `packages/agent/__tests__/task/group.test.ts`: one test per `task/group` scenario, named `Scenario: <exact scenario name>`
 - [x] 4.2 `packages/agent/__tests__/task/group-e2e.test.ts`: a two-task group on the faux provider in a temp workspace: both tasks converge, the group check fails once, the judge reworks `1.1`, its loop converges, the check passes; asserts `converged`, `1.1` at `runs` `2`, `1.2` at `runs` `1`, `1.1` ticked again, and the outcome passing `check`
-- [ ] 4.3 `packages/agent/__tests__/task/group-crash.test.ts`: `Scenario: Killed during a task`: kill the process mid-task (exit 137), resume from the same database, no second child loop
+- [x] 4.3 `packages/agent/__tests__/task/group-crash.test.ts`: `Scenario: Killed during a task`: kill the process mid-task (exit 137), resume from the same database, no second child loop
 - [ ] 4.4 `packages/agent/__tests__/task/cli-group.test.ts`: one test per new and modified `task/cli` and `task/headless` scenario (group positional, `--next-group`, flags, events, worktree, status, resume, answer, text and JSON output, exit codes), via the built bin and a fake `claude`
 - [ ] 4.5 `packages/agent/__tests__/openspec/loops.test.ts`: `Scenario: A task ticked before the group loop has no runs`; `packages/agent/__tests__/task/tick.test.ts`: the task loop still never unticks
 - [ ] 4.6 `packages/agent/__tests__/task/group-script.test.ts`: `Scenario: The bundled judge script is clean` (no diagnostic, no unsupported construct, no action, contract passes)
