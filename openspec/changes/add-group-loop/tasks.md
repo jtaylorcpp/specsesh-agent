@@ -32,7 +32,7 @@
 - [x] 4.3 `packages/agent/__tests__/task/group-crash.test.ts`: `Scenario: Killed during a task`: kill the process mid-task (exit 137), resume from the same database, no second child loop
 - [x] 4.4 `packages/agent/__tests__/task/cli-group.test.ts`: one test per new and modified `task/cli` and `task/headless` scenario (group positional, `--next-group`, flags, events, worktree, status, resume, answer, text and JSON output, exit codes), via the built bin and a fake `claude`
 - [x] 4.5 `packages/agent/__tests__/openspec/loops.test.ts`: `Scenario: A task ticked before the group loop has no runs`; `packages/agent/__tests__/task/tick.test.ts`: the task loop still never unticks
-- [ ] 4.6 `packages/agent/__tests__/task/group-script.test.ts`: `Scenario: The bundled judge script is clean` (no diagnostic, no unsupported construct, no action, contract passes)
+- [x] 4.6 `packages/agent/__tests__/task/group-script.test.ts`: `Scenario: The bundled judge script is clean` (no diagnostic, no unsupported construct, no action, contract passes)
 
 ## 5. Live
 
