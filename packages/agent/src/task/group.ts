@@ -14,9 +14,11 @@ import {
 	type Task,
 	type TaskId,
 } from "@earendil-works/pi-durable";
-import type { GroupOutcome, LoopOutcome, Recipient, TaskOutcome } from "../openspec/index.js";
+import { GroupOutcome, LoopOutcome, check, explain, type Escalation, type Recipient, type TaskOutcome } from "../openspec/index.js";
 import { concatDeltas } from "./deltas.js";
 import { TaskLoopStartError } from "./errors.js";
+import type { TaskLoopInput, TaskLoopResult } from "./loop-input.js";
+import { TaskLoopTask } from "./loop.js";
 import {
 	BUNDLED_SCRIPTS,
 	DEFAULT_ESCALATE_TO,
@@ -271,6 +273,17 @@ export interface GroupLoopResult extends JsonObject {
 }
 
 /**
+ * The task whose loop blocked the group, or `null` when none did (the judge blocked it).
+ * A terminal task keeps no checkpoint, so this is read from the result: only a blocking
+ * task's entry has status `blocked`, and the group ends at the first one.
+ */
+export function blockedBy(outcome: GroupLoopResult["outcome"]): string | null {
+	if (outcome.status !== "blocked") return null;
+	const result = outcome.result as unknown as GroupOutcome;
+	return result.tasks.find((t) => t.outcome.status === "blocked")?.task ?? null;
+}
+
+/**
  * The first checkpoint: the unticked tasks queued in file order, and every ticked
  * task entered as converged with `runs` 0 (an earlier run converged it; no new loop).
  */
@@ -289,8 +302,80 @@ export function initialGroupCheckpoint(tasks: readonly { id: string; ticked: boo
 	};
 }
 
+const GroupLoopOutcome = LoopOutcome(GroupOutcome);
+
 function notYet(phase: GroupPhase, task: string): never {
 	throw new Error(`group-loop phase ${phase} not implemented yet (task ${task})`);
+}
+
+/**
+ * The group's result: one entry per task in file order, `runs` 0 for a task ticked
+ * before the group loop began. A task not yet reached has no entry.
+ */
+export function groupOutcome(
+	input: Pick<GroupLoopInput, "group" | "tasks">,
+	entries: readonly GroupEntry[],
+	status: "blocked" | "failed",
+	escalation?: Escalation,
+): LoopOutcome<GroupOutcome> & JsonObject {
+	const tasks = input.tasks.flatMap((t) => {
+		const entry = entries.find((e) => e.task === t.id);
+		return entry !== undefined ? [{ task: entry.task, outcome: entry.outcome, runs: entry.runs }] : [];
+	});
+	const result = { group: input.group, tasks };
+	return (
+		status === "blocked"
+			? { status, iterations: [], result, escalation: escalation as Escalation }
+			: { status, iterations: [], result }
+	) as unknown as LoopOutcome<GroupOutcome> & JsonObject;
+}
+
+/** The entry for `task` with `outcome` as its latest run: replaced in place, or appended; `runs` counted. */
+export function recordEntry(entries: readonly GroupEntry[], task: string, outcome: GroupEntry["outcome"]): GroupEntry[] {
+	const runs = (entries.find((e) => e.task === task)?.runs ?? 0) + 1;
+	const entry: GroupEntry = { task, outcome, runs };
+	return entries.some((e) => e.task === task) ? entries.map((e) => (e.task === task ? entry : e)) : [...entries, entry];
+}
+
+/** The task loop's input for `task`: the group's sources and options, and the rework text it carries. */
+export function taskLoopInputFor(input: GroupLoopInput, task: string, carried: string): TaskLoopInput {
+	return {
+		task,
+		taskText: input.tasks.find((t) => t.id === task)?.text ?? "",
+		proposal: input.proposal,
+		design: input.design,
+		deltas: input.deltas,
+		...(input.tasksPath !== undefined ? { tasksPath: input.tasksPath } : {}),
+		script: input.script,
+		workspace: input.workspace,
+		budget: { maxIterations: input.budget.maxIterations },
+		checks: input.checks,
+		allow: input.allow,
+		escalateTo: input.escalateTo,
+		...(input.model !== undefined ? { model: input.model } : {}),
+		...(input.delegateModel !== undefined ? { delegateModel: input.delegateModel } : {}),
+		...(input.delegateContext !== undefined ? { delegateContext: input.delegateContext } : {}),
+		...(input.worktree !== undefined ? { worktree: input.worktree } : {}),
+		carried,
+		earlier: [],
+	};
+}
+
+/** The terminal result for a task that did not converge, checked against the ontology. */
+export function endedGroup(
+	input: Pick<GroupLoopInput, "group" | "tasks">,
+	entries: readonly GroupEntry[],
+	task: string,
+	outcome: GroupEntry["outcome"],
+): GroupLoopResult {
+	const done: GroupLoopResult =
+		outcome.status === "blocked"
+			? { outcome: groupOutcome(input, entries, "blocked", { ...outcome.escalation, level: "group" }), notes: [] }
+			: { outcome: groupOutcome(input, entries, "failed"), notes: [`task ${task} ended ${outcome.status}`] };
+	if (!check(GroupLoopOutcome, done.outcome)) {
+		throw new Error(`the group loop built an outcome the ontology refuses: ${explain(GroupLoopOutcome, done.outcome).join("; ")}`);
+	}
+	return done;
 }
 
 /** Pops the queue head into `task`, or goes to `check` when the queue is empty. No model request, no command. */
@@ -315,7 +400,44 @@ export const GroupLoopTask: Task<GroupLoopInput, StoredGroupCheckpoint, GroupLoo
 			const cp = decodeCheckpoint(task.state.checkpoint);
 			await runtime.commit(() => ({ status: "running", checkpoint: stored(nextCheckpoint(cp)) }), context);
 		},
-		task: async () => notYet("task", "1.3"),
+		// Create the task loop for `child.task` and store its ID in one commit, so a crash leaves
+		// both or neither; every later entry (a resume included) waits for the stored ID.
+		task: async (task, runtime, context) => {
+			const cp = decodeCheckpoint(task.state.checkpoint);
+			const current = cp.child?.task;
+			if (current === undefined) throw new Error("group-loop task phase has no current task");
+
+			if (cp.child?.id === undefined) {
+				await runtime.commit(async (tx) => {
+					const id = await tx.createTask(TaskLoopTask, taskLoopInputFor(task.input, current, cp.carried ?? ""), {
+						ownership: { kind: "task", taskId: runtime.taskId },
+					});
+					return {
+						status: "waiting",
+						checkpoint: stored({ ...cp, child: { task: current, id } }),
+						on: [id],
+						policy: "allSettled",
+					};
+				}, context);
+				return;
+			}
+
+			const settled = await runtime.waitForTask(cp.child.id as TaskId<TaskLoopResult>, context);
+			const ended = settled.state.outcome;
+			const outcome: GroupEntry["outcome"] =
+				ended.status === "completed"
+					? ended.result.outcome
+					: ({ status: "failed", iterations: [] } as GroupEntry["outcome"]);
+			const entries = recordEntry(cp.entries, current, outcome);
+
+			if (outcome.status === "converged") {
+				const { child: _child, carried: _carried, ...kept } = cp;
+				await runtime.commit(() => ({ status: "running", checkpoint: stored({ ...kept, phase: "next", entries }) }), context);
+				return;
+			}
+			const done = endedGroup(task.input, entries, current, outcome);
+			await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
+		},
 		check: async () => notYet("check", "1.4"),
 		judge: async () => notYet("judge", "2.3"),
 	},

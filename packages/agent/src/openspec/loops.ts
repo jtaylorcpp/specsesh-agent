@@ -134,7 +134,7 @@ export type TaskOutcome = Static<typeof TaskOutcome>;
 export const GroupOutcome = Type.Refine(
 	closed({
 		group: Int({ minimum: 1 }),
-		tasks: Type.Array(closed({ task: TaskId, outcome: LoopOutcome(TaskOutcome), runs: Int({ minimum: 1 }) })),
+		tasks: Type.Array(closed({ task: TaskId, outcome: LoopOutcome(TaskOutcome), runs: Int({ minimum: 0 }) })),
 	}),
 	(outcome) =>
 		outcome.tasks.every((entry) => entry.task.startsWith(`${outcome.group}.`)) &&

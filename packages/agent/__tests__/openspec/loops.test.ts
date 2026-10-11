@@ -285,6 +285,12 @@ describe("A group outcome has one entry per task", () => {
 		expect(check(GroupOutcomeSchema, { ...group, tasks: [...group.tasks, ...group.tasks] })).toBe(false);
 	});
 
+	it("Scenario: A task ticked before the group loop has no runs", () => {
+		const ticked = { task: "2.1", outcome: { status: "converged", iterations: [], result: { task: "2.1", ticked: true } }, runs: 0 };
+		expect(check(GroupOutcomeSchema, { group: 2, tasks: [ticked] })).toBe(true);
+		expect(check(GroupOutcomeSchema, { group: 2, tasks: [{ ...ticked, runs: -1 }] })).toBe(false);
+	});
+
 	it("Scenario: A task that never converged is still listed", () => {
 		const exhausted = concludeLoop<{ task: string; ticked: boolean }>({ level: "task", iterations: [1, 2, 3].map((n) => unmetIteration(n)), budget: BUDGET })!;
 		const group = recordTaskRun({ group: 2, tasks: [] }, "2.4", exhausted);

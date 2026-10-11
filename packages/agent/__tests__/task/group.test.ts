@@ -3,13 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JsonObject, TaskId } from "@earendil-works/pi-durable";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LoopOutcome, TaskOutcome, check } from "../../src/openspec/index.js";
+import { GroupOutcome, LoopOutcome, TaskOutcome, check } from "../../src/openspec/index.js";
 import { TaskLoopStartError } from "../../src/task/index.js";
 import {
 	DEFAULT_MAX_REWORKS,
 	GROUP_LOOP_NAME,
 	GROUP_LOOP_VERSION,
 	GroupLoopTask,
+	blockedBy,
 	decodeCheckpoint,
 	encodeCheckpoint,
 	initialGroupCheckpoint,
@@ -240,6 +241,141 @@ describe("task/group: The group loop is a durable task over a queue", () => {
 		expect(Object.keys(encodeCheckpoint(bare))).toEqual(["phase", "queue", "entries", "reworks"]);
 		const withId = encodeCheckpoint({ ...cp, child: { task: "1.2", id: 7 as TaskId } });
 		expect(decodeCheckpoint(withId).child).toEqual({ task: "1.2", id: 7 });
+	});
+
+	describe("the task phase", () => {
+		type Outcome = (typeof initialGroupCheckpoint extends (...a: never[]) => infer C ? C : never)["entries"][number]["outcome"];
+		const converged = (task: string): Outcome => ({ status: "converged", iterations: [], result: { task, ticked: true } });
+		const blocked = (): Outcome => ({
+			status: "blocked",
+			iterations: [],
+			escalation: { level: "task", to: "principal", reason: "needs-decision: ask", question: "Which API?" },
+		});
+
+		// Runs the `task` phase against a fake runtime: records created children and commits;
+		// `settled` is what waiting on any child returns.
+		const runTask = async (checkpoint: GroupCheckpoint, settled?: Outcome, groupInput = input()) => {
+			const created: { input: { task: string; carried: string } }[] = [];
+			const committed: { status: string; checkpoint?: JsonObject; outcome?: { result: { outcome: JsonObject; notes: string[] } } }[] = [];
+			const runtime = {
+				taskId: 1 as TaskId,
+				commit: async (fn: (tx: unknown) => unknown) => {
+					const tx = {
+						createTask: async (_def: unknown, taskInput: { task: string; carried: string }) => {
+							created.push({ input: taskInput });
+							return 42 as TaskId;
+						},
+					};
+					committed.push((await fn(tx)) as (typeof committed)[number]);
+				},
+				waitForTask: async () => ({ state: { outcome: { status: "completed", result: { outcome: settled, notes: [] } } } }),
+			};
+			const handler = GroupLoopTask.definition.phases.task as unknown as (t: unknown, r: unknown, c: unknown) => Promise<void>;
+			await handler({ state: { checkpoint: encodeCheckpoint(checkpoint) }, input: groupInput }, runtime, undefined);
+			return { created, commit: committed[0] as (typeof committed)[number] };
+		};
+
+		// The group's outcome as the task committed it, checked against the ontology before it is typed.
+		const endedOutcome = (commit: { outcome?: { result: { outcome: JsonObject } } }): LoopOutcome<GroupOutcome> => {
+			const stored = commit.outcome?.result.outcome;
+			expect(stored).toBeDefined();
+			expect(check(LoopOutcome(GroupOutcome), stored!)).toBe(true);
+			return stored as unknown as LoopOutcome<GroupOutcome>;
+		};
+
+		const atTask = (over: Partial<GroupCheckpoint> = {}): GroupCheckpoint => ({
+			...initialGroupCheckpoint(input().tasks),
+			phase: "task",
+			queue: ["1.2"],
+			child: { task: "1.2" },
+			...over,
+		});
+
+		it("starts the child once, and stores its id in the same commit", async () => {
+			const { created, commit } = await runTask(atTask({ carried: "fix the test" }));
+			expect(created).toHaveLength(1);
+			expect(created[0]?.input).toMatchObject({ task: "1.2", taskText: "second", carried: "fix the test" });
+			expect(commit.status).toBe("waiting");
+			expect(decodeCheckpoint(commit.checkpoint as JsonObject).child).toEqual({ task: "1.2", id: 42 });
+		});
+
+		it("Scenario: Killed during a task", async () => {
+			const { created, commit } = await runTask(atTask({ child: { task: "1.2", id: 42 as TaskId } }), converged("1.2"));
+			expect(created).toHaveLength(0);
+			const cp = decodeCheckpoint(commit.checkpoint as JsonObject);
+			expect(cp.entries.find((e) => e.task === "1.2")?.runs).toBe(1);
+		});
+
+		it("Scenario: A converged task is recorded", async () => {
+			const { commit } = await runTask(atTask({ child: { task: "1.2", id: 42 as TaskId }, carried: "x" }), converged("1.2"));
+			expect(commit.status).toBe("running");
+			const cp = decodeCheckpoint(commit.checkpoint as JsonObject);
+			expect(cp.phase).toBe("next");
+			expect(cp.child).toBeUndefined();
+			expect(cp.carried).toBeUndefined();
+			const entries = cp.entries.filter((e) => e.task === "1.2");
+			expect(entries).toHaveLength(1);
+			expect(entries[0]).toMatchObject({ runs: 1, outcome: { status: "converged" } });
+		});
+
+		it("a rework counts runs on: 1 becomes 2, once in the list", async () => {
+			const first = { task: "1.2", runs: 1, outcome: converged("1.2") as never };
+			const start = atTask({ child: { task: "1.2", id: 42 as TaskId }, carried: "rework", entries: [...atTask().entries, first] });
+			const { commit } = await runTask(start, converged("1.2"));
+			const entries = decodeCheckpoint(commit.checkpoint as JsonObject).entries.filter((e) => e.task === "1.2");
+			expect(entries.map((e) => e.runs)).toEqual([2]);
+		});
+
+		it("Scenario: A blocked task blocks the group", async () => {
+			const twoTasks = {
+				...input(),
+				tasks: [
+					{ id: "1.1", text: "first", ticked: false },
+					{ id: "1.2", text: "second", ticked: false },
+				],
+			};
+			const at = { phase: "task" as const, queue: ["1.2"], entries: [], reworks: 0 };
+			const started = await runTask({ ...at, child: { task: "1.1" } }, undefined, twoTasks);
+			expect(started.created.map((c) => c.input.task)).toEqual(["1.1"]);
+
+			const { created, commit } = await runTask({ ...at, child: { task: "1.1", id: 42 as TaskId } }, blocked(), twoTasks);
+			expect(created).toHaveLength(0);
+			expect(commit.status).toBe("terminal");
+			const outcome = endedOutcome(commit);
+			expect(outcome.status).toBe("blocked");
+			expect(outcome).toMatchObject({ escalation: { level: "group", to: "principal", question: "Which API?" } });
+			expect(outcome.result?.tasks).toEqual([{ task: "1.1", outcome: blocked(), runs: 1 }]);
+			expect(Object.keys(commit.outcome?.result ?? {}).sort()).toEqual(["notes", "outcome"]);
+			expect(blockedBy(commit.outcome?.result.outcome as never)).toBe("1.1");
+		});
+
+		for (const status of ["exhausted", "failed"] as const) {
+			it(`Scenario: An exhausted task fails the group (${status})`, async () => {
+				const { commit } = await runTask(
+					atTask({ child: { task: "1.2", id: 42 as TaskId } }),
+					{ status, iterations: [] } as Outcome,
+				);
+				const outcome = endedOutcome(commit);
+				expect(outcome.status).toBe("failed");
+				expect(commit.outcome?.result.notes).toEqual([`task 1.2 ended ${status}`]);
+				expect(outcome.result?.tasks.map((t) => [t.task, t.runs])).toEqual([["1.1", 0], ["1.2", 1], ["1.3", 0]]);
+				expect(outcome.result?.tasks[1]).toMatchObject({ outcome: { status, iterations: [] } });
+			});
+		}
+
+		for (const status of ["blocked", "exhausted"] as const) {
+			it(`Scenario: A task still queued when the group ends has no entry (${status})`, async () => {
+				const { created, commit } = await runTask(
+					{ phase: "task", queue: ["1.2", "1.3"], entries: [], reworks: 0, child: { task: "1.1", id: 42 as TaskId } },
+					status === "blocked" ? blocked() : ({ status, iterations: [] } as Outcome),
+				);
+				expect(created).toHaveLength(0);
+				expect(commit.status).toBe("terminal");
+				const outcome = endedOutcome(commit);
+				expect(outcome.status).toBe(status === "blocked" ? "blocked" : "failed");
+				expect(outcome.result?.tasks.map((t) => [t.task, t.runs, t.outcome.status])).toEqual([["1.1", 1, status]]);
+			});
+		}
 	});
 
 	it("decoding a malformed checkpoint throws", () => {
