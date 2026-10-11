@@ -207,7 +207,8 @@ describe("pack:check proves the tarball installs and runs", () => {
 import { BUNDLED_SCRIPTS, contractProblems } from "@specsesh/agent/task";
 const source = readFileSync(BUNDLED_SCRIPTS.task, "utf8");
 if (contractProblems(source).length > 0) throw new Error("the bundled task.agent breaks the contract");
-console.log(source.includes('agent_name: "task-agent"') ? "found" : "missing");
+const group = readFileSync(BUNDLED_SCRIPTS.group, "utf8");
+console.log(source.includes('agent_name: "task-agent"') && group.includes('agent_name: "group-judge"') ? "found" : "missing");
 `,
 		);
 		expect(s.status, s.stderr).toBe(0);

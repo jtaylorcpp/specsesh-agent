@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { analyze } from "../../src/authoring/index.js";
 import { ActionBindingError } from "../../src/durable/index.js";
+import { scanDocument } from "../../src/interpreter/index.js";
+import { readDeclarations } from "../../src/interpreter/compose.js";
 import { BUNDLED_SCRIPTS, contractProblems, prepareTaskLoop, startTaskLoop } from "../../src/task/index.js";
 import {
 	DELTA,
@@ -154,5 +156,34 @@ describe("task/agent: The bundled scripts are the default and the subscription v
 		}
 		expect(readFileSync(BUNDLED_SCRIPTS.task, "utf8")).toBe(readFileSync(join(SCRIPTS, "task.agent"), "utf8"));
 		expect(readFileSync(BUNDLED_SCRIPTS.delegate, "utf8")).toBe(readFileSync(join(SCRIPTS, "task-delegate.agent"), "utf8"));
+	});
+
+	it("Scenario: The bundled judge script is clean", () => {
+		const source = readFileSync(join(SCRIPTS, "group.agent"), "utf8");
+		const analysis = analyze(source);
+		expect(analysis.diagnostics).toEqual([]);
+		expect(scanDocument(analysis.parsed)).toEqual([]);
+		// No action anywhere: the judge changes nothing itself.
+		expect(source).not.toMatch(/^\s*actions:/m);
+		expect(source).not.toContain("@actions");
+		expect(source.match(/^subagent /gm)).toHaveLength(1);
+		expect(readFileSync(BUNDLED_SCRIPTS.group, "utf8")).toBe(source);
+
+		// Declared variables only; the full startGroupLoop contract check comes with the group loop.
+		const declarations = readDeclarations(analysis.parsed);
+		const expected = {
+			group_number: "number",
+			group_title: "string",
+			tasks: "string",
+			proposal: "string",
+			deltas: "string",
+			check_output: "string",
+			rework_count: "number",
+			next_action: "string",
+			rework_task: "string",
+			feedback: "string",
+			question: "string",
+		};
+		for (const [name, type] of Object.entries(expected)) expect(declarations.get(name)?.type, name).toBe(type);
 	});
 });
