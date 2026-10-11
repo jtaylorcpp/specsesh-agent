@@ -8,7 +8,7 @@ spec:
   - "openspec/loops: Only a converged task loop ticks its box"
   - "openspec/loops: Rework unticks a task"
 related: [loop, task, task-link, task-outcome, group-loop]
-status: modelled
+status: implemented
 ---
 
 # Task loop

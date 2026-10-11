@@ -10,7 +10,7 @@ const ROOT = join(PKG_DIR, "..", "..");
 const MANIFEST_TEXT = readFileSync(join(PKG_DIR, "package.json"), "utf8");
 const manifest = JSON.parse(MANIFEST_TEXT);
 
-const ENTRIES = ["authoring", "interpreter", "pi", "claude-code", "durable", "cloudflare"];
+const ENTRIES = ["authoring", "interpreter", "pi", "claude-code", "durable", "cloudflare", "openspec"];
 const SF = {
 	"@sf-agentscript/agentforce-dialect": "2.53.0",
 	"@sf-agentscript/agentscript-dialect": "3.4.0",
@@ -65,12 +65,16 @@ describe("The package is @specsesh/agent 0.1.0 under Apache-2.0", () => {
 	});
 });
 
-describe("The package exports exactly six entry points", () => {
+describe("The package exports exactly seven entry points", () => {
 	it("Scenario: The exports map is exact", () => {
 		expect(Object.keys(manifest.exports)).toEqual(ENTRIES.map((entry) => `./${entry}`));
 		expect(manifest.exports["./durable"]).toEqual({
 			types: "./dist/durable/index.d.ts",
 			import: "./dist/durable/index.js",
+		});
+		expect(manifest.exports["./openspec"]).toEqual({
+			types: "./dist/openspec/index.d.ts",
+			import: "./dist/openspec/index.js",
 		});
 		for (const entry of ENTRIES) {
 			expect(manifest.exports[`./${entry}`]).toEqual({
@@ -108,9 +112,15 @@ describe("The two CLIs are compiled bins", () => {
 	});
 });
 
-describe("Required dependencies are only the exact-pinned language packages", () => {
+describe("Required dependencies are only the exact-pinned language packages and TypeBox", () => {
 	it("Scenario: Four dependencies, all exact", () => {
-		expect(manifest.dependencies).toEqual(SF);
+		const sf = Object.fromEntries(Object.entries(manifest.dependencies).filter(([name]) => name.startsWith("@sf-agentscript/")));
+		expect(sf).toEqual(SF);
+	});
+
+	it("Scenario: TypeBox is the only other dependency", () => {
+		expect(manifest.dependencies).toEqual({ ...SF, typebox: "1.3.27" });
+		expect(manifest.dependencies.typebox).toMatch(/^\d+\.\d+\.\d+$/);
 	});
 });
 

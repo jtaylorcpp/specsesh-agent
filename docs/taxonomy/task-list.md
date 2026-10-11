@@ -6,7 +6,7 @@ area: taxonomy
 spec:
   - "openspec/model: A task list is numbered groups of tasks"
 related: [task-group, task, change, plan-step, change-loop]
-status: modelled
+status: implemented
 ---
 
 # TaskList

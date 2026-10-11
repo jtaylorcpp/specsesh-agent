@@ -6,7 +6,7 @@ area: loops
 spec:
   - "openspec/loops: An answered escalation resumes the loop"
 related: [escalation, loop-input, feedback]
-status: modelled
+status: implemented
 ---
 
 # EscalationAnswer

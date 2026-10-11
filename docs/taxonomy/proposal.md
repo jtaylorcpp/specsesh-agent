@@ -6,7 +6,7 @@ area: taxonomy
 spec:
   - "openspec/model: A proposal states why, what, which capabilities and what not"
 related: [change, capability-path, propose-step, delta]
-status: modelled
+status: implemented
 ---
 
 # Proposal

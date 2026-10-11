@@ -6,7 +6,7 @@ area: process
 spec:
   - "openspec/process: Validate reports issues by level"
 related: [validate-step, validation-evidence, change-state, archive-step]
-status: modelled
+status: implemented
 ---
 
 # ValidationReport

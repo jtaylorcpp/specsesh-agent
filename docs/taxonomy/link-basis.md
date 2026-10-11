@@ -7,7 +7,7 @@ spec:
   - "openspec/model: A link records how it was inferred, strongest first"
   - "openspec/model: An exact name has confidence 1"
 related: [task-link, unclaimed-scenario]
-status: modelled
+status: implemented
 ---
 
 # LinkBasis

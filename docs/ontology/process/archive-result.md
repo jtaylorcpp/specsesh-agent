@@ -6,7 +6,7 @@ area: process
 spec:
   - "openspec/process: Archive folds a converged change, guarded"
 related: [archive-step, capability-path, change-state]
-status: modelled
+status: implemented
 ---
 
 # ArchiveResult

@@ -7,7 +7,7 @@ spec:
   - "openspec/loops: A context reference names what a loop reads"
   - "openspec/model: References serialise to one line of text"
 related: [loop-input, capability-path, requirement-ref, scenario-ref, change]
-status: modelled
+status: implemented
 ---
 
 # ContextRef

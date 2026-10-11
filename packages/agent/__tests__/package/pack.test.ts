@@ -181,7 +181,7 @@ describe("pack:check proves the tarball installs and runs", () => {
 	}, 60_000);
 });
 
-describe("The package exports exactly six entry points", () => {
+describe("The package exports exactly seven entry points", () => {
 	for (const [name, specifier] of [
 		["Scenario: A deep import is refused", "@specsesh/agent/dist/interpreter/run.js"],
 		["Scenario: The bare package name is not importable", "@specsesh/agent"],
@@ -213,6 +213,20 @@ process.exit(result.kind === "completed" ? 0 : 1);
 		);
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout.trim()).toBe("completed");
+	});
+
+	it("Scenario: The openspec entry checks a value with no peers", () => {
+		const r = node(
+			bare,
+			`import { Clause, check } from "@specsesh/agent/openspec";
+const refused = !check(Clause, { keyword: "BUT", text: "x" });
+const accepted = check(Clause, { keyword: "WHEN", text: "x" });
+console.log(refused && accepted ? "refused" : "accepted");
+process.exit(refused && accepted ? 0 : 1);
+`,
+		);
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout.trim()).toBe("refused");
 	});
 });
 

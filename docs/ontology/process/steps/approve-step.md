@@ -8,7 +8,7 @@ spec:
   - "openspec/process: Execution needs approval"
   - "openspec/process: A spec defect sends the change back through amendment"
 related: [step, change, validation-report, approval, validate-step, execute-step, change-state]
-status: modelled
+status: implemented
 ---
 
 # approve

@@ -6,7 +6,7 @@ area: process
 spec:
   - "openspec/process: A step returns a result, never throws"
 related: [step, step-failure]
-status: modelled
+status: implemented
 ---
 
 # StepResult

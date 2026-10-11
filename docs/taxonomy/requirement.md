@@ -6,7 +6,7 @@ area: taxonomy
 spec:
   - "openspec/model: A requirement is a name, normative text and its scenarios"
 related: [scenario, capability, requirement-ref, delta]
-status: modelled
+status: implemented
 ---
 
 # Requirement

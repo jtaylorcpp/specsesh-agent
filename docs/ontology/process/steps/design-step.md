@@ -7,7 +7,7 @@ spec:
   - "openspec/process: Design and plan follow the deltas"
   - "openspec/process: Each forward transition follows its step"
 related: [step, proposal, delta, design, specify-step, plan-step, change-state]
-status: modelled
+status: implemented
 ---
 
 # design

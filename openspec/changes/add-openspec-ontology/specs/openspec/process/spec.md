@@ -107,7 +107,7 @@ The model SHALL define `ChangeState` as `"drafting"`, `"specified"`, `"designed"
 - **THEN** the transition SHALL be refused
 
 ### Requirement: Archiving needs convergence and a fresh valid report
-`executing → converged` SHALL need a `LoopOutcome<ChangeOutcome>` with `status` `"converged"`. `converged → archived` SHALL need a `ValidationReport` with `valid` `true` produced after convergence.
+`executing → converged` SHALL need a `LoopOutcome<ChangeOutcome>` with `status` `"converged"`. `converged → archived` SHALL need a `ValidationReport` with `valid` `true` produced after convergence; the archive step SHALL produce it by validating the change itself, as its first act, and refuse if it is not valid.
 
 #### Scenario: A stale report does not license archive
 - **GIVEN** a change whose only valid report predates its execution

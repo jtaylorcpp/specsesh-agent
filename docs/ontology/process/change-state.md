@@ -11,7 +11,7 @@ spec:
   - "openspec/process: A spec defect sends the change back through amendment"
   - "openspec/process: Any change may be abandoned"
 related: [change, validation-report, approval, change-outcome, loop-outcome, propose-step, finding, specify-step, design-step, plan-step, validate-step, approve-step, execute-step, archive-step]
-status: modelled
+status: implemented
 ---
 
 # ChangeState

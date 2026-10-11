@@ -8,7 +8,7 @@ spec:
   - "openspec/process: Each forward transition follows its step"
   - "openspec/process: Archiving needs convergence and a fresh valid report"
 related: [step, change, validation-report, plan-step, approve-step, archive-step, change-state]
-status: modelled
+status: implemented
 ---
 
 # validate

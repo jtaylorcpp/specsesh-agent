@@ -6,7 +6,7 @@ area: taxonomy
 spec:
   - "openspec/model: A task id is its group number and its position"
 related: [task, task-group]
-status: modelled
+status: implemented
 ---
 
 # TaskId

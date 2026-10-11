@@ -7,7 +7,7 @@ spec:
   - "openspec/model: A delta is one of four operations on one capability"
   - "openspec/model: Removal and renaming carry their own fields"
 related: [change, capability, requirement, capability-path, specify-step]
-status: modelled
+status: implemented
 ---
 
 # Delta

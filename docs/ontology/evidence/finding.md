@@ -7,7 +7,7 @@ spec:
   - "openspec/evidence: A finding classifies what went wrong"
   - "openspec/evidence: Finding kinds say where the fault lies"
 related: [evidence, target, feedback]
-status: modelled
+status: implemented
 ---
 
 # Finding

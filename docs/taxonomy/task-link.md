@@ -7,7 +7,7 @@ spec:
   - "openspec/model: A task link targets a requirement or a scenario"
   - "openspec/model: An exact name has confidence 1"
 related: [task, requirement-ref, scenario-ref, link-basis, unclaimed-scenario]
-status: modelled
+status: implemented
 ---
 
 # TaskLink

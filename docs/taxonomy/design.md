@@ -6,7 +6,7 @@ area: taxonomy
 spec:
   - "openspec/model: A design is free-form sections"
 related: [change, design-step]
-status: modelled
+status: implemented
 ---
 
 # Design

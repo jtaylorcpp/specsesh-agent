@@ -8,7 +8,7 @@ spec:
   - "openspec/loops: The change loop reports its groups and what was unclaimed"
   - "openspec/loops: A spec defect leaves the loops as an amendment"
 related: [loop, task-list, group-loop, change-outcome, unclaimed-scenario, validation-report, execute-step]
-status: modelled
+status: implemented
 ---
 
 # Change loop

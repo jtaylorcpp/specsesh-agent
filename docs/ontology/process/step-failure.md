@@ -7,7 +7,7 @@ spec:
   - "openspec/process: A step returns a result, never throws"
   - "openspec/process: Failure kinds mean distinct things"
 related: [step-result, step, finding, escalation]
-status: modelled
+status: implemented
 ---
 
 # StepFailure

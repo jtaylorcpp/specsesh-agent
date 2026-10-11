@@ -8,7 +8,7 @@ spec:
   - "openspec/process: Failure kinds mean distinct things"
   - "openspec/process: Archiving needs convergence and a fresh valid report"
 related: [step, change, change-outcome, loop-outcome, archive-result, validation-report, validate-step, execute-step, change-state, step-failure]
-status: modelled
+status: implemented
 ---
 
 # archive

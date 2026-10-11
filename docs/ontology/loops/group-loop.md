@@ -7,7 +7,7 @@ spec:
   - "openspec/loops: The group loop drives one feature set"
   - "openspec/loops: Feedback rises to the enclosing loop"
 related: [loop, task-group, task-loop, group-outcome, change-loop]
-status: modelled
+status: implemented
 ---
 
 # Group loop

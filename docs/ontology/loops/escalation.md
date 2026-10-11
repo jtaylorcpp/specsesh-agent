@@ -8,7 +8,7 @@ spec:
   - "openspec/loops: A question goes to the escalation's recipient"
   - "openspec/loops: A spec defect leaves the loops as an amendment"
 related: [loop-outcome, escalation-answer, feedback]
-status: modelled
+status: implemented
 ---
 
 # Escalation

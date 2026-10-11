@@ -7,7 +7,7 @@ spec:
   - "openspec/model: A capability is a path, a purpose and its requirements"
   - "openspec/model: References serialise to one line of text"
 related: [capability, root, requirement-ref, scenario-ref, proposal, context-ref]
-status: modelled
+status: implemented
 ---
 
 # CapabilityPath

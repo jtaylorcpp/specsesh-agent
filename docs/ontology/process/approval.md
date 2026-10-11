@@ -7,7 +7,7 @@ spec:
   - "openspec/process: Approve is the principal's gate"
   - "openspec/process: Execution needs approval"
 related: [approve-step, change-state, execute-step]
-status: modelled
+status: implemented
 ---
 
 # Approval

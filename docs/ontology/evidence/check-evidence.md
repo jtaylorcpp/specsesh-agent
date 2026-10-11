@@ -7,7 +7,7 @@ spec:
   - "openspec/evidence: The other evidence kinds have fixed fields"
   - "openspec/evidence: A check is evidence for its command only"
 related: [evidence, target]
-status: modelled
+status: implemented
 ---
 
 # CheckEvidence

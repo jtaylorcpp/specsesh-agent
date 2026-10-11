@@ -7,7 +7,7 @@ spec:
   - "openspec/process: A step has a named input, output and actor"
   - "openspec/model: Every model type has a static type and a JSON Schema"
 related: [step-result, step-failure, propose-step, specify-step, design-step, plan-step, validate-step, approve-step, execute-step, archive-step]
-status: modelled
+status: implemented
 ---
 
 # Step
@@ -32,7 +32,7 @@ Step<In, Out> { name: string, input: In, output: Out, actor: "principal" | "agen
 ## Invariants
 
 - Every step's `In` and `Out` MUST be types defined in `openspec/model`, `openspec/process`, `openspec/loops` or `openspec/evidence`.
-- Every `In` and `Out` has a JSON Schema as well as a static type, accepting exactly the same values.
+- Every `In` and `Out` is declared once as a JSON Schema with its static type derived from it; cross-field rules are checked alongside the schema, and the check is the authority.
 - A step returns a [StepResult](step-result.md); it never throws.
 
 ## Relations

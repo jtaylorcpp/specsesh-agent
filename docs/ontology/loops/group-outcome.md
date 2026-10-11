@@ -7,7 +7,7 @@ spec:
   - "openspec/loops: The group loop drives one feature set"
   - "openspec/loops: A group outcome has one entry per task"
 related: [group-loop, task-outcome, change-outcome, loop-outcome, task-id]
-status: modelled
+status: implemented
 ---
 
 # GroupOutcome

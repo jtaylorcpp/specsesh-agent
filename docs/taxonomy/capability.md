@@ -6,7 +6,7 @@ area: taxonomy
 spec:
   - "openspec/model: A capability is a path, a purpose and its requirements"
 related: [capability-path, requirement, root, delta, requirement-ref]
-status: modelled
+status: implemented
 ---
 
 # Capability
