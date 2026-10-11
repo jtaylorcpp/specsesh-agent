@@ -76,11 +76,11 @@ describe("A loop has one shape at every level", () => {
 		const outcomes = levels.map(({ out }) => LoopOutcome(out));
 		// The same constructor, differing only in the goal and the result.
 		for (const input of inputs) {
-			expect(Object.keys(input.shape)).toEqual(["goal", "context", "budget", "carried"]);
-			expect(toJSONSchema(input.shape.carried)).toEqual(toJSONSchema(inputs[0]!.shape.carried));
-			expect(input.shape.budget).toBe(inputs[0]!.shape.budget);
+			expect(Object.keys(input.properties)).toEqual(["goal", "context", "budget", "carried"]);
+			expect(toJSONSchema(input.properties.carried)).toEqual(toJSONSchema(inputs[0]!.properties.carried));
+			expect(input.properties.budget).toBe(inputs[0]!.properties.budget);
 		}
-		inputs.forEach((input, i) => expect(input.shape.goal).toBe(levels[i]!.goal));
+		inputs.forEach((input, i) => expect(input.properties.goal).toBe(levels[i]!.goal));
 		const strip = (schema: Parameters<typeof toJSONSchema>[0]) =>
 			JSON.parse(JSON.stringify(toJSONSchema(schema), (key, value) => (key === "result" ? undefined : value)));
 		for (const outcome of outcomes) expect(strip(outcome)).toEqual(strip(outcomes[0]!));

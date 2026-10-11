@@ -5,55 +5,47 @@
  * runner would consume; the functions are pure rules over typed values.
  */
 
-import { z } from "zod";
-import { Name, closed, literals, sameValue } from "./schema.js";
+import Type, { type Static } from "typebox";
+import { Int, Name, closed, literals, sameValue } from "./schema.js";
 
 // ── Root and capabilities ───────────────────────────────────────────────────
 
 export const Root = closed({ specsDir: Name(), changesDir: Name(), schema: Name() });
-export type Root = z.infer<typeof Root>;
+export type Root = Static<typeof Root>;
 
 /** One directory segment per element; a segment never holds `/`, so the serialised form is unambiguous. */
-export const CapabilityPath = z.array(z.string().regex(/^[^/]+$/)).min(1);
-export type CapabilityPath = z.infer<typeof CapabilityPath>;
+export const CapabilityPath = Type.Array(Type.String({ minLength: 1, pattern: "^[^/]+$" }), { minItems: 1 });
+export type CapabilityPath = Static<typeof CapabilityPath>;
 
-export const Clause = closed({ keyword: literals("GIVEN", "WHEN", "THEN", "AND"), text: z.string() });
-export type Clause = z.infer<typeof Clause>;
+export const Clause = closed({ keyword: literals("GIVEN", "WHEN", "THEN", "AND"), text: Type.String() });
+export type Clause = Static<typeof Clause>;
 
 const hasKeyword = (keyword: string) => ({ contains: { type: "object", properties: { keyword: { const: keyword } } } });
 
-/** A scenario has a `WHEN` and a `THEN`. JSON Schema can say this too (`contains`), so the metadata states it there. */
+/** A scenario has a `WHEN` and a `THEN`. JSON Schema can say this (`contains`), so the schema itself states it. */
 export const Scenario = closed({
 	name: Name(),
-	clauses: z
-		.array(Clause)
-		.min(1)
-		.superRefine((clauses, ctx) => {
-			for (const keyword of ["WHEN", "THEN"]) {
-				if (!clauses.some((clause) => clause.keyword === keyword)) ctx.addIssue({ code: "custom", message: `no ${keyword} clause` });
-			}
-		})
-		.meta({ allOf: [hasKeyword("WHEN"), hasKeyword("THEN")] }),
+	clauses: Type.Array(Clause, { minItems: 1, allOf: [hasKeyword("WHEN"), hasKeyword("THEN")] }),
 });
-export type Scenario = z.infer<typeof Scenario>;
+export type Scenario = Static<typeof Scenario>;
 
 export const Requirement = closed({
 	name: Name(),
-	text: z.string().regex(/SHALL|MUST/),
-	scenarios: z.array(Scenario).min(1),
+	text: Type.String({ pattern: "SHALL|MUST" }),
+	scenarios: Type.Array(Scenario, { minItems: 1 }),
 });
-export type Requirement = z.infer<typeof Requirement>;
+export type Requirement = Static<typeof Requirement>;
 
-export const Capability = closed({ path: CapabilityPath, purpose: z.string(), requirements: z.array(Requirement) });
-export type Capability = z.infer<typeof Capability>;
+export const Capability = closed({ path: CapabilityPath, purpose: Type.String(), requirements: Type.Array(Requirement) });
+export type Capability = Static<typeof Capability>;
 
 // ── References ──────────────────────────────────────────────────────────────
 
 export const RequirementRef = closed({ capability: CapabilityPath, requirement: Name() });
-export type RequirementRef = z.infer<typeof RequirementRef>;
+export type RequirementRef = Static<typeof RequirementRef>;
 
 export const ScenarioRef = closed({ capability: CapabilityPath, requirement: Name(), scenario: Name() });
-export type ScenarioRef = z.infer<typeof ScenarioRef>;
+export type ScenarioRef = Static<typeof ScenarioRef>;
 
 /** Space, U+203A, space. */
 export const REF_SEPARATOR = " › ";
@@ -80,56 +72,60 @@ export function parseRef(text: string): CapabilityPath | RequirementRef | Scenar
 
 // ── Task lists ──────────────────────────────────────────────────────────────
 
-export const TaskId = z.string().regex(/^[1-9][0-9]*\.[1-9][0-9]*$/);
-export type TaskId = z.infer<typeof TaskId>;
+export const TaskId = Type.String({ pattern: "^[1-9][0-9]*\\.[1-9][0-9]*$" });
+export type TaskId = Static<typeof TaskId>;
 
 /** Strongest first. */
 export const LINK_BASES = ["scenario-named", "requirement-named", "capability-named", "file-overlap", "inferred"] as const;
 
 export const LinkBasis = literals(...LINK_BASES);
-export type LinkBasis = z.infer<typeof LinkBasis>;
+export type LinkBasis = Static<typeof LinkBasis>;
 
 /** Negative when `a` is the stronger basis, positive when weaker, 0 when the same. */
 export const compareBasis = (a: LinkBasis, b: LinkBasis): number => LINK_BASES.indexOf(a) - LINK_BASES.indexOf(b);
 
-const LinkTarget = z.union([RequirementRef, ScenarioRef]);
+const LinkTarget = Type.Union([RequirementRef, ScenarioRef]);
 
 /** An exact name is certain (confidence 1); anything weaker is less than certain. */
-export const TaskLink = z.union([
-	closed({ target: LinkTarget, basis: literals("scenario-named", "requirement-named"), confidence: z.literal(1) }),
+export const TaskLink = Type.Union([
+	closed({ target: LinkTarget, basis: literals("scenario-named", "requirement-named"), confidence: Type.Literal(1) }),
 	closed({
 		target: LinkTarget,
 		basis: literals("capability-named", "file-overlap", "inferred"),
-		confidence: z.number().min(0).lt(1),
+		confidence: Type.Number({ minimum: 0, exclusiveMaximum: 1 }),
 	}),
 ]);
-export type TaskLink = z.infer<typeof TaskLink>;
+export type TaskLink = Static<typeof TaskLink>;
 
 export const Task = closed({
 	id: TaskId,
-	text: z.string(),
-	done: z.boolean(),
-	files: z.array(z.string()),
-	links: z.array(TaskLink),
+	text: Type.String(),
+	done: Type.Boolean(),
+	files: Type.Array(Type.String()),
+	links: Type.Array(TaskLink),
 });
-export type Task = z.infer<typeof Task>;
+export type Task = Static<typeof Task>;
 
-export const TaskGroup = closed({ number: z.int().min(1), title: z.string(), tasks: z.array(Task) }).superRefine((group, ctx) => {
-	for (const task of group.tasks) {
-		if (!task.id.startsWith(`${group.number}.`)) {
-			ctx.addIssue({ code: "custom", message: `task ${task.id} does not start with its group's number ${group.number}` });
-		}
-	}
-});
-export type TaskGroup = z.infer<typeof TaskGroup>;
+const outsideGroup = (group: { number: number; tasks: readonly { id: string }[] }) =>
+	group.tasks.filter((task) => !task.id.startsWith(`${group.number}.`));
+
+export const TaskGroup = Type.Refine(
+	closed({ number: Int({ minimum: 1 }), title: Type.String(), tasks: Type.Array(Task) }),
+	(group) => outsideGroup(group).length === 0,
+	(group) =>
+		outsideGroup(group)
+			.map((task) => `task ${task.id} does not start with its group's number ${group.number}`)
+			.join("; "),
+);
+export type TaskGroup = Static<typeof TaskGroup>;
 
 /** Non-empty: a change with no tasks yet has no task list at all. */
-export const TaskList = closed({ groups: z.array(TaskGroup).min(1) }).superRefine((list, ctx) => {
-	if (!list.groups.every((group, i) => i === 0 || group.number > list.groups[i - 1]!.number)) {
-		ctx.addIssue({ code: "custom", message: "group numbers are not unique and ascending" });
-	}
-});
-export type TaskList = z.infer<typeof TaskList>;
+export const TaskList = Type.Refine(
+	closed({ groups: Type.Array(TaskGroup, { minItems: 1 }) }),
+	(list) => list.groups.every((group, i) => i === 0 || group.number > list.groups[i - 1]!.number),
+	() => "group numbers are not unique and ascending",
+);
+export type TaskList = Static<typeof TaskList>;
 
 // ── Changes ─────────────────────────────────────────────────────────────────
 
@@ -147,60 +143,62 @@ export const ChangeState = literals(
 	"amended",
 	"abandoned",
 );
-export type ChangeState = z.infer<typeof ChangeState>;
+export type ChangeState = Static<typeof ChangeState>;
 
-export const Proposal = closed({
-	why: z.string(),
-	whatChanges: z.array(z.string()),
-	capabilities: closed({ new: z.array(CapabilityPath), modified: z.array(CapabilityPath) }),
-	outOfScope: z.array(z.string()),
-	impact: z.array(z.string()),
-}).superRefine((proposal, ctx) => {
-	if (proposal.capabilities.new.some((path) => proposal.capabilities.modified.some((m) => sameValue(path, m)))) {
-		ctx.addIssue({ code: "custom", message: "a capability path is both new and modified" });
-	}
-});
-export type Proposal = z.infer<typeof Proposal>;
+export const Proposal = Type.Refine(
+	closed({
+		why: Type.String(),
+		whatChanges: Type.Array(Type.String()),
+		capabilities: closed({ new: Type.Array(CapabilityPath), modified: Type.Array(CapabilityPath) }),
+		outOfScope: Type.Array(Type.String()),
+		impact: Type.Array(Type.String()),
+	}),
+	(proposal) => !proposal.capabilities.new.some((path) => proposal.capabilities.modified.some((m) => sameValue(path, m))),
+	() => "a capability path is both new and modified",
+);
+export type Proposal = Static<typeof Proposal>;
 
-export const Added = closed({ op: z.literal("ADDED"), capability: CapabilityPath, requirement: Requirement });
-export type Added = z.infer<typeof Added>;
+export const Added = closed({ op: Type.Literal("ADDED"), capability: CapabilityPath, requirement: Requirement });
+export type Added = Static<typeof Added>;
 
-export const Modified = closed({ op: z.literal("MODIFIED"), capability: CapabilityPath, requirement: Requirement });
-export type Modified = z.infer<typeof Modified>;
+export const Modified = closed({ op: Type.Literal("MODIFIED"), capability: CapabilityPath, requirement: Requirement });
+export type Modified = Static<typeof Modified>;
 
 export const Removed = closed({
-	op: z.literal("REMOVED"),
+	op: Type.Literal("REMOVED"),
 	capability: CapabilityPath,
 	name: Name(),
 	reason: Name(),
 	migration: Name(),
 });
-export type Removed = z.infer<typeof Removed>;
+export type Removed = Static<typeof Removed>;
 
-export const Renamed = closed({ op: z.literal("RENAMED"), capability: CapabilityPath, from: Name(), to: Name() }).superRefine(
-	(renamed, ctx) => {
-		if (renamed.from === renamed.to) ctx.addIssue({ code: "custom", message: "a rename's from and to are the same" });
-	},
+export const Renamed = Type.Refine(
+	closed({ op: Type.Literal("RENAMED"), capability: CapabilityPath, from: Name(), to: Name() }),
+	(renamed) => renamed.from !== renamed.to,
+	() => "a rename's from and to are the same",
 );
-export type Renamed = z.infer<typeof Renamed>;
+export type Renamed = Static<typeof Renamed>;
 
-export const Delta = z.union([Added, Modified, Removed, Renamed]);
-export type Delta = z.infer<typeof Delta>;
+export const Delta = Type.Union([Added, Modified, Removed, Renamed]);
+export type Delta = Static<typeof Delta>;
 
 /** Free-form and in source order; no heading is required. Non-empty: a change with no design has none. */
-export const Design = closed({ sections: z.array(closed({ heading: z.string(), body: z.string() })).min(1) });
-export type Design = z.infer<typeof Design>;
+export const Design = closed({
+	sections: Type.Array(closed({ heading: Type.String(), body: Type.String() }), { minItems: 1 }),
+});
+export type Design = Static<typeof Design>;
 
 export const Change = closed({
-	id: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
+	id: Type.String({ pattern: "^[a-z0-9]+(-[a-z0-9]+)*$" }),
 	schema: Name(),
 	proposal: Proposal,
-	deltas: z.array(Delta),
-	design: Design.optional(),
-	tasks: TaskList.optional(),
+	deltas: Type.Array(Delta),
+	design: Type.Optional(Design),
+	tasks: Type.Optional(TaskList),
 	state: ChangeState,
 });
-export type Change = z.infer<typeof Change>;
+export type Change = Static<typeof Change>;
 
 /**
  * A delta applied to the capability it names. `MODIFIED` replaces the whole

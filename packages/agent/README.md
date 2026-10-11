@@ -21,7 +21,7 @@ peer dependencies, so a consumer of the interpreter alone installs none of them.
 | `@specsesh/agent/claude-code` | A `ReasoningPort` and a pi provider that run each step through your own `claude -p` (Node only) | `@earendil-works/pi-ai` |
 | `@specsesh/agent/durable` | The pi-durable extensions and `startScript` / `waitForScript` / `runScript` | `@earendil-works/pi-ai`, `@earendil-works/pi-durable`, `@earendil-works/chord` |
 | `@specsesh/agent/cloudflare` | `AgentScriptHost`, a Durable Object class for a Worker to re-export (workerd only) | the durable peers and `agents` |
-| `@specsesh/agent/openspec` | The OpenSpec ontology: typed schemas for a change, its lifecycle steps, its execution loops and their evidence | none (uses the `zod` dependency) |
+| `@specsesh/agent/openspec` | The OpenSpec ontology: typed schemas for a change, its lifecycle steps, its execution loops and their evidence | none (uses the `typebox` dependency) |
 | `@specsesh/agent/task` | The task loop: `startTaskLoop` / `waitForTaskLoop` / `answerEscalation`, `taskLoopExtensions`, and the bundled `task.agent` and `task-delegate.agent` (Node only) | the durable peers |
 
 The authoring, interpreter and openspec entries run on Node and on Workers.
@@ -29,12 +29,13 @@ The authoring, interpreter and openspec entries run on Node and on Workers.
 ## `@specsesh/agent/openspec`
 
 Types for executing an OpenSpec change, where every step has a typed input and output.
-Each type is one [zod](https://zod.dev) schema exported under the type's name, with the
-static type `z.infer` of it, so a value can be checked wherever it crosses a boundary (a
-model's tool call, a durable checkpoint): `check(Clause, value)`, or `Clause.safeParse(value)`.
-A few rules compare two fields of one value (a task id against its group, a rename's
-`from` against its `to`); those are refinements on the schema itself, which `safeParse` and
-`check` run and the JSON Schema from `toJSONSchema(Clause)` does not carry. The entry reads
+Each type is one [TypeBox](https://github.com/sinclairzx81/typebox) schema exported under the
+type's name, with the static type `Static` of it, so a value can be checked wherever it crosses
+a boundary (a model's tool call, a durable checkpoint): `check(Clause, value)`, or
+`Value.Check(Clause, value)`. A TypeBox schema is a JSON Schema; `toJSONSchema(Clause)` returns
+it as plain JSON. A few rules compare two fields of one value (a task id against its group, a
+rename's `from` against its `to`); those are refinements on the schema itself, which
+`Value.Check` and `check` run and the plain JSON Schema does not carry. The entry reads
 no files and runs no loop.
 
 - **Taxonomy:** `Root`, `Capability`, `CapabilityPath`, `Requirement`, `Scenario`, `Clause`,

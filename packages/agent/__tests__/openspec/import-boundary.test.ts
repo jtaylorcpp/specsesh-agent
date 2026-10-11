@@ -24,7 +24,7 @@ const importsOf = (file: string) =>
 	);
 
 describe("src/openspec imports only its schema library and its own files", () => {
-	it("imports zod and sibling files, nothing else", () => {
+	it("imports typebox and sibling files, nothing else", () => {
 		expect(files.length).toBeGreaterThan(4);
 		let imports = 0;
 		for (const file of files) {
@@ -36,7 +36,7 @@ describe("src/openspec imports only its schema library and its own files", () =>
 					expect(relative(SRC, join(dirname(file), spec)).startsWith(".."), where).toBe(false);
 					continue;
 				}
-				expect(spec === "zod" || spec.startsWith("zod/"), where).toBe(true);
+				expect(spec === "typebox" || spec.startsWith("typebox/"), where).toBe(true);
 			}
 		}
 		expect(imports).toBeGreaterThan(0);
@@ -57,7 +57,7 @@ describe("src/openspec imports only its schema library and its own files", () =>
 		}
 	});
 
-	it("zod is the exact-pinned dependency it imports", () => {
-		expect(manifest.dependencies.zod).toMatch(/^\d+\.\d+\.\d+$/);
+	it("typebox is the exact-pinned dependency it imports", () => {
+		expect(manifest.dependencies.typebox).toMatch(/^\d+\.\d+\.\d+$/);
 	});
 });

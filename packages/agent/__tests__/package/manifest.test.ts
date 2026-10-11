@@ -117,17 +117,17 @@ describe("The three CLIs are compiled bins", () => {
 	});
 });
 
-describe("Required dependencies are only the exact-pinned language packages and zod", () => {
-	it("Scenario: The language packages, all exact", () => {
+describe("Required dependencies are only the exact-pinned language packages and the schema library", () => {
+	it("Scenario: The language packages are pinned exactly", () => {
 		const sf = Object.fromEntries(Object.entries(manifest.dependencies).filter(([name]) => name.startsWith("@sf-agentscript/")));
 		expect(sf).toEqual(SF);
 		for (const version of Object.values(sf)) expect(version).toMatch(/^\d+\.\d+\.\d+$/);
 	});
 
-	it("Scenario: zod is the only other dependency", () => {
-		expect(manifest.dependencies).toEqual({ ...SF, zod: "4.6.5" });
-		expect(manifest.dependencies.zod).toMatch(/^\d+\.\d+\.\d+$/);
-		expect(manifest.dependencies.typebox).toBeUndefined();
+	it("Scenario: The schema library is the only other dependency", () => {
+		expect(manifest.dependencies).toEqual({ ...SF, typebox: "1.3.27" });
+		expect(manifest.dependencies.typebox).toMatch(/^\d+\.\d+\.\d+$/);
+		expect(manifest.dependencies.zod).toBeUndefined();
 	});
 });
 

@@ -46,7 +46,7 @@ const CLAUDE_CODE = [...PI, "src/claude-code"];
 const DURABLE = [...CLAUDE_CODE, "@earendil-works/pi-durable", "@earendil-works/chord", "src/openspec", "src/durable"];
 const TASK = [...DURABLE, "src/task"];
 const CLOUDFLARE = [...DURABLE, "agents", "cloudflare:workers", "src/cloudflare"];
-const OPENSPEC = ["zod", "src/openspec"];
+const OPENSPEC = ["typebox", "src/openspec"];
 const ALLOWED: Record<string, readonly string[]> = {
 	pi: PI,
 	"claude-code": CLAUDE_CODE,
@@ -84,7 +84,7 @@ describe("Each layer imports only its own peers and the layers beneath it", () =
 		expect(files.length).toBeGreaterThan(0);
 		const reduced = new Set(files.flatMap((file) => importsOf(file).map((spec) => reduce(file, spec))));
 		expect(reduced).toContain("src/openspec");
-		expect(reduced).not.toContain("zod");
+		expect(reduced).not.toContain("typebox");
 	});
 });
 

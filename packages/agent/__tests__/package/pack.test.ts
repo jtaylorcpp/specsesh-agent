@@ -266,8 +266,8 @@ function installedVersions(dir: string, name: string): string[] {
 	return versions;
 }
 
-describe("The ontology entry imports from the packed tarball", () => {
-	it("Scenario: The ontology loads with no peers", () => {
+describe("The ontology entry loads from the packed tarball", () => {
+	it("Scenario: The ontology loads with no peers installed", () => {
 		for (const name of ["@earendil-works", "agents"]) {
 			expect(existsSync(join(bare, "node_modules", name)), `${name} was installed`).toBe(false);
 		}
@@ -284,12 +284,12 @@ console.log("done");
 		expect(r.stdout.trim()).toBe("done");
 	});
 
-	it("Scenario: One zod beside pi", () => {
-		// pi is there, and zod is installed exactly once, at the pinned version.
+	it("Scenario: One schema library beside pi", () => {
+		// pi is there, and typebox is installed exactly once, at the pinned version.
 		expect(existsSync(join(full, "node_modules", "@earendil-works", "pi-ai"))).toBe(true);
-		const versions = installedVersions(full, "zod");
-		expect(versions.length, "npm ls found no zod").toBeGreaterThan(0);
-		expect([...new Set(versions)]).toEqual(["4.6.5"]);
+		const versions = installedVersions(full, "typebox");
+		expect(versions.length, "npm ls found no typebox").toBeGreaterThan(0);
+		expect([...new Set(versions)]).toEqual(["1.3.27"]);
 		const r = node(
 			full,
 			`import * as openspec from "@specsesh/agent/openspec";

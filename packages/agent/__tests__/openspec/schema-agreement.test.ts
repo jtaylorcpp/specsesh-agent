@@ -1,8 +1,9 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { IsSchema, type TSchema } from "typebox";
+import Value from "typebox/value";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import * as openspec from "../../src/openspec/index.js";
 import { TaskGroup, check, explain, toJSONSchema } from "../../src/openspec/index.js";
 import {
@@ -29,7 +30,7 @@ import {
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "src", "openspec");
 
 /** The generic types: their schema is a function from the parameters' schemas to a schema. */
-const GENERIC: Record<string, (...args: z.ZodType[]) => z.ZodType> = {
+const GENERIC: Record<string, (...args: TSchema[]) => TSchema> = {
 	Loop: (goal, out) => openspec.Loop(goal!, out!),
 	LoopInput: (goal) => openspec.LoopInput(goal!),
 	LoopOutcome: (out) => openspec.LoopOutcome(out!),
@@ -67,7 +68,7 @@ const exportedSchemas = () =>
 	Object.entries(openspec)
 		.filter(([name]) => /^[A-Z][a-z]/.test(name))
 		.map(([name, value]) => {
-			expect(value instanceof z.ZodType || name in GENERIC, `${name} is PascalCase but not a schema`).toBe(true);
+			expect(IsSchema(value) || name in GENERIC, `${name} is PascalCase but not a schema`).toBe(true);
 			return name;
 		});
 
@@ -76,7 +77,7 @@ const TASK_OUTCOME_SCHEMA = openspec.TaskOutcome;
 const LOOP_INPUT = { goal: task("2.4"), context: [], budget: { maxIterations: 3 }, carried: [] };
 
 /** One value each schema accepts and one it refuses. Generic schemas are instantiated over `Task` / `TaskOutcome`. */
-const FIXTURES: Record<string, { valid: unknown; invalid: unknown; args?: z.ZodType[] }> = {
+const FIXTURES: Record<string, { valid: unknown; invalid: unknown; args?: TSchema[] }> = {
 	Root: { valid: { specsDir: "openspec/specs", changesDir: "openspec/changes", schema: "spec-driven" }, invalid: { specsDir: "openspec/specs" } },
 	CapabilityPath: { valid: ["durable", "run-task"], invalid: [] },
 	Clause: { valid: { keyword: "WHEN", text: "x" }, invalid: { keyword: "BUT", text: "x" } },
@@ -147,10 +148,10 @@ const FIXTURES: Record<string, { valid: unknown; invalid: unknown; args?: z.ZodT
 };
 
 /** The exported schema of that name; a generic one instantiated over its fixture's parameters. */
-const schemaOf = (name: string): z.ZodType =>
+const schemaOf = (name: string): TSchema =>
 	name in GENERIC
 		? GENERIC[name]!(...(FIXTURES[name]?.args ?? []))
-		: ((openspec as Record<string, unknown>)[name] as z.ZodType);
+		: ((openspec as Record<string, unknown>)[name] as TSchema);
 
 describe("Every model type has a static type and a JSON Schema", () => {
 	it("Scenario: Every type has a schema", () => {
@@ -160,12 +161,14 @@ describe("Every model type has a static type and a JSON Schema", () => {
 		// Each exported type has a schema of the same name, and each schema a type.
 		expect([...new Set(types)].sort()).toEqual([...new Set(schemas)].sort());
 		expect(new Set(types).size, "a type is declared twice").toBe(types.length);
-		// Each is a zod schema (a generic one once given its parameters) that toJSONSchema exports.
+		// Each is a TypeBox schema (a generic one once given its parameters) whose JSON Schema is plain JSON.
 		for (const name of schemas) {
 			const schema = schemaOf(name);
-			expect(schema instanceof z.ZodType, `${name} is not a zod schema`).toBe(true);
+			expect(IsSchema(schema), `${name} is not a TypeBox schema`).toBe(true);
 			const json = toJSONSchema(schema);
-			expect(json.$schema, `${name} did not export`).toMatch(/json-schema/);
+			expect(JSON.parse(JSON.stringify(json)), `${name} is not plain JSON`).toEqual(json);
+			expect(Object.keys(json).length, `${name} exported an empty JSON Schema`).toBeGreaterThan(0);
+			expect(JSON.stringify(json), `${name} leaks TypeBox bookkeeping`).not.toMatch(/"~/);
 		}
 		// Every type the specs define is among them, and the list is the specs' own.
 		const specText = Object.keys(SPEC_TYPES)
@@ -180,17 +183,15 @@ describe("Every model type has a static type and a JSON Schema", () => {
 	});
 });
 
-describe("Cross-field rules travel with the schema", () => {
-	it("Scenario: safeParse enforces a cross-field rule", () => {
+describe("Cross-field rules are part of the schema's own check", () => {
+	it("Scenario: The schema's own check enforces a cross-field rule", () => {
 		const group = { number: 2, title: "t", tasks: [task("3.1")] };
-		const result = TaskGroup.safeParse(group);
-		expect(result.success).toBe(false);
-		expect(result.error?.issues.map((issue) => issue.message).join("\n")).toContain("3.1");
+		expect(Value.Check(TaskGroup, group)).toBe(false);
 		// The same group in its own number passes, so it is the rule that refused it.
-		expect(TaskGroup.safeParse({ ...group, tasks: [task("2.1")] }).success).toBe(true);
-		// check reports it like any other issue.
-		expect(check(TaskGroup, group)).toBe(false);
+		expect(Value.Check(TaskGroup, { ...group, tasks: [task("2.1")] })).toBe(true);
+		// explain names the task id, and check reports it like any other issue.
 		expect(explain(TaskGroup, group).join("\n")).toContain("3.1");
+		expect(check(TaskGroup, group)).toBe(false);
 	});
 
 	it("leaves each refinement out of the JSON Schema rather than throwing", () => {
@@ -200,8 +201,8 @@ describe("Cross-field rules travel with the schema", () => {
 	});
 
 	it("keeps a rule JSON Schema can state in the JSON Schema", () => {
-		// A scenario's WHEN and THEN are a refinement and also `contains` in the export.
-		const clauses = toJSONSchema(openspec.Scenario).properties?.clauses as { allOf?: unknown[] };
+		// A scenario's WHEN and THEN are `contains` in the schema itself, so the export keeps them.
+		const clauses = (toJSONSchema(openspec.Scenario).properties as Record<string, { allOf?: unknown[] }>).clauses!;
 		expect(clauses.allOf).toHaveLength(2);
 		expect(JSON.stringify(clauses.allOf)).toContain('"const":"WHEN"');
 		expect(JSON.stringify(clauses.allOf)).toContain('"const":"THEN"');
@@ -216,7 +217,7 @@ describe("schema and type agreement", () => {
 	for (const [name, fixture] of Object.entries(FIXTURES)) {
 		it(`${name} accepts a valid value and refuses an invalid one`, () => {
 			const schema = schemaOf(name);
-			expect(schema instanceof z.ZodType, `${name} is not a zod schema`).toBe(true);
+			expect(IsSchema(schema), `${name} is not a TypeBox schema`).toBe(true);
 			expect(check(schema, fixture.valid), `${name} refuses its valid fixture`).toBe(true);
 			expect(check(schema, fixture.invalid), `${name} accepts its invalid fixture`).toBe(false);
 			// The schema exports as JSON Schema.
