@@ -2,7 +2,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cpSync } from "node:fs";
-import { baselineCopy, baselineDir, cleanTemps, context, runLoop, temp, verdict } from "./helpers.js";
+import { tickTask, untick } from "../../src/task/tick.js";
+import { baselineCopy,baselineDir, cleanTemps, context, runLoop, temp, verdict } from "./helpers.js";
 
 // Every file written, so a test can show the loop wrote none.
 const writes = vi.hoisted(() => ({ paths: [] as string[] }));
@@ -103,5 +104,59 @@ describe("task/agent: Ticking never writes in doubt and never unticks", () => {
 			expect(r.outcome.status).not.toBe("converged");
 		}
 		expect(readFileSync(tasks, "utf8")).toBe(before);
+	});
+});
+
+describe("task/agent: untick, for a group's rework only", () => {
+	const TASKS = "## 1. First\n\n- [x] 1.1 a\n- [x] 1.2 b\n- [x] 1.10 c\n\n## 2. Second\n\n- [x] 2.1 d\n- [ ] 2.2 e\n";
+	const fileWith = (text: string): string => {
+		const path = join(temp("untick-"), "tasks.md");
+		writeFileSync(path, text);
+		return path;
+	};
+
+	it("flips only the one line", async () => {
+		const path = fileWith(TASKS);
+		expect(await untick(path, "1.1")).toEqual({ unticked: true });
+		expect(readFileSync(path, "utf8")).toBe(TASKS.replace("- [x] 1.1 a", "- [ ] 1.1 a"));
+	});
+
+	it("does not touch 1.10 when asked for 1.1", async () => {
+		const path = fileWith(TASKS);
+		await untick(path, "1.1");
+		expect(readFileSync(path, "utf8")).toContain("- [x] 1.10 c");
+	});
+
+	it("writes nothing for an already unticked line", async () => {
+		const path = fileWith(TASKS);
+		expect(await untick(path, "2.2")).toMatchObject({ unticked: false, note: expect.stringContaining("2.2") });
+		expect(readFileSync(path, "utf8")).toBe(TASKS);
+	});
+
+	it("writes nothing for a missing id, naming it", async () => {
+		const path = fileWith(TASKS);
+		expect(await untick(path, "9.9")).toMatchObject({ unticked: false, note: expect.stringContaining("9.9") });
+		expect(readFileSync(path, "utf8")).toBe(TASKS);
+	});
+
+	it("keeps CRLF line endings and a missing final newline", async () => {
+		const crlf = TASKS.replace(/\n/g, "\r\n").trimEnd();
+		const path = fileWith(crlf);
+		expect(await untick(path, "2.1")).toEqual({ unticked: true });
+		expect(readFileSync(path, "utf8")).toBe(crlf.replace("- [x] 2.1 d", "- [ ] 2.1 d"));
+	});
+
+	it("untick then tick gives back the original bytes", async () => {
+		const path = fileWith(TASKS);
+		await untick(path, "1.1");
+		expect(tickTask(path, "1.1")).toEqual({ ticked: true });
+		expect(readFileSync(path, "utf8")).toBe(TASKS);
+	});
+
+	it("no task loop source imports or calls untick", () => {
+		const dir = join(import.meta.dirname, "../../src/task");
+		for (const name of ["loop.ts", "loop-input.ts", "iteration.ts", "judge.ts", "start.ts", "answer.ts"]) {
+			expect(readFileSync(join(dir, name), "utf8"), name).not.toMatch(/\buntick(Line)?\b/);
+		}
 	});
 });

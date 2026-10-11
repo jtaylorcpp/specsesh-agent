@@ -1,7 +1,7 @@
 /**
  * Ticking a converged task in a tasks.md given by path: that line's `- [ ]`
- * becomes `- [x]` and no other byte moves. Never from text, never in doubt,
- * never the other way.
+ * becomes `- [x]` and no other byte moves. Never from text, never in doubt.
+ * No task loop ever unticks; only a group loop's rework does, through `untick`.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -44,7 +44,8 @@ export interface Untick {
 
 /**
  * A group loop's rework reopens a task: that line's `- [x]` becomes `- [ ]`, from a
- * tasks.md given by path only. This is the one place anything unticks; the task loop never does.
+ * tasks.md given by path only (see `task/group` "Rework reruns one task with the failure carried in").
+ * This is the one place anything unticks; no task loop does.
  * Writing the same file twice is harmless, so a rerun after a crash repeats it.
  */
 export function untick(tasksPath: string | undefined, task: string): Untick {

@@ -14,7 +14,7 @@
 - [x] 2.3 `packages/agent/src/task/group.ts`: judge transitions: `rework` of a task in the group within budget → untick its line (path only), queue it, `carried` = check output + feedback, `reworks` + 1; budget spent → exhausted; `ask`/`amend-spec` → blocked (level `group`, `to` = `escalateTo`, `amend-spec` recorded as `spec-defect`); anything else or a task outside the group → failed
 - [x] 2.4 `packages/agent/src/task/group.ts`: each check round recorded as an ontology `Iteration` (one `CheckEvidence` per check, target `{ check: "group <n>" }`, one finding and its feedback when unmet); the outcome built as `LoopOutcome<GroupOutcome>` and passed through `check` before it is stored
 - [x] 2.5 `packages/agent/src/task/group-answer.ts`: `answerGroupEscalation` (blocked and `by` = `to` only; a task block reruns that task with `carried` = decision; a judge block reruns the check, then the judge with the decision appended to `check_output`)
-- [ ] 2.6 `packages/agent/src/task/tick.ts`: `untick(tasksPath, id)` for a group rework, that line only, never from text input; the task loop itself still never unticks (modified `task/agent` requirement)
+- [x] 2.6 `packages/agent/src/task/tick.ts`: `untick(tasksPath, id)` for a group rework, that line only, never from text input; the task loop itself still never unticks (modified `task/agent` requirement)
 
 ## 3. The CLI
 
