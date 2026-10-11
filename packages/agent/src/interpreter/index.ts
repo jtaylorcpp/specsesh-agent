@@ -8,26 +8,33 @@
  * package.
  *
  * The port carries one reasoning step — system instructions as a channel
- * distinct from the prompt, the prompt, an optional structured result, and an
- * outcome. It carries no tool set, no executor and no round bound: a contract
- * holding those is a model boundary, and this product has exactly one.
+ * distinct from the prompt, the prompt, an optional structured result, optional
+ * tool offers, and an outcome. It carries no executor and no round bound: a
+ * contract holding those is a model boundary, and this product has exactly one.
+ * Actions a `run` statement calls leave through the step machine as action
+ * calls, for the host to run.
  */
 
 export {
 	KNOWN_FAILURE_CATEGORIES,
 	isFailureCategory,
 	NoReasoningPortError,
+	TOOLS_NEED_DURABLE_HOST,
 	toFailureCategory,
 	type FailureCategory,
 	type ReasoningPort,
 	type ReasoningRequest,
 	type StepOutcome,
+	type ToolCallRecord,
 } from "./port.js";
 
 export {
 	BOOLEAN_LITERALS,
 	READABLE_NAMESPACES,
 	ASSIGNABLE_NAMESPACES,
+	ACTIONS_NAMESPACE,
+	ACTION_PARAMETER_TYPES,
+	ACTION_TARGET_SCHEME,
 	STRUCTURED_RESULT_NAMESPACE,
 	SUPPORTED_BLOCK_FIELDS,
 	SUPPORTED_CONSTRUCTS,
@@ -49,6 +56,8 @@ export {
 	type Composition,
 	type DeclaredVariable,
 	type PendingAssignment,
+	type ToolAssignment,
+	type ToolOffer,
 	type VariableValue,
 } from "./compose.js";
 
@@ -57,10 +66,19 @@ export {
 	RunStateError,
 	SourceMismatchError,
 	apply,
+	applyAction,
 	hashSource,
 	next,
 	start,
+	type ActionCall,
+	type ActionReport,
+	type ActionResult,
+	type AwaitingAction,
 	type AwaitingStep,
+	type ResumePoint,
+	type DeclaredAction,
+	declaredActions,
+	NoActionHostError,
 	type NextStep,
 	type RunState,
 	type StartOptions,

@@ -86,6 +86,7 @@ function drive(source: string, answers: StepOutcome[], options: Parameters<typeo
 	for (let i = 0; ; i += 1) {
 		const step = next(source, state);
 		if (step.type === "done") return { result: step.result, prompts };
+		if (step.type !== "request") throw new Error("this fixture runs no actions");
 		prompts.push(step.request.prompt);
 		state = persist(apply(source, persist(step.state), answers[i] ?? answered("ok")));
 	}
@@ -432,10 +433,11 @@ describe("platform-agentscript-step-machine: Entries Resolve From The Option, Or
 describe("platform-agentscript-step-machine: A Fresh Run State Has An Exact Shape And Is Plain JSON", () => {
 	it("Scenario: The initial state has no step awaiting", () => {
 		const state = start(PIPELINE, { entry: ENTRIES });
-		expect(Object.keys(state).sort()).toEqual(["cursor", "entries", "sourceHash", "steps", "variables", "version"]);
+		expect(Object.keys(state).sort()).toEqual(["actions", "cursor", "entries", "sourceHash", "steps", "variables", "version"]);
 		expect(state.version).toBe(1);
 		expect(state.cursor).toBe(0);
 		expect(state.steps).toEqual([]);
+		expect(state.actions).toEqual([]);
 		expect(state.awaiting).toBeUndefined();
 		expect(state.stopped).toBeUndefined();
 		expect(state.sourceHash).toBe(hashSource(PIPELINE));
@@ -477,7 +479,7 @@ describe("platform-agentscript-step-machine: The Returned State Carries An Await
 		expect(step.state.awaiting?.before.stage).toBe("proposal");
 		expect(step.state.awaiting?.variables.stage).toBe("specs");
 		expect(step.state.variables.stage).toBe("proposal");
-		expect(step.state.awaiting?.pending).toEqual([]);
+		expect(step.state.awaiting && "pending" in step.state.awaiting ? step.state.awaiting.pending : undefined).toEqual([]);
 	});
 });
 

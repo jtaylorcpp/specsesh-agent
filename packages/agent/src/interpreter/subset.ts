@@ -151,6 +151,34 @@ export const SUPPORTED_CONSTRUCTS: readonly SupportedConstruct[] = [
 			'variables:\n    verdict: mutable string = ""\n\nsubagent t:\n    reasoning:\n        instructions: ->\n            | Judge it.\n            set @variables.verdict = @outputs.verdict\n',
 		kinds: ["SetClause", "MemberExpression", "AtIdentifier"],
 	},
+	{
+		id: "subagent.actions",
+		summary: "actions a subagent defines, each bound to a host tool",
+		// `mcpTool://` is the only target scheme this runtime executes; every other
+		// scheme the dialect accepts is refused by the scan. Inputs and outputs are
+		// `ParameterDeclaration`s with no default, typed by an `Identifier`.
+		probe:
+			'subagent check:\n    description: "d"\n\n    actions:\n        run_checks:\n            description: "Run the checks"\n            inputs:\n                task_id: string\n            outputs:\n                passed: boolean\n            target: "mcpTool://run_checks"\n',
+		kinds: ["Collection<ActionBlock>", "ActionBlock", "InputsBlock", "OutputsBlock", "ParameterDeclaration"],
+	},
+	{
+		id: "reasoning.run",
+		summary: "a run statement, calling an action deterministically",
+		// The program calls the action, never the model: `with` clauses bind its
+		// inputs and `set … = @outputs.<field>` clauses take its outputs.
+		probe:
+			'variables:\n    task_id: mutable string = "2.4"\n    checks_passed: mutable boolean = False\n\nsubagent check:\n    description: "d"\n\n    actions:\n        run_checks:\n            description: "Run the checks"\n            inputs:\n                task_id: string\n            outputs:\n                passed: boolean\n            target: "mcpTool://run_checks"\n\n    reasoning:\n        instructions: ->\n            run @actions.run_checks\n                with task_id = @variables.task_id\n                set @variables.checks_passed = @outputs.passed\n',
+		kinds: ["RunStatement", "WithClause", "SetClause", "MemberExpression", "AtIdentifier"],
+	},
+	{
+		id: "reasoning.actions",
+		summary: "actions a reasoning step offers the model as tools",
+		// `with <input> = ...` (an `Ellipsis`) marks an input the model fills. The
+		// entry's key is the tool's name; `run` is a keyword and cannot be one.
+		probe:
+			'subagent act:\n    description: "d"\n\n    actions:\n        edit_file:\n            description: "Replace a file"\n            inputs:\n                path: string\n            outputs:\n                ok: boolean\n            target: "mcpTool://edit_file"\n\n    reasoning:\n        instructions: ->\n            | Edit the file.\n        actions:\n            edit: @actions.edit_file\n                with path = ...\n',
+		kinds: ["Collection<ReasoningActionBlock>", "ReasoningActionBlock", "WithClause", "Ellipsis"],
+	},
 ] as const;
 
 /** Every supported construct id, for a caller that only needs the names. */
@@ -190,12 +218,13 @@ export const SUPPORTED_BLOCK_FIELDS: Readonly<Record<string, readonly string[]>>
 	VariableDeclaration: ["properties"],
 	ParameterDeclaration: ["properties"],
 	VariablePropertiesBlock: ["description"],
-	SubagentBlock: ["description", "reasoning"],
-	ReasoningBlock: ["instructions"],
+	SubagentBlock: ["description", "reasoning", "actions"],
+	ReasoningBlock: ["instructions", "actions"],
+	ActionBlock: ["description", "inputs", "outputs", "target"],
 };
 
 /** The statements an `instructions: ->` procedure may contain. */
-export const SUPPORTED_STATEMENT_KINDS: readonly string[] = ["Template", "IfStatement", "SetClause"];
+export const SUPPORTED_STATEMENT_KINDS: readonly string[] = ["Template", "IfStatement", "SetClause", "RunStatement"];
 
 /**
  * The expression forms a condition or an assigned value may be built from.
@@ -263,6 +292,22 @@ export const STRUCTURED_RESULT_NAMESPACE = "outputs";
 
 /** The `@` namespaces a `set` may WRITE. State is the interpreter's, and only that. */
 export const ASSIGNABLE_NAMESPACES: readonly string[] = ["variables"];
+
+/**
+ * The namespace naming an action a subagent defines. Admitted only as a `run`
+ * target or a reasoning-action entry's value, and only for the same subagent's
+ * own actions.
+ */
+export const ACTIONS_NAMESPACE = "actions";
+
+/** The scalar types an action input or output may declare, like a variable's. */
+export const ACTION_PARAMETER_TYPES: readonly string[] = ["string", "number", "boolean"];
+
+/**
+ * The one target scheme this runtime executes: a tool the host provides, by name.
+ * Every other scheme the dialect accepts (`flow://`, `apex://`, …) is refused.
+ */
+export const ACTION_TARGET_SCHEME = "mcpTool";
 
 /** The comparisons a condition may make. */
 export const SUPPORTED_COMPARISON_OPERATORS: readonly string[] = ["==", "!=", "<", "<=", ">", ">="];

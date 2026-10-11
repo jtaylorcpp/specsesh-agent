@@ -198,16 +198,14 @@ describe("platform-agentscript-interpreter: Supported block fields are named per
 	});
 
 	it("Scenario: An unknown field in a supported block is refused", () => {
+		// `actions:` is a subagent field now (add-agentscript-actions); `label:` is not.
 		const found = scan(
 			`subagent t:
     description: "d"
-
-    actions:
-        noop:
-            description: "x"
+    label: "x"
 `,
 		);
-		const finding = found.find((c) => c.construct === "actions");
+		const finding = found.find((c) => c.construct === "label");
 		expect(finding, "the unknown subagent field was not named").toBeDefined();
 		expect(finding?.where).toBe('subagent "t"');
 	});
@@ -244,8 +242,9 @@ describe("platform-agentscript-interpreter: Statements, expressions and defaults
 	});
 
 	it("Scenario: An unknown statement kind is refused", () => {
-		const found = scan(procedure("run @actions.lookup", VARS));
-		expect(found.map((c) => [c.construct, c.where])).toEqual([["RunStatement", 'subagent "t"']]);
+		// `run` is a supported statement now (add-agentscript-actions); `transition` is not.
+		const found = scan(procedure("transition to @subagent.t", VARS));
+		expect(found.map((c) => [c.construct, c.where])).toEqual([["TransitionStatement", 'subagent "t"']]);
 	});
 });
 

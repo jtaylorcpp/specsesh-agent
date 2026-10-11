@@ -30,6 +30,15 @@ import {
 	kindOf,
 	nodeRange,
 } from "./ast.js";
+import {
+	type ActionClauses,
+	type ActionDefinition,
+	actionReference,
+	readActionDefinitions,
+	readReasoningActions,
+	runClauses,
+	toolName,
+} from "./actions.js";
 import { STRUCTURED_RESULT_NAMESPACE } from "./subset.js";
 
 /** The value types this runtime's variables hold. */
@@ -59,6 +68,12 @@ export interface Composition {
 	readonly prompt: string;
 	/** Assignments the structured result must supply, in source order. */
 	readonly pending: readonly PendingAssignment[];
+	/**
+	 * The first `run` the walk reached, if any: the walk stops there, and its
+	 * `index` (the statement's pre-order position in the procedure) is where the
+	 * next walk resumes after the call's result is applied.
+	 */
+	readonly run?: { readonly index: number; readonly node: Node };
 }
 
 /** Raised when an instruction names a variable the document never declared. */
@@ -229,24 +244,65 @@ export function procedureStatements(block: Node): readonly unknown[] {
  * `variables` is mutated as `set` lines are reached, so a later line reads what
  * an earlier one wrote — which is what `set` means in a language whose
  * instructions run top to bottom.
+ *
+ * A reached `run` stops the walk: the program calls the action there, and the
+ * statements after it must read its outputs. `resumeAfter` continues a walk
+ * that stopped at the `run` with that pre-order position: every statement up to
+ * it has already run, and an `if` holding it is re-entered on the branch the
+ * walk took then, without evaluating its condition again.
  */
 export function compose(
 	statements: readonly unknown[],
 	variables: Map<string, VariableValue>,
+	resumeAfter?: number,
 ): Composition {
 	const lines: string[] = [];
 	const pending: PendingAssignment[] = [];
+	let position = -1;
+	let reached: { index: number; node: Node } | undefined;
 
-	const walk = (list: readonly unknown[]): void => {
+	/** Returns true when the walk stopped at a `run`. */
+	const walk = (list: readonly unknown[]): boolean => {
 		for (const statement of list) {
+			position += 1;
+			const index = position;
 			const kind = kindOf(statement);
 			const node = statement as Node;
+			const done = resumeAfter !== undefined && index <= resumeAfter;
+			if (kind === "IfStatement") {
+				const body = Array.isArray(node["body"]) ? node["body"] : [];
+				const orelse = Array.isArray(node["orelse"]) ? node["orelse"] : [];
+				if (done) {
+					// Already decided on the walk that reached the resume point. Only the
+					// branch holding that point still has statements left to run.
+					const bodyEnd = index + countStatements(body);
+					const end = bodyEnd + countStatements(orelse);
+					if (resumeAfter > end) {
+						position = end;
+						continue;
+					}
+					if (resumeAfter <= bodyEnd) {
+						if (walk(body)) return true;
+						position = end;
+					} else {
+						position = bodyEnd;
+						if (walk(orelse)) return true;
+					}
+					continue;
+				}
+				const taken = truthy(evaluate(node["condition"], variables));
+				if (taken) {
+					if (walk(body)) return true;
+					position += countStatements(orelse);
+				} else {
+					position += countStatements(body);
+					if (walk(orelse)) return true;
+				}
+				continue;
+			}
+			if (done) continue;
 			if (kind === "Template") {
 				lines.push(renderTemplate(statement, variables));
-			} else if (kind === "IfStatement") {
-				const taken = truthy(evaluate(node["condition"], variables));
-				const branch = taken ? node["body"] : node["orelse"];
-				if (Array.isArray(branch)) walk(branch);
 			} else if (kind === "SetClause") {
 				const target = node["target"];
 				const name = isNode(target) ? target["property"] : undefined;
@@ -259,12 +315,155 @@ export function compose(
 				}
 				requireDeclared(name, variables, nodeRange(target));
 				variables.set(name, evaluate(value, variables));
+			} else if (kind === "RunStatement") {
+				reached = { index, node };
+				return true;
 			}
 		}
+		return false;
 	};
 
 	walk(statements);
-	return { prompt: lines.join("\n"), pending };
+	return { prompt: lines.join("\n"), pending, ...(reached !== undefined ? { run: reached } : {}) };
+}
+
+/** How many statements a list holds, counting those nested inside `if`s, in pre-order. */
+function countStatements(list: readonly unknown[]): number {
+	let count = 0;
+	for (const statement of list) {
+		count += 1;
+		if (kindOf(statement) === "IfStatement") {
+			const node = statement as Node;
+			count += countStatements(Array.isArray(node["body"]) ? node["body"] : []);
+			count += countStatements(Array.isArray(node["orelse"]) ? node["orelse"] : []);
+		}
+	}
+	return count;
+}
+
+/** The statement at a pre-order position, or undefined. */
+export function statementAt(statements: readonly unknown[], index: number): Node | undefined {
+	let position = -1;
+	const find = (list: readonly unknown[]): Node | undefined => {
+		for (const statement of list) {
+			position += 1;
+			if (position === index) return isNode(statement) ? statement : undefined;
+			if (kindOf(statement) === "IfStatement") {
+				const node = statement as Node;
+				const found =
+					find(Array.isArray(node["body"]) ? node["body"] : []) ??
+					find(Array.isArray(node["orelse"]) ? node["orelse"] : []);
+				if (found !== undefined) return found;
+			}
+		}
+		return undefined;
+	};
+	return find(statements);
+}
+
+/** A `with` input whose value has the wrong type for its declaration. */
+export interface InputTypeProblem {
+	readonly input: string;
+	readonly declared: string;
+	readonly actual: string;
+}
+
+/**
+ * Evaluate a `run`'s inputs against the variables as they are now, checking each
+ * against its declared type. Values are never coerced: a string given to a
+ * `number` input is a problem, not a number.
+ */
+export function evaluateRunInputs(
+	run: Node,
+	definition: ActionDefinition,
+	variables: ReadonlyMap<string, VariableValue>,
+): { inputs: Record<string, VariableValue>; problem?: InputTypeProblem } {
+	const inputs: Record<string, VariableValue> = {};
+	let problem: InputTypeProblem | undefined;
+	for (const clause of runClauses(run).withs) {
+		const value = evaluate(clause.value, variables);
+		inputs[clause.param] = value;
+		const declared = definition.inputs.find((input) => input.name === clause.param)?.type;
+		if (problem === undefined && declared !== undefined && typeof value !== declared) {
+			problem = { input: clause.param, declared, actual: typeof value };
+		}
+	}
+	return problem === undefined ? { inputs } : { inputs, problem };
+}
+
+/** A `set … = @outputs.<field>` beneath a `run` or an entry. */
+export interface OutputAssignment {
+	readonly variable: string;
+	readonly field: string;
+}
+
+/** The output assignments beneath a `run` or an entry, in source order. */
+export function outputAssignments(clauses: ActionClauses): readonly OutputAssignment[] {
+	const assignments: OutputAssignment[] = [];
+	for (const set of clauses.sets) {
+		const variable = isNode(set.target) ? set.target["property"] : undefined;
+		const field = isNode(set.value) ? set.value["property"] : undefined;
+		if (typeof variable === "string" && typeof field === "string") assignments.push({ variable, field });
+	}
+	return assignments;
+}
+
+/** A tool offered to the model for one reasoning-action entry. Declarations only. */
+export interface ToolOffer {
+	/** The entry's key: the name the model calls. */
+	readonly name: string;
+	readonly description: string;
+	/** JSON Schema of the inputs the model fills: each typed as declared, all required. */
+	readonly inputSchema: Record<string, unknown>;
+	/** The host tool the action's `mcpTool://` target names. */
+	readonly action: string;
+	/** Inputs bound by an expression, evaluated when the step was composed. */
+	readonly bound: Readonly<Record<string, VariableValue>>;
+}
+
+/** A reasoning-action `set`, waiting on the last call to its tool. */
+export interface ToolAssignment extends OutputAssignment {
+	readonly tool: string;
+}
+
+/**
+ * The tool offers of a subagent's `reasoning.actions`, in source order, and the
+ * `set`s waiting on their calls. Bound inputs read `variables` as composition
+ * left them.
+ */
+export function composeToolOffers(
+	block: Node,
+	variables: ReadonlyMap<string, VariableValue>,
+): { offers: readonly ToolOffer[]; assignments: readonly ToolAssignment[] } {
+	const definitions = new Map(readActionDefinitions(block).map((d) => [d.name, d]));
+	const offers: ToolOffer[] = [];
+	const assignments: ToolAssignment[] = [];
+	for (const entry of readReasoningActions(block)) {
+		const name = actionReference(entry.reference);
+		const definition = name === undefined ? undefined : definitions.get(name);
+		if (definition === undefined) continue;
+		const properties: Record<string, unknown> = {};
+		const required: string[] = [];
+		const bound: Record<string, VariableValue> = {};
+		for (const clause of entry.withs) {
+			if (kindOf(clause.value) === "Ellipsis") {
+				const declared = definition.inputs.find((input) => input.name === clause.param)?.type;
+				properties[clause.param] = { type: jsonType(declared) };
+				required.push(clause.param);
+			} else {
+				bound[clause.param] = evaluate(clause.value, variables);
+			}
+		}
+		offers.push({
+			name: entry.tool,
+			description: definition.description,
+			inputSchema: { type: "object", properties, required, additionalProperties: false },
+			action: toolName(definition) ?? definition.name,
+			bound,
+		});
+		for (const assignment of outputAssignments(entry)) assignments.push({ ...assignment, tool: entry.tool });
+	}
+	return { offers, assignments };
 }
 
 /**
@@ -292,7 +491,7 @@ export function outputSchemaFor(
 	};
 }
 
-function jsonType(declared: string | undefined): string {
+export function jsonType(declared: string | undefined): string {
 	if (declared === "number" || declared === "integer") return "number";
 	if (declared === "boolean") return "boolean";
 	return "string";

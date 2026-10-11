@@ -133,7 +133,7 @@ const byId = (id: string) => SUPPORTED_CONSTRUCTS.find((c) => c.id === id);
 
 describe("platform-agentscript-interpreter: The supported subset is declared once, as SUPPORTED_CONSTRUCTS", () => {
 	it("Scenario: The ten constructs, in order", () => {
-		expect(SUPPORTED_CONSTRUCT_IDS).toEqual([
+		expect(SUPPORTED_CONSTRUCT_IDS.slice(0, 10)).toEqual([
 			"config",
 			"system.instructions",
 			"variables",
@@ -146,6 +146,11 @@ describe("platform-agentscript-interpreter: The supported subset is declared onc
 			"reasoning.structured-output",
 		]);
 		expect(SUPPORTED_CONSTRUCTS.map((c) => c.id)).toEqual([...SUPPORTED_CONSTRUCT_IDS]);
+	});
+
+	it("Scenario: Three action constructs follow the ten", () => {
+		expect(SUPPORTED_CONSTRUCT_IDS).toHaveLength(13);
+		expect(SUPPORTED_CONSTRUCT_IDS.slice(10)).toEqual(["subagent.actions", "reasoning.run", "reasoning.actions"]);
 	});
 
 	it("Scenario: Each construct declares its kinds", () => {
@@ -178,6 +183,9 @@ describe("platform-agentscript-interpreter: The supported subset is declared onc
 				"BooleanLiteral",
 			],
 			"reasoning.structured-output": ["SetClause", "MemberExpression", "AtIdentifier"],
+			"subagent.actions": ["Collection<ActionBlock>", "ActionBlock", "InputsBlock", "OutputsBlock", "ParameterDeclaration"],
+			"reasoning.run": ["RunStatement", "WithClause", "SetClause", "MemberExpression", "AtIdentifier"],
+			"reasoning.actions": ["Collection<ReasoningActionBlock>", "ReasoningActionBlock", "WithClause", "Ellipsis"],
 		};
 		expect(Object.keys(expected)).toHaveLength(SUPPORTED_CONSTRUCTS.length);
 		for (const [id, kinds] of Object.entries(expected)) {
@@ -201,6 +209,9 @@ describe("platform-agentscript-interpreter: The supported subset is declared onc
 			"reasoning.logic-line": "a logic line, run deterministically every turn",
 			"reasoning.structured-output":
 				"assigning a variable from a field of the step's structured result",
+			"subagent.actions": "actions a subagent defines, each bound to a host tool",
+			"reasoning.run": "a run statement, calling an action deterministically",
+			"reasoning.actions": "actions a reasoning step offers the model as tools",
 		};
 		expect(Object.keys(expected)).toHaveLength(SUPPORTED_CONSTRUCTS.length);
 		for (const [id, summary] of Object.entries(expected)) {
@@ -225,6 +236,21 @@ describe("platform-agentscript-interpreter: The supported subset is declared onc
 		expect(byId("reasoning.structured-output")?.probe).toContain(
 			"set @variables.verdict = @outputs.verdict",
 		);
+
+		const actions = byId("subagent.actions")?.probe ?? "";
+		expect(actions).toContain("description:");
+		expect(actions).toContain("inputs:");
+		expect(actions).toContain("outputs:");
+		expect(actions).toContain('target: "mcpTool://run_checks"');
+
+		const run = byId("reasoning.run")?.probe ?? "";
+		expect(run).toContain("run @actions.run_checks");
+		expect(run).toMatch(/\n\s+with \w+ = /);
+		expect(run).toContain("set @variables.checks_passed = @outputs.passed");
+
+		const offered = byId("reasoning.actions")?.probe ?? "";
+		expect(offered).toContain("edit: @actions.edit_file");
+		expect(offered).toContain("with path = ...");
 	});
 });
 
@@ -246,7 +272,7 @@ describe("platform-agentscript-interpreter: The subset is rendered from the decl
 				"config, system.instructions, variables, variables.description, subagent, ",
 			),
 		).toBe(true);
-		expect(inline.endsWith("reasoning.structured-output")).toBe(true);
+		expect(inline.endsWith("reasoning.actions")).toBe(true);
 		expect(inline).toBe(SUPPORTED_CONSTRUCT_IDS.join(", "));
 	});
 });
@@ -260,15 +286,16 @@ describe("platform-agentscript-interpreter: Supported block fields are named per
 			VariableDeclaration: ["properties"],
 			ParameterDeclaration: ["properties"],
 			VariablePropertiesBlock: ["description"],
-			SubagentBlock: ["description", "reasoning"],
-			ReasoningBlock: ["instructions"],
+			SubagentBlock: ["description", "reasoning", "actions"],
+			ReasoningBlock: ["instructions", "actions"],
+			ActionBlock: ["description", "inputs", "outputs", "target"],
 		});
 	});
 });
 
 describe("platform-agentscript-interpreter: Statements, expressions and defaults are limited to declared kinds", () => {
 	it("Scenario: The kind lists", () => {
-		expect(SUPPORTED_STATEMENT_KINDS).toEqual(["Template", "IfStatement", "SetClause"]);
+		expect(SUPPORTED_STATEMENT_KINDS).toEqual(["Template", "IfStatement", "SetClause", "RunStatement"]);
 		expect(SUPPORTED_EXPRESSION_KINDS).toEqual([
 			"MemberExpression",
 			"AtIdentifier",

@@ -27,15 +27,31 @@ export async function startScript(
 ): Promise<TaskId<RunResult>> {
 	const { conversation, model, ...start } = options;
 	const owner = conversation ?? (await harness.root(context));
+	const task = await installedRunTask(owner, context);
 	return owner.commit(
 		(tx) =>
 			tx.createTask(
-				AgentScriptRun,
+				task,
 				{ source, options: start, ...(model !== undefined ? { model } : {}) },
 				{ ownership: { kind: "conversation" } },
 			),
 		context,
 	);
+}
+
+/**
+ * The `agentscript.run` task the owner's agent has installed: the one bound to the
+ * host's action registry when it installed `agentScriptExtensions(...)`, or the
+ * plain one. Creating the task runs its binding check, so this must be the task
+ * that will execute the run.
+ */
+async function installedRunTask(owner: Conversation, context: Context): Promise<typeof AgentScriptRun> {
+	const agent = await owner.agent(context);
+	for (const extension of agent.extensions) {
+		const task = extension.tasks?.find((t) => t.definition.name === AgentScriptRun.definition.name);
+		if (task !== undefined) return task as typeof AgentScriptRun;
+	}
+	return AgentScriptRun;
 }
 
 /** The settled run. A run that failed at a step still completes the task; its `kind` says how it ended. */

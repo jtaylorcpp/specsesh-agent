@@ -113,6 +113,9 @@ is that we do not implement it.
 - `reasoning.interpolation` — a `{!@variables.x}` reference inside a prompt line
 - `reasoning.logic-line` — a logic line, run deterministically every turn
 - `reasoning.structured-output` — assigning a variable from a field of the step's structured result
+- `subagent.actions` — actions a subagent defines, each bound to a host tool
+- `reasoning.run` — a run statement, calling an action deterministically
+- `reasoning.actions` — actions a reasoning step offers the model as tools
 <!-- SUBSET:END -->
 
 `__tests__/core/subset-single-source.test.ts` fails if that block and the declaration

@@ -28,7 +28,7 @@
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import type { ReasoningPort, ReasoningRequest, StepOutcome } from "../interpreter/index.js";
-import { toFailureCategory } from "../interpreter/index.js";
+import { TOOLS_NEED_DURABLE_HOST, toFailureCategory } from "../interpreter/index.js";
 import { categoryFromStatus } from "../pi/categories.js";
 
 export const CLAUDE_CODE_PROVIDER = "claude-code";
@@ -121,6 +121,10 @@ export function createClaudeCodeReasoningPort(options: ClaudeCodeReasoningPortOp
 	const runner = options.runner ?? spawnRunner(options.binary ?? "claude", options.timeoutMs ?? 300_000);
 	return {
 		async reason(request: ReasoningRequest): Promise<StepOutcome> {
+			// One `claude -p` per step, tools off: nothing here can run a tool loop.
+			if (request.tools !== undefined) {
+				return { kind: "failed", category: "invalid_request", message: TOOLS_NEED_DURABLE_HOST };
+			}
 			const processResult = await runner(claudeCodeArgs(request, options), request.prompt, claudeCodeEnv(process.env));
 			const outcome = toClaudeCodeOutcome(processResult, request.outputSchema !== undefined);
 			if (outcome.parsed !== undefined) options.onResult?.(outcome.parsed);

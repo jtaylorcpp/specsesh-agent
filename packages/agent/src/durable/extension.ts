@@ -7,14 +7,21 @@
  * after every phase, so an evicted or crashed process picks the run up at the
  * step it was on.
  *
- *   next      pure: ask the step machine for the next request, or finish
+ *   next      pure: ask the step machine for the next request or action call, or finish
  *   dispatch  create a fresh child conversation for the step, in one commit
  *   await     submit the step's prompt to it (idempotent by request ID), wait,
  *             and fold the answer back into the machine
+ *   act       record the call's intent, run the host action once, fold its result in
  *
  * Each step runs in its own conversation that the task owns, so a step sees only
- * the script's system instructions, its own prompt, and the result tool. Nothing
- * from an earlier step leaks in except through variables.
+ * the script's system instructions, its own prompt, the result tool and its own
+ * offered action tools. Nothing from an earlier step leaks in except through
+ * variables.
+ *
+ * Actions resolve in the host's `ActionRegistry`, installed with
+ * `agentScriptExtensions({ actions, workspace })`. The plain `AgentScript` and
+ * `AgentScriptStepExtension` exports carry an empty registry, so a script that
+ * defines an action is refused when its run is created.
  *
  * Logic lines run inside `next`, as plain code. The model never sees them and
  * gets no say in them.
@@ -22,13 +29,19 @@
 
 import {
 	apply,
+	applyAction,
 	next,
 	start,
+	type ActionResult,
+	type AwaitingAction,
 	type ReasoningRequest,
 	type RunResult,
 	type RunState,
 	type StartOptions,
 	type StepOutcome,
+	type ToolCallRecord,
+	type ToolOffer,
+	type VariableValue,
 } from "../interpreter/index.js";
 import type { Context, JsonValue } from "@earendil-works/chord";
 import { Type } from "@earendil-works/pi-ai";
@@ -45,8 +58,11 @@ import {
 	type JsonObject,
 	type ModelRef,
 	type TaskId,
+	type Task,
 	type TaskRuntime,
+	type ToolRegistration,
 } from "@earendil-works/pi-durable";
+import { type ActionRegistry, type HostAction, checkBindings } from "./actions.js";
 import { checkResult } from "./result.js";
 
 /** The tool a structured step offers. Its arguments are the step's result. */
@@ -69,6 +85,23 @@ export const AgentScriptStep = defineDoc<StepDoc>({
 	initial: () => ({ schema: null, result: null }),
 });
 
+/** A step's offered action tools and what each call ran, on the step's own conversation. */
+export interface StepActionsDoc extends JsonObject {
+	/** The offers as the request declared them; a call reads its bound inputs and action from here. */
+	offers: JsonObject[];
+	/** By call ID: the merged inputs, the host's outputs and its record. */
+	calls: JsonObject;
+}
+
+export const AgentScriptStepActions = defineDoc<StepActionsDoc>({
+	kind: "agentscript.step-actions",
+	version: 1,
+	scope: "conversation",
+	history: "latest",
+	fork: "initial",
+	initial: () => ({ offers: [], calls: {} }),
+});
+
 export interface RunInput {
 	readonly source: string;
 	readonly options?: StartOptions;
@@ -84,7 +117,8 @@ export type RunCheckpoint =
 			readonly state: RunState;
 			readonly step: number;
 			readonly conversationId: ConversationId;
-	  };
+	  }
+	| { readonly phase: "act"; readonly state: RunState; readonly intent: null | { readonly replay: "safe" | "unsafe" } };
 
 type Runtime = TaskRuntime<RunInput, RunCheckpoint, RunResult, object>;
 
@@ -119,75 +153,230 @@ const resultSection = section("result", async (input, context) => {
 	);
 });
 
-/** Selected on every step conversation: the result tool and its section, nothing else. */
-export const AgentScriptStepExtension: Extension = defineExtension({
-	name: "agentscript.step",
-	sections: [resultSection],
-	tools: [submitResult],
-});
+/** What a host passes to install Agent Script with actions. */
+export interface AgentScriptExtensionOptions {
+	/** The host actions `mcpTool://<name>` targets resolve to. */
+	readonly actions: ActionRegistry;
+	/** The directory every action runs in and is confined to. */
+	readonly workspace: string;
+}
 
-export const AgentScriptRun = defineTask<RunInput, RunCheckpoint, RunResult>({
-	name: "agentscript.run",
-	version: 1,
-	initial: (input) => ({ phase: "next", state: start(input.source, input.options) }),
-	phases: {
-		next: async (task, runtime, context) => {
-			const step = next(task.input.source, task.state.checkpoint.state);
-			await runtime.commit(
-				() =>
-					step.type === "done"
-						? { status: "terminal", outcome: { status: "completed", result: step.result } }
-						: {
-								status: "running",
-								checkpoint: { phase: "dispatch", state: step.state, step: step.state.steps.length },
-							},
-				context,
-			);
+/** The two extensions a host installs, bound to one registry and workspace. */
+export interface AgentScriptExtensions {
+	/** Brings the `agentscript.run` task. Named `agentscript`, like the plain export. */
+	readonly run: Extension;
+	/** Selected on every step conversation. Named `agentscript.step`, like the plain export. */
+	readonly step: Extension;
+	readonly task: Task<RunInput, RunCheckpoint, RunResult, object>;
+}
+
+/**
+ * The run and step extensions bound to a registry of host actions and a
+ * workspace. Install both in place of the plain exports.
+ */
+export function agentScriptExtensions(options: AgentScriptExtensionOptions): AgentScriptExtensions {
+	return createExtensions(options.actions, options.workspace);
+}
+
+function createExtensions(registry: ActionRegistry, workspace: string): AgentScriptExtensions {
+	/**
+	 * The offered action tools, by name. pi-durable resolves a conversation's
+	 * tools by name against the selected extensions at each use, and offer names
+	 * come from the script, so the step extension's tool list is read live from
+	 * here. Filled from the request at dispatch and again at the start of every
+	 * await phase, which a resumed process runs before the step can go on.
+	 * Executing a call reads the offer from the step's own doc, never from here.
+	 */
+	const offerTools = new Map<string, ToolRegistration>();
+
+	const register = (offers: readonly ToolOffer[] | undefined): ToolRegistration[] =>
+		(offers ?? []).map((offer) => {
+			const tool = offerTool(offer, registry, workspace);
+			offerTools.set(offer.name, tool);
+			return tool;
+		});
+
+	const step: Extension = defineExtension({
+		name: "agentscript.step",
+		sections: [resultSection],
+		tools: [submitResult],
+	});
+	Object.defineProperty(step, "tools", {
+		get: () => [submitResult, ...offerTools.values()],
+		enumerable: true,
+	});
+
+	const task = defineTask<RunInput, RunCheckpoint, RunResult>({
+		name: "agentscript.run",
+		version: 1,
+		initial: (input) => {
+			const state = start(input.source, input.options);
+			// Checked whole, when the run is created: nothing has executed yet.
+			checkBindings(input.source, registry);
+			return { phase: "next", state };
 		},
-		dispatch: async (task, runtime, context) => {
-			const { state, step } = task.state.checkpoint;
-			const request = state.awaiting?.request;
-			if (request === undefined) throw new Error("dispatch reached with no step awaiting");
-			await runtime.commit(async (tx) => {
-				const child = await tx.createConversation({ ownership: { kind: "task", taskId: runtime.taskId } });
-				await configureStep(tx, child.id, request, task.input.model);
-				return { status: "running", checkpoint: { phase: "await", state, step, conversationId: child.id } };
+		phases: {
+			next: async (task, runtime, context) => {
+				const step = next(task.input.source, task.state.checkpoint.state);
+				await runtime.commit(
+					() =>
+						step.type === "done"
+							? { status: "terminal", outcome: { status: "completed", result: step.result } }
+							: step.type === "action"
+								? { status: "running", checkpoint: { phase: "act", state: step.state, intent: null } }
+								: {
+										status: "running",
+										checkpoint: { phase: "dispatch", state: step.state, step: step.state.steps.length },
+									},
+					context,
+				);
+			},
+			dispatch: async (task, runtime, context) => {
+				const { state, step } = task.state.checkpoint;
+				const request = awaitingRequest(state);
+				if (request === undefined) throw new Error("dispatch reached with no step awaiting");
+				const tools = register(request.tools);
+				await runtime.commit(async (tx) => {
+					const child = await tx.createConversation({ ownership: { kind: "task", taskId: runtime.taskId } });
+					await configureStep(tx, child.id, request, tools, task.input.model);
+					return { status: "running", checkpoint: { phase: "await", state, step, conversationId: child.id } };
+				}, context);
+			},
+			await: async (task, runtime, context) => {
+				const { state, step, conversationId } = task.state.checkpoint;
+				const request = awaitingRequest(state);
+				if (request === undefined) throw new Error("await reached with no step awaiting");
+				register(request.tools);
+				const outcome = await answerStep(runtime, conversationId, request, step, context);
+				const after = apply(task.input.source, state, outcome);
+				await runtime.commit(() => ({ status: "running", checkpoint: { phase: "next", state: after } }), context);
+			},
+			act: async (task, runtime, context) => {
+				const { state, intent } = task.state.checkpoint;
+				const awaiting = state.awaiting;
+				if (awaiting === undefined || !("call" in awaiting)) throw new Error("act reached with no action awaiting");
+				const { call } = awaiting as AwaitingAction;
+				const action = registry.get(call.tool);
+				let result: ActionResult;
+				if (action === undefined) {
+					result = { ok: false, message: `mcpTool://${call.tool} is not registered on this host` };
+				} else if (intent === null) {
+					// The intent lands before anything runs, so a crash mid-call is seen on resume.
+					await runtime.commit(
+						() => ({ status: "running", checkpoint: { phase: "act", state, intent: { replay: action.replay } } }),
+						context,
+					);
+					result = await execute(action, call.inputs, workspace, runtime.signal);
+				} else if (intent.replay === "safe") {
+					result = await execute(action, call.inputs, workspace, runtime.signal);
+				} else {
+					result = { ok: false, message: `${call.action} was interrupted and not re-run` };
+				}
+				const after = applyAction(task.input.source, state, result);
+				await runtime.commit(() => ({ status: "running", checkpoint: { phase: "next", state: after } }), context);
+			},
+		},
+		abort: async (_task, runtime, context) => {
+			await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted", reason: "aborted" } }), context);
+		},
+	});
+
+	const run: Extension = defineExtension({ name: "agentscript", tasks: [task] });
+	return { run, step, task };
+}
+
+/** Run a host action once; a throw becomes a failed result carrying its message. */
+async function execute(
+	action: HostAction,
+	inputs: Readonly<Record<string, VariableValue>>,
+	workspace: string,
+	signal: AbortSignal | undefined,
+): Promise<ActionResult> {
+	try {
+		return await action.execute(inputs, { workspace, ...(signal !== undefined ? { signal } : {}) });
+	} catch (error) {
+		return { ok: false, message: error instanceof Error ? error.message : String(error) };
+	}
+}
+
+/**
+ * One offered action as a pi-durable tool: named and described as the offer
+ * says, its parameters the model-filled inputs, its replay policy the action's.
+ * A call merges the offer's bound inputs into the model's arguments, runs the
+ * host action, and records what ran in the step doc for the await phase.
+ */
+function offerTool(offer: ToolOffer, registry: ActionRegistry, workspace: string): ToolRegistration {
+	return defineTool({
+		name: offer.name,
+		description: offer.description,
+		// The interpreter's schema is plain JSON Schema, which is what a TypeBox schema is at runtime.
+		parameters: offer.inputSchema as unknown as ReturnType<typeof Type.Object>,
+		replay: registry.get(offer.action)?.replay ?? "unsafe",
+		execute: async (args, api, context) => {
+			// The offer this conversation's step declared, durable in its own doc.
+			const doc = await api.snapshot(AgentScriptStepActions, api.conversationId, context);
+			const declared = (doc?.offers ?? []).find((o) => o["name"] === offer.name) as unknown as ToolOffer | undefined;
+			const live = declared ?? offer;
+			const inputs = { ...(args as Record<string, VariableValue>), ...live.bound };
+			const host = registry.get(live.action);
+			const result: ActionResult =
+				host === undefined
+					? { ok: false, message: `mcpTool://${live.action} is not registered on this host` }
+					: await execute(host, inputs, workspace, context.abortSignal);
+			const outputs = result.ok ? { ...result.outputs } : {};
+			await api.commit(async (tx) => {
+				const step = await tx.doc(AgentScriptStepActions, api.conversationId);
+				step.calls = {
+					...(step.calls ?? {}),
+					[api.callId]: {
+						name: offer.name,
+						inputs,
+						outputs,
+						...(result.record !== undefined ? { record: result.record as JsonObject } : {}),
+					},
+				};
 			}, context);
+			if (!result.ok) return { content: [{ type: "text", text: result.message }], isError: true };
+			return { content: [{ type: "text", text: JSON.stringify(outputs) }] };
 		},
-		await: async (task, runtime, context) => {
-			const { state, step, conversationId } = task.state.checkpoint;
-			const request = state.awaiting?.request;
-			if (request === undefined) throw new Error("await reached with no step awaiting");
-			const outcome = await answerStep(runtime, conversationId, request, step, context);
-			const after = apply(task.input.source, state, outcome);
-			await runtime.commit(() => ({ status: "running", checkpoint: { phase: "next", state: after } }), context);
-		},
-	},
-	abort: async (_task, runtime, context) => {
-		await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted", reason: "aborted" } }), context);
-	},
-});
+	});
+}
 
-/** The extension a host installs. */
-export const AgentScript: Extension = defineExtension({
-	name: "agentscript",
-	tasks: [AgentScriptRun],
-});
+function awaitingRequest(state: RunState): ReasoningRequest | undefined {
+	const awaiting = state.awaiting;
+	return awaiting !== undefined && "request" in awaiting ? awaiting.request : undefined;
+}
+
+const plain = createExtensions(new Map(), ".");
+
+export const AgentScriptRun: Task<RunInput, RunCheckpoint, RunResult, object> = plain.task;
+
+/** Selected on every step conversation: the result tool and its section, and no action tools. */
+export const AgentScriptStepExtension: Extension = plain.step;
+
+/** The extension a host installs when it provides no actions. */
+export const AgentScript: Extension = plain.run;
 
 async function configureStep(
 	tx: Parameters<Parameters<Runtime["commit"]>[0]>[0],
 	conversationId: ConversationId,
 	request: ReasoningRequest,
+	offered: readonly ToolRegistration[],
 	model: ModelRef | undefined,
 ): Promise<void> {
 	await configure(tx, conversationId, {
 		...(model !== undefined ? { model } : {}),
+		// Stored by name: whichever `agentscript.step` the host installed.
 		extensions: [AgentScriptStepExtension],
-		tools: request.outputSchema !== undefined ? [submitResult] : [],
+		tools: [...(request.outputSchema !== undefined ? [submitResult] : []), ...offered],
 		instructions: request.systemInstructions,
 	});
 	const doc = await tx.doc(AgentScriptStep, conversationId);
 	doc.schema = (request.outputSchema as JsonObject | undefined) ?? null;
+	if (request.tools !== undefined) {
+		const actions = await tx.doc(AgentScriptStepActions, conversationId);
+		actions.offers = request.tools.map((offer) => ({ ...offer }) as unknown as JsonObject);
+	}
 }
 
 /**
@@ -221,10 +410,54 @@ async function answerStep(
 
 	const doc = await runtime.snapshot(AgentScriptStep, conversationId, context);
 	const text = await answerText(runtime, conversationId, settled.answer, context);
-	if (request.outputSchema !== undefined && doc?.result !== null && doc?.result !== undefined) {
-		return { kind: "answered", text, structured: doc.result };
+	const toolCalls =
+		request.tools !== undefined
+			? await actionCalls(runtime, conversationId, await runtime.snapshot(AgentScriptStepActions, conversationId, context), context)
+			: undefined;
+	return {
+		kind: "answered",
+		text,
+		...(request.outputSchema !== undefined && doc?.result !== null && doc?.result !== undefined
+			? { structured: doc.result }
+			: {}),
+		...(toolCalls !== undefined ? { toolCalls } : {}),
+	};
+}
+
+/**
+ * Every action tool call in the step conversation, in call order: the merged
+ * inputs, the host's outputs (`{}` for an error result) and its record.
+ * `submit_result` is not an action and is never listed.
+ */
+async function actionCalls(
+	runtime: Runtime,
+	conversationId: ConversationId,
+	doc: StepActionsDoc | undefined,
+	context: Context,
+): Promise<ToolCallRecord[]> {
+	const view = await runtime.context(conversationId, context);
+	const messages = view.entries.flatMap((entry) => entry.model ?? []);
+	const errors = new Set<string>();
+	for (const message of messages) {
+		if (message.role === "toolResult" && message.isError) errors.add(message.toolCallId);
 	}
-	return { kind: "answered", text };
+	const calls: ToolCallRecord[] = [];
+	const seen = new Set<string>();
+	for (const message of messages) {
+		if (message.role !== "assistant") continue;
+		for (const block of message.content) {
+			if (block.type !== "toolCall" || block.name === RESULT_TOOL || seen.has(block.id)) continue;
+			seen.add(block.id);
+			const ran = doc?.calls?.[block.id] as
+				| { inputs?: Record<string, unknown>; outputs?: Record<string, unknown>; record?: unknown }
+				| undefined;
+			const offer = (doc?.offers ?? []).find((o) => o["name"] === block.name) as unknown as ToolOffer | undefined;
+			const inputs = ran?.inputs ?? { ...block.arguments, ...(offer?.bound ?? {}) };
+			const outputs = errors.has(block.id) || ran?.outputs === undefined ? {} : ran.outputs;
+			calls.push({ name: block.name, inputs, outputs, ...(ran?.record !== undefined ? { record: ran.record } : {}) });
+		}
+	}
+	return calls;
 }
 
 /**

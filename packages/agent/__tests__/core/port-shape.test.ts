@@ -28,10 +28,11 @@ function codeOf(file: string): string {
 
 describe("platform-agentscript-interpreter: Reasoning Goes Out Through A Declared Port, And The Package Imports No Model Client", () => {
 	it("Scenario: The port carries no tool set, no executor and no round bound, and the package holds no tool-dispatch loop", async () => {
-		// THE DECLARED CONTRACT. A ReasoningRequest is three fields and there is no
-		// fourth. A contract holding its own tools, its own executor and its own
-		// round bound IS a model boundary, whatever it is called — and declaring
-		// one here would put two in one product again.
+		// THE DECLARED CONTRACT. A ReasoningRequest carries the prompt, its system
+		// block, an optional result schema and optional tool OFFERS, and nothing
+		// else. A contract holding its own executor and its own round bound IS a
+		// model boundary, whatever it is called — and declaring one here would put
+		// two in one product again. Offers are declarations (add-agentscript-actions).
 		const port = codeOf(join(PKG_DIR, "src/interpreter/port.ts"));
 		const request = port.slice(
 			port.indexOf("export interface ReasoningRequest"),
@@ -41,8 +42,9 @@ describe("platform-agentscript-interpreter: Reasoning Goes Out Through A Declare
 			"readonly systemInstructions",
 			"readonly prompt",
 			"readonly outputSchema",
+			"readonly tools",
 		]);
-		expect(request).not.toMatch(/tool|executor|rounds?|maxTurns|bound/i);
+		expect(request).not.toMatch(/executor|rounds?|maxTurns|\bbound\b/i);
 
 		// The port itself is one method, for the same reason.
 		const contract = port.slice(
@@ -64,15 +66,15 @@ describe("platform-agentscript-interpreter: Reasoning Goes Out Through A Declare
 			}
 		}
 
-		// NO LOOP. The package neither names a tool nor runs one: the loop and its
-		// bound belong to the port's implementation, per
+		// NO LOOP. The core offers tools and reads back the calls, but never runs
+		// one: the loop and its bound belong to the port's implementation, per
 		// `specsketch-workbench-agent`'s one-boundary requirement.
 		const calls: string[] = [];
 		const files = coreFiles();
 		expect(files.length).toBeGreaterThan(0);
 		for (const file of files) {
 			const code = codeOf(file);
-			expect(code, `${file} names a tool`).not.toMatch(/\btool(s|Use|Call|Set|Result|Executor)?\b/i);
+			expect(code, `${file} executes something`).not.toMatch(/\.execute\s*\(|\btoolExecutor\b/i);
 			expect(code, `${file} counts rounds`).not.toMatch(/\b(maxRounds|roundLimit|rounds)\b/);
 			for (const _ of code.matchAll(/\.reason\s*\(/g)) calls.push(file);
 		}

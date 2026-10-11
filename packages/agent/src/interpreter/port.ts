@@ -13,13 +13,17 @@
  * this shape written in the codebase's own idiom, and its `cut-short` outcome is
  * a lesson worth carrying rather than rediscovering.
  *
- * WHAT IS DELIBERATELY ABSENT: a tool set, an executor that runs a tool, and a
- * bound on tool-call rounds. A contract holding those three IS a model boundary,
- * whatever it is called and however it is fed. `specsketch-workbench-agent`'s
+ * WHAT IS DELIBERATELY ABSENT: an executor that runs a tool, and a bound on
+ * tool-call rounds. A contract holding those IS a model boundary, whatever it is
+ * called and however it is fed. A request may OFFER tools (`tools`, declarations
+ * only) and an answer may REPORT the calls made (`toolCalls`); whoever runs them
+ * owns the loop. A port that cannot run a loop refuses a request offering tools. `specsketch-workbench-agent`'s
  * `A Turn Is A Real Model Turn Through One Boundary` requires the boundary to own
  * the loop and to be one module; putting a second loop here would give the
  * product two, which is the shape this change exists to remove.
  */
+
+import type { ToolOffer } from "./compose.js";
 
 /**
  * Why a step failed, when the model layer named a reason.
@@ -70,6 +74,8 @@ export type StepOutcome =
 			readonly text: string;
 			/** Present only when the step requested one. */
 			readonly structured?: unknown;
+			/** Present only when the step offered tools: every call made, in call order. */
+			readonly toolCalls?: readonly ToolCallRecord[];
 	  }
 	/**
 	 * The implementation stopped at its own bound. Named separately because a
@@ -88,6 +94,18 @@ export type StepOutcome =
 			/** What the layer said, kept verbatim even when the category is known. */
 			readonly message: string;
 	  };
+
+/**
+ * One call the model made to an offered tool, as the host that ran it reports.
+ * `outputs` are the host's results — never the model's arguments — and `record`
+ * is opaque JSON the host attached (an ontology Action and its evidence).
+ */
+export interface ToolCallRecord {
+	readonly name: string;
+	readonly inputs: Readonly<Record<string, unknown>>;
+	readonly outputs: Readonly<Record<string, unknown>>;
+	readonly record?: unknown;
+}
 
 /** One reasoning step, as handed to the port. */
 export interface ReasoningRequest {
@@ -108,7 +126,18 @@ export interface ReasoningRequest {
 	 * Absent for a step that only produces text.
 	 */
 	readonly outputSchema?: Record<string, unknown>;
+	/**
+	 * Tools offered to the model, one per reasoning-action entry, in source order.
+	 * Present, and non-empty, only for a step with reasoning actions. Declarations:
+	 * the core never executes one.
+	 */
+	readonly tools?: readonly ToolOffer[];
 }
+
+/** The message a port that cannot run a tool loop answers a request offering tools with. */
+export const TOOLS_NEED_DURABLE_HOST =
+	"this step offers tools, and this port runs one model request with no tool loop. Tools need " +
+	"the durable host (@specsesh/agent/durable), which runs each call and owns the loop.";
 
 /**
  * The injected boundary. One method, because one reasoning step is the whole

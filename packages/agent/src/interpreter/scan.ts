@@ -35,6 +35,19 @@ import {
 	nodeRange,
 } from "./ast.js";
 import {
+	type ActionClauses,
+	type ActionDefinition,
+	type ActionParameter,
+	actionReference,
+	hasReasoningActions,
+	parseTarget,
+	readActionDefinitions,
+	readReasoningActions,
+	runClauses,
+} from "./actions.js";
+import {
+	ACTION_PARAMETER_TYPES,
+	ACTION_TARGET_SCHEME,
 	ASSIGNABLE_NAMESPACES,
 	READABLE_NAMESPACES,
 	SUPPORTED_BINARY_OPERATORS,
@@ -189,25 +202,251 @@ function scanSubagents(value: unknown, found: UnsupportedConstruct[]): void {
 			found.push(report(kindOf(block) ?? name, nodeRange(block), where));
 			continue;
 		}
-		for (const field of scanBlockFields(block, "SubagentBlock", where, found)) {
+		const scope: SubagentScope = { where, actions: new Map(), procedures: [] };
+		const fields = scanBlockFields(block, "SubagentBlock", where, found);
+		// Definitions first, so a `run` or an entry above them in the source still
+		// resolves against them.
+		for (const field of fields) {
+			if (childName(field) === "actions") scanActionDefinitions(block, scope, found);
+		}
+		for (const field of fields) {
 			if (childName(field) !== "reasoning") continue;
 			const reasoning = childValue(field);
 			for (const inner of scanBlockFields(reasoning, "ReasoningBlock", where, found)) {
-				scanProcedure(childValue(inner), where, found);
+				if (childName(inner) === "actions") continue;
+				scanProcedure(childValue(inner), scope, found);
 			}
+		}
+		scanReasoningActions(block, scope, found);
+		scanDeterministicRule(block, scope, found);
+	}
+}
+
+/** What the scan knows about the subagent it is in: where, and the actions it defines. */
+interface SubagentScope {
+	readonly where: string;
+	readonly actions: Map<string, ActionDefinition>;
+	/** Statement lists of `reasoning.instructions`, for the deterministic-subagent rule. */
+	readonly procedures: unknown[][];
+}
+
+/**
+ * A subagent's `actions:` block: each definition's fields, its scalar inputs and
+ * outputs (no default, no properties), and its target, which must be
+ * `mcpTool://<name>` — every other scheme the dialect accepts is refused.
+ */
+function scanActionDefinitions(block: unknown, scope: SubagentScope, found: UnsupportedConstruct[]): void {
+	const { where } = scope;
+	const collection = (block as Node)["actions"];
+	for (const entry of childrenOf(collection)) {
+		const value = childValue(entry);
+		if (kindOf(value) !== "ActionBlock") {
+			found.push(report(kindOf(value) ?? childName(entry), childRange(entry), where));
+		}
+	}
+	for (const definition of readActionDefinitions(block)) {
+		scope.actions.set(definition.name, definition);
+		scanBlockFields(definition.block, "ActionBlock", where, found);
+		for (const parameter of [...definition.inputs, ...definition.outputs]) {
+			scanActionParameter(parameter, definition.name, where, found);
+		}
+		if (definition.target === undefined) {
+			found.push(report(`action ${definition.name} with no target string`, definition.range, where));
+			continue;
+		}
+		const target = parseTarget(definition.target);
+		if (target === undefined) {
+			found.push(report(`target ${definition.target}`, nodeRange(definition.block["target"]), where));
+		} else if (target.scheme !== ACTION_TARGET_SCHEME) {
+			found.push(report(`target ${target.scheme}://`, nodeRange(definition.block["target"]), where));
+		} else if (target.name === "") {
+			found.push(report(`target ${ACTION_TARGET_SCHEME}:// with no tool name`, nodeRange(definition.block["target"]), where));
 		}
 	}
 }
 
-function scanProcedure(procedure: unknown, where: string, found: UnsupportedConstruct[]): void {
-	if (kindOf(procedure) !== "ProcedureValue") {
-		found.push(report(kindOf(procedure) ?? "instructions", nodeRange(procedure), where));
+function scanActionParameter(
+	parameter: ActionParameter,
+	action: string,
+	where: string,
+	found: UnsupportedConstruct[],
+): void {
+	const declaration = parameter.declaration;
+	if (kindOf(declaration) !== "ParameterDeclaration") {
+		found.push(report(`${parameter.name} (${kindOf(declaration) ?? "an unparsed parameter"})`, parameter.range, where));
 		return;
 	}
-	scanStatements((procedure as Node)["statements"], where, found);
+	// `<name>: <type>` and nothing else: a description or any other property is refused.
+	scanBlockFields(declaration, "ActionParameter", where, found);
+	if (parameter.type === undefined || !ACTION_PARAMETER_TYPES.includes(parameter.type)) {
+		found.push(
+			report(
+				`${parameter.name} (a parameter of ${action} typed ${describeType((declaration as Node)["type"])}, not string, number or boolean)`,
+				parameter.range,
+				where,
+			),
+		);
+	}
+	if ((declaration as Node)["defaultValue"] !== undefined) {
+		found.push(report(`${parameter.name} (a parameter of ${action} with a default)`, parameter.range, where));
+	}
 }
 
-function scanStatements(statements: unknown, where: string, found: UnsupportedConstruct[]): void {
+function describeType(type: unknown): string {
+	if (kindOf(type) === "Identifier") return String((type as Node)["name"]);
+	if (kindOf(type) === "SubscriptExpression") {
+		const node = type as Node;
+		return `${describeType(node["object"])}[${describeType(node["index"])}]`;
+	}
+	return kindOf(type) ?? "nothing";
+}
+
+/** The action an `@actions.<name>` names, refused unless this subagent defines it. */
+function resolveAction(
+	reference: unknown,
+	scope: SubagentScope,
+	found: UnsupportedConstruct[],
+): ActionDefinition | undefined {
+	const name = actionReference(reference);
+	if (name === undefined) {
+		found.push(report(describeExpression(reference), nodeRange(reference), scope.where));
+		return undefined;
+	}
+	const definition = scope.actions.get(name);
+	if (definition === undefined) {
+		found.push(report(`@actions.${name} (not an action this subagent defines)`, nodeRange(reference), scope.where));
+	}
+	return definition;
+}
+
+/**
+ * The clauses beneath a `run` or an entry: every declared input given exactly
+ * once, `set`s writing `@variables` from a declared output, nothing else.
+ * `allowEllipsis` is true only for a reasoning-action entry, where the model
+ * fills an input; nothing in a `run` is filled by a model.
+ */
+function scanActionClauses(
+	clauses: ActionClauses,
+	definition: ActionDefinition | undefined,
+	allowEllipsis: boolean,
+	scope: SubagentScope,
+	range: Range,
+	found: UnsupportedConstruct[],
+): void {
+	const { where } = scope;
+	for (const statement of clauses.other) {
+		found.push(report(kindOf(statement) ?? "an unparsed clause", nodeRange(statement), where));
+	}
+	const given = new Map<string, number>();
+	for (const clause of clauses.withs) {
+		given.set(clause.param, (given.get(clause.param) ?? 0) + 1);
+		if (definition !== undefined && !definition.inputs.some((input) => input.name === clause.param)) {
+			found.push(report(`with ${clause.param} (not an input of ${definition.name})`, clause.range, where));
+		}
+		if (kindOf(clause.value) === "Ellipsis") {
+			if (!allowEllipsis) found.push(report("Ellipsis", nodeRange(clause.value), where));
+			continue;
+		}
+		scanValueExpression(clause.value, where, found);
+	}
+	for (const [param, count] of given) {
+		if (count > 1) found.push(report(`with ${param} (given ${count} times)`, range, where));
+	}
+	if (definition !== undefined) {
+		for (const input of definition.inputs) {
+			if (!given.has(input.name)) {
+				found.push(report(`${input.name} (an input of ${definition.name} with no with clause)`, range, where));
+			}
+		}
+	}
+	for (const set of clauses.sets) {
+		scanAssignmentTarget(set.target, where, found);
+		if (namespaceOf(set.value) !== STRUCTURED_RESULT_NAMESPACE) {
+			found.push(report(`${describeExpression(set.value)} (a set beneath an action takes @outputs only)`, nodeRange(set.value), where));
+			continue;
+		}
+		const field = (set.value as Node)["property"];
+		if (definition !== undefined && !definition.outputs.some((output) => output.name === field)) {
+			found.push(report(`@outputs.${String(field)} (not an output of ${definition.name})`, nodeRange(set.value), where));
+		}
+	}
+}
+
+/** `reasoning.actions`: each entry offers one of this subagent's actions to the model. */
+function scanReasoningActions(block: unknown, scope: SubagentScope, found: UnsupportedConstruct[]): void {
+	const reasoning = (block as Node)["reasoning"];
+	const collection = isNode(reasoning) ? reasoning["actions"] : undefined;
+	if (collection === undefined) return;
+	for (const entry of childrenOf(collection)) {
+		if (kindOf(childValue(entry)) !== "ReasoningActionBlock") {
+			found.push(report(kindOf(childValue(entry)) ?? childName(entry), childRange(entry), scope.where));
+		}
+	}
+	for (const entry of readReasoningActions(block)) {
+		if (kindOf(entry.node) !== "ReasoningActionBlock") continue;
+		const definition = resolveAction(entry.reference, scope, found);
+		scanActionClauses(entry, definition, true, scope, entry.range, found);
+	}
+	// The model is offered tools only alongside something to do with them.
+	if (!scope.procedures.some((statements) => containsKind(statements, "Template"))) {
+		found.push(report("reasoning actions with no prompt line", nodeRange(collection), scope.where));
+	}
+}
+
+/**
+ * A subagent that runs an action is a program, not a model step: only logic
+ * lines and `run` statements, no prompt line, no `set` from `@outputs` outside a
+ * `run`, no `reasoning.actions`.
+ */
+function scanDeterministicRule(block: unknown, scope: SubagentScope, found: UnsupportedConstruct[]): void {
+	const statements = scope.procedures.flat();
+	if (!containsKind(statements, "RunStatement")) return;
+	const walk = (list: readonly unknown[]): void => {
+		for (const statement of list) {
+			const kind = kindOf(statement);
+			const node = statement as Node;
+			if (kind === "Template") {
+				found.push(report("a prompt line beside a run statement", nodeRange(statement), scope.where));
+			} else if (kind === "SetClause" && namespaceOf(node["value"]) === STRUCTURED_RESULT_NAMESPACE) {
+				found.push(report("a set from @outputs outside a run, beside a run statement", nodeRange(statement), scope.where));
+			} else if (kind === "IfStatement") {
+				walk(Array.isArray(node["body"]) ? node["body"] : []);
+				walk(Array.isArray(node["orelse"]) ? node["orelse"] : []);
+			}
+		}
+	};
+	walk(statements);
+	if (hasReasoningActions(block)) {
+		const reasoning = (block as Node)["reasoning"] as Node;
+		found.push(report("reasoning actions beside a run statement", nodeRange(reasoning["actions"]), scope.where));
+	}
+}
+
+/** True when a statement of `kind` sits anywhere in the list, including inside an `if`. */
+function containsKind(list: readonly unknown[], kind: string): boolean {
+	return list.some((statement) => {
+		if (kindOf(statement) === kind) return true;
+		if (kindOf(statement) !== "IfStatement") return false;
+		const node = statement as Node;
+		return (
+			containsKind(Array.isArray(node["body"]) ? node["body"] : [], kind) ||
+			containsKind(Array.isArray(node["orelse"]) ? node["orelse"] : [], kind)
+		);
+	});
+}
+
+function scanProcedure(procedure: unknown, scope: SubagentScope, found: UnsupportedConstruct[]): void {
+	if (kindOf(procedure) !== "ProcedureValue") {
+		found.push(report(kindOf(procedure) ?? "instructions", nodeRange(procedure), scope.where));
+		return;
+	}
+	const statements = (procedure as Node)["statements"];
+	if (Array.isArray(statements)) scope.procedures.push(statements);
+	scanStatements(statements, scope, found);
+}
+
+function scanStatements(statements: unknown, scope: SubagentScope, found: UnsupportedConstruct[]): void {
+	const { where } = scope;
 	if (!Array.isArray(statements)) return;
 	for (const statement of statements) {
 		const kind = kindOf(statement);
@@ -220,14 +459,17 @@ function scanStatements(statements: unknown, where: string, found: UnsupportedCo
 			scanTemplateParts(node["parts"], where, found);
 		} else if (kind === "IfStatement") {
 			scanValueExpression(node["condition"], where, found);
-			scanStatements(node["body"], where, found);
-			scanStatements(node["orelse"], where, found);
+			scanStatements(node["body"], scope, found);
+			scanStatements(node["orelse"], scope, found);
 		} else if (kind === "SetClause") {
 			scanAssignmentTarget(node["target"], where, found);
 			// The one position `@output` is legal in — see STRUCTURED_RESULT_NAMESPACE.
 			if (namespaceOf(node["value"]) !== STRUCTURED_RESULT_NAMESPACE) {
 				scanValueExpression(node["value"], where, found);
 			}
+		} else if (kind === "RunStatement") {
+			const definition = resolveAction(node["target"], scope, found);
+			scanActionClauses(runClauses(statement), definition, false, scope, nodeRange(statement), found);
 		}
 	}
 }

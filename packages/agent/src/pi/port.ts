@@ -20,7 +20,7 @@
  */
 
 import type { ReasoningPort, ReasoningRequest, StepOutcome } from "../interpreter/index.js";
-import { toFailureCategory } from "../interpreter/index.js";
+import { TOOLS_NEED_DURABLE_HOST, toFailureCategory } from "../interpreter/index.js";
 import type { AssistantMessage, Context, Model, Models, Tool, TSchema, Api } from "@earendil-works/pi-ai";
 import { categoryFromStatus } from "./categories.js";
 
@@ -44,6 +44,10 @@ export function createPiReasoningPort(options: PiReasoningPortOptions): Reasonin
 	const { models, model } = options;
 	return {
 		async reason(request: ReasoningRequest): Promise<StepOutcome> {
+			// Single-shot: there is no loop here to feed a tool's result back.
+			if (request.tools !== undefined) {
+				return { kind: "failed", category: "invalid_request", message: TOOLS_NEED_DURABLE_HOST };
+			}
 			const context: Context = {
 				systemPrompt: request.systemInstructions,
 				messages: [{ role: "user", content: request.prompt, timestamp: Date.now() }],
