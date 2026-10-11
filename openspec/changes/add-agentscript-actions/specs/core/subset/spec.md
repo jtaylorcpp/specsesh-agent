@@ -148,7 +148,7 @@ A `reasoning.actions:` entry `<tool>: @actions.<name>` SHALL offer that action t
 - **AND** the `reasoning.actions` probe SHALL contain an entry `edit: @actions.edit_file` with `with path = ...`
 
 #### Scenario: Exactly one declaration exists
-- **WHEN** every `.ts` file under the package's `src/`, read from disk, is searched for `(const|let|var) SUPPORTED_CONSTRUCTS (:|=)`
+- **WHEN** every `.ts` file under the package's `src/`, read from disk, is searched for `(const|let|var)\s+SUPPORTED_CONSTRUCTS\s*(:|=)`
 - **THEN** the only match SHALL be `src/interpreter/subset.ts`
 
 #### Scenario: Three action constructs follow the ten

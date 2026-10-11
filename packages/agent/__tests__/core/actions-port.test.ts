@@ -12,7 +12,7 @@ describe("core/reasoning-port: A tool offer declares, and never executes", () =>
 		const { port, requests } = recordingPort({
 			kind: "answered",
 			text: "",
-			toolCalls: [{ name: "delete", inputs: { path: "src" }, outputs: { ok: true } }],
+			toolCalls: [{ name: "delete", inputs: { path: "src" }, ok: true, outputs: { ok: true } }],
 		});
 		const result = await run(source, { port });
 		expect(requests[0]?.tools?.map((t) => t.name)).toEqual(["edit"]);
@@ -59,8 +59,8 @@ describe("core/reasoning-port: A step ends answered, cut short, or failed", () =
 
 	it("Scenario: An answer records the tools it called", async () => {
 		const calls = [
-			{ name: "shell", inputs: { command: "pnpm check" }, outputs: { exit_code: 0, output: "ok" } },
-			{ name: "shell", inputs: { command: "pnpm test" }, outputs: { exit_code: 1, output: "1 failed" } },
+			{ name: "shell", inputs: { command: "pnpm check" }, ok: true, outputs: { exit_code: 0, output: "ok" } },
+			{ name: "shell", inputs: { command: "pnpm test" }, ok: true, outputs: { exit_code: 1, output: "1 failed" } },
 		];
 		const { port } = recordingPort({ kind: "answered", text: "done", toolCalls: calls });
 		const result = await run(OFFERS, { port });

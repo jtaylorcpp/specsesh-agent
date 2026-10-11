@@ -426,7 +426,8 @@ async function answerStep(
 
 /**
  * Every action tool call in the step conversation, in call order: the merged
- * inputs, the host's outputs (`{}` for an error result) and its record.
+ * inputs, whether it succeeded, the host's outputs (`{}` for an error result)
+ * and its record.
  * `submit_result` is not an action and is never listed.
  */
 async function actionCalls(
@@ -453,8 +454,9 @@ async function actionCalls(
 				| undefined;
 			const offer = (doc?.offers ?? []).find((o) => o["name"] === block.name) as unknown as ToolOffer | undefined;
 			const inputs = ran?.inputs ?? { ...block.arguments, ...(offer?.bound ?? {}) };
-			const outputs = errors.has(block.id) || ran?.outputs === undefined ? {} : ran.outputs;
-			calls.push({ name: block.name, inputs, outputs, ...(ran?.record !== undefined ? { record: ran.record } : {}) });
+			const ok = !errors.has(block.id) && ran?.outputs !== undefined;
+			const outputs = ok ? (ran?.outputs ?? {}) : {};
+			calls.push({ name: block.name, inputs, ok, outputs, ...(ran?.record !== undefined ? { record: ran.record } : {}) });
 		}
 	}
 	return calls;

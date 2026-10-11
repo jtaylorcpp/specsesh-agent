@@ -29,16 +29,18 @@ Each `ToolOffer` SHALL be registered on the step conversation as a pi-durable to
 - **THEN** `edit_file` SHALL execute with `{ path: "NOTES.md", content: "x" }`
 
 #### Scenario: A refused command is an error the model sees
+- **GIVEN** the entry `shell` carries `set @variables.last_exit = @outputs.exit_code`
 - **WHEN** the model calls `shell` with a command whose first word is not allowlisted
 - **THEN** the tool result SHALL be an error naming the allowlist, and the step SHALL continue
+- **AND** the call SHALL be reported with `ok` false, `last_exit` SHALL keep its value, and the step SHALL end answered
 
 ### Requirement: A step's tool calls reach the machine in call order
-When a step with offered tools settles answered, the await phase SHALL read every action tool call in the step conversation, in call order, and report them as the outcome's `toolCalls`: `name`, the merged `inputs`, the host's `outputs` (`{}` for an error result), and the host's `record`. Calls to `submit_result` SHALL NOT be listed.
+When a step with offered tools settles answered, the await phase SHALL read every action tool call in the step conversation, in call order, and report them as the outcome's `toolCalls`: `name`, the merged `inputs`, `ok` (false for an error result), the host's `outputs` (`{}` for an error result), and the host's `record`. Calls to `submit_result` SHALL NOT be listed.
 
 #### Scenario: Two shell calls are reported
 - **GIVEN** an `act` step in which the model called `shell` twice and then answered
 - **WHEN** the await phase folds the answer in
-- **THEN** the outcome's `toolCalls` SHALL hold two `shell` entries, in order, with their outputs
+- **THEN** the outcome's `toolCalls` SHALL hold two `shell` entries, in order, with `ok` true and their outputs
 
 ## MODIFIED Requirements
 

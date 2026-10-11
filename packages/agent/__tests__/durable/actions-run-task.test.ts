@@ -193,11 +193,10 @@ describe("durable/run-task: Offered action tools run as pi-durable tools with th
 			fauxAssistantMessage([fauxText("I may not use curl.")]),
 		]);
 		const harness = await openHarness(new MemoryStorage(), env);
-		// Without the `set` under `shell`: an error result has no outputs, and a set
-		// reading one would fail the step (core/composition), which is not this scenario.
-		const source = OFFERING.replace("                set @variables.last_exit = @outputs.exit_code\n", "");
-		expect(source).not.toBe(OFFERING);
-		const result = await runScript(harness, source, { model: env.model }, context);
+		// OFFERING's `shell` carries `set @variables.last_exit = @outputs.exit_code`:
+		// a refused call is not a successful one, so it sets nothing and fails nothing.
+		expect(OFFERING).toContain("set @variables.last_exit = @outputs.exit_code");
+		const result = await runScript(harness, OFFERING, { model: env.model }, context);
 		await harness.close(context);
 
 		// The step went on to a second model request, which carried the error result.
@@ -208,7 +207,8 @@ describe("durable/run-task: Offered action tools run as pi-durable tools with th
 		expect(result.kind).toBe("completed");
 		expect(result.steps[0]?.outcome).toMatchObject({ kind: "answered", text: "I may not use curl." });
 		const calls = result.steps[0]?.outcome.kind === "answered" ? result.steps[0].outcome.toolCalls : undefined;
-		expect(calls).toEqual([{ name: "shell", inputs: { command: "curl example.com" }, outputs: {} }]);
+		expect(calls).toEqual([{ name: "shell", inputs: { command: "curl example.com" }, ok: false, outputs: {} }]);
+		expect(result.variables["last_exit"]).toBe(99);
 	});
 });
 
@@ -238,6 +238,7 @@ describe("durable/run-task: A step's tool calls reach the machine in call order"
 		expect(outcome?.kind).toBe("answered");
 		const calls = outcome?.kind === "answered" ? outcome.toolCalls : undefined;
 		expect(calls?.map((c) => c.name)).toEqual(["shell", "shell"]);
+		expect(calls?.map((c) => c.ok)).toEqual([true, true]);
 		expect(calls?.map((c) => c.inputs)).toEqual([{ command: "pnpm test" }, { command: "pnpm check" }]);
 		expect(calls?.map((c) => c.outputs)).toEqual([
 			{ exit_code: 1, output: "run 1: pnpm test" },

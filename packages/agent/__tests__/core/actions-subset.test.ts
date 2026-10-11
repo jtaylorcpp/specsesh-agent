@@ -241,8 +241,7 @@ describe("core/subset: The supported subset is declared once, as SUPPORTED_CONST
 			});
 		const all = files(join(PKG_DIR, "src"));
 		expect(all.length).toBeGreaterThan(10);
-		// The spec's pattern, with its spaces read as optional: the declaration is
-		// `const SUPPORTED_CONSTRUCTS: readonly …`, with no space before the colon.
+		// The spec's pattern, exactly.
 		const matches = all.filter((file) => /(const|let|var)\s+SUPPORTED_CONSTRUCTS\s*(:|=)/.test(readFileSync(file, "utf8")));
 		expect(matches.map((f) => f.slice(PKG_DIR.length + 1))).toEqual(["src/interpreter/subset.ts"]);
 	});

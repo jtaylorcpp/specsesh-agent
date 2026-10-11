@@ -83,11 +83,11 @@ describe("core/composition: A reasoning action becomes a tool offer", () => {
 });
 
 describe("core/composition: A reasoning action's set takes the last call's outputs", () => {
-	it("Scenario: The last call wins", async () => {
+	it("Scenario: The last successful call wins", async () => {
 		const { port } = recordingPort(
 			withCalls(
-				{ name: "shell", inputs: { command: "pnpm test" }, outputs: { exit_code: 1, output: "1 failed" } },
-				{ name: "shell", inputs: { command: "pnpm test" }, outputs: { exit_code: 0, output: "ok" } },
+				{ name: "shell", inputs: { command: "pnpm test" }, ok: true, outputs: { exit_code: 1, output: "1 failed" } },
+				{ name: "shell", inputs: { command: "pnpm test" }, ok: true, outputs: { exit_code: 0, output: "ok" } },
 			),
 		);
 		const result = await run(OFFERS, { port });
@@ -95,11 +95,38 @@ describe("core/composition: A reasoning action's set takes the last call's outpu
 		expect(result.variables["last_exit"]).toBe(0);
 	});
 
-	it("Scenario: A tool never called sets nothing", async () => {
-		const { port } = recordingPort(answered("nothing to do"));
+	it("Scenario: A refused call after a successful one is skipped", async () => {
+		const { port } = recordingPort(
+			withCalls(
+				{ name: "shell", inputs: { command: "pnpm test" }, ok: true, outputs: { exit_code: 1, output: "1 failed" } },
+				{ name: "shell", inputs: { command: "curl example.com" }, ok: false, outputs: {} },
+			),
+		);
 		const result = await run(OFFERS, { port });
 		expect(result.kind).toBe("completed");
 		expect(result.steps[0]?.outcome.kind).toBe("answered");
+		expect(result.variables["last_exit"]).toBe(1);
+	});
+
+	it("Scenario: A tool never called sets nothing", async () => {
+		const never = await run(OFFERS, { port: recordingPort(answered("nothing to do")).port });
+		expect(never.kind).toBe("completed");
+		expect(never.steps[0]?.outcome.kind).toBe("answered");
+		expect(never.variables["last_exit"]).toBe(99);
+
+		const onlyRefused = await run(OFFERS, {
+			port: recordingPort(withCalls({ name: "shell", inputs: { command: "curl x" }, ok: false, outputs: {} })).port,
+		});
+		expect(onlyRefused.kind).toBe("completed");
+		expect(onlyRefused.steps[0]?.outcome.kind).toBe("answered");
+		expect(onlyRefused.variables["last_exit"]).toBe(99);
+	});
+
+	it("a successful call missing the field fails the step", async () => {
+		const result = await run(OFFERS, {
+			port: recordingPort(withCalls({ name: "shell", inputs: { command: "pnpm test" }, ok: true, outputs: { output: "" } })).port,
+		});
+		expect(result.kind).toBe("failed");
 		expect(result.variables["last_exit"]).toBe(99);
 	});
 });
@@ -162,7 +189,7 @@ describe("core/composition: Only the structured result writes a variable from th
 
 	it("Scenario: A tool call's arguments are not its outputs", async () => {
 		const { port } = recordingPort(
-			withCalls({ name: "edit", inputs: { path: "a.ts", content: "x", ok: true }, outputs: { ok: false } }),
+			withCalls({ name: "edit", inputs: { path: "a.ts", content: "x", ok: true }, ok: true, outputs: { ok: false } }),
 		);
 		const result = await run(OFFERS, { port });
 		expect(result.kind).toBe("completed");

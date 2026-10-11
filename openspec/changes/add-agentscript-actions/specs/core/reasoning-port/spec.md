@@ -33,7 +33,7 @@ Each dispatched `ReasoningRequest` SHALL hold `systemInstructions` (string), `pr
 - **THEN** it SHALL carry `tools` naming `read`, `edit` and `shell`, in that order, and no `outputSchema`
 
 ### Requirement: A step ends answered, cut short, or failed
-`StepOutcome` SHALL be a union on `kind` with exactly three members: `{ kind: "answered", text, structured?, toolCalls? }`, where `structured` is present only when the step asked for one and `toolCalls` (`{ name, inputs, outputs, record? }[]`, in call order) only when it offered tools; `{ kind: "cut-short", text, turns }`, where `turns` is the implementation's own count; and `{ kind: "failed", category, message }`, where `message` is the layer's own words, verbatim.
+`StepOutcome` SHALL be a union on `kind` with exactly three members: `{ kind: "answered", text, structured?, toolCalls? }`, where `structured` is present only when the step asked for one and `toolCalls` (`{ name, inputs, ok, outputs, record? }[]`, in call order, `ok` false for a refused or failed call) only when it offered tools; `{ kind: "cut-short", text, turns }`, where `turns` is the implementation's own count; and `{ kind: "failed", category, message }`, where `message` is the layer's own words, verbatim.
 
 #### Scenario: The implementation reports a step stopped at its bound
 - **WHEN** the port answers `{ kind: "cut-short", text: "partial", turns: 7 }`
@@ -42,7 +42,7 @@ Each dispatched `ReasoningRequest` SHALL hold `systemInstructions` (string), `pr
 
 #### Scenario: An answer records the tools it called
 - **WHEN** a step offering `shell` is answered after two calls to it
-- **THEN** `toolCalls` SHALL hold two entries named `shell`, in call order, each with its `inputs` and `outputs`
+- **THEN** `toolCalls` SHALL hold two entries named `shell`, in call order, each with its `inputs`, `ok` and `outputs`
 
 ### Requirement: A run's kind comes from its last step
 A run's `kind` SHALL be `completed` when every dispatched step answered and every action call succeeded, or nothing was dispatched. Otherwise it SHALL be the last step's `cut-short` or `failed`, or `failed` for a failed action call, because either ends the run. The interpreter SHALL impose no bound of its own and pass none to the port.

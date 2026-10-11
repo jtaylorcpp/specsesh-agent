@@ -103,6 +103,8 @@ export type StepOutcome =
 export interface ToolCallRecord {
 	readonly name: string;
 	readonly inputs: Readonly<Record<string, unknown>>;
+	/** False when the call was refused, failed or interrupted; its `outputs` are then `{}`. */
+	readonly ok: boolean;
 	readonly outputs: Readonly<Record<string, unknown>>;
 	readonly record?: unknown;
 }

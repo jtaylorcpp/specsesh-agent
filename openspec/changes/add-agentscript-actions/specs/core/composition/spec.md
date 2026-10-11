@@ -34,16 +34,20 @@ Each reasoning-action entry SHALL become one `ToolOffer` on the step's request, 
 - **THEN** `tools` SHALL hold `shell` with `inputSchema.properties` `{ command: { type: "string" } }` and `bound` `{}`
 - **AND** `note` with `inputSchema.required` `["content"]` and `bound` `{ path: "NOTES.md" }`
 
-### Requirement: A reasoning action's set takes the last call's outputs
-After a step answers, each `set … = @outputs.<field>` under a reasoning-action entry SHALL take the field from the outputs of the last recorded call to that entry's tool, staged and applied together with the structured result. A tool never called SHALL set nothing and is not a failure. A called tool whose outputs lack the field SHALL make the step failed, setting nothing.
+### Requirement: A reasoning action's set takes the last successful call's outputs
+After a step answers, each `set … = @outputs.<field>` under a reasoning-action entry SHALL take the field from the outputs of the last recorded call to that entry's tool with `ok` true, staged and applied together with the structured result. A tool never called, or with no successful call, SHALL set nothing and is not a failure. A successful call whose outputs lack the field SHALL make the step failed, setting nothing.
 
-#### Scenario: The last call wins
+#### Scenario: The last successful call wins
 - **GIVEN** an entry `shell` with `set @variables.last_exit = @outputs.exit_code`
-- **WHEN** the model calls `shell` twice, with outputs `exit_code` `1` then `0`
+- **WHEN** the model calls `shell` twice, both successful, with outputs `exit_code` `1` then `0`
 - **THEN** `last_exit` SHALL be `0`
 
+#### Scenario: A refused call after a successful one is skipped
+- **WHEN** the model calls `shell` successfully with `exit_code` `1`, then calls it again and the call is refused (`ok` false, outputs `{}`)
+- **THEN** `last_exit` SHALL be `1` and the step SHALL be answered, not failed
+
 #### Scenario: A tool never called sets nothing
-- **WHEN** the step answers without calling `shell`
+- **WHEN** the step answers without calling `shell`, or with only refused calls to it
 - **THEN** `last_exit` SHALL keep its value and the step SHALL be answered, not failed
 
 ## MODIFIED Requirements
@@ -84,5 +88,5 @@ When a step with pending assignments answers, variables SHALL be set only from t
 
 #### Scenario: A tool call's arguments are not its outputs
 - **GIVEN** a reasoning-action entry `edit: @actions.edit_file` with `set @variables.edited = @outputs.ok`
-- **WHEN** the step answers with a tool call whose inputs include `ok: true` and whose host outputs are `{ ok: false }`
+- **WHEN** the step answers with a successful tool call whose inputs include `ok: true` and whose host outputs are `{ ok: false }`
 - **THEN** `variables.edited` SHALL be `false`

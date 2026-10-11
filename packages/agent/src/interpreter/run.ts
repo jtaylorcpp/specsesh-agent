@@ -847,13 +847,14 @@ function settle(outcome: StepOutcome, awaiting: AwaitingStep, variables: Map<str
 	}
 
 	for (const assignment of awaiting.toolAssignments ?? []) {
-		// The last call wins; a tool never called sets nothing and is no failure.
-		const last = calls.filter((call) => call.name === assignment.tool).at(-1);
+		// The last SUCCESSFUL call wins. A tool never called, or only refused or
+		// interrupted, sets nothing and is no failure: the model saw the error.
+		const last = calls.filter((call) => call.name === assignment.tool && call.ok === true).at(-1);
 		if (last === undefined) continue;
 		const value = isNode(last.outputs) ? last.outputs[assignment.field] : undefined;
 		if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
 			return failure(
-				`the last call to ${assignment.tool} has no usable output "${assignment.field}" for ` +
+				`the last successful call to ${assignment.tool} has no usable output "${assignment.field}" for ` +
 					`@variables.${assignment.variable}. No variable was set.`,
 			);
 		}
