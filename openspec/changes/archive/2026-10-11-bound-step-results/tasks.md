@@ -12,4 +12,4 @@
 ## 3. Close
 
 - [x] 3.1 `pnpm -r check`, `pnpm -r test`, `pnpm pack:check`, `pnpm spec:check`, `pnpm docs:check`; `openspec/parked.md`: remove the "no bound on submit_result retries" entry
-- [ ] 3.2 `pnpm spec:archive bound-step-results`
+- [x] 3.2 `pnpm spec:archive bound-step-results`
