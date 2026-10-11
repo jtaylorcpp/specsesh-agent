@@ -55,8 +55,6 @@ export interface CliDeps {
 	readonly models?: () => Promise<Models> | Models;
 	readonly out?: (line: string) => void;
 	readonly err?: (line: string) => void;
-	/** The working directory `--workspace` defaults to. Defaults to `process.cwd()`. */
-	readonly cwd?: () => string;
 }
 
 type LoopId = TaskId<LoopOutcome<TaskOutcome>>;
@@ -131,7 +129,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 			change: { dir },
 			task,
 			...(values.script !== undefined ? { script: { path: values.script } } : {}),
-			workspace: values.workspace ?? (deps.cwd ?? (() => process.cwd()))(),
+			workspace: values.workspace ?? process.cwd(),
 			...(maxIterations !== undefined ? { budget: { maxIterations: Number(maxIterations) } } : {}),
 			checks: values.check ?? [],
 			allow: values.allow ?? [],

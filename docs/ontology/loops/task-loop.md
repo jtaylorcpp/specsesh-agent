@@ -7,6 +7,7 @@ spec:
   - "openspec/loops: The task loop drives one task to its targets"
   - "openspec/loops: Only a converged task loop ticks its box"
   - "openspec/loops: Rework unticks a task"
+  - "task/agent: The loop is one durable task with three phases"
 related: [loop, task, task-link, task-outcome, group-loop]
 status: implemented
 ---
@@ -43,6 +44,7 @@ Loop<Task, TaskOutcome>
 
 - An instance of [Loop](loop.md) over one [Task](../../taxonomy/task.md); its targets come from the task's [TaskLink](../../taxonomy/task-link.md)s.
 - Returns a [TaskOutcome](task-outcome.md); run in order by its [Group loop](group-loop.md).
+- Implemented as the pi-durable task `agentscript.task-loop` in `@specsesh/agent/task` (`packages/agent/src/task/`), with the `agentscript-task` CLI. Until the parser links tasks to scenarios, its verdicts judge the one target `{ check: "task <id>" }`, from the judge step of an Agent Script run once per iteration.
 
 ## Example
 
@@ -53,3 +55,4 @@ Task `2.4` of `baseline-agentscript-durable` links three CLI scenarios; its loop
 - `openspec/loops: The task loop drives one task to its targets`
 - `openspec/loops: Only a converged task loop ticks its box`
 - `openspec/loops: Rework unticks a task`
+- `task/agent: The loop is one durable task with three phases`

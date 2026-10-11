@@ -11,7 +11,13 @@ import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { MemoryStorage, type Storage } from "@earendil-works/pi-durable";
 import { RESULT_TOOL } from "../../src/durable/index.js";
-import { taskLoopExtensions, type TaskLoopActionOptions } from "../../src/task/index.js";
+import {
+	startTaskLoop,
+	taskLoopExtensions,
+	waitForTaskLoopResult,
+	type TaskLoopActionOptions,
+	type TaskLoopOptions,
+} from "../../src/task/index.js";
 import { context, openHarness, setup } from "../durable/helpers.js";
 
 export { context };
@@ -136,4 +142,53 @@ export function prompts(requests: readonly { messages: readonly { role: string; 
 			)
 			.join("\n"),
 	);
+}
+
+/** A fake `pnpm` first on PATH: prints what it ran and exits 0. Returns the restore function. */
+export function fakePnpm(): () => void {
+	const bin = temp("task-bin-");
+	writeFileSync(join(bin, "pnpm"), `#!${process.execPath}\nprocess.stdout.write("ran " + process.argv.slice(2).join(" "));\n`, { mode: 0o755 });
+	const saved = process.env.PATH;
+	process.env.PATH = `${bin}:${saved ?? ""}`;
+	return () => {
+		process.env.PATH = saved;
+	};
+}
+
+/**
+ * Start a loop of JUDGE_ONLY (unless a script is given) over a tiny change (unless
+ * given), answer with `responses`, and wait for it.
+ */
+export async function runLoop(
+	responses: Parameters<ReturnType<typeof setup>["faux"]["setResponses"]>[0],
+	overrides: Partial<TaskLoopOptions> = {},
+	actions: Partial<TaskLoopActionOptions> = {},
+) {
+	const { env, workspace } = loopEnv({
+		...actions,
+		...(overrides.workspace !== undefined ? { workspace: overrides.workspace } : {}),
+		...(overrides.checks !== undefined ? { checks: overrides.checks } : {}),
+		...(overrides.allow !== undefined ? { allow: overrides.allow } : {}),
+	});
+	const storage = new MemoryStorage();
+	const harness = await loopHarness(env, storage);
+	env.faux.setResponses(responses);
+	const options: TaskLoopOptions = {
+		change: overrides.change ?? { dir: tinyChange() },
+		task: "1.1",
+		script: { text: JUDGE_ONLY },
+		workspace,
+		model: env.model,
+		...overrides,
+	};
+	const id = await startTaskLoop(harness, options, context);
+	harness.resume();
+	const { outcome, notes } = await waitForTaskLoopResult(harness, id, context);
+	return { id, outcome, notes, env, storage, harness, options, workspace };
+}
+
+/** Every `agentscript.run` task in the storage, oldest first. */
+export async function runTasks(storage: Storage) {
+	const page = await storage.scanTasks({ kind: "agentscript.run" }, 100, undefined, context);
+	return page.items;
 }
