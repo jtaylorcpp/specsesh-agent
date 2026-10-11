@@ -12,6 +12,8 @@ flow does **not** apply here.
 |---|---|
 | `packages/agentscript` (`@coopcli/agentscript`) | The core: authoring + interpreter. No model client, ever. |
 | `packages/agentscript-pi` (`agentscript-pi`) | A `ReasoningPort` on `@earendil-works/pi-ai` (exact-pinned) plus a CLI, so any pi provider can run a script. Default testing model: `anthropic/claude-haiku-4-5`. |
+| `packages/agentscript-durable` (`agentscript-durable`) | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). Includes a Node CLI (`run`, `resume`). |
+| `packages/agentscript-cloudflare` | Example Worker: the same extension inside a Durable Object via Cloudflare's `PiHarness` (`agents` 0.28.0). Workers AI by default; `AGENTSCRIPT_FAUX=1` for local tests. |
 
 ## Where it stands
 
@@ -31,6 +33,21 @@ flow does **not** apply here.
   `--safe-mode` is required: without it your global CLAUDE.md leaks into every step. Never `--bare`
   (it forces API-key auth). First live run: 2026-10-10, triage example, Haiku 4.5, completed.
 
+- **Step machine** (`start` / `next` / `apply` in `run.ts`): the run's state is plain JSON (`RunState`),
+  `next` is pure, and `run()` is a loop over the three. A failed step rolls back only its own logic
+  lines; logic-only subagents before it stay committed. This is what durable hosts checkpoint.
+- **agentscript-durable**: task phases `next` → `dispatch` (create a task-owned child conversation
+  for the step, in one commit) → `await` (submit with request ID `agentscript:<task>:<step>`, wait,
+  `apply`). Each step is a fresh conversation: system block as `instructions`, its prompt, and
+  `submit_result` only when it writes variables. The tool validates against the step schema (in the
+  `agentscript.step` doc, shown via a `result` section), returns errors for the model to retry, and
+  ends the run with `control.terminate`. Task IDs are numbers; a string ID makes `waitForTask` hand
+  back a stale record.
+- Verified: crash/resume on node SQLite (child process `exit(137)` mid-step, fresh harness finishes)
+  and on local Durable Object storage (`kill -9` workerd mid-step, restart, run completes).
+  Not yet verified: a live model through pi-durable (no API key here), and Lifecycle's alarm
+  waking an idle object with no incoming request.
+
 ## Commands
 
 ```bash
@@ -40,6 +57,10 @@ pnpm agent run packages/agentscript-pi/examples/triage.agent --provider claude-c
 pnpm agent run packages/agentscript-pi/examples/triage.agent        # pi, needs ANTHROPIC_API_KEY
 pnpm agent run <file> --provider openai --model gpt-4o-mini --var name=value --json
 pnpm agent models anthropic     # list a provider's models
+pnpm durable run <file> --db runs.sqlite [--provider --model --entry --var --json]   # durable, pi-ai
+pnpm durable resume <task-id> --db runs.sqlite                                      # finish a crashed run
+pnpm --filter agentscript-cloudflare dev    # wrangler dev; add --var AGENTSCRIPT_FAUX:1 without an account
+pnpm --filter agentscript-cloudflare test   # kill -9 mid-step crash/resume on local DO storage (~40s)
 ```
 
 Provider/model also come from `AGENTSCRIPT_PROVIDER` / `AGENTSCRIPT_MODEL`; credentials are pi's
