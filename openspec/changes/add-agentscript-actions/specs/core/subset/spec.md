@@ -96,7 +96,7 @@ A `reasoning.actions:` entry `<tool>: @actions.<name>` SHALL offer that action t
 ## MODIFIED Requirements
 
 ### Requirement: The supported subset is declared once, as SUPPORTED_CONSTRUCTS
-The `./interpreter` export SHALL declare the executable subset once: `SUPPORTED_CONSTRUCTS`, a plain array literal closed by `] as const;` in `src/interpreter/subset.ts`, with no second declaration in `src/`. Each entry SHALL be `{ id, summary, probe, kinds }`: a stable id, a summary, a probe that parses clean and produces every declared kind, and a non-empty list of node kinds. `SUPPORTED_CONSTRUCT_IDS` SHALL list the ids in order.
+`@specsesh/agent/interpreter` SHALL declare the executable subset once: `SUPPORTED_CONSTRUCTS`, a plain array literal closed by `] as const;` in `src/interpreter/subset.ts`, with no second declaration in `src/`. Each entry SHALL be `{ id, summary, probe, kinds }`: a stable id, a summary, a probe that parses clean and produces every declared kind, and a non-empty list of node kinds. `SUPPORTED_CONSTRUCT_IDS` SHALL list the ids in order.
 
 #### Scenario: The ten constructs, in order
 - **WHEN** `SUPPORTED_CONSTRUCT_IDS` is read

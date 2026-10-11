@@ -1,7 +1,7 @@
 ## 1. Prerequisites
 
-- [ ] 1.1 Land `package-specsesh-agent` and `add-openspec-ontology` first; this change uses the post-packaging layout (`packages/agent/src/...`) and the ontology's `Action` and `Evidence` types
-- [ ] 1.2 Rebase this change's MODIFIED requirements onto `package-specsesh-agent`'s wording once it archives (both change `core/step-machine` "The Step Machine Is Exported From The Interpreter Entry" and entry names elsewhere); re-run `openspec validate add-agentscript-actions --strict`
+- [x] 1.1 Land `package-specsesh-agent` and `add-openspec-ontology` first; this change uses the post-packaging layout (`packages/agent/src/...`) and the ontology's `Action` and `Evidence` types
+- [x] 1.2 Rebase this change's MODIFIED requirements onto `package-specsesh-agent`'s wording once it archives (both change `core/step-machine` "The Step Machine Is Exported From The Interpreter Entry" and entry names elsewhere); re-run `openspec validate add-agentscript-actions --strict`
 
 ## 2. Subset and scan
 

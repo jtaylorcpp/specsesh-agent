@@ -36,10 +36,10 @@ When the result is `{ ok: false }`, or applying its outputs fails, `applyAction`
 ## MODIFIED Requirements
 
 ### Requirement: The Step Machine Is Exported From The Interpreter Entry
-The core package's `./interpreter` entry SHALL export the functions `start`, `next`, `apply`, `applyAction`, `run` and `hashSource`, the types `RunState`, `AwaitingStep`, `AwaitingAction`, `ActionCall`, `ActionResult`, `ActionReport`, `NextStep`, `StartOptions`, `RunOptions`, `RunResult` and `StepReport`, and the step-machine error classes. None of these functions SHALL write a file, open a network connection, read a credential or import a model client.
+`@specsesh/agent/interpreter` SHALL export the functions `start`, `next`, `apply`, `applyAction`, `run` and `hashSource`, the types `RunState`, `AwaitingStep`, `AwaitingAction`, `ActionCall`, `ActionResult`, `ActionReport`, `NextStep`, `StartOptions`, `RunOptions`, `RunResult` and `StepReport`, and the step-machine error classes. None of these functions SHALL write a file, open a network connection, read a credential or import a model client.
 
 #### Scenario: Every step-machine export is reachable from the entry
-- **WHEN** a consumer imports `start`, `next`, `apply`, `applyAction`, `run`, `hashSource`, `SourceMismatchError` and `RunStateError` from `./interpreter`
+- **WHEN** a consumer imports `start`, `next`, `apply`, `applyAction`, `run`, `hashSource`, `SourceMismatchError` and `RunStateError` from `@specsesh/agent/interpreter`
 - **THEN** each import SHALL resolve to a defined value
 
 #### Scenario: A run does not touch the author's file

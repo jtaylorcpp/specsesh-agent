@@ -131,7 +131,7 @@ A step's model request SHALL contain the script's system instructions as their o
 - **AND** no user message SHALL contain `You triage bug reports.`
 
 ### Requirement: A run survives its process dying and resumes from the last commit
-Because every phase ends in one commit, the await phase's submission is idempotent by request ID, and the act phase records intent before executing, a run on durable pi-durable storage SHALL resume after the process dies at any point and finish without re-running a committed step or action, and without silently re-running an `unsafe` action. A resumed process MUST need only the same storage, a registry with both extensions installed, and a models collection.
+Because every phase ends in one commit, the await phase's submission is idempotent by request ID, and the act phase records intent before executing, a run on durable pi-durable storage SHALL resume after the process dies at any point and finish without re-running a committed step or action, and without silently re-running an `unsafe` action. A resumed process MUST need only the same storage, a registry with both extensions installed, and a models collection; it MUST NOT need the script file.
 
 #### Scenario: A crash during the second model request resumes at the second step
 - **GIVEN** the pipeline run on a Node SQLite file, `classify` answered with `{ severity: "high" }`, and the process exiting with code 137 when the `respond` model request starts
