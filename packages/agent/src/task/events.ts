@@ -17,22 +17,97 @@
 
 import type { Context } from "@earendil-works/chord";
 import type { Harness, TaskId } from "@earendil-works/pi-durable";
-import type { Iteration, LoopOutcome, TaskOutcome } from "../openspec/index.js";
+import type { GroupOutcome, Iteration, LoopOutcome, LoopStatus, TaskOutcome } from "../openspec/index.js";
 import type { LoopCheckpoint } from "./loop-input.js";
 
 export type TaskEvent =
-	| { event: "loop-started"; loop: number; change: string; task: string; script: string; at: string }
-	| { event: "iteration-started"; loop: number; iteration: number; at: string }
-	| { event: "action"; loop: number; iteration: number; kind: string; summary: string; refs: string[] }
-	| ({ event: "evidence"; loop: number; iteration: number; kind: string } & Record<string, unknown>)
-	| { event: "verdict"; loop: number; iteration: number; met: boolean; unmet: string; next: string }
-	| { event: "loop-ended"; loop: number; status: string; iterations: number; ticked: boolean; changed: string[] }
+	| { event: "loop-started"; loop: number; group?: number; change: string; task: string; script: string; at: string }
+	| { event: "iteration-started"; loop: number; group?: number; iteration: number; at: string }
+	| { event: "action"; loop: number; group?: number; iteration: number; kind: string; summary: string; refs: string[] }
+	| ({ event: "evidence"; loop: number; group?: number; iteration: number; kind: string } & Record<string, unknown>)
+	| { event: "verdict"; loop: number; group?: number; iteration: number; met: boolean; unmet: string; next: string }
+	| { event: "loop-ended"; loop: number; group?: number; status: string; iterations: number; ticked: boolean; changed: string[] }
 	| { event: "warning"; loop: number; message: string };
+
+/**
+ * A group loop's events, on top of its child task loops' (`loop` is the group loop's id):
+ *
+ *   group-started  change, group, tasks, at
+ *   group-check    commands, passed
+ *   rework         task, reason
+ *   group-ended    status, tasks, changed
+ */
+export type GroupEvent =
+	| { event: "group-started"; loop: number; change: string; group: number; tasks: string[]; at: string }
+	| { event: "group-check"; loop: number; commands: { command: string; exitCode: number }[]; passed: boolean }
+	| { event: "rework"; loop: number; task: string; reason: string }
+	| {
+			event: "group-ended";
+			loop: number;
+			status: LoopStatus;
+			tasks: { task: string; status: LoopStatus; runs: number }[];
+			changed: string[];
+	  };
+
+export type StreamEvent = TaskEvent | GroupEvent;
 
 export const now = (): string => new Date().toISOString();
 
 /** Writes events, one JSON object per line. */
-export type EventSink = (event: TaskEvent) => void;
+export type EventSink = (event: StreamEvent) => void;
+
+export const groupStarted = (loop: number, change: string, group: number, tasks: readonly string[], at = now()): GroupEvent => ({
+	event: "group-started",
+	loop,
+	change,
+	group,
+	tasks: [...tasks],
+	at,
+});
+
+export const groupCheck = (loop: number, commands: readonly { command: string; exitCode: number }[], passed: boolean): GroupEvent => ({
+	event: "group-check",
+	loop,
+	commands: commands.map(({ command, exitCode }) => ({ command, exitCode })),
+	passed,
+});
+
+export const rework = (loop: number, task: string, reason: string): GroupEvent => ({ event: "rework", loop, task, reason });
+
+export const groupEnded = (
+	loop: number,
+	status: LoopStatus,
+	tasks: readonly { task: string; status: LoopStatus; runs: number }[],
+	changed: readonly string[],
+): GroupEvent => ({ event: "group-ended", loop, status, tasks: tasks.map(({ task, status, runs }) => ({ task, status, runs })), changed: [...changed] });
+
+/** `group-ended` from a settled group loop: each task's status is its own last run's. */
+export function groupEndedFromOutcome(loop: number, outcome: LoopOutcome<GroupOutcome>, changed: readonly string[]): GroupEvent {
+	const tasks = (outcome.result?.tasks ?? []).map((entry) => ({ task: entry.task, status: entry.outcome.status, runs: entry.runs }));
+	return groupEnded(loop, outcome.status, tasks, changed);
+}
+
+/**
+ * A sink that stamps `group` on every task event passed through it. Group
+ * events and warnings pass unchanged. The group loop hands each child task
+ * loop its sink wrapped this way.
+ */
+export function withGroup(sink: EventSink, group: number): EventSink {
+	return (event) => {
+		switch (event.event) {
+			case "loop-started":
+			case "iteration-started":
+			case "action":
+			case "evidence":
+			case "verdict":
+			case "loop-ended":
+				sink({ ...event, group });
+				return;
+			default:
+				sink(event);
+		}
+	};
+}
 
 export function jsonLines(write: (line: string) => void): EventSink {
 	return (event) => write(JSON.stringify(event));
@@ -70,12 +145,17 @@ export class LoopWatcher {
 	/** The highest iteration whose actions, evidence and verdict were emitted. */
 	private reported: number;
 
+	private readonly loop: number;
+	private readonly emit: EventSink;
+
 	constructor(
-		private readonly loop: number,
-		private readonly emit: EventSink,
+		loop: number,
+		emit: EventSink,
 		/** Iterations an earlier run of the loop already recorded (an answered escalation's). */
 		earlier = 0,
 	) {
+		this.loop = loop;
+		this.emit = emit;
 		this.started = earlier;
 		this.reported = earlier;
 	}

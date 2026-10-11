@@ -10,11 +10,12 @@ import { closeSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
 /** Another live process holds the database. Exit 2. */
 export class DatabaseLockedError extends Error {
 	override readonly name = "DatabaseLockedError";
-	constructor(
-		readonly lockPath: string,
-		readonly pid: number,
-	) {
+	readonly lockPath: string;
+	readonly pid: number;
+	constructor(lockPath: string, pid: number) {
 		super(`the database is in use by process ${pid} (${lockPath}); wait for it to finish, or use another --db`);
+		this.lockPath = lockPath;
+		this.pid = pid;
 	}
 }
 

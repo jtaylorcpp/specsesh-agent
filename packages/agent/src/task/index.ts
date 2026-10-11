@@ -23,6 +23,18 @@ export type { LoopCheckpoint, TaskLoopInput, TaskLoopResult } from "./loop-input
 export { BUNDLED_SCRIPTS, DEFAULT_ESCALATE_TO, DEFAULT_MAX_ITERATIONS, type ChangeSource, type LoopWorktree, type Source, type TaskLoopOptions } from "./options.js";
 export type { GroupLoopOptions } from "./group.js";
 export { GroupLoop, groupLoopExtensions, startGroupLoop, waitForGroupLoop } from "./group-api.js";
+export {
+	groupCheck,
+	groupEnded,
+	groupEndedFromOutcome,
+	groupStarted,
+	rework,
+	withGroup,
+	type EventSink,
+	type GroupEvent,
+	type StreamEvent,
+	type TaskEvent,
+} from "./events.js";
 export { answerGroupEscalation } from "./group-answer.js";
 export { prepareTaskLoop, startTaskLoop } from "./start.js";
 export { answerEscalation, waitForTaskLoop, waitForTaskLoopResult } from "./answer.js";
