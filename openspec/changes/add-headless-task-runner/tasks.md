@@ -2,7 +2,9 @@
 
 ## 1. Before starting
 
-- [ ] 1.1 Once `add-task-agent` and `add-agentscript-actions` are archived, re-check this change's MODIFIED and REMOVED deltas in `specs/task/cli` and `specs/actions/registry` against the archived `openspec/specs/task/cli` and `openspec/specs/actions/registry`: each header verbatim, every base scenario kept. Fix any drift, then `openspec validate add-headless-task-runner --strict` (the "archive would refuse" INFO notes must be gone)
+- [x] 1.1 Once `add-task-agent` and `add-agentscript-actions` are archived, re-check this change's MODIFIED and REMOVED deltas in `specs/task/cli` and `specs/actions/registry` against the archived `openspec/specs/task/cli` and `openspec/specs/actions/registry`: each header verbatim, every base scenario kept. Fix any drift, then `openspec validate add-headless-task-runner --strict` (the "archive would refuse" INFO notes must be gone)
+
+- [ ] 1.2 `packages/agent/src/task/{options,loop-input,loop,start}.ts`: `TaskLoopOptions` gains `delegateModel`, `delegateContext` and `worktree`, stored in the loop's input; `taskLoopExtensions` takes `delegateModel` and `delegateContext` and passes them to `builtinActions` (`task/agent` deltas)
 
 ## 2. Config loader and precedence
 
@@ -33,8 +35,8 @@
 
 ## 6. The delegate, headless
 
-- [ ] 6.1 `packages/agent/src/actions/delegate.ts`: argv adds `--tools Read,Edit,Write,Glob,Grep,Bash`, `--permission-mode dontAsk`, `--output-format json`, `--no-session-persistence`, and `--allowedTools` = the five file tools + `Bash(<word>:*)` per allowlist entry, in order
-- [ ] 6.2 `packages/agent/src/actions/delegate.ts`: `--model <delegateModel>` (else the step model); one `--append-system-prompt-file` per context file, resolved against the workspace; a missing context file answers `{ ok: false }` naming it, without spawning; still `--safe-mode`, never `--bare`, `ANTHROPIC_API_KEY` and `CLAUDECODE` stripped, never the OAuth token
+- [ ] 6.1 `packages/agent/src/durable/builtins.ts`: argv adds `--tools Read,Edit,Write,Glob,Grep,Bash`, `--permission-mode dontAsk`, `--output-format json`, `--no-session-persistence`, and `--allowedTools` = the five file tools + `Bash(<word>:*)` per allowlist entry, in order
+- [ ] 6.2 `packages/agent/src/durable/builtins.ts`: `--model <delegateModel>` when set (the CLI defaults it to the resolved model); one `--append-system-prompt-file` per context file, resolved against the workspace; a missing context file answers `{ ok: false }` naming it, without spawning; still `--safe-mode`, never `--bare`, `ANTHROPIC_API_KEY` and `CLAUDECODE` stripped, never the OAuth token
 
 ## 7. status
 
@@ -53,9 +55,11 @@
 - [ ] 9.2 `packages/agent/__tests__/task/resolve.test.ts`: the change id/path and `--next` scenarios, and "run takes a change and a task, with the database from flag or config"
 - [ ] 9.3 `packages/agent/__tests__/task/events.test.ts`: the headless, JSON Lines, six-event, `changed` and blocked-output scenarios, driving the CLI against a faux model in a temp git repo
 - [ ] 9.4 `packages/agent/__tests__/task/git.test.ts`: the clean-tree guard scenarios (dirty refusal, truncation at 20, `--allow-dirty`, ignored database, outside git) and "A converged loop leaves its work uncommitted"
-- [ ] 9.5 `packages/agent/__tests__/actions/delegate.test.ts`: "The delegate never prompts", "The delegate's model and context are configurable" and the modified hard-lines scenario, against a fake `claude` that records its argv and env
+- [ ] 9.5 `packages/agent/__tests__/durable/actions/delegate.test.ts`: "The delegate never prompts", "The delegate's model and context are configurable" and the modified hard-lines scenario, against a fake `claude` that records its argv and env
 - [ ] 9.6 `packages/agent/__tests__/task/status.test.ts`: the `status` and four-command usage scenarios
 - [ ] 9.7 `packages/agent/__tests__/repo/config.test.ts`: "The shipped config is valid" and "The database directory is ignored" against the repo's real files
+- [ ] 9.9 `packages/agent/__tests__/task/agent-options.test.ts`: "The delegate configuration is stored with the loop"
+- [ ] 9.10 `packages/agent/__tests__/task/worktree.test.ts` and `packages/agent/__tests__/task/lock.test.ts`: the worktree, parallel and lock scenarios, spawning the built bin against a fake `claude`
 - [ ] 9.8 Every test above is named `Scenario: <exact scenario name>`
 
 ## 10. The live acceptance run

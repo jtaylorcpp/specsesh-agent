@@ -39,7 +39,7 @@ A key in `task` that is not one of its fields, or a field whose value has the wr
 - **THEN** stderr SHALL name `checks`, and the exit code SHALL be `2`
 
 ### Requirement: Values resolve flag, then environment, then config, then default
-Each value SHALL be resolved separately: its flag when given, else its environment variable where one exists (`AGENTSCRIPT_PROVIDER`, `AGENTSCRIPT_MODEL`), else the config field, else the CLI default. Defaults are those of `task/cli`: provider `anthropic`, model `claude-haiku-4-5`, script `task`, `maxIterations` `3`, `escalateTo` `"principal"`, `requireCleanTree` `true`, `changesDir` `openspec/changes`.
+Each value SHALL be resolved separately: its flag when given, else its environment variable where one exists (`AGENTSCRIPT_PROVIDER`, `AGENTSCRIPT_MODEL`), else the config field, else the CLI default. Defaults: provider `anthropic`, model `claude-haiku-4-5`, `delegateModel` the resolved model, script `task`, `maxIterations` `3`, `escalateTo` `"principal"`, `requireCleanTree` `true`, `changesDir` `openspec/changes`.
 
 #### Scenario: The environment beats the config
 - **GIVEN** a config with `"model": "claude-haiku-4-5"` and `AGENTSCRIPT_MODEL=sonnet`
@@ -131,11 +131,11 @@ The events SHALL be:
 - **THEN** the stream SHALL hold an `evidence` event with `kind` `"check"`, `command` `"pnpm test"` and `exitCode` `1`
 
 ### Requirement: loop-ended lists the files the loop changed
-`loop-ended.changed` SHALL list, sorted, the paths whose `git status --porcelain` entry in the workspace differs between the start of the loop and its end. Outside a git repository it SHALL be `[]`.
+`loop-ended.changed` SHALL list, sorted, the paths whose `git status --porcelain` entry or content in the workspace differs between the start of the loop and its end, except the change's `tasks.md` (its tick is `ticked`) and the database's own files. Outside a git repository it SHALL be `[]`.
 
 #### Scenario: Only the edited file is listed
 - **GIVEN** a clean git workspace
-- **WHEN** a loop edits `src/a.ts` and nothing else
+- **WHEN** a loop edits `src/a.ts`, converges and ticks its task in the workspace's `tasks.md`
 - **THEN** `loop-ended.changed` SHALL be `["src/a.ts"]`
 
 ### Requirement: A dirty working tree refuses the run
@@ -177,7 +177,7 @@ When the workspace is not inside a git repository, `run` SHALL skip the clean-tr
 - **THEN** `git log` SHALL show the same HEAD as before the run, and the loop's edits SHALL be uncommitted
 
 ### Requirement: --worktree runs the loop in a new git worktree
-With `--worktree`, or `worktree: true` in the config, `run` SHALL create a worktree at `<worktreeDir>/<change-id>-<task-id>` on a new branch `task/<change-id>/<task-id>` from `HEAD` with `git worktree add -b`, and run the loop with that worktree as the workspace and the change resolved inside it. `worktreeDir` SHALL default to `../<repo-dir-name>-worktrees`, relative to the repo root.
+With `--worktree` or config `worktree: true`, `run` SHALL create a worktree `<worktreeDir>/<change-id>-<task-id>` on a new branch `task/<change-id>/<task-id>` from `HEAD` (`git worktree add -b`) and run the loop there: the workspace, the change and config paths inside the repo resolve to the same place in the worktree. `worktreeDir` SHALL default to `../<repo-dir-name>-worktrees` from the repo root. Outside git it MUST exit `2`.
 
 #### Scenario: A task runs in its own worktree
 - **GIVEN** this repo at a clean `HEAD` and change `add-task-agent` committed
@@ -229,7 +229,7 @@ Several `run --worktree` processes for different tasks, each with its own `--db`
 - **THEN** both SHALL complete, each in its own worktree and branch, and neither database SHALL hold the other's loop
 
 ### Requirement: A database is held by one live process
-`run` and `resume` SHALL take an exclusive lock, a file `<db>.lock` holding the process id, before opening the database, and release it on exit. When another live process holds the lock they MUST exit `2`, naming that pid. A lock whose process is no longer alive SHALL be taken over, with a `warning` event.
+`run`, `resume` and `answer` SHALL take an exclusive lock, a file `<db>.lock` holding the process id, before opening the database, and release it on exit. When another live process holds the lock they MUST exit `2`, naming that pid. A lock whose process is no longer alive SHALL be taken over, with a `warning` event.
 
 #### Scenario: A second process on the same database is refused
 - **GIVEN** a running loop on `a.sqlite`
@@ -266,14 +266,14 @@ A loop run in worktree mode SHALL record `worktree: { path, branch }` in its dat
 - **THEN** stdout SHALL be `no loops in <db>` and the exit code SHALL be `0`
 
 ### Requirement: This repo ships a config for its own tasks
-The repository root SHALL hold `agentscript.config.json` with `task` set to `changesDir` `openspec/changes`, `db` `.agentscript/task-loops.sqlite`, `provider` `claude-code`, `model` `claude-haiku-4-5`, `delegateModel` `sonnet`, `script` `task-delegate`, `checks` `["pnpm check", "pnpm test"]`, `allow` `["pnpm", "node"]`, `maxIterations` `3`, `escalateTo` `principal`, `delegateContext` `["CLAUDE.md"]`, `requireCleanTree` `true` and `worktreeSetup` `["pnpm install --frozen-lockfile --offline"]`.
+The repository root SHALL hold `agentscript.config.json` configuring this repo's own tasks: the `claude-code` provider running `task-delegate`, this repo's checks and allowlist, a gitignored database, `CLAUDE.md` as delegate context, and an offline install as worktree setup. Its `task` object SHALL hold exactly the values the scenario lists.
 
 #### Scenario: The shipped config is valid
 - **WHEN** the repo's `agentscript.config.json` is read
-- **THEN** it SHALL be accepted and hold exactly those values
+- **THEN** it SHALL be accepted, and `task` SHALL be exactly `changesDir` `openspec/changes`, `db` `.agentscript/task-loops.sqlite`, `provider` `claude-code`, `model` `claude-haiku-4-5`, `delegateModel` `sonnet`, `script` `task-delegate`, `checks` `["pnpm check", "pnpm test"]`, `allow` `["pnpm", "node"]`, `maxIterations` `3`, `escalateTo` `principal`, `delegateContext` `["CLAUDE.md"]`, `requireCleanTree` `true` and `worktreeSetup` `["pnpm install --frozen-lockfile --offline"]`
 
 ### Requirement: The repo wires the runner in
-The root `package.json` SHALL have a `task` script running the built `agentscript-task` bin, so `pnpm task <change-id> <task-id>` works. `.gitignore` SHALL list `.agentscript/`. `CLAUDE.md` SHALL have a section on running a task: the command, `--next`, `status`, answering an escalation, and that the runner never commits.
+The root `package.json` SHALL have a `task` script running the built `agentscript-task` bin, so `pnpm task <change-id> <task-id>` works, and a `test:live` script running the live run. `.gitignore` SHALL list `.agentscript/`. `CLAUDE.md` SHALL have a section on running a task: the command, `--next`, `status`, answering an escalation, and that the runner never commits.
 
 #### Scenario: The database directory is ignored
 - **WHEN** `.gitignore` is read

@@ -52,8 +52,8 @@ stdout  the outcome (text, or --json)
 ```
 
 - **One JSON object per line.** Events carry the ontology's own field names. The `add-task-agent` resume hint stays the first stderr line, printed as is.
-- **`changed`** lists the files whose git status changed during the loop, from `git status --porcelain` before and after.
-- **When a loop is blocked,** the text outcome ends with the escalation and the exact resume command: `agentscript-task answer <loop> --by <to> --decision "…"`.
+- **`changed`** lists the files whose git status or content changed during the loop, from `git status --porcelain` before and after, leaving out the change's `tasks.md` (the tick is reported as `ticked`) and the database's own files.
+- **When a loop is blocked,** the text outcome ends with the escalation and the exact resume command: `agentscript-task answer <loop> --db <path> --by <to> --decision "…"`. The `--db` is there because a worktree run's database is never the config's.
 
 ## The delegate, headless
 

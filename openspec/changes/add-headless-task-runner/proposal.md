@@ -53,7 +53,8 @@ The outcome this change is for: **the moment it merges, `pnpm task <change-id> <
 - **New:** `task/headless` (repo config, id resolution, `--next`, JSON Lines events, the clean-tree guard, worktree mode, `status`, this repo's config, the live acceptance run).
 - **Modified:**
   - `task/cli` (config-driven defaults, positional change id, `status`, the event stream on stderr);
-  - `actions/registry` (`delegate_claude_code` runs headless: tools, `dontAsk`, the allowlist, context files, `delegateModel`).
+  - `actions/registry` (`delegate_claude_code` runs headless: tools, `dontAsk`, the allowlist, context files, `delegateModel`);
+  - `task/agent` (`TaskLoopOptions` and `taskLoopExtensions` carry `delegateModel`, `delegateContext` and the recorded `worktree`).
 
 ## Impact
 

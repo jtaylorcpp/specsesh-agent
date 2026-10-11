@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: run maps its flags onto the task loop options
-`run` SHALL pass `{ change: { dir }, task, script, workspace, budget, checks, allow, escalateTo, model }`. Each value comes from its flag when given, else from the repo config (see `task/headless`), else the default: `--script <name|path>` (default the bundled `task`), `--workspace <dir>` (default the current directory), repeatable `--check` and `--allow`, `--max-iterations <n>`, `--escalate-to principal|agent`. `--allow-dirty` and `--next` are described in `task/headless`.
+`run` SHALL pass `{ change: { dir }, task, script, workspace, budget, checks, allow, escalateTo, model, delegateModel, delegateContext }`, each from its flag, else the repo config (see `task/headless`), else its default: `--script <name|path>` (bundled `task`), `--workspace <dir>` (the current directory), repeatable `--check <command>` and `--allow <word>`, `--max-iterations <n>` (`budget.maxIterations`), `--escalate-to principal|agent`.
 
 #### Scenario: Repeated checks are kept in order
 - **WHEN** the CLI runs with `--check "pnpm test" --check "pnpm check"`
@@ -33,17 +33,32 @@ The provider SHALL be `--provider`, else `AGENTSCRIPT_PROVIDER`, else the config
 - **WHEN** `run` starts a loop
 - **THEN** every step SHALL use the `claude-code` provider
 
+### Requirement: resume continues a stored loop without the change files
+`resume <loop-id>` SHALL take the database from `--db`, else the config's `db`, wait for the stored loop and read no change file. A loop id that is not an integer or is not in the database MUST print `no loop <id> in <path>` and exit `2`.
+
+#### Scenario: An unknown loop id is refused
+- **WHEN** the CLI runs `resume 42 --db loops.sqlite` and the database has no loop 42
+- **THEN** stderr SHALL contain `no loop 42 in loops.sqlite` and the exit code SHALL be `2`
+
+### Requirement: answer submits an escalation answer and waits for the resumed loop
+`answer <loop-id> --by principal|agent --decision <text>`, with the database from `--db`, else the config's `db`, SHALL call `answerEscalation` and then wait for the resumed loop. A missing or invalid `--by`, a missing `--decision`, or an answer the loop rejects (not blocked, or `--by` not the escalation's recipient) MUST print the reason and exit `2`.
+
+#### Scenario: The wrong recipient exits 2
+- **GIVEN** a blocked loop escalated to `principal`
+- **WHEN** the CLI runs `answer <id> --db loops.sqlite --by agent --decision "go"`
+- **THEN** the exit code SHALL be `2` and the loop SHALL stay blocked
+
 ### Requirement: Text output reports each iteration and the outcome
-Without `--json`, the CLI SHALL print `# loop <id> — <status>`, then per iteration `## iteration <n>: <met|unmet>` followed by its unmet summary when not met, then the escalation's `to` and `question` when blocked, or `ticked: <true|false>` when converged. A blocked outcome SHALL end with the exact resume command, `agentscript-task answer <loop> --by <to> --decision "…"`.
+Without `--json`, the CLI SHALL print `# loop <id> — <status>`, then per iteration `## iteration <n>: <met|unmet>` followed by its unmet summary when not met, then the escalation's `to` and `question` when blocked, or `ticked: <true|false>` when converged. A blocked outcome SHALL end with the exact resume command, `agentscript-task answer <loop> --db <path> --by <to> --decision "…"`.
 
 #### Scenario: A converged loop prints its iterations and ticked
 - **WHEN** a loop converges on iteration 2 with tasks.md from the change directory
 - **THEN** stdout SHALL contain `# loop`, `converged`, `## iteration 1: unmet`, `## iteration 2: met` and `ticked: true`
 
 #### Scenario: A blocked loop ends with the answer command
-- **GIVEN** loop `7` blocked with an escalation to `"principal"`
+- **GIVEN** loop `7` in `loops.sqlite` blocked with an escalation to `"principal"`
 - **WHEN** the text outcome is printed
-- **THEN** its last line SHALL be `agentscript-task answer 7 --by principal --decision "…"`
+- **THEN** its last line SHALL be `agentscript-task answer 7 --db loops.sqlite --by principal --decision "…"`
 
 ## REMOVED Requirements
 
@@ -52,13 +67,13 @@ Without `--json`, the CLI SHALL print `# loop <id> — <status>`, then per itera
 **Migration**: See "The CLI has four commands and prints usage otherwise".
 
 ### Requirement: run takes a change directory, a task id and a database
-**Reason**: `run` now takes a change id or path, a task id or `--next`, and the database from the repo config.
+**Reason**: `run` now takes a change id or path, a task id or `--next`, and the database from the flag or the repo config.
 **Migration**: See "run takes a change and a task, with the database from flag or config".
 
 ## ADDED Requirements
 
 ### Requirement: The CLI has four commands and prints usage otherwise
-`agentscript-task` SHALL accept `run`, `resume`, `answer` or `status` as its first argument. Any other first argument, or none, MUST print usage to stderr and exit `2`. The usage MUST begin with `usage:` and list `agentscript-task run <change> <task-id>|--next [--db <path>] [options]`, `agentscript-task resume <loop-id> [--db <path>] [--json]`, `agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--json]` and `agentscript-task status [--db <path>]`.
+`agentscript-task` SHALL accept `run`, `resume`, `answer` or `status` as its first argument. Any other first argument, or none, MUST print usage to stderr and exit `2`. The usage MUST begin with `usage:` and give one line per command, as the scenario "No command prints usage" lists them.
 
 #### Scenario: An unknown command prints usage
 - **WHEN** the CLI runs with `frobnicate`
@@ -66,7 +81,8 @@ Without `--json`, the CLI SHALL print `# loop <id> — <status>`, then per itera
 
 #### Scenario: No command prints usage
 - **WHEN** the CLI runs with no arguments
-- **THEN** stderr SHALL contain `usage:` and the exit code SHALL be `2`
+- **THEN** stderr SHALL begin with `usage:` and the exit code SHALL be `2`
+- **AND** stderr SHALL list `agentscript-task run <change> <task-id>|--next [--db <path>] [options]`, `agentscript-task resume <loop-id> [--db <path>] [--json]`, `agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--json]` and `agentscript-task status [--db <path>]`
 
 #### Scenario: status is a command
 - **WHEN** the CLI runs `status`
@@ -78,6 +94,10 @@ Without `--json`, the CLI SHALL print `# loop <id> — <status>`, then per itera
 #### Scenario: No database from flag or config prints usage
 - **GIVEN** no repo config
 - **WHEN** the CLI runs `run fixture-live-task 1.1` without `--db`
+- **THEN** the exit code SHALL be `2`
+
+#### Scenario: run without a task id prints usage
+- **WHEN** the CLI runs `run openspec/changes/archive/2026-10-11-baseline-agentscript-durable --db loops.sqlite`
 - **THEN** the exit code SHALL be `2`
 
 #### Scenario: A task id and --next together print usage
