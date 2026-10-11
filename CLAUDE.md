@@ -23,13 +23,21 @@ flow does **not** apply here.
   `submit_result` tool and force it per wire API (`forceTool`). Failure categories come only from
   `stopReason` and the HTTP status, never from message text. The port has no round bound, so it
   never reports `cut-short`.
+- `--provider claude-code` (`src/claude-code.ts`) — the subscription option. Each step spawns your own
+  `claude -p --safe-mode --tools "" --no-session-persistence --output-format json [--json-schema]`,
+  with `ANTHROPIC_API_KEY` stripped so the subscription login is used. **Never** read or forward
+  Claude Code's OAuth token to pi or any other client: that is against Anthropic's terms (coopcli
+  withdrew exactly that in `simplify-specsketch-workbench`), and a test pins its absence.
+  `--safe-mode` is required: without it your global CLAUDE.md leaks into every step. Never `--bare`
+  (it forces API-key auth). First live run: 2026-10-10, triage example, Haiku 4.5, completed.
 
 ## Commands
 
 ```bash
 pnpm check                      # tsc in every package
 pnpm test                       # core: conformance script + vitest; pi: vitest
-pnpm agent run packages/agentscript-pi/examples/triage.agent        # needs ANTHROPIC_API_KEY
+pnpm agent run packages/agentscript-pi/examples/triage.agent --provider claude-code   # your subscription
+pnpm agent run packages/agentscript-pi/examples/triage.agent        # pi, needs ANTHROPIC_API_KEY
 pnpm agent run <file> --provider openai --model gpt-4o-mini --var name=value --json
 pnpm agent models anthropic     # list a provider's models
 ```

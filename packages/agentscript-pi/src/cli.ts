@@ -8,13 +8,18 @@
  *
  * Provider and model also come from AGENTSCRIPT_PROVIDER / AGENTSCRIPT_MODEL.
  * Credentials are pi's: ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, ...
+ *
+ * `--provider claude-code` runs each step through your own `claude` binary on
+ * your Claude subscription instead of through pi (see claude-code.ts).
  */
 
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { run, type VariableValue } from "@coopcli/agentscript/interpreter";
+import type { ReasoningPort } from "@coopcli/agentscript/interpreter";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
+import { CLAUDE_CODE_PROVIDER, createClaudeCodeReasoningPort } from "./claude-code.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, resolveModel } from "./models.js";
 import { createPiReasoningPort } from "./port.js";
 
@@ -40,6 +45,10 @@ async function main(argv: string[]): Promise<number> {
 
 	if (command === "models") {
 		const provider = rest[0] ?? DEFAULT_PROVIDER;
+		if (provider === CLAUDE_CODE_PROVIDER) {
+			console.log("any id or alias `claude --model` accepts: haiku, sonnet, opus, claude-haiku-4-5, ...");
+			return 0;
+		}
 		for (const m of models.getModels(provider)) console.log(`${m.id}\t${m.name}`);
 		return 0;
 	}
@@ -67,14 +76,33 @@ async function main(argv: string[]): Promise<number> {
 	}
 
 	const provider = values.provider ?? process.env.AGENTSCRIPT_PROVIDER ?? DEFAULT_PROVIDER;
-	const model = resolveModel(models, provider, values.model ?? process.env.AGENTSCRIPT_MODEL ?? DEFAULT_MODEL);
-	const messages: AssistantMessage[] = [];
-	const port = createPiReasoningPort({
-		models,
-		model,
-		...(values["max-tokens"] !== undefined ? { maxTokens: Number(values["max-tokens"]) } : {}),
-		onMessage: (m) => messages.push(m),
-	});
+	const modelId = values.model ?? process.env.AGENTSCRIPT_MODEL ?? DEFAULT_MODEL;
+	const maxTokens = values["max-tokens"] !== undefined ? Number(values["max-tokens"]) : undefined;
+	const usage = { in: 0, out: 0, cost: 0 };
+	let port: ReasoningPort;
+
+	if (provider === CLAUDE_CODE_PROVIDER) {
+		port = createClaudeCodeReasoningPort({
+			model: modelId,
+			onResult: (r) => {
+				usage.in += r.usage?.input_tokens ?? 0;
+				usage.out += r.usage?.output_tokens ?? 0;
+				usage.cost += r.total_cost_usd ?? 0;
+			},
+		});
+	} else {
+		const model = resolveModel(models, provider, modelId);
+		port = createPiReasoningPort({
+			models,
+			model,
+			...(maxTokens !== undefined ? { maxTokens } : {}),
+			onMessage: (m: AssistantMessage) => {
+				usage.in += m.usage.input;
+				usage.out += m.usage.output;
+				usage.cost += m.usage.cost.total;
+			},
+		});
+	}
 
 	const result = await run(readFileSync(file, "utf8"), {
 		port,
@@ -82,13 +110,10 @@ async function main(argv: string[]): Promise<number> {
 		...(values.var !== undefined ? { variables: Object.fromEntries(values.var.map(parseVar)) } : {}),
 	});
 
-	const cost = messages.reduce((sum, m) => sum + m.usage.cost.total, 0);
-	const tokens = messages.reduce((sum, m) => ({ in: sum.in + m.usage.input, out: sum.out + m.usage.output }), { in: 0, out: 0 });
-
 	if (values.json) {
-		console.log(JSON.stringify({ provider, model: model.id, ...result, usage: { ...tokens, cost } }, null, 2));
+		console.log(JSON.stringify({ provider, model: modelId, ...result, usage }, null, 2));
 	} else {
-		console.log(`# ${provider}/${model.id} — ${result.kind}\n`);
+		console.log(`# ${provider}/${modelId} — ${result.kind}\n`);
 		for (const [i, step] of result.steps.entries()) {
 			console.log(`## step ${i + 1}: ${step.subagent} → ${step.outcome.kind}`);
 			if (step.outcome.kind === "failed") {
@@ -102,7 +127,8 @@ async function main(argv: string[]): Promise<number> {
 		}
 		console.log("## variables");
 		for (const [name, value] of Object.entries(result.variables)) console.log(`${name} = ${JSON.stringify(value)}`);
-		console.log(`\n${tokens.in} in / ${tokens.out} out tokens, $${cost.toFixed(5)}`);
+		const note = provider === CLAUDE_CODE_PROVIDER ? " (notional on a subscription)" : "";
+		console.log(`\n${usage.in} in / ${usage.out} out tokens, $${usage.cost.toFixed(5)}${note}`);
 	}
 	return result.kind === "completed" ? 0 : 1;
 }
