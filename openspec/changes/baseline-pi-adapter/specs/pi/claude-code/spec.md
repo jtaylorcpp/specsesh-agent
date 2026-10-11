@@ -4,7 +4,11 @@ Running steps through the user's own `claude` binary, headless, so scripts can r
 ## ADDED Requirements
 
 ### Requirement: The claude-code surface is exported from the root entry
-`agentscript-pi` SHALL export `CLAUDE_CODE_PROVIDER` (`"claude-code"`), `claudeArgs`, `claudeCodeArgs`, `claudeCodeEnv`, `spawnRunner`, `createClaudeCodeReasoningPort`, `toClaudeCodeOutcome`, `CLAUDE_CODE_API` (`"claude-code"`), `CLAUDE_CODE_PROVIDER_ID` (`"claude-code"`), `CLAUDE_CODE_MODELS`, `claudeCodeModel`, `claudeCodeProvider`, `systemPromptOf`, `promptOf` and `toolsOf`, plus the types `ProcessResult`, `Runner`, `ClaudeCodeResult` and the option types.
+`agentscript-pi` SHALL export `CLAUDE_CODE_PROVIDER` (`"claude-code"`), `claudeCodeArgs`, `claudeCodeEnv`, `createClaudeCodeReasoningPort`, `toClaudeCodeOutcome`, `CLAUDE_CODE_API` (`"claude-code"`), `CLAUDE_CODE_PROVIDER_ID` (`"claude-code"`), `CLAUDE_CODE_MODELS`, `claudeCodeModel`, `claudeCodeProvider`, `systemPromptOf`, `promptOf` and `toolsOf`, plus the types `ProcessResult`, `Runner`, `ClaudeCodeResult` and the option types.
+
+#### Scenario: Argv building and spawning stay module-level
+- **WHEN** a caller imports the root entry of `agentscript-pi`
+- **THEN** `claudeArgs` and `spawnRunner` SHALL NOT be among its exports; they are exports of `src/claude-code.ts` only
 
 #### Scenario: The provider id and API are claude-code
 - **WHEN** a caller reads `CLAUDE_CODE_PROVIDER`, `CLAUDE_CODE_PROVIDER_ID` and `CLAUDE_CODE_API`

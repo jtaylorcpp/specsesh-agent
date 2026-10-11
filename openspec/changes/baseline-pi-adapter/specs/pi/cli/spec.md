@@ -51,9 +51,9 @@ The `agentscript-pi` command: run an Agent Script file once, in process, on any 
 The provider SHALL be `--provider`, else `AGENTSCRIPT_PROVIDER`, else `anthropic`; the model SHALL be `--model`, else `AGENTSCRIPT_MODEL`, else `claude-haiku-4-5`. Credentials are pi-ai's environment variables. For any provider other than `claude-code`, the model MUST be resolved with `resolveModel`, so an unknown one fails with `UnknownModelError` before any request.
 
 #### Scenario: The environment picks the provider and model
-- **GIVEN** `AGENTSCRIPT_PROVIDER=openai` and `AGENTSCRIPT_MODEL=gpt-4o-mini`
+- **GIVEN** `AGENTSCRIPT_PROVIDER=claude-code` and `AGENTSCRIPT_MODEL=haiku`
 - **WHEN** `run x.agent` is called without flags
-- **THEN** the run SHALL use `openai/gpt-4o-mini`
+- **THEN** each step SHALL run `claude` with `--model haiku`
 
 #### Scenario: An unknown model fails by name
 - **WHEN** the CLI runs `run x.agent --model claude-nope`
