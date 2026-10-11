@@ -19,7 +19,7 @@ The model SHALL define `StepResult<Out>` as `{ ok: true, value: Out }` or `{ ok:
 - **THEN** it SHALL return `{ ok: false, failure }` with `failure.kind` `"invalid-input"`, not throw
 
 ### Requirement: Failure kinds mean distinct things
-`"invalid-input"` SHALL mean the input failed its schema; `"refused"` that a guard did not hold; `"blocked"` that a decision only a person can make is needed; `"error"` anything the step could not act on. A failure caused by evidence SHALL carry that evidence's findings.
+`"invalid-input"` SHALL mean the input failed its schema; `"refused"` that a guard did not hold; `"blocked"` that a decision the step cannot make itself is needed, and is escalated to a principal or an agent; `"error"` anything the step could not act on. A failure caused by evidence SHALL carry that evidence's findings.
 
 #### Scenario: Archiving without a valid report is refused
 - **WHEN** archive is given a change whose latest `ValidationReport` has `valid` `false`

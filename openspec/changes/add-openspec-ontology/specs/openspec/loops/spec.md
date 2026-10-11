@@ -55,12 +55,30 @@ A loop SHALL end `"converged"` when an iteration's verdict is met; `"blocked"` w
 - **WHEN** the third iteration's verdict is not met and no feedback asks or amends
 - **THEN** the loop SHALL end `"exhausted"` with three iterations
 
-### Requirement: An escalation says what a person must decide
-The model SHALL define `Escalation` as `{ level: "task" | "group" | "change", reason: string, question: string }`, where `level` is the loop that stopped. A `"blocked"` outcome's escalation MUST carry a question a person can answer.
+### Requirement: An escalation names who must decide and what
+The model SHALL define `Escalation` as `{ level: "task" | "group" | "change", to: "principal" | "agent", reason: string, question: string }`, where `level` is the loop that stopped and `to` is who must answer: a human principal or an AI agent outside the loop. A `"blocked"` outcome's escalation MUST carry a question its recipient can answer.
 
 #### Scenario: A task loop escalates
 - **WHEN** a task loop ends `"blocked"` on an `"ask"` feedback
 - **THEN** its `escalation.level` SHALL be `"task"`
+
+#### Scenario: An escalation can go to an agent
+- **GIVEN** a `"test-defect"` finding a reviewing agent can settle
+- **WHEN** the loop escalates it
+- **THEN** `escalation.to` MAY be `"agent"`, and the loop SHALL still end `"blocked"` until it is answered
+
+### Requirement: An answered escalation resumes the loop
+The model SHALL define `EscalationAnswer` as `{ escalation: Escalation, by: "principal" | "agent", decision: string, feedback: Feedback[] }`. `by` MUST equal `escalation.to`. A blocked loop SHALL resume only as a new run of the same loop whose `LoopInput.carried` includes the answer's `feedback`.
+
+#### Scenario: A blocked task loop resumes with the answer
+- **GIVEN** a task loop that ended `"blocked"` with `escalation.to` `"principal"`
+- **WHEN** the principal answers with a decision and `"retry"` feedback
+- **THEN** the task loop SHALL run again with that feedback in `carried`, and its earlier iterations SHALL stay recorded
+
+#### Scenario: Only the named recipient answers
+- **GIVEN** an escalation with `to` `"principal"`
+- **WHEN** an `EscalationAnswer` arrives with `by` `"agent"`
+- **THEN** it SHALL be rejected as invalid input
 
 ### Requirement: The task loop drives one task to its targets
 The task loop SHALL take as goal one `Task` with its `TaskLink`s; its targets SHALL be the linked scenarios and requirements; it iterates attempts at that task. Its `Out` SHALL be `TaskOutcome` = `{ task: TaskId, ticked: boolean }`.
@@ -108,15 +126,15 @@ A task loop ending `"exhausted"` or `"blocked"` SHALL hand its outcome to its gr
 - **THEN** it SHALL issue `"add-task"` and run a task loop for the new task
 
 ### Requirement: A spec defect leaves the loops as an amendment
-A finding of kind `"spec-defect"` SHALL produce feedback with action `"amend-spec"`, which ends the change loop and moves the change to `amended` (see `openspec/process`). The fix is a delta change, not code.
+A finding of kind `"spec-defect"` SHALL produce feedback with action `"amend-spec"`, which ends the change loop `"blocked"` with an escalation, and moves the change to `amended` (see `openspec/process`). The fix is a delta change, not code; an agent may draft it, but re-approval stays the principal's.
 
 #### Scenario: The 2026-10-11 amendment
 - **GIVEN** `baseline-agentscript-durable`, whose spec said `run` throws `UndeclaredVariableError` and allowed nested `if`s
 - **WHEN** tests showed the dialect's lint refuses both first, a `"spec-defect"` finding
 - **THEN** the loop SHALL end with `"amend-spec"`, and the remedy SHALL be amended requirements, not changed code
 
-### Requirement: A question goes to a person
-Feedback with action `"ask"` SHALL set the loop's `escalation` and end the loop `"blocked"`.
+### Requirement: A question goes to the escalation's recipient
+Feedback with action `"ask"` SHALL set the loop's `escalation`, naming its recipient in `to`, and end the loop `"blocked"`.
 
 #### Scenario: A needs-decision finding blocks
 - **WHEN** a finding of kind `"needs-decision"` produces `"ask"` feedback

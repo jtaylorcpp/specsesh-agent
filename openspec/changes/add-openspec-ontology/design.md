@@ -91,13 +91,14 @@ Loop<Goal, Out> {
 Budget     { maxIterations: int, maxWallMs?: int }
 Verdict    { met: boolean, satisfied: Target[], unmet: { target: Target, reason }[] }
 Feedback   { from: Finding, action: "retry" | "rework-task" | "add-task" | "amend-spec" | "ask" }
-Escalation { level: "task" | "group" | "change", reason, question }
+Escalation { level: "task" | "group" | "change", to: "principal" | "agent", reason, question }
+EscalationAnswer { escalation, by: "principal" | "agent", decision, feedback: Feedback[] }   // by == escalation.to
 Target     = RequirementRef | ScenarioRef | { check: string }      // a named check, e.g. "strict validation"
 ```
 
 An iteration plans, acts, gathers evidence, and judges the evidence against the goal's targets. Its verdict's unmet targets become feedback for the next iteration. A loop ends:
 - `converged`: the verdict is met;
-- `blocked`: a finding needs a decision only a person can make, recorded in `escalation`;
+- `blocked`: a finding needs a decision the loop can't make itself, escalated to a human principal or an AI agent (`escalation.to`);
 - `exhausted`: the budget ran out with targets still unmet;
 - `failed`: an error the loop can't act on.
 
@@ -118,7 +119,7 @@ An iteration plans, acts, gathers evidence, and judges the evidence against the 
 - **Out of the loops:** a finding of kind `spec-defect` becomes `amend-spec`. The change loop ends `blocked`, with an escalation naming the defect, and the change moves to `amended`.
 
   This happened for real on 2026-10-11. Tests written for `baseline-agentscript-durable` showed that two requirements described the code wrongly (undeclared names and nested `if`s are refused by the dialect's lint first). The fix was a spec amendment, not a code change.
-- **To a person:** `ask` sets `escalation` and ends the loop `blocked`.
+- **To a principal or an agent:** `ask` sets `escalation` and ends the loop `blocked`. The answer, an `EscalationAnswer` from the named recipient, resumes the loop as a new run carrying its feedback. Approval is the exception: an agent can answer an escalation and draft an amendment, but only the principal approves a change.
 
 A task is **ticked** in `tasks.md` only when its loop converges. A ticked task whose evidence later regresses is unticked by `rework-task`. A box is never ticked from a summary line; only evidence ticks a box.
 
