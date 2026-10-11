@@ -97,6 +97,14 @@ describe("checkResult", () => {
 		expect(checkResult(schema, value)).toBe("The result must be an object.");
 	});
 
+	it("Scenario: An extra field is not refused", () => {
+		expect(checkResult(schema, { severity: "high", score: 2, ok: true, extra: 1 })).toBeUndefined();
+	});
+
+	it("Scenario: A null field value is a wrong type", () => {
+		expect(checkResult(schema, { severity: null, score: 2, ok: true })).toContain('"severity" must be a string, got object');
+	});
+
 	it("refuses any result on a text-only step", () => {
 		expect(checkResult(null, { a: 1 })).toMatch(/takes no structured result/);
 	});
