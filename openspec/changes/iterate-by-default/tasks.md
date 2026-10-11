@@ -1,6 +1,6 @@
 ## 1. Choices in the step machine
 
-- [ ] 1.1 `packages/agent/src/interpreter/run.ts` + `src/interpreter/index.ts`: `InvalidChoicesError` (extends `Error`, `name` set), exported with the other step-machine errors
+- [x] 1.1 `packages/agent/src/interpreter/run.ts` + `src/interpreter/index.ts`: `InvalidChoicesError` (extends `Error`, `name` set), exported with the other step-machine errors
 - [ ] 1.2 `packages/agent/src/interpreter/run.ts`: `StartOptions.choices?: Record<string, readonly string[]>`; `start` refuses after the undeclared check (undeclared, not `string`, empty, or excludes the opening value), naming the variable and the reason; `RunState` carries `choices` only when given; `run()` passes `choices` to `start`
 - [ ] 1.3 `packages/agent/src/interpreter/compose.ts`: `outputSchemaFor` adds `enum` (choices in order) to a field writing a chosen variable (a field feeding two variables takes the later one's, as for `type`)
 - [ ] 1.4 `packages/agent/src/interpreter/run.ts` (where structured results are applied): a value outside a chosen variable's choices fails the step, category `unknown`, naming the field, `@variables.<x>` and every choice, containing `No variable was set`; nothing set

@@ -248,6 +248,14 @@ export class UndeclaredOverrideError extends Error {
 	}
 }
 
+/** Raised when a caller's choices for a variable are not acceptable. */
+export class InvalidChoicesError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "InvalidChoicesError";
+	}
+}
+
 /** Raised by `run()` when an entry subagent runs an action and no `actionHost` was given. */
 export class NoActionHostError extends Error {
 	constructor(subagents: readonly string[]) {

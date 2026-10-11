@@ -84,6 +84,7 @@ export {
 	type StartOptions,
 	NoEntrySubagentError,
 	UndeclaredOverrideError,
+	InvalidChoicesError,
 	UnknownSubagentError,
 	UnparsedDocumentError,
 	UnreadableDocumentError,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { analyze } from "../../src/authoring/document.js";
 import {
 	EmptyPromptError,
+	InvalidChoicesError,
 	NoEntrySubagentError,
 	RunStateError,
 	SourceMismatchError,
@@ -271,8 +272,9 @@ describe("platform-agentscript-step-machine: Every Error Names Itself", () => {
 			["UnknownSubagentError", refusal(() => start(PIPELINE, { entry: "nope" }))],
 			["UndeclaredOverrideError", refusal(() => start(PIPELINE, { variables: { nope: 1 } }))],
 			["EmptyPromptError", refusal(() => next(STRUCTURED_WITHOUT_PROMPT, start(STRUCTURED_WITHOUT_PROMPT)))],
+			["InvalidChoicesError", new InvalidChoicesError("x")],
 		];
-		expect(refused).toHaveLength(8);
+		expect(refused).toHaveLength(9);
 		for (const [name, error] of refused) {
 			expect(error, name).toBeInstanceOf(Error);
 			expect((error as Error).name).toBe(name);
