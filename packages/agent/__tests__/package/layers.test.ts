@@ -43,7 +43,7 @@ function reduce(file: string, spec: string): string {
 const CORE = ["node", "src/authoring", "src/interpreter"];
 const PI = [...CORE, "@earendil-works/pi-ai", "src/pi"];
 const CLAUDE_CODE = [...PI, "src/claude-code"];
-const DURABLE = [...CLAUDE_CODE, "@earendil-works/pi-durable", "@earendil-works/chord", "src/durable"];
+const DURABLE = [...CLAUDE_CODE, "@earendil-works/pi-durable", "@earendil-works/chord", "src/openspec", "src/durable"];
 const CLOUDFLARE = [...DURABLE, "agents", "cloudflare:workers", "src/cloudflare"];
 const OPENSPEC = ["zod", "src/openspec"];
 const ALLOWED: Record<string, readonly string[]> = {
@@ -76,6 +76,13 @@ describe("Each layer imports only its own peers and the layers beneath it", () =
 				expect(spec, `${relative(PKG_DIR, file)} imports ${spec}`).not.toMatch(/^agents(\/|$)|^cloudflare:workers$/);
 			}
 		}
+	});
+	it("Scenario: The durable layer records with the ontology", () => {
+		const files = filesUnder(join(SRC, "durable"));
+		expect(files.length).toBeGreaterThan(0);
+		const reduced = new Set(files.flatMap((file) => importsOf(file).map((spec) => reduce(file, spec))));
+		expect(reduced).toContain("src/openspec");
+		expect(reduced).not.toContain("zod");
 	});
 });
 

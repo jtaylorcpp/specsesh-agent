@@ -29,6 +29,7 @@
 - [x] 6.1 `packages/agent/src/durable/actions.ts`: `HostAction`, `ActionRegistry`, `createActionRegistry`, `ActionBindingError` and the whole binding check
 - [x] 6.2 `packages/agent/src/durable/builtins.ts`: `builtinActions` with `read_file`, `edit_file` (workspace confinement incl. symlinks), `run_command` (argv split, no shell, allowlist, timeout), `run_checks`, `delegate_claude_code` (hard lines), each with its replay policy and ontology `record`
 - [x] 6.3 `packages/agent/src/durable/extension.ts`: `agentScriptExtensions({ actions, workspace })`; the plain exports act as an empty registry
+- [x] 6.4 `packages/agent/__tests__/package/layers.test.ts`: `src/durable` may import `src/openspec` (package/distribution delta); `builtins.ts` builds its records with the ontology `Action`/`Evidence` types and checks them on emission
 
 ## 7. Durable execution
 

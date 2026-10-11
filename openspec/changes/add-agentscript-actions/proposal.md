@@ -30,7 +30,8 @@ An Agent Script agent here can only think. Steps are reasoning only: the port ca
   - `core/composition` (calls, inputs, outputs into variables);
   - `core/step-machine` (action calls in `next` and `RunState`, `applyAction`);
   - `core/reasoning-port` (tool offers, recorded tool calls, refusal by ports without tools);
-  - `durable/run-task` (an action phase, tools in step conversations).
+  - `durable/run-task` (an action phase, tools in step conversations);
+  - `package/distribution` (the durable layer may import `src/openspec`, so host actions build their records with the ontology's `Action` and `Evidence`).
 
 ## Impact
 

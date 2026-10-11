@@ -9,9 +9,8 @@
  *
  * Every execution that changes or runs something puts an ontology record in its
  * result: `{ action, evidence }`, an `Action` (`openspec/loops`) and its
- * `Evidence` (`openspec/evidence`) as plain JSON. The durable layer does not
- * import the ontology entry; the registry tests check every record against its
- * schemas.
+ * `Evidence` (`openspec/evidence`), each checked against its schema as it is
+ * built. A record the ontology refuses is a bug here, and throws.
  *
  * Commands never go through a shell. `run_command` splits on whitespace into an
  * argv, so `pnpm test; rm -rf src` hands `pnpm` four arguments and starts no `rm`.
@@ -27,7 +26,25 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { ActionResult } from "../interpreter/index.js";
 import { claudeCodeEnv } from "../claude-code/claude-code.js";
+import { Action, Evidence, check, explain } from "../openspec/index.js";
 import type { HostAction } from "./actions.js";
+
+/** What a built-in puts in its result's `record`. */
+export interface ActionRecord {
+	readonly action: Action;
+	readonly evidence: readonly Evidence[];
+}
+
+/** Build a record, checking each part against the ontology before it leaves. */
+function actionRecord(action: Action, evidence: readonly Evidence[]): ActionRecord {
+	const parts: [typeof Action | typeof Evidence, unknown][] = [[Action, action], ...evidence.map((e) => [Evidence, e] as [typeof Evidence, unknown])];
+	for (const [schema, value] of parts) {
+		if (!check(schema, value)) {
+			throw new Error(`a built-in action built a record the ontology refuses: ${explain(schema, value).join("; ")}`);
+		}
+	}
+	return { action, evidence };
+}
 
 export interface BuiltinActionOptions {
 	/** The directory every built-in is confined to and runs in. */
@@ -85,10 +102,10 @@ export function builtinActions(options: BuiltinActionOptions): HostAction[] {
 			return {
 				ok: true,
 				outputs: { ok: true },
-				record: {
-					action: { kind: "edit", summary: `${change === "added" ? "create" : "replace"} ${ref}`, refs: [ref] },
-					evidence: [{ kind: "diff", files: [{ path: ref, change }] }],
-				},
+				record: actionRecord(
+					{ kind: "edit", summary: `${change === "added" ? "create" : "replace"} ${ref}`, refs: [ref] },
+					[{ kind: "diff", files: [{ path: ref, change }] }],
+				),
 			};
 		},
 	};
@@ -116,10 +133,9 @@ export function builtinActions(options: BuiltinActionOptions): HostAction[] {
 			return {
 				ok: true,
 				outputs: { exit_code: ran.code, output: ran.output },
-				record: {
-					action: { kind: "command", summary: command, refs: [command] },
-					evidence: [{ kind: "check", command, exitCode: ran.code, output: ran.output }],
-				},
+				record: actionRecord({ kind: "command", summary: command, refs: [command] }, [
+					{ kind: "check", command, exitCode: ran.code, output: ran.output },
+				]),
 			};
 		},
 	};
@@ -136,7 +152,7 @@ export function builtinActions(options: BuiltinActionOptions): HostAction[] {
 			}
 			let passed = true;
 			const sections: string[] = [];
-			const evidence: object[] = [];
+			const evidence: Evidence[] = [];
 			for (const command of checks) {
 				const ran = await runArgv(splitCommand(command), { cwd: workspace, timeoutMs, signal: context.signal });
 				const exitCode = ran.kind === "exited" ? ran.code : -1;
@@ -153,10 +169,10 @@ export function builtinActions(options: BuiltinActionOptions): HostAction[] {
 			return {
 				ok: true,
 				outputs: { passed, output: sections.join("\n\n") },
-				record: {
-					action: { kind: "command", summary: `run the checks for task ${String(inputs["task_id"])}`, refs: [...checks] },
+				record: actionRecord(
+					{ kind: "command", summary: `run the checks for task ${String(inputs["task_id"])}`, refs: [...checks] },
 					evidence,
-				},
+				),
 			};
 		},
 	};
@@ -186,10 +202,9 @@ export function builtinActions(options: BuiltinActionOptions): HostAction[] {
 			return {
 				ok: true,
 				outputs: { ok, summary },
-				record: {
-					action: { kind: "delegate", summary: firstLine(instructions), refs: [] },
-					evidence: [{ kind: "check", command, exitCode: ran.code, output: summary }],
-				},
+				record: actionRecord({ kind: "delegate", summary: firstLine(instructions), refs: [] }, [
+					{ kind: "check", command, exitCode: ran.code, output: summary },
+				]),
 			};
 		},
 	};
