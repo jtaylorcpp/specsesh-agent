@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	BOOLEAN_LITERALS,
+	SUPPORTED_BLOCK_FIELDS,
 	SUPPORTED_CONSTRUCTS,
 	SUPPORTED_CONSTRUCT_IDS,
 	SUPPORTED_DEFAULT_VALUE_KINDS,
@@ -11,6 +13,7 @@ import {
 	SUPPORTED_NODE_KINDS,
 	SUPPORTED_STATEMENT_KINDS,
 	UnsupportedConstructError,
+	renderSubsetInline,
 	renderSubsetMarkdown,
 	run,
 } from "../src/interpreter/index.js";
@@ -123,5 +126,180 @@ describe("platform-agentscript-interpreter: The Interpreter Runs An Enumerated S
 			"NumberLiteral",
 			"StringLiteral",
 		]);
+	});
+});
+
+const byId = (id: string) => SUPPORTED_CONSTRUCTS.find((c) => c.id === id);
+
+describe("platform-agentscript-interpreter: The supported subset is declared once, as SUPPORTED_CONSTRUCTS", () => {
+	it("Scenario: The ten constructs, in order", () => {
+		expect(SUPPORTED_CONSTRUCT_IDS).toEqual([
+			"config",
+			"system.instructions",
+			"variables",
+			"variables.description",
+			"subagent",
+			"subagent.reasoning",
+			"reasoning.prompt-line",
+			"reasoning.interpolation",
+			"reasoning.logic-line",
+			"reasoning.structured-output",
+		]);
+		expect(SUPPORTED_CONSTRUCTS.map((c) => c.id)).toEqual([...SUPPORTED_CONSTRUCT_IDS]);
+	});
+
+	it("Scenario: Each construct declares its kinds", () => {
+		const expected: Record<string, string[]> = {
+			config: ["ConfigBlock"],
+			"system.instructions": ["SystemBlock", "TemplateExpression", "TemplateText"],
+			variables: [
+				"VariablesBlock",
+				"VariableDeclaration",
+				"ParameterDeclaration",
+				"Identifier",
+				"StringLiteral",
+				"BooleanLiteral",
+			],
+			"variables.description": ["VariablePropertiesBlock"],
+			subagent: ["Collection<SubagentBlock>", "SubagentBlock"],
+			"subagent.reasoning": ["ReasoningBlock", "ProcedureValue"],
+			"reasoning.prompt-line": ["Template", "TemplateText"],
+			"reasoning.interpolation": ["TemplateInterpolation"],
+			"reasoning.logic-line": [
+				"IfStatement",
+				"SetClause",
+				"MemberExpression",
+				"AtIdentifier",
+				"ComparisonExpression",
+				"BinaryExpression",
+				"UnaryExpression",
+				"StringLiteral",
+				"NumberLiteral",
+				"BooleanLiteral",
+			],
+			"reasoning.structured-output": ["SetClause", "MemberExpression", "AtIdentifier"],
+		};
+		expect(Object.keys(expected)).toHaveLength(SUPPORTED_CONSTRUCTS.length);
+		for (const [id, kinds] of Object.entries(expected)) {
+			expect(byId(id)?.kinds, `kinds of ${id}`).toEqual(kinds);
+		}
+		for (const construct of SUPPORTED_CONSTRUCTS) {
+			expect(construct.kinds.length, `${construct.id} declares no kinds`).toBeGreaterThan(0);
+		}
+	});
+
+	it("Scenario: Each construct's summary", () => {
+		const expected: Record<string, string> = {
+			config: "the config block naming the agent",
+			"system.instructions": "standing instructions, as a multiline block",
+			variables: "declared variables with a type and a literal default",
+			"variables.description": "a variable's description",
+			subagent: "a named subagent with a description",
+			"subagent.reasoning": "a subagent's reasoning block",
+			"reasoning.prompt-line": "a prompt line, interpreted by the model",
+			"reasoning.interpolation": "a `{!@variables.x}` reference inside a prompt line",
+			"reasoning.logic-line": "a logic line, run deterministically every turn",
+			"reasoning.structured-output":
+				"assigning a variable from a field of the step's structured result",
+		};
+		expect(Object.keys(expected)).toHaveLength(SUPPORTED_CONSTRUCTS.length);
+		for (const [id, summary] of Object.entries(expected)) {
+			expect(byId(id)?.summary, `summary of ${id}`).toBe(summary);
+		}
+	});
+
+	it("Scenario: Probes exercise their constructs fully", () => {
+		const variables = byId("variables")?.probe ?? "";
+		expect(variables).toContain('stage: mutable string = "proposal"');
+		expect(variables).toContain('change_id: string = "OS-1"');
+		expect(variables).toContain("approved: mutable boolean = False");
+
+		expect(byId("reasoning.interpolation")?.probe).toContain("{!@variables.stage}");
+
+		const logic = byId("reasoning.logic-line")?.probe ?? "";
+		expect(logic).toContain("if not @variables.approved and @variables.count > 1:");
+		expect(logic).toContain("| Draft it.");
+		expect(logic).toContain("else:");
+		expect(logic).toContain('set @variables.stage = "specs"');
+
+		expect(byId("reasoning.structured-output")?.probe).toContain(
+			"set @variables.verdict = @outputs.verdict",
+		);
+	});
+});
+
+describe("platform-agentscript-interpreter: The subset is rendered from the declaration, never restated", () => {
+	it("Scenario: Markdown rendering", () => {
+		const lines = renderSubsetMarkdown().split("\n");
+		expect(lines[0]).toBe("- `config` — the config block naming the agent");
+		expect(lines).toHaveLength(SUPPORTED_CONSTRUCTS.length);
+		lines.forEach((line, i) => {
+			const construct = SUPPORTED_CONSTRUCTS[i];
+			expect(line).toBe(`- \`${construct?.id}\` — ${construct?.summary}`);
+		});
+	});
+
+	it("Scenario: Inline rendering", () => {
+		const inline = renderSubsetInline();
+		expect(
+			inline.startsWith(
+				"config, system.instructions, variables, variables.description, subagent, ",
+			),
+		).toBe(true);
+		expect(inline.endsWith("reasoning.structured-output")).toBe(true);
+		expect(inline).toBe(SUPPORTED_CONSTRUCT_IDS.join(", "));
+	});
+});
+
+describe("platform-agentscript-interpreter: Supported block fields are named per block", () => {
+	it("Scenario: The field table", () => {
+		expect(SUPPORTED_BLOCK_FIELDS).toEqual({
+			Document: ["config", "system", "variables", "subagent"],
+			ConfigBlock: ["agent_name", "developer_name", "agent_type", "description"],
+			SystemBlock: ["instructions"],
+			VariableDeclaration: ["properties"],
+			ParameterDeclaration: ["properties"],
+			VariablePropertiesBlock: ["description"],
+			SubagentBlock: ["description", "reasoning"],
+			ReasoningBlock: ["instructions"],
+		});
+	});
+});
+
+describe("platform-agentscript-interpreter: Statements, expressions and defaults are limited to declared kinds", () => {
+	it("Scenario: The kind lists", () => {
+		expect(SUPPORTED_STATEMENT_KINDS).toEqual(["Template", "IfStatement", "SetClause"]);
+		expect(SUPPORTED_EXPRESSION_KINDS).toEqual([
+			"MemberExpression",
+			"AtIdentifier",
+			"ComparisonExpression",
+			"BinaryExpression",
+			"UnaryExpression",
+			"StringLiteral",
+			"NumberLiteral",
+			"BooleanLiteral",
+		]);
+		expect(SUPPORTED_DEFAULT_VALUE_KINDS).toEqual(["StringLiteral", "NumberLiteral", "BooleanLiteral"]);
+		// `Identifier` is how a bare name parses, and is deliberately not an expression.
+		expect(SUPPORTED_EXPRESSION_KINDS).not.toContain("Identifier");
+	});
+
+	it("Scenario: SUPPORTED_NODE_KINDS is the deduplicated union", () => {
+		const union = [
+			...new Set([
+				...SUPPORTED_CONSTRUCTS.flatMap((c) => c.kinds),
+				...SUPPORTED_STATEMENT_KINDS,
+				...SUPPORTED_EXPRESSION_KINDS,
+			]),
+		];
+		expect(union.length).toBeGreaterThan(0);
+		expect(SUPPORTED_NODE_KINDS).toEqual(union);
+		expect(new Set(SUPPORTED_NODE_KINDS).size).toBe(SUPPORTED_NODE_KINDS.length);
+	});
+});
+
+describe("platform-agentscript-interpreter: Booleans are spelled the dialect's way when written back", () => {
+	it("Scenario: The literal table", () => {
+		expect(BOOLEAN_LITERALS).toEqual({ true: "True", false: "False" });
 	});
 });
