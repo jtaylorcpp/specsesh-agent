@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RESULT_TOOL } from "../../src/durable/index.js";
-import { cli, events, fauxModels, workdir } from "./cli-helpers.js";
+import { FAKE_CLAUDE_CONFIG, cli, commitAll, events, fakeClaude, fauxModels, gitRepo, spawnBin, workdir } from "./cli-helpers.js";
 import { GROUP_JUDGE, cleanTemps, tinyChange, toolCall, verdict } from "./helpers.js";
 
 afterEach(() => cleanTemps());
@@ -87,5 +87,59 @@ describe("task/headless: A group's stream (through the CLI)", () => {
 		const kinds = stream.map((e) => e.event);
 		expect(kinds.indexOf("group-check")).toBeLessThan(kinds.indexOf("rework"));
 		expect(stream.at(-1)).toMatchObject({ event: "group-ended", status: "converged", tasks: [{ task: "1.1", runs: 2 }, { task: "1.2", runs: 1 }] });
+	});
+});
+
+// The built bin on the fake `claude`, from the repo's own config.
+const lines = (text: string) => text.split("\n").filter((l) => l !== "");
+const TWO_GROUPS = "## 1. Done\n\n- [x] 1.1 done\n\n## 2. Open\n\n- [ ] 2.1 first\n- [ ] 2.2 second\n";
+
+describe("task/cli: groups through the built bin", () => {
+	it("Scenario: A bare integer runs a group", async () => {
+		const repo = gitRepo({ "agentscript.config.json": FAKE_CLAUDE_CONFIG });
+		const r = await spawnBin(["run", "tiny", "1"], { cwd: repo, bin: fakeClaude() });
+		expect(r.code, r.stderr).toBe(0);
+		expect(r.stdout.startsWith("# group loop")).toBe(true);
+		expect(events(lines(r.stderr)).some((e) => e.event === "group-started")).toBe(true);
+		const tasks = readFileSync(join(repo, "openspec/changes/tiny/tasks.md"), "utf8");
+		expect(tasks).toContain("- [x] 1.1 ");
+		expect(tasks).toContain("- [x] 1.2 ");
+		// The config's database is where the loop was stored.
+		expect(existsSync(join(repo, ".agentscript", "task-loops.sqlite"))).toBe(true);
+		const status = await spawnBin(["status"], { cwd: repo, bin: fakeClaude() });
+		expect(status.stdout).toContain("  group 1  converged");
+	});
+
+	it("Scenario: --next-group skips a finished group", async () => {
+		const repo = gitRepo({ "agentscript.config.json": FAKE_CLAUDE_CONFIG, "openspec/changes/tiny/tasks.md": TWO_GROUPS });
+		const r = await spawnBin(["run", "tiny", "--next-group"], { cwd: repo, bin: fakeClaude() });
+		expect(r.code, r.stderr).toBe(0);
+		expect(events(lines(r.stderr)).find((e) => e.event === "group-started")).toMatchObject({ group: 2, tasks: ["2.1", "2.2"] });
+
+		commitAll(repo);
+		const done = await spawnBin(["run", "tiny", "--next-group"], { cwd: repo, bin: fakeClaude() });
+		expect(done.stdout.trim()).toBe("no unticked task in tiny");
+		expect(done.code).toBe(0);
+	});
+
+	it("Scenario: A blocked loop exits 1, and the wrong recipient exits 2", async () => {
+		const repo = gitRepo({ "agentscript.config.json": FAKE_CLAUDE_CONFIG });
+		const bin = fakeClaude({ verdicts: ["ask"] });
+		const blocked = await spawnBin(["run", "tiny", "1"], { cwd: repo, bin });
+		expect(blocked.code, blocked.stderr).toBe(1);
+		const id = /^loop (\d+) — resume with: /.exec(blocked.stderr)?.[1];
+		expect(id, blocked.stderr).toBeDefined();
+		expect(lines(blocked.stdout).at(-1)).toBe(
+			`agentscript-task answer ${id} --db ${join(repo, ".agentscript", "task-loops.sqlite")} --by principal --decision "…"`,
+		);
+
+		const wrong = await spawnBin(["answer", id!, "--by", "agent", "--decision", "go"], { cwd: repo, bin });
+		expect(wrong.code).toBe(2);
+
+		// The principal's answer reruns 1.1, then 1.2.
+		const right = await spawnBin(["answer", id!, "--by", "principal", "--decision", "The first way"], { cwd: repo, bin });
+		expect(right.code, right.stderr).toBe(0);
+		expect(right.stdout).toContain("## task 1.1: converged (runs 2)");
+		expect(right.stdout).toContain("## task 1.2: converged (runs 1)");
 	});
 });
