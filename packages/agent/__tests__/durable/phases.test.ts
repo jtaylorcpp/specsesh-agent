@@ -111,7 +111,7 @@ describe("The initial checkpoint is the step machine's first state", () => {
 	});
 });
 
-describe("Checkpoints have exactly three phases", () => {
+describe("Checkpoints have exactly four phases", () => {
 	it("Scenario: A two-model-step script walks the phases in order", async () => {
 		const { storage, result } = await recordedPipeline();
 

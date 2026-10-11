@@ -42,16 +42,21 @@ When a step with offered tools settles answered, the await phase SHALL read ever
 - **WHEN** the await phase folds the answer in
 - **THEN** the outcome's `toolCalls` SHALL hold two `shell` entries, in order, with `ok` true and their outputs
 
+## RENAMED Requirements
+
+- FROM: `### Requirement: Checkpoints have exactly three phases`
+- TO: `### Requirement: Checkpoints have exactly four phases`
+
 ## MODIFIED Requirements
 
-### Requirement: Checkpoints have exactly three phases
-The task's checkpoint SHALL be a `RunCheckpoint`, one of exactly these four shapes, and every phase MUST end by committing the next checkpoint (or a terminal outcome) through `runtime.commit`:
+### Requirement: Checkpoints have exactly four phases
+The checkpoint SHALL be a `RunCheckpoint` of exactly these shapes; each phase MUST end by committing the next checkpoint or a terminal outcome via `runtime.commit`:
 - `{ phase: "next", state: RunState }`
 - `{ phase: "dispatch", state: RunState, step: number }`
 - `{ phase: "await", state: RunState, step: number, conversationId: ConversationId }`
 - `{ phase: "act", state: RunState, intent: null | { replay: "safe" | "unsafe" } }`
 
-`state` is always the `core/step-machine` `RunState`, as plain JSON.
+`state` is the `core/step-machine` `RunState`, as plain JSON.
 
 #### Scenario: A two-model-step script walks the phases in order
 - **GIVEN** the pipeline script with entries `classify`, `gate` (logic only) and `respond`
@@ -65,10 +70,10 @@ The task's checkpoint SHALL be a `RunCheckpoint`, one of exactly these four shap
 - **THEN** the committed checkpoints SHALL be, in order: `next` → `act` (intent `null`) → `act` (intent recorded) → `next` → terminal
 
 ### Requirement: The next phase asks the step machine and either finishes or schedules a dispatch
-The `next` phase SHALL call `next(task.input.source, checkpoint.state)` from `core/step-machine` without `persistVariables`, and commit in one transaction:
-- `{ type: "done", result }` → the terminal outcome `{ status: "completed", result }`;
-- `{ type: "request", state }` → status `running`, checkpoint `{ phase: "dispatch", state, step: state.steps.length }`;
-- `{ type: "action", state }` → status `running`, checkpoint `{ phase: "act", state, intent: null }`.
+The `next` phase SHALL call `next(task.input.source, checkpoint.state)` without `persistVariables` and commit, in one transaction:
+- `done` → terminal `{ status: "completed", result }`;
+- `request` → `running`, `{ phase: "dispatch", state, step: state.steps.length }`;
+- `action` → `running`, `{ phase: "act", state, intent: null }`.
 
 The phase MUST make no model request, create no conversation and execute no action.
 
@@ -95,10 +100,10 @@ The phase MUST make no model request, create no conversation and execute no acti
 Dispatch SHALL call pi-durable's `configure` on the new conversation with:
 - `model`: `task.input.model`, only when it is defined;
 - `extensions`: `[AgentScriptStepExtension]`;
-- `tools`: `submit_result` when the request has an `outputSchema`, plus one tool per `ToolOffer` in `request.tools`, in order, otherwise none;
+- `tools`: `submit_result` if the request has an `outputSchema`, then one tool per `ToolOffer`, in order;
 - `instructions`: the request's `systemInstructions`.
 
-It MUST then set the conversation's `agentscript.step` doc `schema` to the request's `outputSchema`, or `null` when there is none.
+It MUST then set the `agentscript.step` doc's `schema` to the `outputSchema`, or `null`.
 
 #### Scenario: A structured step offers the result tool
 - **GIVEN** the `classify` step, which writes `@variables.severity` from `@outputs.severity`

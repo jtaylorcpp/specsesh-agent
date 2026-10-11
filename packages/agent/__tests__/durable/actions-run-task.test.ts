@@ -250,7 +250,7 @@ describe("durable/run-task: A step's tool calls reach the machine in call order"
 	});
 });
 
-describe("durable/run-task: Checkpoints have exactly three phases", () => {
+describe("durable/run-task: Checkpoints have exactly four phases", () => {
 	it("Scenario: A deterministic subagent walks next, act, next", async () => {
 		const storage = new RecordingStorage();
 		const { action } = recordingAction("run_checks", { ok: true, outputs: { passed: true, output: "ok" } });

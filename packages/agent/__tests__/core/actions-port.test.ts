@@ -72,6 +72,18 @@ describe("core/reasoning-port: A step ends answered, cut short, or failed", () =
 	});
 });
 
+describe("core/reasoning-port: An answer records its tool calls", () => {
+	it("Scenario: A refused call is recorded as not ok", async () => {
+		const calls = [{ name: "shell", inputs: { command: "rm -rf src" }, ok: false, outputs: {} }];
+		const { port } = recordingPort({ kind: "answered", text: "the command was refused", toolCalls: calls });
+		const result = await run(OFFERS, { port });
+		const outcome = result.steps[0]?.outcome;
+		expect(outcome?.kind).toBe("answered");
+		const recorded = outcome?.kind === "answered" ? outcome.toolCalls : undefined;
+		expect(recorded).toEqual([{ name: "shell", inputs: { command: "rm -rf src" }, ok: false, outputs: {} }]);
+	});
+});
+
 describe("core/reasoning-port: A run's kind comes from its last step", () => {
 	it("Scenario: The interpreter imposes no bound of its own", async () => {
 		const { port, requests } = recordingPort(answered());

@@ -8,6 +8,14 @@
 - **WHEN** it is answered with a `toolCalls` entry named `delete`
 - **THEN** the step SHALL be failed, naming `delete`, and nothing SHALL be set from it
 
+### Requirement: An answer records its tool calls
+An answered step that offered tools SHALL carry `toolCalls`: one `{ name, inputs, ok, outputs, record? }` per call, in call order. `ok` SHALL be `false` for a refused, failed or interrupted call, whose `outputs` are `{}`; `record` is the host's opaque `Action`/`Evidence` record, carried through unchanged.
+
+#### Scenario: A refused call is recorded as not ok
+- **GIVEN** a step offering `shell`
+- **WHEN** the host refuses a call to it
+- **THEN** its `toolCalls` entry SHALL have `ok` `false` and `outputs` `{}`
+
 ### Requirement: A port that cannot run tools refuses a request that offers them
 A port implementation that cannot run a tool loop SHALL answer any request carrying `tools` with `{ kind: "failed", category: "invalid_request" }` and a message saying tools need the durable host, without contacting a model. The pi reasoning port and the claude-code port are such ports.
 
@@ -33,7 +41,7 @@ Each dispatched `ReasoningRequest` SHALL hold `systemInstructions` (string), `pr
 - **THEN** it SHALL carry `tools` naming `read`, `edit` and `shell`, in that order, and no `outputSchema`
 
 ### Requirement: A step ends answered, cut short, or failed
-`StepOutcome` SHALL be a union on `kind` with exactly three members: `{ kind: "answered", text, structured?, toolCalls? }`, where `structured` is present only when the step asked for one and `toolCalls` (`{ name, inputs, ok, outputs, record? }[]`, in call order, `ok` false for a refused or failed call) only when it offered tools; `{ kind: "cut-short", text, turns }`, where `turns` is the implementation's own count; and `{ kind: "failed", category, message }`, where `message` is the layer's own words, verbatim.
+`StepOutcome` SHALL be a union on `kind` with exactly three members: `{ kind: "answered", text, structured?, toolCalls? }`, where `structured` is present only when the step asked for one and `toolCalls` only when it offered tools (see "An answer records its tool calls"); `{ kind: "cut-short", text, turns }`, where `turns` is the implementation's own count; and `{ kind: "failed", category, message }`, where `message` is the layer's own words, verbatim.
 
 #### Scenario: The implementation reports a step stopped at its bound
 - **WHEN** the port answers `{ kind: "cut-short", text: "partial", turns: 7 }`
