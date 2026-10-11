@@ -119,16 +119,16 @@ No file under `packages/agent/src/` or `packages/agent/dist/`, and neither `READ
 - **THEN** it SHALL contain `npm install @specsesh/agent`, each of the six `@specsesh/agent/<entry>` strings, `agentscript-pi` and `agentscript-durable`
 
 ### Requirement: pack:check proves the tarball installs and runs
-`pnpm pack:check` (root `scripts/pack-check.mjs`) SHALL build the package, `npm pack` it into a temp directory, install the tarball into a fresh temp project with the peers, import every entry except `./cloudflare` with plain Node, run `agentscript-durable run` from the installed bin on a faux model to `completed`, and exit non-zero naming the first step that failed. It SHALL delete its temp directories.
+`pnpm pack:check` SHALL run `packages/agent/__tests__/package/pack.test.ts` under vitest (config `vitest.pack.config.ts`; not part of `pnpm test`, because it needs the npm registry). It SHALL `npm pack` the built package, install the tarball into fresh temp projects with and without the peers, import every entry except `./cloudflare` with plain Node, run the installed `agentscript-durable run` on a faux model to `completed`, fail naming what failed, and delete its temp directories.
 
 #### Scenario: A clean tarball passes
 - **WHEN** `pnpm pack:check` runs on a clean checkout
-- **THEN** it SHALL print one `ok <step>` line per step and exit `0`
+- **THEN** every test in the file SHALL pass and `pnpm pack:check` SHALL exit `0`
 
 #### Scenario: A broken entry fails by name
 - **GIVEN** an `exports` target that does not exist in the tarball
-- **WHEN** `pnpm pack:check` runs
-- **THEN** it SHALL exit non-zero, naming that entry
+- **WHEN** the pack check installs it and imports each entry
+- **THEN** importing SHALL fail with an error naming that entry
 
 ### Requirement: The examples consume the package like any other project
 `examples/hello-world` and `examples/cloudflare-worker` SHALL depend on `"@specsesh/agent": "workspace:*"`, import only through its six entries, and depend on no other workspace package. The Cloudflare Worker SHALL bundle `@specsesh/agent/cloudflare` with wrangler.

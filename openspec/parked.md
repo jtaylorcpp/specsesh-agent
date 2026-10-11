@@ -34,7 +34,6 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 - `run.ts`: `RunStateError` doc says `next` throws on an awaiting state (it re-returns the request); `hashSource` doc says "8 hex digits" (it is `<length hex>-<8 hex>`).
 - `port.ts`: "four … the other five" for ten categories; specsketch and "private workspace package" history in `port.ts` and `port-shape.test.ts`.
 - `authoring/index.ts` lists the base `agentscript-dialect`; the code parses with `agentforce-dialect`. `document.ts` says `topic`; the vocabulary is `subagent`.
-- `agentscript-cloudflare/src/index.ts` header: GET also returns `task`/`phase`/`step`; POST returns 202.
-- User-facing messages (`NoReasoningPortError`, the scan refusal) name `@coopcli/agentscript`; they change with the package rename.
+- `packages/agent/src/cloudflare/index.ts` header: GET also returns `task`/`phase`/`step`; POST returns 202.
 - Test `describe` names mix the inherited `platform-agentscript-interpreter:` prefix with the new `core-<capability>:` one.
 - Persistence is specced in both `core/composition` and `core/step-machine`; fold into one when either changes.

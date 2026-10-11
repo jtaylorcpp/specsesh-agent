@@ -15,7 +15,7 @@ packages/agent/                    @specsesh/agent
   __tests__/{core,pi,durable}/...
   scripts/check-subset-conformance.mjs
 examples/hello-world/              depends on "@specsesh/agent": "workspace:*"
-examples/cloudflare-worker/        the Worker + wrangler.jsonc + crash-resume.sh + routes.sh
+examples/cloudflare-worker/        the Worker + wrangler.jsonc + test/crash-resume.sh + test/routes.sh (opt-in: `test:cloudflare`)
 ```
 
 ## Decisions
@@ -30,8 +30,8 @@ examples/cloudflare-worker/        the Worker + wrangler.jsonc + crash-resume.sh
 
 ## Verification
 
-- All existing suites pass from the new locations (core 231, pi, durable 68, Worker crash and route scripts).
-- `pnpm pack:check`: build, `npm pack`, install the tarball in an empty temp project with only the peers it needs, `node -e "import('@specsesh/agent/<entry>')"` for every Node entry, run `agentscript-durable run` from the installed bin on a faux model, and confirm the tarball holds no `src/`, `__tests__/` or `.ts` outside `.d.ts`.
+- All existing suites pass from the new locations (core 231, pi, durable 68, and the Worker crash and route scripts, opt-in via `pnpm test:cloudflare`, not in the default gate).
+- `pnpm pack:check` (vitest, `__tests__/package/pack.test.ts`): build, `npm pack`, install the tarball in an empty temp project with only the peers it needs, `node -e "import('@specsesh/agent/<entry>')"` for every Node entry, run `agentscript-durable run` from the installed bin on a faux model, and confirm the tarball holds no `src/`, `__tests__/` or `.ts` outside `.d.ts`.
 - `examples/cloudflare-worker` passes its crash and route scripts against the built package.
 
 ## Risks

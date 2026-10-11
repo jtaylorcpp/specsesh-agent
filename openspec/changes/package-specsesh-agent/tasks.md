@@ -13,15 +13,15 @@
 
 - [x] 2.1 `packages/agent/src/cloudflare/index.ts`: `AgentScriptHost` (Workers AI via `createAI`, `AGENTSCRIPT_MODEL`, default `@cf/moonshotai/kimi-k2.7-code`), overridable provider/model and a pre-route hook for subclasses, start/GET/404 routes; no `AGENTSCRIPT_FAUX`/`fauxProvider`
 - [x] 2.2 `git mv packages/agentscript-cloudflare` → `examples/cloudflare-worker`; its `src/index.ts` becomes the Worker `fetch` handler plus `FauxAgentScriptHost extends AgentScriptHost` (faux provider, `AGENTSCRIPT_FAUX_TPS`, `AGENTSCRIPT_FAUX_SEED`, `faux` in start bodies, `POST /faux`, the 400s); `wrangler.jsonc` binds `HOST` to `FauxAgentScriptHost` (migration `v1` `new_sqlite_classes`)
-- [x] 2.3 `examples/cloudflare-worker/package.json`: private, depends on `"@specsesh/agent": "workspace:*"` plus `agents`, pi peers; `test` runs `test/crash-resume.sh && test/routes.sh` unchanged
+- [x] 2.3 `examples/cloudflare-worker/package.json`: private, depends on `"@specsesh/agent": "workspace:*"` plus `agents`, pi peers; `test:cloudflare` runs `test/crash-resume.sh && test/routes.sh` (opt-in; no `test` script, so `pnpm -r test` never starts wrangler)
 
 ## 3. Wording, examples, workspace
 
 - [x] 3.1 `src/interpreter/scan.ts` refusal and `src/interpreter/port.ts` `NoReasoningPortError`: `@coopcli/agentscript` → `@specsesh/agent`; update the asserting tests in `__tests__/core/`
 - [x] 3.2 `examples/hello-world`: depend on `"@specsesh/agent": "workspace:*"`, import `@specsesh/agent/durable` and `/claude-code`, run with plain `node` after build (no `tsx`)
 - [x] 3.3 `packages/agent/README.md`: install command, six entries with their peers, both bins
-- [x] 3.4 Root `package.json`: `build`, `pack:check` (`node scripts/pack-check.mjs`), `agent`/`durable` scripts point at the built bins; `pnpm-workspace.yaml` unchanged
-- [x] 3.5 `scripts/pack-check.mjs`: build, `npm pack` to a temp dir, install into a temp project with peers, import each Node entry, run the installed `agentscript-durable` on a faux model, print `ok <step>`, clean up
+- [x] 3.4 Root `package.json`: `build`, `pack:check` (`pnpm --filter @specsesh/agent pack:check`, vitest), `test:cloudflare`, `agent`/`durable` scripts point at the built bins; `pnpm-workspace.yaml` unchanged
+- [x] 3.5 `packages/agent/__tests__/package/pack.test.ts` + `vitest.pack.config.ts` (excluded from the default vitest config): `npm pack` to a temp dir, install into temp projects with and without peers, import each Node entry, run the installed `agentscript-durable` on a faux model, clean up; explicit timeouts
 - [x] 3.6 `CLAUDE.md`: layout table, commands, "raw .ts" note removed
 
 ## 4. Tests for new and modified scenarios
@@ -31,11 +31,11 @@
 - [x] 4.3 `packages/agent/__tests__/package/layers.test.ts`: the layer graph per directory (non-empty scan); nothing outside `src/cloudflare/` imports `agents` or `cloudflare:workers`; `src/cloudflare/` has no faux strings
 - [x] 4.4 `packages/agent/__tests__/core/`: update the modified core scenarios (authoring entry targets after build, module graph inside the core directories, only `@sf-agentscript/*` imported, no credential, `.reason(` site, the `@specsesh/agent` message scenario, no model client in the core)
 - [x] 4.5 `packages/agent/__tests__/pi/`: `@specsesh/agent/pi` carries no claude-code exports; `/claude-code` keeps `claudeArgs`/`spawnRunner` module-level; bin tests spawn `dist/bin/agentscript-pi.js`
-- [x] 4.6 `scripts/pack-check.mjs` scenarios: deep import and bare package name refused (`ERR_PACKAGE_PATH_NOT_EXPORTED`), core runs with no peer installed, installed `agentscript-pi models claude-code` without tsx, a broken `exports` target fails by name
+- [x] 4.6 `packages/agent/__tests__/package/pack.test.ts` scenarios: deep import and bare package name refused (`ERR_PACKAGE_PATH_NOT_EXPORTED`), core runs with no peer installed, installed `agentscript-pi models claude-code` without tsx, a broken `exports` target fails by name
 - [x] 4.7 `examples/cloudflare-worker/test/routes.sh`: the example object is `FauxAgentScriptHost`; base `GET /runs/<host>/999` still 404s in faux mode
 - [x] 4.8 `packages/agent/__tests__/package/examples.test.ts`: examples import only the six entries and never `packages/` relatively
 
 ## 5. Close
 
-- [x] 5.1 `pnpm check`, `pnpm test` (core, pi, durable, package), `pnpm build`, `pnpm pack:check`, `pnpm --filter cloudflare-worker-example test` (crash-resume + routes) all pass
+- [x] 5.1 `pnpm check`, `pnpm test` (core, pi, durable, package), `pnpm build`, `pnpm pack:check` all pass; `pnpm test:cloudflare` (crash-resume + routes) is opt-in and not part of the gate
 - [ ] 5.2 `pnpm spec:archive package-specsesh-agent`, then `pnpm spec:check`
