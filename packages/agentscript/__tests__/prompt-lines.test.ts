@@ -57,3 +57,119 @@ describe("platform-agentscript-interpreter: A Prompt Line And A Logic Line Have 
 		expect(result.variables["stage"]).toBe("specs");
 	});
 });
+
+/**
+ * One subagent over the given declarations and instruction lines. Asserted
+ * lint-clean wherever it is used, for the reason `CONDITIONAL` lives in the
+ * fixtures: a document the dialect rejects proves nothing about the dialect's
+ * language.
+ */
+function promptDocument(declarations: readonly string[], statements: readonly string[]): string {
+	return [
+		"variables:",
+		...declarations.map((line) => `    ${line}`),
+		"",
+		"subagent draft:",
+		'    description: "Draft it"',
+		"",
+		"    reasoning:",
+		"        instructions: ->",
+		...statements.map((line) => `            ${line}`),
+		"",
+	].join("\n");
+}
+
+async function promptOf(
+	source: string,
+	variables?: Readonly<Record<string, VariableValue>>,
+): Promise<string | undefined> {
+	expect(analyze(source).diagnostics.map((d) => d.message)).toEqual([]);
+	const { port, requests } = recordingPort(answered());
+	await run(source, { port, ...(variables !== undefined ? { variables } : {}) });
+	expect(requests).toHaveLength(1);
+	return requests[0]?.prompt;
+}
+
+describe("core-composition: An unreached prompt line leaves no trace", () => {
+	it("Scenario: The else branch supplies the prompt line", async () => {
+		const source = promptDocument(
+			["excited: mutable boolean = False"],
+			[
+				"if @variables.excited:",
+				"    | Wave goodbye with great enthusiasm!",
+				"else:",
+				"    | Say a calm goodbye.",
+			],
+		);
+
+		const prompt = await promptOf(source);
+
+		expect(prompt).toBe("Say a calm goodbye.");
+		expect(prompt).not.toContain("enthusiasm");
+		// And the other way round, so the else is not simply always chosen.
+		expect(await promptOf(source, { excited: true })).toBe("Wave goodbye with great enthusiasm!");
+	});
+});
+
+describe("core-composition: Statements run top to bottom and branch on truthiness", () => {
+	const NESTED = promptDocument(
+		["a: mutable boolean = True", "b: mutable boolean = False"],
+		["if @variables.a:", "    if @variables.b:", "        | Both.", "| Always."],
+	);
+
+	it("Scenario: A set feeds a later condition", async () => {
+		const source = promptDocument(
+			["count: mutable number = 0"],
+			["set @variables.count = 2", "if @variables.count > 1:", "    | Many."],
+		);
+
+		// `count` is authored as 0 and the condition would fail on it: only the
+		// `set` above the `if` makes the body reachable.
+		expect(await promptOf(source)).toBe("Many.");
+	});
+
+	it("Scenario: Nested conditions", () => {
+		// Through `compose` and not `run`: the dialect reports a nested `if` as a
+		// diagnostic ("AgentScript does not support nested 'if' statements"), and
+		// the runner refuses a document with one before it composes anything. The
+		// composer still has to follow the rule for the tree it is handed.
+		const subagent = readSubagents(analyze(NESTED).parsed).get("draft");
+		const prompt = (variables: Record<string, VariableValue>) =>
+			compose(procedureStatements(subagent!), new Map(Object.entries(variables))).prompt;
+
+		const neither = prompt({ a: true, b: false });
+		expect(neither).toBe("Always.");
+		expect(neither).not.toContain("Both.");
+		// With both holding, the inner body is reached.
+		expect(prompt({ a: true, b: true })).toBe("Both.\nAlways.");
+		// With the outer condition false the inner one is never consulted.
+		expect(prompt({ a: false, b: true })).toBe("Always.");
+	});
+});
+
+describe("core-composition: An interpolation reads the value at the moment it is reached", () => {
+	it("Scenario: A later prompt line sees an earlier set", async () => {
+		const source = promptDocument(
+			['stage: mutable string = "proposal"'],
+			["| Review the {!@variables.stage}.", 'set @variables.stage = "specs"', "| Draft the {!@variables.stage}."],
+		);
+
+		// The first line was reached before the `set`, the second after it.
+		expect(await promptOf(source)).toBe("Review the proposal.\nDraft the specs.");
+	});
+});
+
+describe("core-composition: Interpolation is read from the parse", () => {
+	it("Scenario: Numbers and booleans render in JavaScript's spelling", async () => {
+		const source = promptDocument(
+			["count: mutable number = 3", "approved: mutable boolean = False"],
+			["| Count {!@variables.count}, approved {!@variables.approved}."],
+		);
+
+		const prompt = await promptOf(source);
+
+		// `false`, not the dialect's `False`: a rendered value is `String(value)`.
+		expect(prompt).toBe("Count 3, approved false.");
+		expect(prompt).not.toContain("False");
+	});
+});
