@@ -110,7 +110,10 @@ delegate's context, and the database `.agentscript/task-loops.sqlite` (gitignore
 pnpm task <change-id> <task-id>        # work one task of openspec/changes/<change-id>, unattended
 pnpm task <change-id> --next           # the first unticked task; prints "no unticked task in …" when done
 pnpm task <change-id> <task-id> --worktree --db .agentscript/<change-id>-<task-id>.sqlite
-pnpm task status                       # loops: id, change, task, status, iterations (and branch)
+pnpm task <change-id> <group>          # a bare integer is a group (2), n.m is a task (2.1)
+pnpm task <change-id> --next-group     # the first group with an unticked task
+pnpm task add-group-loop 2 --worktree --db group-2.sqlite   # a group, in its own worktree
+pnpm task status                       # loops: id, change, task or `group <n>`, status, iterations (and branch)
 pnpm task resume <loop-id>             # finish a loop whose process died (worktree loops: same --db)
 pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop prints this exact command
 ```
@@ -126,6 +129,20 @@ pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop pr
   `pnpm install --frozen-lockfile --prefer-offline`. The main tree is untouched, so you can keep working and
   run several tasks at once, each with its own `--db` (mandatory here). Review with
   `git -C <path> diff`; remove with `git worktree remove <path>` (and `git branch -D <branch>`).
+- **Groups.** `pnpm task <change> <group>` runs the group's unticked tasks in file order (ticked ones
+  are skipped, so a re-run continues), then the group check: the configured `checks` once more (a group
+  needs at least one). The `group.agent` judge may then rework a task, ask, or amend the spec.
+  `--max-reworks <n>` (default 2) bounds the reworks; `--group-script <name|path>` picks the judge
+  (default the bundled `group`). Config fields: `groupScript`, `maxReworks`.
+- **Group exit codes.** `0` converged; `1` blocked, exhausted or failed; `2` usage or a refused start.
+- **Group worktree.** `--worktree` uses `<worktreeDir>/<change-id>-<group>` on branch
+  `task/<change-id>/<group>`; `--db` is explicit, as for a task.
+- **Group loops in `status`/`resume`/`answer`.** `status` lists `group <n>` beside its task loops.
+  `resume <loop-id>` and `answer <loop-id> --by … --decision …` work on group loops; a blocked
+  task reruns with the decision carried in.
+- **Group events** (JSON Lines on stderr): `group-started`, `group-check`, `rework`, `group-ended`;
+  task events carry `group`. Text output: `# group loop <id> — <status>`, then
+  `## task <id>: <status> (runs n)` per task, then `## group check: passed|failed`.
 - One live process per database (`<db>.lock`); a second is refused, naming the holder's pid.
 - `pnpm test:live` (opt-in, never in `pnpm test`) runs it for real on a copy of this repo, on your
   subscription; it skips when `claude` is missing or not logged in.

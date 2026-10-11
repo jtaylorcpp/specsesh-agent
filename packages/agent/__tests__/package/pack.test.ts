@@ -199,7 +199,7 @@ describe("pack:check proves the tarball installs and runs", () => {
 		const r = spawnSync(join(full, "node_modules", ".bin", "agentscript-task"), [], { cwd: full, encoding: "utf8" });
 		expect(r.status, r.stderr).toBe(2);
 		expect(r.stderr.startsWith("usage:")).toBe(true);
-		expect(r.stderr).toContain("agentscript-task run <change> <task-id>|--next [--db <path>] [options]");
+		expect(r.stderr).toContain("agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]");
 		// The installed ./task entry finds its bundled script beside the compiled module.
 		const s = node(
 			full,

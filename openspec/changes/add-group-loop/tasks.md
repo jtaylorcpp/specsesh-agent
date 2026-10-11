@@ -40,5 +40,5 @@
 
 ## 6. Close
 
-- [ ] 6.1 `pnpm -r check`, `pnpm -r test` (twice, stable), `pnpm pack:check`, `pnpm spec:check`, `pnpm docs:check` pass; `CLAUDE.md` "Running a task" covers groups
+- [x] 6.1 `pnpm -r check`, `pnpm -r test` (twice, stable), `pnpm pack:check`, `pnpm spec:check`, `pnpm docs:check` pass; `CLAUDE.md` "Running a task" covers groups
 - [ ] 6.2 `pnpm test:live` (the orchestrator runs it), then `pnpm spec:archive add-group-loop`
