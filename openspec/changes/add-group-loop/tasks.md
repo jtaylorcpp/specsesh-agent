@@ -36,7 +36,7 @@
 
 ## 5. Live
 
-- [ ] 5.1 `packages/agent/__tests__/live/task.live.test.ts`: a second fixture change with a two-task group, run headless on the repo config under the same limit and process-group kill; expect exit `0`, `group-ended` `converged`, both tasks ticked (`Scenario: A live group converges`). Do not run it in `pnpm test`
+- [x] 5.1 `packages/agent/__tests__/live/task.live.test.ts`: a second fixture change with a two-task group, run headless on the repo config under the same limit and process-group kill; expect exit `0`, `group-ended` `converged`, both tasks ticked (`Scenario: A live group converges`). Do not run it in `pnpm test`
 
 ## 6. Close
 

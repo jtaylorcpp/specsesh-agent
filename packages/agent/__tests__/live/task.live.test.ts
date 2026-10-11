@@ -27,6 +27,8 @@ import { killRunning, RUN_LIMIT_MS, startDetached, type Run } from "./spawn.js";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 const CHANGE = "fixture-live-task";
+const GROUP = "fixture-live-group";
+const GROUP_CHECK = "node packages/agent/__tests__/live-fixture/greet-check.mjs";
 const TARGET = "packages/agent/__tests__/live-fixture/target.ts";
 const STALE = "// STALE: this comment describes the old regex parser.";
 const FRESH = "// Parsed by the agentforce dialect.";
@@ -92,6 +94,29 @@ describe("fixture-live-task", () => {
 		`## 1. Fixture\n\n- [ ] 1.1 In \`${TARGET}\`, replace the line \`${STALE}\` with exactly \`${FRESH}\`. Change nothing else.\n`,
 	);
 
+	// A second change, a two-task group: 1.2 builds on what 1.1 wrote.
+	writeFileSync(
+		join(fixture, "greet-check.mjs"),
+		`import { readFileSync } from "node:fs";
+const lines = readFileSync("greet.txt", "utf8").trimEnd().split("\\n");
+if (lines.join("|") !== "hello|world") {
+	console.error("greet.txt must be the lines hello and world, got " + JSON.stringify(lines));
+	process.exit(1);
+}
+`,
+	);
+	const group = join(copy, "openspec/changes", GROUP);
+	mkdirSync(join(group, "specs/live/greeting"), { recursive: true });
+	writeFileSync(join(group, "proposal.md"), "## Why\n\nThe live run needs a group of two small tasks.\n\n## What Changes\n\n- Add a greeting file in two steps.\n");
+	writeFileSync(
+		join(group, "specs/live/greeting/spec.md"),
+		"## ADDED Requirements\n\n### Requirement: The greeting file is written\n`greet.txt` SHALL hold the line `hello`, then the line `world`.\n\n#### Scenario: The first line\n- **WHEN** `greet.txt` is read\n- **THEN** its first line SHALL be `hello`\n\n#### Scenario: The second line\n- **WHEN** `greet.txt` is read\n- **THEN** its second line SHALL be `world`\n",
+	);
+	writeFileSync(
+		join(group, "tasks.md"),
+		"## 1. Greeting\n\n- [ ] 1.1 Create `greet.txt` at the repository root holding exactly one line, `hello`.\n- [ ] 1.2 Append a second line, `world`, to `greet.txt`. Keep the `hello` line first.\n",
+	);
+
 	git(copy, "init", "-q", "-b", "main");
 	appendFileSync(join(copy, ".git/info/exclude"), "node_modules\n");
 	git(copy, "add", "-A");
@@ -151,4 +176,29 @@ describe("task/headless: An opt-in live run proves it works on this repo", () =>
 		expect(r.stdout).toContain(`git worktree remove ${worktree}`);
 	});
 
+	it("Scenario: A live group converges", async (ctx) => {
+		if (!ready.ok) return ctx.skip(ready.reason);
+		// The runs above leave edits behind and the runner refuses a dirty tree: commit them.
+		if (git(copy, "status", "--porcelain").trim() !== "") {
+			git(copy, "add", "-A");
+			git(copy, "commit", "-q", "-m", "after the task runs");
+		}
+		// A bare integer is a group; the repo config supplies provider, models and database.
+		// Only the group check is narrowed, as the task run's is, to keep the run small.
+		const r = await runTask(["run", GROUP, "1", "--check", GROUP_CHECK]);
+		expect(r.code, `${r.stdout}\n${r.stderr}`).toBe(0);
+		const started = r.events.findIndex((e) => e.event === "group-started");
+		const ended = r.events.filter((e) => e.event === "group-ended");
+		expect(started, r.stderr).toBe(0);
+		expect(ended).toHaveLength(1);
+		expect(ended[0]).toMatchObject({ status: "converged" });
+		const tasks = (ended[0]!.tasks as { task: string; status: string }[]).map(({ task, status }) => ({ task, status }));
+		expect(tasks).toEqual([
+			{ task: "1.1", status: "converged" },
+			{ task: "1.2", status: "converged" },
+		]);
+		const ticked = readFileSync(join(copy, "openspec/changes", GROUP, "tasks.md"), "utf8");
+		expect(ticked).toMatch(/^- \[x\] 1\.1 /m);
+		expect(ticked).toMatch(/^- \[x\] 1\.2 /m);
+	});
 });
