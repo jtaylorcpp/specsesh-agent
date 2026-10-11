@@ -1,5 +1,5 @@
 /**
- * Hello world on agentscript-durable.
+ * Hello world on @specsesh/agent.
  *
  *   pnpm --filter hello-world-example start [name]
  *
@@ -16,8 +16,8 @@ import { createModels } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { createRegistry, Harness } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { AgentScript, AgentScriptStepExtension, runScript } from "agentscript-durable";
-import { claudeCodeProvider } from "agentscript-pi";
+import { claudeCodeProvider } from "@specsesh/agent/claude-code";
+import { AgentScript, AgentScriptStepExtension, runScript } from "@specsesh/agent/durable";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const context = BACKGROUND_CONTEXT;

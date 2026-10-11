@@ -8,9 +8,11 @@
   },
   "scripts": {
     "check": "pnpm -r check",
+    "build": "pnpm --filter @specsesh/agent build",
     "test": "pnpm -r test",
-    "agent": "node packages/agentscript-pi/bin/agentscript-pi.mjs",
-    "durable": "node packages/agentscript-durable/bin/agentscript-durable.mjs",
+    "agent": "node packages/agent/dist/bin/agentscript-pi.js",
+    "durable": "node packages/agent/dist/bin/agentscript-durable.js",
+    "pack:check": "node scripts/pack-check.mjs",
     "spec:check": "OPENSPEC_TELEMETRY=0 openspec validate --all --strict",
     "spec:archive": "node scripts/spec-archive.mjs",
     "docs:check": "node scripts/docs-check.mjs"

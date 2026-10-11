@@ -1,0 +1,87 @@
+{
+  "name": "@specsesh/agent",
+  "version": "0.1.0",
+  "description": "Agent Script as an authoring format, plus an interpreter over a declared subset of it, with pi, Claude Code, durable and Cloudflare hosts. Never compiles to the Salesforce runtime specification.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "exports": {
+    "./authoring": {
+      "types": "./dist/authoring/index.d.ts",
+      "import": "./dist/authoring/index.js"
+    },
+    "./interpreter": {
+      "types": "./dist/interpreter/index.d.ts",
+      "import": "./dist/interpreter/index.js"
+    },
+    "./pi": {
+      "types": "./dist/pi/index.d.ts",
+      "import": "./dist/pi/index.js"
+    },
+    "./claude-code": {
+      "types": "./dist/claude-code/index.d.ts",
+      "import": "./dist/claude-code/index.js"
+    },
+    "./durable": {
+      "types": "./dist/durable/index.d.ts",
+      "import": "./dist/durable/index.js"
+    },
+    "./cloudflare": {
+      "types": "./dist/cloudflare/index.d.ts",
+      "import": "./dist/cloudflare/index.js"
+    }
+  },
+  "bin": {
+    "agentscript-pi": "./dist/bin/agentscript-pi.js",
+    "agentscript-durable": "./dist/bin/agentscript-durable.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit && tsc -p tsconfig.build.json",
+    "test": "node scripts/check-subset-conformance.mjs && vitest run",
+    "conformance": "node scripts/check-subset-conformance.mjs"
+  },
+  "dependencies": {
+    "@sf-agentscript/agentforce-dialect": "2.53.0",
+    "@sf-agentscript/agentscript-dialect": "3.4.0",
+    "@sf-agentscript/language": "3.2.3",
+    "@sf-agentscript/parser-javascript": "3.1.3"
+  },
+  "peerDependencies": {
+    "@earendil-works/chord": "^1.1.0",
+    "@earendil-works/pi-ai": "^1.1.0",
+    "@earendil-works/pi-durable": "^1.1.0",
+    "agents": "^0.28.0"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/chord": {
+      "optional": true
+    },
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-durable": {
+      "optional": true
+    },
+    "agents": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261011.1",
+    "@earendil-works/chord": "1.1.0",
+    "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-durable": "1.1.0",
+    "@types/node": "^22.0.0",
+    "agents": "0.28.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.11"
+  }
+}

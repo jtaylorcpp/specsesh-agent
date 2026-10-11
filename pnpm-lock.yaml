@@ -12,6 +12,34 @@ importers:
         specifier: 1.14.1
         version: 1.14.1(@types/node@22.20.5)
 
+  examples/cloudflare-worker:
+    dependencies:
+      '@earendil-works/chord':
+        specifier: 1.1.0
+        version: 1.1.0
+      '@earendil-works/pi-ai':
+        specifier: 1.1.0
+        version: 1.1.0(@aws-sdk/credential-provider-node@3.972.85)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@7.29.1)(ws@8.22.0)(zod@4.6.5)
+      '@earendil-works/pi-durable':
+        specifier: 1.1.0
+        version: 1.1.0(@aws-sdk/credential-provider-node@3.972.85)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@7.29.1)(ws@8.22.0)(zod@4.6.5)
+      '@specsesh/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
+      agents:
+        specifier: 0.28.0
+        version: 0.28.0(@babel/core@8.0.7)(@babel/runtime@7.29.10)(@earendil-works/pi-ai@1.1.0(@aws-sdk/credential-provider-node@3.972.85)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@7.29.1)(ws@8.22.0)(zod@4.6.5))(@earendil-works/pi-durable@1.1.0(@aws-sdk/credential-provider-node@3.972.85)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@7.29.1)(ws@8.22.0)(zod@4.6.5))(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(rolldown@1.2.13)(vite@8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))(zod@4.6.5)
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: 5.20261011.1
+        version: 5.20261011.1
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      wrangler:
+        specifier: 4.149.0
+        version: 4.149.0(@cloudflare/workers-types@5.20261011.1)(@types/node@22.20.5)
+
   examples/hello-world:
     dependencies:
       '@earendil-works/chord':
@@ -23,15 +51,9 @@ importers:
       '@earendil-works/pi-durable':
         specifier: 1.1.0
         version: 1.1.0(@aws-sdk/credential-provider-node@3.972.85)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@7.29.1)(ws@8.22.0)(zod@4.6.5)
-      agentscript-durable:
+      '@specsesh/agent':
         specifier: workspace:*
-        version: link:../../packages/agentscript-durable
-      agentscript-pi:
-        specifier: workspace:*
-        version: link:../../packages/agentscript-pi
-      tsx:
-        specifier: ^4.20.0
-        version: 4.23.15
+        version: link:../../packages/agent
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -40,7 +62,7 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
-  packages/agentscript:
+  packages/agent:
     dependencies:
       '@sf-agentscript/agentforce-dialect':
         specifier: 2.53.0
@@ -55,52 +77,9 @@ importers:
         specifier: 3.1.3
         version: 3.1.3
     devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.20.5
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.11
-        version: 4.1.11(@types/node@22.20.5)(vite@8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))
-
-  packages/agentscript-cloudflare:
-    dependencies:
-      '@coopcli/agentscript':
-        specifier: workspace:*
-        version: link:../agentscript
-      '@earendil-works/chord':
-        specifier: 1.1.0
-        version: 1.1.0
-      '@earendil-works/pi-ai':
-        specifier: 1.1.0
-        version: 1.1.0(@aws-sdk/credential-provider-node@3.972.85)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@7.29.1)(ws@8.22.0)(zod@4.6.5)
-      '@earendil-works/pi-durable':
-        specifier: 1.1.0
-        version: 1.1.0(@aws-sdk/credential-provider-node@3.972.85)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@7.29.1)(ws@8.22.0)(zod@4.6.5)
-      agents:
-        specifier: 0.28.0
-        version: 0.28.0(@babel/core@8.0.7)(@babel/runtime@7.29.10)(@earendil-works/pi-ai@1.1.0(@aws-sdk/credential-provider-node@3.972.85)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@7.29.1)(ws@8.22.0)(zod@4.6.5))(@earendil-works/pi-durable@1.1.0(@aws-sdk/credential-provider-node@3.972.85)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@7.29.1)(ws@8.22.0)(zod@4.6.5))(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(rolldown@1.2.13)(vite@8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))(zod@4.6.5)
-      agentscript-durable:
-        specifier: workspace:*
-        version: link:../agentscript-durable
-    devDependencies:
       '@cloudflare/workers-types':
         specifier: 5.20261011.1
         version: 5.20261011.1
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-      wrangler:
-        specifier: 4.149.0
-        version: 4.149.0(@cloudflare/workers-types@5.20261011.1)(@types/node@22.20.5)
-
-  packages/agentscript-durable:
-    dependencies:
-      '@coopcli/agentscript':
-        specifier: workspace:*
-        version: link:../agentscript
       '@earendil-works/chord':
         specifier: 1.1.0
         version: 1.1.0
@@ -110,38 +89,12 @@ importers:
       '@earendil-works/pi-durable':
         specifier: 1.1.0
         version: 1.1.0(@aws-sdk/credential-provider-node@3.972.85)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@7.29.1)(ws@8.22.0)(zod@4.6.5)
-      agentscript-pi:
-        specifier: workspace:*
-        version: link:../agentscript-pi
-      tsx:
-        specifier: ^4.20.0
-        version: 4.23.15
-    devDependencies:
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.5
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.11
-        version: 4.1.11(@types/node@22.20.5)(vite@8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))
-
-  packages/agentscript-pi:
-    dependencies:
-      '@coopcli/agentscript':
-        specifier: workspace:*
-        version: link:../agentscript
-      '@earendil-works/pi-ai':
-        specifier: 1.1.0
-        version: 1.1.0(@aws-sdk/credential-provider-node@3.972.85)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@7.29.1)(ws@8.22.0)(zod@4.6.5)
-      tsx:
-        specifier: ^4.20.0
-        version: 4.23.15
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.20.5
+      agents:
+        specifier: 0.28.0
+        version: 0.28.0(@babel/core@8.0.7)(@babel/runtime@7.29.10)(@earendil-works/pi-ai@1.1.0(@aws-sdk/credential-provider-node@3.972.85)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@7.29.1)(ws@8.22.0)(zod@4.6.5))(@earendil-works/pi-durable@1.1.0(@aws-sdk/credential-provider-node@3.972.85)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@7.29.1)(ws@8.22.0)(zod@4.6.5))(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(rolldown@1.2.13)(vite@8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))(zod@4.6.5)
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -4418,6 +4371,7 @@ snapshots:
       esbuild: 0.28.2
     optionalDependencies:
       fsevents: 2.3.3
+    optional: true
 
   type-is@2.1.0:
     dependencies:
