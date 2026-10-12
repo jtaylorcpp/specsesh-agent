@@ -25,7 +25,7 @@ import { Int, Name, check, closed, explain, literals, sameValue } from "./schema
 
 // ── Steps ───────────────────────────────────────────────────────────────────
 
-export const StepName = literals("propose", "specify", "design", "plan", "validate", "approve", "execute", "archive");
+export const StepName = literals("propose", "design", "specify", "plan", "validate", "approve", "execute", "archive");
 export type StepName = Static<typeof StepName>;
 
 export const StepActor = literals("principal", "agent", "tool", "loop");
@@ -58,11 +58,11 @@ export type CapabilityIndex = Static<typeof CapabilityIndex>;
 export const Intent = closed({ words: Type.String(), existing: CapabilityIndex });
 export type Intent = Static<typeof Intent>;
 
-export const SpecifyInput = closed({ proposal: Proposal, base: Type.Array(Capability) });
-export type SpecifyInput = Static<typeof SpecifyInput>;
-
-export const DesignInput = closed({ proposal: Proposal, deltas: Type.Array(Delta) });
+export const DesignInput = closed({ proposal: Proposal });
 export type DesignInput = Static<typeof DesignInput>;
+
+export const SpecifyInput = closed({ proposal: Proposal, design: Design, base: Type.Array(Capability) });
+export type SpecifyInput = Static<typeof SpecifyInput>;
 
 export const PlanInput = closed({ proposal: Proposal, deltas: Type.Array(Delta), design: Design });
 export type PlanInput = Static<typeof PlanInput>;
@@ -89,8 +89,8 @@ export type ArchiveResult = Static<typeof ArchiveResult>;
 /** The eight steps in lifecycle order. */
 export const STEPS = [
 	{ name: "propose", actor: "agent", input: "Intent", output: "Proposal" },
-	{ name: "specify", actor: "agent", input: "SpecifyInput", output: "Delta[]" },
 	{ name: "design", actor: "agent", input: "DesignInput", output: "Design" },
+	{ name: "specify", actor: "agent", input: "SpecifyInput", output: "Delta[]" },
 	{ name: "plan", actor: "agent", input: "PlanInput", output: "TaskList" },
 	{ name: "validate", actor: "tool", input: "Change", output: "ValidationReport" },
 	{ name: "approve", actor: "principal", input: "ApproveInput", output: "Approval" },
@@ -101,8 +101,8 @@ export const STEPS = [
 /** Each step's input and output schema. */
 export const STEP_SCHEMAS = {
 	propose: { input: Intent, output: Proposal },
-	specify: { input: SpecifyInput, output: Type.Array(Delta) },
 	design: { input: DesignInput, output: Design },
+	specify: { input: SpecifyInput, output: Type.Array(Delta) },
 	plan: { input: PlanInput, output: TaskList },
 	validate: { input: Change, output: ValidationReport },
 	approve: { input: ApproveInput, output: Approval },
@@ -200,8 +200,8 @@ export const newChange = (id: string, schema: string, proposal: Proposal): Chang
 
 /** What moves a change: each step's result, or abandonment. */
 export const ChangeEvent = Type.Union([
-	closed({ on: Type.Literal("specify"), deltas: Type.Array(Delta) }),
 	closed({ on: Type.Literal("design"), design: Design }),
+	closed({ on: Type.Literal("specify"), deltas: Type.Array(Delta) }),
 	closed({ on: Type.Literal("plan"), tasks: TaskList }),
 	closed({ on: Type.Literal("validate"), report: ValidationReport }),
 	closed({ on: Type.Literal("approve"), approval: Approval }),
@@ -222,9 +222,9 @@ export type TransitionResult = Static<typeof TransitionResult>;
 
 /** The state each event leads to, from the one state it may leave. `abandon` and `validate` are handled apart. */
 const FORWARD: Partial<Record<ChangeEvent["on"], readonly [ChangeState, ChangeState]>> = {
-	specify: ["drafting", "specified"],
-	design: ["specified", "designed"],
-	plan: ["designed", "planned"],
+	design: ["drafting", "designed"],
+	specify: ["designed", "specified"],
+	plan: ["specified", "planned"],
 	approve: ["validated", "approved"],
 	execute: ["approved", "executing"],
 	converge: ["executing", "converged"],

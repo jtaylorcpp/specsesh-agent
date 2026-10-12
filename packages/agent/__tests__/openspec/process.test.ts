@@ -8,12 +8,13 @@ import {
 	type ChangeEvent,
 	type ChangeOutcome,
 	type ChangeState,
+	DesignInput,
 	type Intent,
 	type LoopOutcome,
 	PlanInput,
 	STEPS,
 	STEP_SCHEMAS,
-	type SpecifyInput,
+	SpecifyInput,
 	archiveGuard,
 	check,
 	coversEveryGroup,
@@ -41,13 +42,14 @@ import {
 } from "./fixtures.js";
 
 const APPROVAL: Approval = { approved: true, by: "principal", principal: "Jesse", notes: "" };
+const DESIGN = { sections: [{ heading: "Context", body: "" }] };
 const converged: LoopOutcome<ChangeOutcome> = { status: "converged", iterations: [metIteration(1)], result: CHANGE_OUTCOME };
 const exhausted: LoopOutcome<ChangeOutcome> = { status: "exhausted", iterations: [unmetIteration(1)] };
 
 /** The event that drives each forward transition. */
 const FORWARD_EVENTS: ChangeEvent[] = [
+	{ on: "design", design: DESIGN },
 	{ on: "specify", deltas: demoChange().deltas },
-	{ on: "design", design: { sections: [{ heading: "Context", body: "" }] } },
 	{ on: "plan", tasks: { groups: [{ number: 1, title: "One", tasks: [task("1.1")] }] } },
 	{ on: "validate", report: VALID },
 	{ on: "approve", approval: APPROVAL },
@@ -58,8 +60,8 @@ const FORWARD_EVENTS: ChangeEvent[] = [
 
 const ALL_STATES: ChangeState[] = [
 	"drafting",
-	"specified",
 	"designed",
+	"specified",
 	"planned",
 	"validated",
 	"approved",
@@ -77,7 +79,6 @@ const ALL_EVENTS: ChangeEvent[] = [
 
 describe("A step has a named input, output and actor", () => {
 	it("Scenario: Every step's types are named", () => {
-		expect(STEPS.map((step) => step.name)).toEqual(["propose", "specify", "design", "plan", "validate", "approve", "execute", "archive"]);
 		const exported = openspec as Record<string, unknown>;
 		for (const step of STEPS) {
 			expect(check(openspec.Step, step), step.name).toBe(true);
@@ -138,6 +139,7 @@ describe("Specify turns a proposal into deltas", () => {
 	it("Scenario: A modified delta must exist in the base", () => {
 		const input: SpecifyInput = {
 			proposal: { ...OWN_PROPOSAL, capabilities: { new: [], modified: [["demo", "three"]] } },
+			design: DESIGN,
 			base: [THREE_CAP],
 		};
 		const absent = { ...THREE, name: "Not in the base" };
@@ -148,13 +150,30 @@ describe("Specify turns a proposal into deltas", () => {
 		// Every capability the proposal names gets a delta.
 		expect(specifyIssues(input, [])).toEqual(["demo/three has no delta"]);
 	});
+
+	it("Scenario: Specify sees the design", () => {
+		const base = [THREE_CAP];
+		expect(check(SpecifyInput, { proposal: OWN_PROPOSAL, design: DESIGN, base })).toBe(true);
+		expect(check(SpecifyInput, { proposal: OWN_PROPOSAL, base })).toBe(false);
+	});
 });
 
-describe("Design and plan follow the deltas", () => {
+describe("Design follows the proposal", () => {
+	it("Scenario: Design sees only the proposal", () => {
+		expect(check(DesignInput, { proposal: OWN_PROPOSAL })).toBe(true);
+		expect(check(DesignInput, { proposal: OWN_PROPOSAL, deltas: demoChange().deltas })).toBe(false);
+		expect(STEPS.find((step) => step.name === "design")).toEqual({ name: "design", actor: "agent", input: "DesignInput", output: "Design" });
+	});
+
+	it("Scenario: The steps in lifecycle order", () => {
+		expect(STEPS.map((step) => step.name)).toEqual(["propose", "design", "specify", "plan", "validate", "approve", "execute", "archive"]);
+	});
+});
+
+describe("Plan follows the deltas and the design", () => {
 	it("Scenario: Plan sees the design", () => {
-		const design = { sections: [{ heading: "Context", body: "" }] };
 		const deltas = demoChange().deltas;
-		expect(check(PlanInput, { proposal: OWN_PROPOSAL, deltas, design })).toBe(true);
+		expect(check(PlanInput, { proposal: OWN_PROPOSAL, deltas, design: DESIGN })).toBe(true);
 		expect(check(PlanInput, { proposal: OWN_PROPOSAL, deltas })).toBe(false);
 		expect(STEPS.find((step) => step.name === "plan")?.input).toBe("PlanInput");
 	});
@@ -228,7 +247,7 @@ describe("A change moves through a fixed sequence of states", () => {
 			if (result.ok) state = result.state;
 			visited.push(state);
 		}
-		expect(visited).toEqual(["drafting", "specified", "designed", "planned", "validated", "approved", "executing", "converged", "archived"]);
+		expect(visited).toEqual(["drafting", "designed", "specified", "planned", "validated", "approved", "executing", "converged", "archived"]);
 	});
 
 	it("Scenario: A new change starts drafting", () => {
@@ -246,12 +265,12 @@ describe("A change moves through a fixed sequence of states", () => {
 
 describe("Each forward transition follows its step", () => {
 	it("Scenario: Skipping planning is refused", () => {
-		expect(transition("designed", { on: "validate", report: VALID }).ok).toBe(false);
+		expect(transition("specified", { on: "validate", report: VALID }).ok).toBe(false);
 		// Exactly the defined transitions are allowed, and nothing else.
 		const allowed = new Set([
-			"drafting:specify",
-			"specified:design",
-			"designed:plan",
+			"drafting:design",
+			"designed:specify",
+			"specified:plan",
 			"planned:validate",
 			"amended:validate",
 			"validated:approve",
@@ -268,6 +287,11 @@ describe("Each forward transition follows its step", () => {
 		}
 		// A step whose guard fails does not move the change.
 		expect(transition("planned", { on: "validate", report: INVALID }).ok).toBe(false);
+	});
+
+	it("Scenario: Specifying before designing is refused", () => {
+		expect(transition("drafting", { on: "specify", deltas: demoChange().deltas }).ok).toBe(false);
+		expect(transition("drafting", { on: "design", design: DESIGN })).toEqual({ ok: true, state: "designed" });
 	});
 });
 
