@@ -473,15 +473,24 @@ export function composeToolOffers(
  * Derived rather than authored: the document already says what it wants back, in
  * the `set` lines themselves, and a second place to say it is a second place to
  * say it differently.
+ *
+ * A field takes its type, and its `enum` when the host chose values for the
+ * variable, from the last variable it feeds.
  */
 export function outputSchemaFor(
 	pending: readonly PendingAssignment[],
 	declarations: ReadonlyMap<string, DeclaredVariable>,
+	choices?: Readonly<Record<string, readonly string[]>>,
 ): Record<string, unknown> {
+	const last = new Map<string, string>();
+	for (const assignment of pending) last.set(assignment.field, assignment.variable);
 	const properties: Record<string, unknown> = {};
-	for (const assignment of pending) {
-		const declared = declarations.get(assignment.variable);
-		properties[assignment.field] = { type: jsonType(declared?.type) };
+	for (const [field, variable] of last) {
+		const values = choices?.[variable];
+		properties[field] = {
+			type: jsonType(declarations.get(variable)?.type),
+			...(values !== undefined ? { enum: [...values] } : {}),
+		};
 	}
 	return {
 		type: "object",

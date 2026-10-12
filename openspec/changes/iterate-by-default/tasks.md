@@ -1,10 +1,10 @@
 ## 1. Choices in the step machine
 
 - [x] 1.1 `packages/agent/src/interpreter/run.ts` + `src/interpreter/index.ts`: `InvalidChoicesError` (extends `Error`, `name` set), exported with the other step-machine errors
-- [ ] 1.2 `packages/agent/src/interpreter/run.ts`: `StartOptions.choices?: Record<string, readonly string[]>`; `start` refuses after the undeclared check (undeclared, not `string`, empty, or excludes the opening value), naming the variable and the reason; `RunState` carries `choices` only when given; `run()` passes `choices` to `start`
-- [ ] 1.3 `packages/agent/src/interpreter/compose.ts`: `outputSchemaFor` adds `enum` (choices in order) to a field writing a chosen variable (a field feeding two variables takes the later one's, as for `type`)
-- [ ] 1.4 `packages/agent/src/interpreter/run.ts` (where structured results are applied): a value outside a chosen variable's choices fails the step, category `unknown`, naming the field, `@variables.<x>` and every choice, containing `No variable was set`; nothing set
-- [ ] 1.5 `packages/agent/__tests__/core/choices.test.ts`: one test per new or modified `core/composition` and `core/step-machine` scenario about choices (8), named `Scenario: <exact scenario name>`
+- [x] 1.2 `packages/agent/src/interpreter/run.ts`: `StartOptions.choices?: Record<string, readonly string[]>`; `start` refuses after the undeclared check (undeclared, not `string`, empty, or excludes the opening value), naming the variable and the reason; `RunState` carries `choices` only when given; `run()` passes `choices` to `start`
+- [x] 1.3 `packages/agent/src/interpreter/compose.ts`: `outputSchemaFor` adds `enum` (choices in order) to a field writing a chosen variable (a field feeding two variables takes the later one's, as for `type`)
+- [x] 1.4 `packages/agent/src/interpreter/run.ts` (where structured results are applied): a value outside a chosen variable's choices fails the step, category `unknown`, naming the field, `@variables.<x>` and every choice, containing `No variable was set`; nothing set
+- [x] 1.5 `packages/agent/__tests__/core/choices-start.test.ts`, `choices-schema.test.ts` and `choices-apply.test.ts` (written by 1.2–1.4): one test per new or modified `core/composition` and `core/step-machine` scenario about choices (9), named `Scenario: <exact scenario name>`, each asserting what its scenario says; plus the three `Run Drives The Step Machine Through A Port` scenarios that had no named test (`packages/agent/__tests__/core/run.test.ts`)
 
 ## 2. Choices through the durable run
 

@@ -75,6 +75,8 @@ export interface RunOptions {
 	 * throw becomes a failed result carrying its message.
 	 */
 	readonly actionHost?: (call: ActionCall) => Promise<ActionResult> | ActionResult;
+	/** Allowed values per string variable; see `StartOptions.choices`. */
+	readonly choices?: Readonly<Record<string, readonly string[]>>;
 }
 
 /** One action call a `run` statement makes, with its inputs evaluated where the walk reached it. */
@@ -283,6 +285,8 @@ export interface RunState {
 	/** Index into `entries` of the subagent to compose next. */
 	readonly cursor: number;
 	readonly variables: Readonly<Record<string, VariableValue>>;
+	/** The caller's allowed values per string variable, validated at `start`; absent when none were given. */
+	readonly choices?: Readonly<Record<string, readonly string[]>>;
 	readonly steps: readonly StepReport[];
 	/** Every action call folded in so far, in order. */
 	readonly actions: readonly ActionReport[];
@@ -344,6 +348,11 @@ export type NextStep =
 export interface StartOptions {
 	readonly entry?: string | readonly string[];
 	readonly variables?: Readonly<Record<string, VariableValue>>;
+	/**
+	 * Allowed values per string variable. Each list must be non-empty and include the
+	 * variable's opening value. They constrain only values taken from a structured result.
+	 */
+	readonly choices?: Readonly<Record<string, readonly string[]>>;
 }
 
 /** Raised when a state is used with a different source than it was started on. */
@@ -421,6 +430,24 @@ export function start(source: string, options: StartOptions = {}): RunState {
 		variables[name] = value;
 	}
 
+	const choices = Object.entries(options.choices ?? {});
+	for (const [name, values] of choices) {
+		const declared = declarations.get(name);
+		if (declared === undefined) {
+			throw new InvalidChoicesError(`choices for \`${name}\`: the document does not declare \`${name}\``);
+		}
+		if (declared.type !== "string") {
+			throw new InvalidChoicesError(`choices for \`${name}\`: \`${name}\` is declared ${declared.type}, not a string`);
+		}
+		if (values.length === 0) throw new InvalidChoicesError(`choices for \`${name}\`: the list is empty`);
+		const opening = variables[name] as VariableValue;
+		if (!values.includes(opening as string)) {
+			throw new InvalidChoicesError(
+				`choices for \`${name}\`: ${JSON.stringify(values)} exclude its opening value ${JSON.stringify(opening)}`,
+			);
+		}
+	}
+
 	const entries = resolveEntries(options.entry, subagents);
 	if (entries.length === 0) throw new NoEntrySubagentError([...subagents.keys()]);
 	// Checked whole, up front, like everything else that can refuse.
@@ -428,7 +455,18 @@ export function start(source: string, options: StartOptions = {}): RunState {
 		if (!subagents.has(name)) throw new UnknownSubagentError(name, [...subagents.keys()]);
 	}
 
-	return { version: 1, sourceHash: hashSource(source), entries, cursor: 0, variables, steps: [], actions: [] };
+	return {
+		version: 1,
+		sourceHash: hashSource(source),
+		entries,
+		cursor: 0,
+		variables,
+		...(options.choices !== undefined
+			? { choices: Object.fromEntries(choices.map(([name, values]) => [name, [...values]])) }
+			: {}),
+		steps: [],
+		actions: [],
+	};
 }
 
 /**
@@ -509,7 +547,7 @@ export function next(source: string, state: RunState, options: { persistVariable
 		const request: ReasoningRequest = {
 			systemInstructions,
 			prompt,
-			...(pending.length > 0 ? { outputSchema: outputSchemaFor(pending, program.declarations) } : {}),
+			...(pending.length > 0 ? { outputSchema: outputSchemaFor(pending, program.declarations, state.choices) } : {}),
 			...(offers.length > 0 ? { tools: offers } : {}),
 		};
 		const awaiting: AwaitingStep = {
@@ -549,7 +587,7 @@ export function apply(source: string, state: RunState, reported: StepOutcome): R
 
 	const variables = new Map(Object.entries(awaiting.variables));
 	const outcome = normalise(reported);
-	const settled = settle(outcome, awaiting, variables);
+	const settled = settle(outcome, awaiting, variables, state.choices);
 	const steps = [...state.steps, { subagent: awaiting.subagent, request: awaiting.request, outcome: settled }];
 
 	const { awaiting: _done, ...rest } = state;
@@ -623,6 +661,7 @@ export async function run(source: string, options: RunOptions = {}): Promise<Run
 	let state = start(source, {
 		...(options.entry !== undefined ? { entry: options.entry } : {}),
 		...(options.variables !== undefined ? { variables: options.variables } : {}),
+		...(options.choices !== undefined ? { choices: options.choices } : {}),
 	});
 	const host = options.actionHost;
 	if (host === undefined) {
@@ -814,7 +853,12 @@ function normalise(outcome: StepOutcome): StepOutcome {
  * difference between refusing an artifact and waving it through. A tool call's
  * `outputs` are the host's results; its arguments are never read for a value.
  */
-function settle(outcome: StepOutcome, awaiting: AwaitingStep, variables: Map<string, VariableValue>): StepOutcome {
+function settle(
+	outcome: StepOutcome,
+	awaiting: AwaitingStep,
+	variables: Map<string, VariableValue>,
+	choices: Readonly<Record<string, readonly string[]>> | undefined,
+): StepOutcome {
 	if (outcome.kind !== "answered") return outcome;
 	const pending = awaiting.pending;
 	const staged = new Map<string, VariableValue>();
@@ -848,6 +892,16 @@ function settle(outcome: StepOutcome, awaiting: AwaitingStep, variables: Map<str
 				return failure(
 					`the structured result carries no usable "${assignment.field}" for ` +
 						`@variables.${assignment.variable}. No variable was set.`,
+				);
+			}
+			// Only a value taken from the structured result is constrained. The check
+			// reads the state's own choices, so a resumed run enforces them the same.
+			const allowed = choices?.[assignment.variable];
+			if (allowed !== undefined && (typeof value !== "string" || !allowed.includes(value))) {
+				return failure(
+					`Field "${assignment.field}" for @variables.${assignment.variable} must be one of ` +
+						`${allowed.map((choice) => JSON.stringify(choice)).join(", ")}, got ${JSON.stringify(value)}. ` +
+						"No variable was set.",
 				);
 			}
 			staged.set(assignment.variable, value);
