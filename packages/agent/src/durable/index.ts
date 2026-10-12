@@ -24,5 +24,19 @@ export {
 	type HostAction,
 } from "./actions.js";
 export { DEFAULT_TIMEOUT_MS, builtinActions, confine, delegateArgs, runArgv, splitCommand, type Ran, type ActionRecord, type BuiltinActionOptions, type DelegateArgsOptions } from "./builtins.js";
+export {
+	WorkspaceError,
+	diffSnapshots,
+	runChecks,
+	workspaceActions,
+	type ChecksRun,
+	type ExecOptions,
+	type ExecResult,
+	type Workspace,
+	type WorkspaceActionOptions,
+	type WorkspaceSnapshot,
+} from "./workspace.js";
+export type { AgentConfig, AgentHarness, AgentHarnessOptions, DelegateGrants, ModelFactory, Runners } from "./agent-config.js";
+export { createAgentHarness } from "./harness.js";
 export { runScript, startScript, waitForScript, type StartScriptOptions } from "./host.js";
 export { checkResult } from "./result.js";

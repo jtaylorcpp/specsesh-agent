@@ -1,19 +1,19 @@
 ## 1. Workspaces, the node entry and the host config (additive: everything that runs today keeps running)
 
-- [ ] 1.1 `packages/agent/src/durable/workspace.ts` (new) + `src/durable/index.ts`: `Workspace`, `ExecOptions`, `ExecResult`, `WorkspaceSnapshot`, `WorkspaceError`, `diffSnapshots`, `runChecks(workspace, checks, timeoutMs)`, and `workspaceActions(workspace, { allow, checks, timeoutMs })`. The last is the four built-ins over a workspace, with the behaviour and records `actions/registry` specifies and `this workspace cannot run commands` when there's no `exec`. No `node:` import.
-- [ ] 1.2 `packages/agent/src/node/local-workspace.ts` (new) + `src/node/snapshot.ts` (new):
+- [x] 1.1 `packages/agent/src/durable/workspace.ts` (new) + `src/durable/index.ts`: `Workspace`, `ExecOptions`, `ExecResult`, `WorkspaceSnapshot`, `WorkspaceError`, `diffSnapshots`, `runChecks(workspace, checks, timeoutMs)`, and `workspaceActions(workspace, { allow, checks, timeoutMs })`. The last is the four built-ins over a workspace, with the behaviour and records `actions/registry` specifies and `this workspace cannot run commands` when there's no `exec`. No `node:` import.
+- [x] 1.2 `packages/agent/src/node/local-workspace.ts` (new) + `src/node/snapshot.ts` (new):
   - `localWorkspace(dir)`: the confinement rules, `exec` through a child process with no shell and a timeout kill, `snapshot` via git or `undefined` outside git;
   - move `repoRoot`, `status`, `snapshot` and `changedBetween` from `src/task/git.ts` into `snapshot.ts`, with `git.ts` re-exporting them;
   - it may import `confine`, `runArgv` and `splitCommand` from `src/durable/builtins.ts`, which still exists until 3.6.
-- [ ] 1.3 `packages/agent/src/node/index.ts` (new), `packages/agent/package.json` (`./node` export, ninth, after `./durable`), `packages/agent/README.md` (nine entries), and the build copying nothing new. Update `__tests__/package/` for `Scenario: The exports map is exact` and `Scenario: Every entry is documented`.
-- [ ] 1.4 `packages/agent/src/durable/agent-config.ts` (new) + `src/durable/harness.ts` (new, runtime-neutral):
+- [x] 1.3 `packages/agent/src/node/index.ts` (new), `packages/agent/package.json` (`./node` export, ninth, after `./durable`), `packages/agent/README.md` (nine entries), and the build copying nothing new. Update `__tests__/package/` for `Scenario: The exports map is exact` and `Scenario: Every entry is documented`.
+- [x] 1.4 `packages/agent/src/durable/agent-config.ts` (new) + `src/durable/harness.ts` (new, runtime-neutral):
   - `ModelFactory<Env>` and `AgentConfig<Env>`;
   - `createAgentHarness(config, { storage, env, extensions?, context })`, awaiting an async `workspace` factory: each factory called once in key order, each distinct provider registered once, a name clash refused naming both keys;
   - the registry: `workspaceActions`, then `config.actions`, then `delegationActions` once group 2 lands (until then, `delegates` must be absent or empty, else reject);
   - run and step extensions over it, then `extensions`.
-- [ ] 1.5 `packages/agent/__tests__/durable/workspace.test.ts`: `actions/workspace` "The interface loads without Node built-ins", "A write then a read round-trips", "A created and an edited file", "The built-ins use the workspace they were given" and "Commands need exec" (5), named `Scenario: <exact scenario name>`
-- [ ] 1.6 `packages/agent/__tests__/node/local-workspace.test.ts`: `actions/workspace` "A metacharacter is an argument", "A slow process is killed", "A symlink out of the workspace is refused" and "Outside git there is no snapshot" (4)
-- [ ] 1.7 `packages/agent/__tests__/durable/agent-config.test.ts` (faux provider only): `host/agent-config` "A config without a default model does not type-check" (a `tsc --noEmit` fixture), "A script runs on the config's default model in its workspace", "A host's own action sits beside the built-ins", "Two models on one provider", "A provider name clash is refused" and "A binding-like value reaches the model factory" (6)
+- [x] 1.5 `packages/agent/__tests__/durable/workspace.test.ts`: `actions/workspace` "The interface loads without Node built-ins", "A write then a read round-trips", "A created and an edited file", "The built-ins use the workspace they were given" and "Commands need exec" (5), named `Scenario: <exact scenario name>`
+- [x] 1.6 `packages/agent/__tests__/node/local-workspace.test.ts`: `actions/workspace` "A metacharacter is an argument", "A slow process is killed", "A symlink out of the workspace is refused" and "Outside git there is no snapshot" (4)
+- [x] 1.7 `packages/agent/__tests__/durable/agent-config.test.ts` (faux provider only): `host/agent-config` "A config without a default model does not type-check" (a `tsc --noEmit` fixture), "A script runs on the config's default model in its workspace", "A host's own action sits beside the built-ins", "Two models on one provider", "A provider name clash is refused" and "A binding-like value reaches the model factory" (6)
 
 ## 2. The delegation mechanism (additive: `delegate_claude_code` stays registered until group 3)
 

@@ -348,6 +348,7 @@ peer dependencies, so a consumer of the interpreter alone installs none of them.
 | `@specsesh/agent/pi` | A `ReasoningPort` on pi-ai, plus model helpers | `@earendil-works/pi-ai` |
 | `@specsesh/agent/claude-code` | A `ReasoningPort` and a pi provider that run each step through your own `claude -p` (Node only) | `@earendil-works/pi-ai` |
 | `@specsesh/agent/durable` | The pi-durable extensions, `startScript` / `waitForScript` / `runScript`, actions and the built-ins | `@earendil-works/pi-ai`, `@earendil-works/pi-durable`, `@earendil-works/chord` |
+| `@specsesh/agent/node` | `localWorkspace(dir)`, a workspace over the filesystem, `child_process` and git; `gitSnapshot`; `builtinActions` (Node only) | the durable peers |
 | `@specsesh/agent/cloudflare` | `AgentScriptHost`, a Durable Object class for a Worker to re-export (workerd only) | the durable peers and `agents` |
 | `@specsesh/agent/openspec` | The OpenSpec ontology: typed schemas for a change, its lifecycle steps, its execution loops and their evidence | none (uses the `typebox` dependency) |
 | `@specsesh/agent/task` | The task and group loops (`startTaskLoop`, `startGroupLoop`, `answerEscalation`, …), `taskLoopExtensions`, and the bundled `task.agent`, `task-delegate.agent` and `group.agent` (Node only) | the durable peers |

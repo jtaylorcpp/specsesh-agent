@@ -10,7 +10,7 @@ const ROOT = join(PKG_DIR, "..", "..");
 const MANIFEST_TEXT = readFileSync(join(PKG_DIR, "package.json"), "utf8");
 const manifest = JSON.parse(MANIFEST_TEXT);
 
-const ENTRIES = ["authoring", "interpreter", "pi", "claude-code", "durable", "cloudflare", "openspec", "task"];
+const ENTRIES = ["authoring", "interpreter", "pi", "claude-code", "durable", "node", "cloudflare", "openspec", "task"];
 const SF = {
 	"@sf-agentscript/agentforce-dialect": "2.53.0",
 	"@sf-agentscript/agentscript-dialect": "3.4.0",
@@ -65,12 +65,16 @@ describe("The package is @specsesh/agent 0.1.0 under Apache-2.0", () => {
 	});
 });
 
-describe("The package exports exactly eight entry points", () => {
+describe("The package exports exactly nine entry points", () => {
 	it("Scenario: The exports map is exact", () => {
 		expect(Object.keys(manifest.exports)).toEqual(ENTRIES.map((entry) => `./${entry}`));
 		expect(manifest.exports["./durable"]).toEqual({
 			types: "./dist/durable/index.d.ts",
 			import: "./dist/durable/index.js",
+		});
+		expect(manifest.exports["./node"]).toEqual({
+			types: "./dist/node/index.d.ts",
+			import: "./dist/node/index.js",
 		});
 		expect(manifest.exports["./openspec"]).toEqual({
 			types: "./dist/openspec/index.d.ts",

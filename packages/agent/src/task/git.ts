@@ -6,9 +6,9 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+
+export { changedBetween, repoRoot, snapshot, status, type StatusEntry } from "../node/snapshot.js";
 
 /** The only git invocations the runner may make. */
 export const ALLOWED_GIT = ["status", "rev-parse", "worktree add", "worktree list"] as const;
@@ -36,56 +36,6 @@ export function insideGit(cwd: string): boolean {
 	if (!existsSync(cwd)) return false;
 	const ran = git(["rev-parse", "--is-inside-work-tree"], cwd);
 	return ran.code === 0 && ran.stdout.trim() === "true";
-}
-
-/** The working tree's top directory. */
-export function repoRoot(cwd: string): string {
-	const ran = git(["rev-parse", "--show-toplevel"], cwd);
-	if (ran.code !== 0) throw new Error(`${cwd} is not inside a git repository: ${ran.stderr.trim()}`);
-	return ran.stdout.trim();
-}
-
-export interface StatusEntry {
-	/** The two-letter porcelain code, e.g. ` M` or `??`. */
-	readonly code: string;
-	/** Relative to the repository root, with `/`. */
-	readonly path: string;
-}
-
-/** `git status --porcelain`, every untracked file listed. Ignored files never appear. */
-export function status(cwd: string): StatusEntry[] {
-	const ran = git(["status", "--porcelain", "-z", "--untracked-files=all"], cwd);
-	if (ran.code !== 0) throw new Error(`git status failed in ${cwd}: ${ran.stderr.trim()}`);
-	const fields = ran.stdout.split("\0");
-	const entries: StatusEntry[] = [];
-	for (let i = 0; i < fields.length; i++) {
-		const field = fields[i] as string;
-		if (field.length < 4) continue;
-		const code = field.slice(0, 2);
-		entries.push({ code, path: field.slice(3) });
-		// A rename or copy is followed by its source path.
-		if (code.includes("R") || code.includes("C")) i++;
-	}
-	return entries;
-}
-
-/** Each listed path's porcelain code and content hash, so a further edit to an already-modified file still shows. */
-export function snapshot(cwd: string): Map<string, string> {
-	const root = repoRoot(cwd);
-	const entries = new Map<string, string>();
-	for (const { code, path } of status(cwd)) {
-		const file = join(root, path);
-		const hash =
-			existsSync(file) && statSync(file).isFile() ? createHash("sha256").update(readFileSync(file)).digest("hex") : "-";
-		entries.set(path, `${code}:${hash}`);
-	}
-	return entries;
-}
-
-/** Sorted paths whose entry differs between the two snapshots, minus `exclude` (repository-relative). */
-export function changedBetween(before: Map<string, string>, after: Map<string, string>, exclude: ReadonlySet<string>): string[] {
-	const paths = new Set([...before.keys(), ...after.keys()]);
-	return [...paths].filter((path) => before.get(path) !== after.get(path) && !exclude.has(path)).sort();
 }
 
 /** Whether the local branch exists. */

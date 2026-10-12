@@ -1,0 +1,5 @@
+{
+  "extends": "../../../../tsconfig.json",
+  "include": [],
+  "files": ["no-default.ts", "with-default.ts"]
+}

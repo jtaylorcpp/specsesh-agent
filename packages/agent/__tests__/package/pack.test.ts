@@ -181,7 +181,7 @@ describe("pack:check proves the tarball installs and runs", () => {
 	}, 60_000);
 });
 
-describe("The package exports exactly eight entry points", () => {
+describe("The package exports exactly nine entry points", () => {
 	for (const [name, specifier] of [
 		["Scenario: A deep import is refused", "@specsesh/agent/dist/interpreter/run.js"],
 		["Scenario: The bare package name is not importable", "@specsesh/agent"],

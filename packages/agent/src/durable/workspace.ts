@@ -1,0 +1,261 @@
+/**
+ * Where an agent's work happens, with no runtime in it: a `Workspace` reads and
+ * writes confined paths, and may run processes and take snapshots. The four
+ * built-in actions, the checks and every `DiffEvidence` go through one.
+ *
+ *   read_file   { path } → { content }                read     safe
+ *   edit_file   { path, content } → { ok }            edit     safe
+ *   run_command { command } → { exit_code, output }   command  unsafe
+ *   run_checks  { task_id } → { passed, output }      command  unsafe
+ *
+ * No `node:` import here: a workspace over a directory lives in `./node`, one
+ * over a sandbox in `./cloudflare`. A workspace with no `exec` runs no command,
+ * and its checks fail rather than pass.
+ */
+
+import { Action, Evidence, check, explain, type CheckEvidence, type DiffEvidence } from "../openspec/index.js";
+import type { HostAction } from "./actions.js";
+
+export interface ExecOptions {
+	readonly stdin?: string;
+	/** Exactly the child's environment, never merged with the host's. */
+	readonly env?: Readonly<Record<string, string>>;
+	readonly timeoutMs: number;
+	readonly signal?: AbortSignal;
+}
+
+export type ExecResult =
+	| { readonly kind: "exited"; readonly code: number; readonly stdout: string; readonly stderr: string }
+	| { readonly kind: "timed-out"; readonly stdout: string; readonly stderr: string }
+	| { readonly kind: "spawn-error"; readonly message: string };
+
+/** Path → a value that changes when the path's status or content does (`status:contentHash`). */
+export type WorkspaceSnapshot = ReadonlyMap<string, string>;
+
+export interface Workspace {
+	/** A display name for records and messages. */
+	readonly root: string;
+	/** Rejects with `WorkspaceError`: `outside the workspace` or `no such file`. */
+	read(path: string): Promise<string>;
+	/** Creates missing parent directories inside the workspace. */
+	write(path: string, content: string): Promise<void>;
+	/** Runs `argv[0]` with the rest as arguments, no shell, in the workspace. */
+	exec?(argv: readonly string[], options: ExecOptions): Promise<ExecResult>;
+	/** `undefined`: no history to diff against. */
+	snapshot?(): Promise<WorkspaceSnapshot | undefined>;
+}
+
+export class WorkspaceError extends Error {
+	readonly reason: "outside the workspace" | "no such file";
+	readonly path: string;
+
+	constructor(reason: "outside the workspace" | "no such file", path: string) {
+		super(reason === "outside the workspace" ? `${path} is outside the workspace` : `no such file: ${path}`);
+		this.name = "WorkspaceError";
+		this.reason = reason;
+		this.path = path;
+	}
+}
+
+export const NO_EXEC = "this workspace cannot run commands";
+const DEFAULT_TIMEOUT_MS = 600_000;
+/** Exit code recorded for a command that could not be spawned, as a shell reports a missing command. */
+const SPAWN_FAILED_EXIT_CODE = 127;
+
+/** A git snapshot value: the two-letter porcelain code, `:`, then the content hash (`-` for no file). */
+const PORCELAIN = /^([ MTADRCU?!]{2}):/;
+
+/**
+ * The paths whose entry differs, sorted. Absent after, listed with no file (a
+ * `-` hash) or with a `D` code: `deleted`. Absent before: `added`, except a
+ * porcelain entry that is neither untracked (`??`) nor added (`A`), which is a
+ * tracked file that was clean before (git lists no clean file): `modified`.
+ * Otherwise `modified`.
+ */
+export function diffSnapshots(before: WorkspaceSnapshot, after: WorkspaceSnapshot): DiffEvidence["files"] {
+	const paths = [...new Set([...before.keys(), ...after.keys()])].filter((path) => before.get(path) !== after.get(path)).sort();
+	return paths.map((path) => {
+		const now = after.get(path);
+		const code = now === undefined ? undefined : PORCELAIN.exec(now)?.[1];
+		if (now === undefined || now.endsWith(":-") || code?.includes("D") === true) return { path, change: "deleted" };
+		if (before.has(path)) return { path, change: "modified" };
+		const tracked = code !== undefined && code !== "??" && !code.includes("A");
+		return { path, change: tracked ? "modified" : "added" };
+	});
+}
+
+/** Split a command line on whitespace. No quoting, no shell: what you see is the argv. */
+function splitCommand(command: string): string[] {
+	return command.trim().split(/\s+/).filter((word) => word !== "");
+}
+
+export interface ChecksRun {
+	/** Every check exited 0. Never true without `exec`, nor for no checks. */
+	readonly passed: boolean;
+	/** One per check that ran, in check order. */
+	readonly evidence: readonly CheckEvidence[];
+	/** Each check as `$ <command>`, its output, `(exit <code>)`; or why none ran. */
+	readonly output: string;
+}
+
+/**
+ * Run every check in order through `workspace.exec`, none skipped after a
+ * failure. One that cannot start is a failure (127); one that times out is a
+ * failure too (-1). Nothing here throws.
+ */
+export async function runChecks(
+	workspace: Workspace,
+	checks: readonly string[],
+	timeoutMs: number,
+	signal?: AbortSignal,
+): Promise<ChecksRun> {
+	if (workspace.exec === undefined) return { passed: false, evidence: [], output: NO_EXEC };
+	if (checks.length === 0) return { passed: false, evidence: [], output: "no checks configured, and an empty set of checks is not a pass" };
+	const evidence: CheckEvidence[] = [];
+	for (const command of checks) {
+		const ran = await workspace.exec(splitCommand(command), { timeoutMs, ...(signal !== undefined ? { signal } : {}) });
+		if (ran.kind === "exited") evidence.push({ kind: "check", command, exitCode: ran.code, output: ran.stdout + ran.stderr });
+		else if (ran.kind === "timed-out") {
+			evidence.push({ kind: "check", command, exitCode: -1, output: `${ran.stdout}${ran.stderr}\n(timed out after ${timeoutMs}ms)` });
+		} else evidence.push({ kind: "check", command, exitCode: SPAWN_FAILED_EXIT_CODE, output: `(could not start: ${ran.message})` });
+	}
+	return {
+		passed: evidence.every((e) => e.exitCode === 0),
+		evidence,
+		output: evidence.map((e) => `$ ${e.command}\n${e.output}\n(exit ${e.exitCode})`).join("\n\n"),
+	};
+}
+
+/** Build a record, checking each part against the ontology before it leaves. */
+function actionRecord(action: Action, evidence: readonly Evidence[]): { action: Action; evidence: readonly Evidence[] } {
+	const parts: [typeof Action | typeof Evidence, unknown][] = [[Action, action], ...evidence.map((e) => [Evidence, e] as [typeof Evidence, unknown])];
+	for (const [schema, value] of parts) {
+		if (!check(schema, value)) {
+			throw new Error(`a built-in action built a record the ontology refuses: ${explain(schema, value).join("; ")}`);
+		}
+	}
+	return { action, evidence };
+}
+
+export interface WorkspaceActionOptions {
+	/** First words `run_command` may run. Empty: it runs nothing. */
+	readonly allow?: readonly string[];
+	/** Commands `run_checks` runs, in order. Empty: it refuses rather than pass vacuously. */
+	readonly checks?: readonly string[];
+	/** Per command before it is killed. Defaults to 10 minutes. */
+	readonly timeoutMs?: number;
+}
+
+/** The four built-ins, every read, write and process going through `workspace`. */
+export function workspaceActions(workspace: Workspace, options: WorkspaceActionOptions = {}): HostAction[] {
+	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+	const allow = options.allow ?? [];
+	const checks = options.checks ?? [];
+
+	const readFileAction: HostAction = {
+		name: "read_file",
+		kind: "read",
+		inputs: { path: "string" },
+		outputs: { content: "string" },
+		replay: "safe",
+		async execute(inputs) {
+			try {
+				return { ok: true, outputs: { content: await workspace.read(String(inputs["path"])) } };
+			} catch (error) {
+				if (error instanceof WorkspaceError) return { ok: false, message: `${error.message}; nothing was read` };
+				throw error;
+			}
+		},
+	};
+
+	const editFileAction: HostAction = {
+		name: "edit_file",
+		kind: "edit",
+		inputs: { path: "string", content: "string" },
+		outputs: { ok: "boolean" },
+		replay: "safe",
+		async execute(inputs) {
+			const path = String(inputs["path"]);
+			let change: "added" | "modified";
+			try {
+				await workspace.read(path);
+				change = "modified";
+			} catch (error) {
+				if (!(error instanceof WorkspaceError)) throw error;
+				if (error.reason === "outside the workspace") return { ok: false, message: `${error.message}; nothing was written` };
+				change = "added";
+			}
+			try {
+				await workspace.write(path, String(inputs["content"]));
+			} catch (error) {
+				if (error instanceof WorkspaceError) return { ok: false, message: `${error.message}; nothing was written` };
+				throw error;
+			}
+			return {
+				ok: true,
+				outputs: { ok: true },
+				record: actionRecord(
+					{ kind: "edit", summary: `${change === "added" ? "create" : "replace"} ${path}`, refs: [path] },
+					[{ kind: "diff", files: [{ path, change }] }],
+				),
+			};
+		},
+	};
+
+	const runCommandAction: HostAction = {
+		name: "run_command",
+		kind: "command",
+		inputs: { command: "string" },
+		outputs: { exit_code: "number", output: "string" },
+		replay: "unsafe",
+		async execute(inputs, context) {
+			const command = String(inputs["command"]).trim();
+			const argv = splitCommand(command);
+			const first = argv[0];
+			if (first === undefined) return { ok: false, message: "the command is empty" };
+			if (!allow.includes(first)) {
+				return {
+					ok: false,
+					message: `${first} is not on the allowlist (allowed: ${allow.join(", ") || "nothing"}); nothing was run`,
+				};
+			}
+			if (workspace.exec === undefined) return { ok: false, message: NO_EXEC };
+			const ran = await workspace.exec(argv, { timeoutMs, ...(context.signal !== undefined ? { signal: context.signal } : {}) });
+			if (ran.kind === "timed-out") return { ok: false, message: `${command} timed out after ${timeoutMs}ms` };
+			if (ran.kind === "spawn-error") return { ok: false, message: `${command} could not start: ${ran.message}` };
+			const output = ran.stdout + ran.stderr;
+			return {
+				ok: true,
+				outputs: { exit_code: ran.code, output },
+				record: actionRecord({ kind: "command", summary: command, refs: [command] }, [
+					{ kind: "check", command, exitCode: ran.code, output },
+				]),
+			};
+		},
+	};
+
+	const runChecksAction: HostAction = {
+		name: "run_checks",
+		kind: "command",
+		inputs: { task_id: "string" },
+		outputs: { passed: "boolean", output: "string" },
+		replay: "unsafe",
+		async execute(inputs, context) {
+			if (workspace.exec === undefined) return { ok: false, message: NO_EXEC };
+			if (checks.length === 0) {
+				return { ok: false, message: "no checks configured, and an empty set of checks is not a pass" };
+			}
+			const ran = await runChecks(workspace, checks, timeoutMs, context.signal);
+			return {
+				ok: true,
+				outputs: { passed: ran.passed, output: ran.output },
+				record: actionRecord(
+					{ kind: "command", summary: `run the checks for task ${String(inputs["task_id"])}`, refs: [...checks] },
+					ran.evidence,
+				),
+			};
+		},
+	};
+
+	return [readFileAction, editFileAction, runCommandAction, runChecksAction];
+}
