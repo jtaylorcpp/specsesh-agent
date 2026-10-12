@@ -34,5 +34,5 @@
 
 ## 4. Verify
 
-- [ ] 4.1 `pnpm -r check`, `pnpm -r test` (twice, stable), `pnpm pack:check`, `pnpm spec:check`, `pnpm docs:check` pass, and `examples/cloudflare-worker/test/routes.sh` passes on `wrangler dev --local`
-- [ ] 4.2 `pnpm test:live` (the orchestrator runs it), then `pnpm spec:archive add-cloudflare-workspace`
+- [x] 4.1 `pnpm -r check`, `pnpm -r test` (twice, stable), `pnpm pack:check`, `pnpm spec:check`, `pnpm docs:check` pass, and `examples/cloudflare-worker/test/routes.sh` passes on `wrangler dev --local`
+- [x] 4.2 `pnpm test:live` (the orchestrator runs it), then `pnpm spec:archive add-cloudflare-workspace`
