@@ -48,8 +48,10 @@ subagent judge:
             | The group check failed after every task converged. Check output:
             | {!@variables.check_output}
             if @variables.rework_count > 0:
-                | Reworks so far: {!@variables.rework_count}. Prefer asking over repeating a rework that did not help.
-            | Choose next_action: rework (set rework_task to one task id from the list above and feedback to what it must fix), ask (set question), or amend-spec (set question to what is wrong in the spec).
+                | Reworks so far: {!@variables.rework_count}.
+            | Choose next_action. While reworks remain, rework the task most likely at fault with sharper feedback: say exactly what is unmet and what to change. Set rework_task to one task id from the list above and feedback to what it must fix.
+            | Choose amend-spec only when the spec deltas themselves contradict each other or the code they describe. Choose ask only for a decision that no rework could settle. For ask or amend-spec, set question.
+            | Answer next_action with exactly one word: rework, ask or amend-spec. Put every explanation in the other fields, never in next_action.
             set @variables.next_action = @outputs.next_action
             set @variables.rework_task = @outputs.rework_task
             set @variables.feedback = @outputs.feedback

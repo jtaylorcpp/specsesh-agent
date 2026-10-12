@@ -24,9 +24,9 @@
 
 ## 4. Iterate-first bundled scripts
 
-- [ ] 4.1 `packages/agent/src/task/scripts/task.agent` and `task-delegate.agent`: the judge's closing instructions become the four iterate-first lines in `design.md`
-- [ ] 4.2 `packages/agent/src/task/scripts/group.agent`: the rework-first stance in `design.md`, dropping "Prefer asking over repeating a rework that did not help"
-- [ ] 4.3 `packages/agent/__tests__/task/bundled-judges.test.ts`: `Scenario: The judge prompt says retry is the default` (both task scripts) and `Scenario: The bundled judge reworks first`; the existing lint-clean scenarios still pass
+- [x] 4.1 `packages/agent/src/task/scripts/task.agent` and `task-delegate.agent`: the judge's closing instructions become the four iterate-first lines in `design.md`
+- [x] 4.2 `packages/agent/src/task/scripts/group.agent`: the rework-first stance in `design.md`, dropping "Prefer asking over repeating a rework that did not help"
+- [x] 4.3 `packages/agent/__tests__/task/bundled-judges.test.ts`: `Scenario: The judge prompt says retry is the default` (both task scripts) and `Scenario: The bundled judge reworks first`; the existing lint-clean scenarios still pass
 
 ## 5. Defaults, config and docs
 
