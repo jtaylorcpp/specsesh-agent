@@ -4,9 +4,9 @@ name: plan
 kind: step
 area: process
 spec:
-  - "openspec/process: Design and plan follow the deltas"
+  - "openspec/process: Plan follows the deltas and the design"
   - "openspec/process: Each forward transition follows its step"
-related: [step, proposal, delta, design, task-list, design-step, validate-step, change-state]
+related: [step, proposal, delta, design, task-list, design-step, specify-step, validate-step, change-state]
 status: implemented
 ---
 
@@ -24,18 +24,19 @@ plan: Step<{ proposal, deltas, design }, TaskList>, actor "agent"
 
 | | Type | Meaning |
 |---|---|---|
-| **Input** | `{ proposal: Proposal, deltas: Delta[], design: Design }` | Everything the earlier steps produced, including the [Design](../../../taxonomy/design.md). |
+| **Input** | `{ proposal: Proposal, deltas: Delta[], design: Design }` | Everything the earlier steps produced: the deltas from [specify](specify-step.md) and the [Design](../../../taxonomy/design.md) from [design](design-step.md), which ran before `specify`. The tasks are derived from both the requirements and the approved design. |
 | **Output** | [TaskList](../../../taxonomy/task-list.md) | The numbered task groups of `tasks.md`. |
 | **Actor** | `"agent"` | |
 
 ## Invariants
 
 - Its input SHALL include the `design` the `design` step produced.
-- Completing it moves the change `designed → planned`.
+- Completing it moves the change `specified → planned`.
 
 ## Relations
 
-- Follows [design](design-step.md); its output is what [validate](validate-step.md) checks next, and what the loops later execute.
+- Fourth in `STEPS`: propose → design → specify → plan → validate → approve → execute → archive.
+- Follows [specify](specify-step.md); its output is what [validate](validate-step.md) checks next, and what the loops later execute.
 - Drives a transition of [ChangeState](../change-state.md).
 
 ## Example
@@ -44,5 +45,5 @@ plan: Step<{ proposal, deltas, design }, TaskList>, actor "agent"
 
 ## Spec
 
-- `openspec/process`: Design and plan follow the deltas
+- `openspec/process`: Plan follows the deltas and the design
 - `openspec/process`: Each forward transition follows its step

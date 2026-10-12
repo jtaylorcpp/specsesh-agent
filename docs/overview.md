@@ -4,7 +4,7 @@ How an OpenSpec change is modelled, on one page. Each name links to its concept 
 
 ## The idea in three sentences
 
-A change is a set of typed artifacts: a [proposal](taxonomy/proposal.md), [deltas](taxonomy/delta.md) to [capabilities](taxonomy/capability.md), a [design](taxonomy/design.md) and a [task list](taxonomy/task-list.md). Every [step](ontology/process/step.md) of its lifecycle takes a typed input and returns a typed [result](ontology/process/step-result.md). Executing it is three nested feedback [loops](ontology/loops/loop.md):
+A change is a set of typed artifacts: a [proposal](taxonomy/proposal.md), a [design](taxonomy/design.md) drawn from it, [deltas](taxonomy/delta.md) to [capabilities](taxonomy/capability.md) derived from the design, and a [task list](taxonomy/task-list.md). Every [step](ontology/process/step.md) of its lifecycle takes a typed input and returns a typed [result](ontology/process/step-result.md). Executing it is three nested feedback [loops](ontology/loops/loop.md):
 - a [task](taxonomy/task.md) is a loop;
 - a [task group](taxonomy/task-group.md) is a loop of task loops;
 - the task list is a loop of group loops that makes the spec real.
@@ -35,8 +35,8 @@ A delta scenario with no strong link is an [unclaimed scenario](taxonomy/unclaim
 | Step | Input | Output | Actor |
 |---|---|---|---|
 | [propose](ontology/process/steps/propose-step.md) | [Intent](ontology/process/intent.md) | Proposal | agent, from the principal's words |
-| [specify](ontology/process/steps/specify-step.md) | Proposal + base capabilities | Delta[] | agent |
-| [design](ontology/process/steps/design-step.md) | Proposal + deltas | Design | agent |
+| [design](ontology/process/steps/design-step.md) | Proposal | Design | agent |
+| [specify](ontology/process/steps/specify-step.md) | Proposal + design + base capabilities | Delta[] | agent |
 | [plan](ontology/process/steps/plan-step.md) | Proposal + deltas + design | TaskList | agent |
 | [validate](ontology/process/steps/validate-step.md) | Change | [ValidationReport](ontology/process/validation-report.md) | tool |
 | [approve](ontology/process/steps/approve-step.md) | Change + report | [Approval](ontology/process/approval.md) | **principal only** |
@@ -48,10 +48,12 @@ A step never throws: it returns a value or a [StepFailure](ontology/process/step
 The change moves through its [state machine](ontology/process/change-state.md):
 
 ```
-drafting → specified → designed → planned → validated → approved → executing → converged → archived
+drafting → designed → specified → planned → validated → approved → executing → converged → archived
                                                ↑                        │
                                                └──── amended ◄──────────┘   a spec-defect finding
 (drafting is the initial state; any state except archived → abandoned; archived and abandoned are terminal)
+(each forward edge is its step: design drafting → designed, specify designed → specified, plan specified → planned;
+ planned → validated needs valid: true)
 ```
 
 Two guards matter most:

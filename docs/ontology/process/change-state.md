@@ -26,7 +26,7 @@ ChangeState = "drafting" | "specified" | "designed" | "planned" | "validated" | 
 ```
 
 ```
-drafting → specified → designed → planned → validated → approved → executing → converged → archived
+drafting → designed → specified → planned → validated → approved → executing → converged → archived
                                                ↑                        │
                                                └──── amended ◄──────────┘   (a spec-defect finding)
 
@@ -37,9 +37,9 @@ any state except archived ──→ abandoned          archived, abandoned: term
 
 | From | To | Guard |
 |---|---|---|
-| `drafting` | `specified` | follows [specify](steps/specify-step.md) |
-| `specified` | `designed` | follows [design](steps/design-step.md) |
-| `designed` | `planned` | follows [plan](steps/plan-step.md) |
+| `drafting` | `designed` | follows [design](steps/design-step.md) |
+| `designed` | `specified` | follows [specify](steps/specify-step.md) |
+| `specified` | `planned` | follows [plan](steps/plan-step.md) |
 | `planned` | `validated` | a [ValidationReport](validation-report.md) with `valid` `true` |
 | `validated` | `approved` | an [Approval](approval.md) with `approved` `true` from the principal |
 | `approved` | `executing` | [execute](steps/execute-step.md) starting |
@@ -52,7 +52,7 @@ any state except archived ──→ abandoned          archived, abandoned: term
 ## Invariants
 
 - `drafting` is the initial state: the first `Proposal` from [propose](steps/propose-step.md) creates the change in it, and no transition leads into it.
-- The forward path SHALL be drafting → specified → designed → planned → validated → approved → executing → converged → archived.
+- The forward path SHALL be drafting → designed → specified → planned → validated → approved → executing → converged → archived.
 - A change MUST NOT enter `executing` from any state other than `approved`.
 - A valid report produced before execution does not license `converged → archived`.
 - From `amended`, the change returns to `validated` only once the amended deltas validate, and to `approved` only with a new `Approval`.
@@ -67,7 +67,8 @@ any state except archived ──→ abandoned          archived, abandoned: term
 ## Example
 
 - **Refused transitions:**
-  - `designed → validated` is refused: planning was skipped.
+  - `drafting → specified` is refused: designing was skipped.
+  - `specified → validated` is refused: planning was skipped.
   - `validated → executing` is refused: there is no approval.
   - `archived → abandoned` is refused: `archived` is terminal.
 - **The amended path, 2026-10-11:** tests written for `baseline-agentscript-durable` showed two requirements described the code wrongly. That is a `spec-defect`, which sends the change from `executing` to `amended`. Once the corrected deltas validated, it returned to `validated` and needed a new approval.

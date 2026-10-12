@@ -6,12 +6,12 @@
 
 ## 2. Docs
 
-- [ ] 2.1 `docs/ontology/process/steps/design-step.md`: input `{ proposal }`, moves `drafting → designed`, follows propose and feeds specify, spec refs "Design follows the proposal"
-- [ ] 2.2 `docs/ontology/process/steps/specify-step.md`: input gains `design`, moves `designed → specified`, follows design and feeds plan
-- [ ] 2.3 `docs/ontology/process/steps/plan-step.md`: moves `specified → planned`, follows specify, spec ref "Plan follows the deltas and the design"
-- [ ] 2.4 `docs/ontology/process/change-state.md`: the forward path diagram and the first three rows of the transition table in the new order
-- [ ] 2.5 `docs/overview.md`: the step table's order and the state diagram
-- [ ] 2.6 `guides/06-openspec.md`: the state list in the new order
+- [x] 2.1 `docs/ontology/process/steps/design-step.md`: input `{ proposal }`, moves `drafting → designed`, follows propose and feeds specify, spec refs "Design follows the proposal"
+- [x] 2.2 `docs/ontology/process/steps/specify-step.md`: input gains `design`, moves `designed → specified`, follows design and feeds plan
+- [x] 2.3 `docs/ontology/process/steps/plan-step.md`: moves `specified → planned`, follows specify, spec ref "Plan follows the deltas and the design"
+- [x] 2.4 `docs/ontology/process/change-state.md`: the forward path diagram and the first three rows of the transition table in the new order
+- [x] 2.5 `docs/overview.md`: the step table's order and the state diagram
+- [x] 2.6 `guides/06-openspec.md`: the state list in the new order
 
 ## 3. Verify
 
