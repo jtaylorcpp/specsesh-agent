@@ -25,7 +25,7 @@ The package SHALL define a pi-durable task `agentscript.task-loop`, version `1`,
 - **THEN** it SHALL run the checks again and start no other child run for iteration 2
 
 ### Requirement: Judge maps a failed run and a met verdict
-In `judge`, a child run that did not complete, or completed with `RunResult.kind` other than `"completed"`, SHALL end the loop `"failed"` with a `Finding` of kind `"environment"`. A completed run with `met` true SHALL move to `gate` when `checks` is non-empty, and otherwise end the loop `"converged"`, ticking the task as the ticking requirements allow.
+In `judge`, a child run that did not complete, or ended with `RunResult.kind` other than `"completed"` because a step failed, SHALL end the loop `"failed"` with a `Finding` of kind `"environment"`. A completed run with `met` true SHALL move to `gate` when `checks` is non-empty, and otherwise end the loop `"converged"`, ticking the task as the ticking requirements allow.
 
 #### Scenario: A failed step fails the loop
 - **WHEN** iteration 1's run ends with `kind` `"failed"` (e.g. `rate_limit`)
@@ -96,6 +96,23 @@ Every child run the task loop starts SHALL carry `choices: { next_action: ["retr
 - **GIVEN** a task script declaring `next_action: mutable string = "proceed"`
 - **WHEN** `startTaskLoop` is called with it
 - **THEN** it SHALL reject naming `next_action` and `"proceed"`, and no loop SHALL be created
+
+### Requirement: A run ended by a failed action is retried within budget
+When a child run ends `"failed"` because a host action failed (its last report is an action result with `ok` false, such as a delegate timeout), the iteration SHALL be recorded unmet with that action's message as reason, an `"environment"` finding and `retry` feedback; the loop iterates with `carried` that message, or exhausts by budget.
+
+#### Scenario: A delegate timeout costs one iteration
+- **GIVEN** a budget of `8`
+- **WHEN** iteration 1's run ends failed because `delegate_claude_code` answered `ok` false with `Claude Code timed out after 600000ms`
+- **THEN** iteration 2 SHALL start with `carried` containing `timed out after 600000ms`, and the loop SHALL NOT end `"failed"`
+
+#### Scenario: A failed action on the last iteration exhausts
+- **GIVEN** `budget.maxIterations` `1`
+- **WHEN** iteration 1's run ends failed because an action failed
+- **THEN** the loop SHALL end `"exhausted"`
+
+#### Scenario: A failed step still fails the loop
+- **WHEN** iteration 1's run ends failed because its judge step failed with category `rate_limit`
+- **THEN** the loop SHALL end `"failed"`
 
 ### Requirement: The bundled task judges iterate first
 The judge in `task.agent` and `task-delegate.agent` SHALL say: the task is done only when the checks pass; retry is the default until they do; `amend-spec` only when the deltas contradict themselves or the code; `ask` only for a decision no passing check could settle; and `next_action` is exactly one word, every explanation going in `unmet`.

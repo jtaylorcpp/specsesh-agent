@@ -189,11 +189,13 @@ async function sentArguments(tx: Tx, taskId: TaskId, callId: string): Promise<un
 	throw new Error(`tool call ${callId} is not in its assistant entry`);
 }
 
-/** A value that passes `schema`: each property's type at its zero. */
+/** A value that passes `schema`: each property's first allowed value when it has an `enum`, else its type at its zero. */
 function standIn(schema: JsonObject): JsonObject {
-	const properties = (schema["properties"] ?? {}) as Record<string, { type?: string }>;
+	const properties = (schema["properties"] ?? {}) as Record<string, { type?: string; enum?: readonly JsonValue[] }>;
 	const zero = (type: string | undefined): JsonValue => (type === "number" ? 0 : type === "boolean" ? false : "");
-	return Object.fromEntries(Object.entries(properties).map(([field, spec]) => [field, zero(spec.type)]));
+	return Object.fromEntries(
+		Object.entries(properties).map(([field, spec]) => [field, spec.enum?.[0] ?? zero(spec.type)]),
+	);
 }
 
 /** The result tool the plain step extension lists until a step registers its own. */

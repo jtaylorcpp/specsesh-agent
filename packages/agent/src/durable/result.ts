@@ -13,7 +13,7 @@ export function checkResult(schema: Record<string, unknown> | null, value: unkno
 	if (value === null || typeof value !== "object" || Array.isArray(value)) {
 		return "The result must be an object.";
 	}
-	const properties = (schema.properties ?? {}) as Record<string, { type?: JsonType }>;
+	const properties = (schema.properties ?? {}) as Record<string, { type?: JsonType; enum?: readonly unknown[] }>;
 	const required = (schema.required ?? Object.keys(properties)) as string[];
 	const record = value as Record<string, unknown>;
 
@@ -22,9 +22,15 @@ export function checkResult(schema: Record<string, unknown> | null, value: unkno
 		if (!(field in record)) problems.push(`missing "${field}"`);
 	}
 	for (const [field, spec] of Object.entries(properties)) {
-		if (!(field in record) || spec.type === undefined) continue;
+		if (!(field in record)) continue;
 		const actual = typeof record[field];
-		if (actual !== spec.type) problems.push(`"${field}" must be a ${spec.type}, got ${actual}`);
+		if (spec.type !== undefined && actual !== spec.type) {
+			problems.push(`"${field}" must be a ${spec.type}, got ${actual}`);
+			continue;
+		}
+		if (spec.enum !== undefined && record[field] !== undefined && !spec.enum.includes(record[field])) {
+			problems.push(`"${field}" must be one of ${spec.enum.map((v) => JSON.stringify(v)).join(", ")}, got ${JSON.stringify(record[field])}`);
+		}
 	}
 	return problems.length === 0 ? undefined : `The result was not recorded: ${problems.join("; ")}. Call again.`;
 }

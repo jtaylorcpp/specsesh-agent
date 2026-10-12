@@ -105,6 +105,37 @@ describe("checkResult", () => {
 		expect(checkResult(schema, { severity: null, score: 2, ok: true })).toContain('"severity" must be a string, got object');
 	});
 
+	describe("enum fields", () => {
+		const enumSchema = {
+			type: "object",
+			properties: { next_action: { type: "string", enum: ["retry", "amend-spec", "ask"] } },
+			required: ["next_action"],
+			additionalProperties: false,
+		};
+
+		it("Scenario: Prose in an enum field is refused", () => {
+			const problem = checkResult(enumSchema, { next_action: "retry. Both questions can be settled" });
+			expect(problem).toContain('"next_action" must be one of "retry", "amend-spec", "ask", got "retry. Both questions can be settled"');
+			expect(problem).toMatch(/Call again\.$/);
+		});
+
+		it("Scenario: A value in the enum passes", () => {
+			expect(checkResult(enumSchema, { next_action: "ask" })).toBeUndefined();
+		});
+
+		it("joins an enum problem and a missing field in one message", () => {
+			const both = {
+				...enumSchema,
+				properties: { ...enumSchema.properties, reason: { type: "string" } },
+				required: ["next_action", "reason"],
+			};
+			const problem = checkResult(both, { next_action: "nope" });
+			expect(problem).toContain('missing "reason"');
+			expect(problem).toContain('"next_action" must be one of');
+			expect(problem?.match(/Call again\./g)).toHaveLength(1);
+		});
+	});
+
 	it("refuses any result on a text-only step", () => {
 		expect(checkResult(null, { a: 1 })).toMatch(/takes no structured result/);
 	});

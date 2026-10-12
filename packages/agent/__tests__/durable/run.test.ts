@@ -1,12 +1,17 @@
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import type { TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import type { RunResult } from "../../src/interpreter/index.js";
 import { RESULT_TOOL, runScript, startScript, waitForScript } from "../../src/durable/index.js";
 import { context, ENTRIES, memoryHarness, openHarness, PIPELINE, setup } from "./helpers.js";
 
+const HERE = dirname(fileURLToPath(import.meta.url));
 const dirs: string[] = [];
 afterEach(() => {
 	for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -100,6 +105,30 @@ describe("startScript and waitForScript", () => {
 		expect(result.kind).toBe("completed");
 	});
 
+	it("Scenario: Entry and variable overrides reach the step machine", async () => {
+		const { env, harness: opening } = memoryHarness();
+		const harness = await opening;
+		env.faux.setResponses([
+			fauxAssistantMessage([fauxToolCall(RESULT_TOOL, { severity: "low" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("ok")]),
+		]);
+
+		const id = await startScript(
+			harness,
+			PIPELINE,
+			{ entry: ["classify", "gate", "respond"], variables: { report: "slow" }, model: env.model },
+			context,
+		);
+		const input = (await harness.getTask(id, context))?.input as Record<string, unknown>;
+		await waitForScript(harness, id, context);
+		await harness.close(context);
+
+		expect(input.options).toEqual({ entry: ["classify", "gate", "respond"], variables: { report: "slow" } });
+		expect(env.requests[0]!.messages.filter((m) => m.role === "user").map((m) => String(m.content))).toEqual([
+			"Classify: slow",
+		]);
+	});
+
 	it("Scenario: No model means no model key", async () => {
 		const { env, harness: opening } = memoryHarness();
 		const harness = await opening;
@@ -113,6 +142,55 @@ describe("startScript and waitForScript", () => {
 		expect("model" in bareInput).toBe(false);
 		expect(bareInput.options).toEqual({ entry: ENTRIES, variables: { report: "slow" } });
 		expect(modelInput.model).toEqual(env.model);
+	});
+
+	it("Scenario: Choices reach the step machine", async () => {
+		const { env, harness: opening } = memoryHarness();
+		const harness = await opening;
+
+		// the opening value must be among the choices
+		const choices = { report: ["it crashes", "it is slow"] };
+		const id = await startScript(harness, PIPELINE, { choices, model: env.model }, context);
+		const input = (await harness.getTask(id, context))?.input as Record<string, unknown>;
+		await harness.close(context);
+
+		expect(input.options).toEqual({ choices });
+	});
+
+	it("Scenario: Choices travel inside the task", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "agentscript-run-"));
+		dirs.push(dir);
+		const db = join(dir, "run.sqlite");
+
+		// First process: starts the run with choices and dies on the judge step's request.
+		const child = spawnSync(
+			process.execPath,
+			["--import", join(HERE, "fixtures", "ts-resolve.mjs"), join(HERE, "fixtures", "crash-choices-child.ts"), db],
+			{ encoding: "utf8", timeout: 60_000 },
+		);
+		expect(child.stdout).toContain("CRASH");
+		expect(child.status).toBe(137);
+		const id = Number(/TASK (\d+)/.exec(child.stdout)?.[1]) as TaskId<RunResult>;
+
+		// A fresh process resumes from the stored task alone.
+		const env = setup();
+		env.faux.setResponses([
+			fauxAssistantMessage([fauxToolCall(RESULT_TOOL, { next_action: "ask" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("done")]),
+		]);
+		const harness = await openHarness(await openNodeSqliteStorage(db), env);
+		harness.resume();
+		const result = await waitForScript(harness, id, context);
+		await harness.close(context);
+
+		type Added = { name: string; parameters: { properties: Record<string, unknown> } };
+		const added = (env.requests[0]!.messages as { role: string; toolsAdded?: Added[] }[])
+			.filter((m) => m.role === "system")
+			.flatMap((m) => m.toolsAdded ?? []);
+		expect(added[0]!.parameters.properties.next_action).toEqual({ type: "string", enum: ["retry", "ask"] });
+		expect(result.steps.map((s) => s.outcome)).toMatchObject([{ kind: "answered", structured: { next_action: "ask" } }]);
+		expect(result.kind).toBe("completed");
+		expect(result.variables).toEqual({ next_action: "ask" });
 	});
 
 	it("Scenario: startScript resolves before any model request", async () => {

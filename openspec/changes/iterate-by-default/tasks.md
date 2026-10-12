@@ -8,7 +8,7 @@
 
 ## 2. Choices through the durable run
 
-- [ ] 2.1 `packages/agent/src/durable/result.ts`: `checkResult` adds `"<field>" must be one of "a", "b", got "x"` for a property with `enum`, joined into the one refusal message
+- [x] 2.1 `packages/agent/src/durable/result.ts`: `checkResult` adds `"<field>" must be one of "a", "b", got "x"` for a property with `enum`, joined into the one refusal message
 - [ ] 2.2 `packages/agent/src/durable/extension.ts` (the run task) and `src/durable/host.ts` (`startScript`): `RunInput.options` and `StartScriptOptions` carry `choices` through to `start`, so a resumed run keeps them
 - [ ] 2.3 `packages/agent/__tests__/durable/choices.test.ts`: one test per new or modified `durable/run-task` and `durable/host` scenario about choices (4), faux provider only
 
@@ -20,6 +20,7 @@
 - [ ] 3.4 `packages/agent/src/task/group-judge.ts` + `src/task/group.ts`: the judge contract also refuses a `next_action` default outside `rework`, `ask`, `amend-spec`; every judge run carries those as `choices`
 - [ ] 3.5 `packages/agent/__tests__/task/gate.test.ts`: one test per new or modified `task/agent` scenario about the gate and the phases (7: crash during gate, met with checks goes to the gate, met converges, failing checks retry, passing checks converge, gate failure exhausts, the carried output), faux provider only
 - [ ] 3.6 `packages/agent/__tests__/task/contract-choices.test.ts`: one test per new `task/agent` and `task/group` scenario about `next_action` choices (4), plus `Scenario: Budget defaults to eight iterations` in `__tests__/task/loop.test.ts`, replacing the three-iteration test (and `sources.test.ts`'s default expectation)
+- [ ] 3.7 `packages/agent/src/task/iteration.ts` + `src/task/judge.ts`: a run ended failed by a failed host action (last report an action result with `ok` false) is an unmet iteration (`environment` finding, `retry`, `carried` = the action's message) that iterates or exhausts by budget; a failed step still fails the loop; `packages/agent/__tests__/task/action-retry.test.ts`, one test per scenario of `A run ended by a failed action is retried within budget` (3)
 
 ## 4. Iterate-first bundled scripts
 

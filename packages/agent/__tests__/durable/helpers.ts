@@ -45,7 +45,28 @@ subagent respond:
                 | Write a routine reply about: {!@variables.report}
 `;
 
-export const ENTRIES = ["classify", "gate", "respond"];
+/** One model step that writes a string variable, the kind a caller gives `choices`. */
+export const JUDGE = `config:
+    agent_name: "judge"
+
+system:
+    instructions: "You decide."
+
+variables:
+    next_action: mutable string = "retry"
+
+subagent judge:
+    description: "Decide what happens next"
+
+    reasoning:
+        instructions: ->
+            | Decide.
+            set @variables.next_action = @outputs.next_action
+`;
+
+export const JUDGE_CHOICES = { next_action: ["retry", "ask"] };
+
+export const ENTRIES =["classify", "gate", "respond"];
 
 /** A faux provider and a registry with the Agent Script extensions installed. */
 export function setup() {
