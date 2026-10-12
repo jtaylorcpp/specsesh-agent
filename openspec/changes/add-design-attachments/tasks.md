@@ -5,7 +5,7 @@
 
 ## 2. Docs
 
-- [ ] 2.1 `docs/taxonomy/design.md`: the definition and fields gain `attachments`, an invariant for the path rule, and the example directory layout
+- [x] 2.1 `docs/taxonomy/design.md`: the definition and fields gain `attachments`, an invariant for the path rule, and the example directory layout
 
 ## 3. Verify
 
