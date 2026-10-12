@@ -1,17 +1,17 @@
 ## 1. Workspaces for Cloudflare
 
-- [ ] 1.1 `packages/agent/src/durable/workspace.ts`: optional `publish(message)` on `Workspace`; `memoryWorkspace(files?)` (in-memory `read`, `write`, `list`, `search`; no `exec`, `snapshot` or `publish`), exported from `src/durable/index.ts`
-- [ ] 1.2 `packages/agent/src/cloudflare/sandbox-workspace.ts` (new; imports neither `agents` nor `cloudflare:workers`):
+- [x] 1.1 `packages/agent/src/durable/workspace.ts`: optional `publish(message)` on `Workspace`; `memoryWorkspace(files?)` (in-memory `read`, `write`, `list`, `search`; no `exec`, `snapshot` or `publish`), exported from `src/durable/index.ts`
+- [x] 1.2 `packages/agent/src/cloudflare/sandbox-workspace.ts` (new; imports neither `agents` nor `cloudflare:workers`):
   - `SandboxLike`, and `sandboxWorkspace(sandbox, { dir, secrets? })`;
   - confined `read` and `write` with the `realpath -m` check, `write` running `mkdir -p` on the parent;
   - `exec` with POSIX-quoted argv under `timeout -s KILL`, mapping exit `137` to `timed-out` and a throw to `spawn-error`;
   - `snapshot`, `list` and `search` through git and the shared glob matcher;
   - `publish`;
   - every sandbox output redacted of `secrets` before it is returned or thrown.
-- [ ] 1.3 `packages/agent/src/cloudflare/artifacts.ts` (new; no `agents` or `cloudflare:workers`): `ArtifactsLike` and `artifactsSandboxWorkspace(artifacts, sandbox, { repo, fork, dir })`. It gets or creates the fork, issues a write token, clones unless `dir` already holds that fork, and passes the token as a secret.
-- [ ] 1.4 `packages/agent/__tests__/cloudflare/fakes.ts` (new): the local-exec fake `SandboxLike` (`bash -c` in a temporary directory) and the fake `ArtifactsLike` over local bare repositories, whose failures echo the token
-- [ ] 1.5 `packages/agent/__tests__/cloudflare/sandbox-workspace.test.ts`: `cloudflare/sandbox-workspace` "The workspace modules load in plain Node", "A local fake satisfies SandboxLike", "An escape never reaches the sandbox", "A metacharacter stays an argument", "A slow command is killed", "A delegate's change is diffed in the sandbox", "Publishing reaches the remote" and "Nothing to publish" (8), each named `Scenario: <exact scenario name>`
-- [ ] 1.6 `packages/agent/__tests__/cloudflare/artifacts.test.ts` + `__tests__/durable/memory-workspace.test.ts`: "A second build reuses the fork and the checkout", "A failing push does not print the token", `actions/workspace` "A local workspace cannot publish" and "An in-memory edit round-trips" (4)
+- [x] 1.3 `packages/agent/src/cloudflare/artifacts.ts` (new; no `agents` or `cloudflare:workers`): `ArtifactsLike` and `artifactsSandboxWorkspace(artifacts, sandbox, { repo, fork, dir })`. It gets or creates the fork, issues a write token, clones unless `dir` already holds that fork, and passes the token as a secret.
+- [x] 1.4 `packages/agent/__tests__/cloudflare/fakes.ts` (new): the local-exec fake `SandboxLike` (`bash -c` in a temporary directory) and the fake `ArtifactsLike` over local bare repositories, whose failures echo the token
+- [x] 1.5 `packages/agent/__tests__/cloudflare/sandbox-workspace.test.ts`: `cloudflare/sandbox-workspace` "The workspace modules load in plain Node", "A local fake satisfies SandboxLike", "An escape never reaches the sandbox", "A metacharacter stays an argument", "A slow command is killed", "A delegate's change is diffed in the sandbox", "Publishing reaches the remote" and "Nothing to publish" (8), each named `Scenario: <exact scenario name>`
+- [x] 1.6 `packages/agent/__tests__/cloudflare/artifacts.test.ts` + `__tests__/durable/memory-workspace.test.ts`: "A second build reuses the fork and the checkout", "A failing push does not print the token", `actions/workspace` "A local workspace cannot publish" and "An in-memory edit round-trips" (4)
 
 ## 2. defineAgentHost
 

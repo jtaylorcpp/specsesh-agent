@@ -16,6 +16,7 @@ import {
 	DEFAULT_SEARCH_LIMIT,
 	WorkspaceError,
 	matchGlob,
+	matchLines,
 	type ExecOptions,
 	type ExecResult,
 	type SearchMatch,
@@ -83,13 +84,7 @@ export function localWorkspace(dir: string): Workspace {
 					throw error;
 				}
 				if (content.includes(0)) continue;
-				const lines = content.toString("utf8").split("\n");
-				for (let i = 0; i < lines.length; i++) {
-					const text = lines[i]!.endsWith("\r") ? lines[i]!.slice(0, -1) : lines[i]!;
-					if (!regex.test(text)) continue;
-					matches.push({ path, line: i + 1, text });
-					if (matches.length >= limit) return matches;
-				}
+				if (matchLines(path, content.toString("utf8"), regex, matches, limit)) break;
 			}
 			return matches;
 		},

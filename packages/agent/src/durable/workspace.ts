@@ -50,6 +50,17 @@ export interface Workspace {
 	 * `glob`, in path then line order, at most `limit` (default 200).
 	 */
 	search?(pattern: string, options?: SearchOptions): Promise<SearchMatch[]>;
+	/**
+	 * Record the workspace's changes in its history of record. `localWorkspace`
+	 * has none: the local runner never commits.
+	 */
+	publish?(message: string): Promise<PublishResult>;
+}
+
+/** `commit` is the head after publishing; `changed` is false when there was nothing to record. */
+export interface PublishResult {
+	readonly commit: string;
+	readonly changed: boolean;
 }
 
 export interface SearchOptions {
@@ -132,6 +143,80 @@ export class WorkspaceError extends Error {
 		this.reason = reason;
 		this.path = path;
 	}
+}
+
+/**
+ * Append each line of `text` that `regex` matches to `matches`, stopping at
+ * `limit`; true when it was reached. A trailing `\r` is not part of a line.
+ * Module-internal: not in `./index.ts`.
+ */
+export function matchLines(path: string, text: string, regex: RegExp, matches: SearchMatch[], limit: number): boolean {
+	const lines = text.split("\n");
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i]!.endsWith("\r") ? lines[i]!.slice(0, -1) : lines[i]!;
+		if (!regex.test(line)) continue;
+		matches.push({ path, line: i + 1, text: line });
+		if (matches.length >= limit) return true;
+	}
+	return false;
+}
+
+/**
+ * `path` as a relative `/`-separated key with no `.` or `..` segment, or
+ * `WorkspaceError("outside the workspace")`. Module-internal: not in `./index.ts`.
+ */
+export function confine(path: string): string {
+	const refuse = () => new WorkspaceError("outside the workspace", path);
+	if (path === "" || path.startsWith("/") || path.startsWith("\\") || /^[A-Za-z]:/.test(path)) throw refuse();
+	const parts: string[] = [];
+	for (const part of path.replaceAll("\\", "/").split("/")) {
+		if (part === "" || part === ".") continue;
+		if (part === "..") {
+			if (parts.pop() === undefined) throw refuse();
+		} else parts.push(part);
+	}
+	if (parts.length === 0) throw refuse();
+	return parts.join("/");
+}
+
+/**
+ * A `Workspace` over an in-memory map seeded from `files`, its `root` `memory:`.
+ * Paths are confined as `localWorkspace` confines them; there is no `exec`,
+ * `snapshot` or `publish`.
+ */
+export function memoryWorkspace(files: Readonly<Record<string, string>> = {}): Workspace {
+	const contents = new Map<string, string>();
+	for (const [path, content] of Object.entries(files)) contents.set(confine(path), content);
+
+	async function list(glob: string): Promise<string[]> {
+		return [...contents.keys()].filter((path) => matchGlob(glob, path)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+	}
+
+	return {
+		root: "memory:",
+		async read(path) {
+			const content = contents.get(confine(path));
+			if (content === undefined) throw new WorkspaceError("no such file", path);
+			return content;
+		},
+		async write(path, content) {
+			contents.set(confine(path), content);
+		},
+		list,
+		async search(pattern, options = {}) {
+			// No `g` flag: `test` keeps no state from one line to the next. An invalid pattern rejects here.
+			const regex = new RegExp(pattern);
+			const limit = options.limit ?? DEFAULT_SEARCH_LIMIT;
+			const matches: SearchMatch[] = [];
+			if (limit <= 0) return matches;
+			for (const path of await list(options.glob ?? "**/*")) {
+				const content = contents.get(path)!;
+				if (content.includes("\0")) continue;
+				if (matchLines(path, content, regex, matches, limit)) break;
+			}
+			return matches;
+		},
+	};
 }
 
 export const NO_EXEC = "this workspace cannot run commands";
