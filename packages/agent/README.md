@@ -20,6 +20,8 @@ npm install @earendil-works/pi-ai @earendil-works/pi-durable @earendil-works/cho
 - [On Cloudflare](#on-cloudflare)
 - [Entry points](#entry-points) · [Command-line tools](#command-line-tools) · [Roadmap](#roadmap)
 
+Going further? The **[guides](https://github.com/jtaylorcpp/specsesh-agent/tree/main/guides)** cover each layer in depth.
+
 ## A script
 
 `hello.agent`: two model steps and one deterministic one. Variables are typed; a `set … =
@@ -78,9 +80,11 @@ starts, by name and position. Nothing is ever compiled.
 e.g. `ANTHROPIC_API_KEY`), or on your Claude subscription through your own `claude` binary:
 
 ```bash
-agentscript-pi run hello.agent --provider anthropic --model claude-haiku-4-5 --var name=Ada
-agentscript-pi run hello.agent --provider claude-code --model claude-haiku-4-5 --json
+agentscript-pi run hello.agent --entry greet --entry decide --entry sign_off --provider anthropic --model claude-haiku-4-5 --var name=Ada
+agentscript-pi run hello.agent --entry greet --entry decide --entry sign_off --provider claude-code --model claude-haiku-4-5 --json
 ```
+
+Without `--entry` a run starts at the first subagent only, so list every subagent to run, in order.
 
 **From code.** The interpreter holds no credential and imports no model client: reasoning leaves
 through a `ReasoningPort` you inject. `@specsesh/agent/pi` builds one on pi-ai:
@@ -143,8 +147,8 @@ await harness.close(context);
 `harness.resume()` finishes runs whose process died. From the shell:
 
 ```bash
-agentscript-durable run hello.agent --db hello.sqlite --provider claude-code
-agentscript-durable resume 7 --db hello.sqlite          # task 7's process died mid-step
+agentscript-durable run hello.agent --entry greet --entry decide --entry sign_off --db hello.sqlite --provider claude-code
+agentscript-durable resume <task-id> --db hello.sqlite   # its process died mid-step; the id was printed at start
 ```
 
 The full program is [`examples/hello-world`](../../examples/hello-world).
@@ -219,6 +223,8 @@ const { run, step } = agentScriptExtensions({ actions, workspace });
 registry.install(run);       // instead of AgentScript / AgentScriptStepExtension, which register no actions
 registry.install(step);
 ```
+
+Model-callable actions (`reasoning.actions`) need a durable host and a provider that serves tools, such as `anthropic`; the Claude Code provider can't, which is why `task-delegate.agent` exists. `run` statements work on any provider. A subagent mixes either prompt lines or `run`, not both: split them across subagents and list both in `entry`.
 
 Add your own `HostAction`s beside the built-ins. A command action's replay policy is
 `"unsafe"`: if the process dies mid-command, it fails rather than running twice.
@@ -306,7 +312,7 @@ export default {
 curl -X POST "https://my-agents.example.workers.dev/runs/demo?wait=1" \
   -H 'content-type: application/json' \
   -d "{\"source\": $(jq -Rs . < hello.agent), \"entry\": [\"greet\", \"decide\", \"sign_off\"], \"variables\": {\"name\": \"Ada\"}}"
-curl "https://my-agents.example.workers.dev/runs/demo/1"     # progress, then the outcome
+curl "https://my-agents.example.workers.dev/runs/demo/<task>"   # the task id from the POST; progress, then the outcome
 ```
 
 To pick a model in code instead of `AGENTSCRIPT_MODEL`, or another provider, override

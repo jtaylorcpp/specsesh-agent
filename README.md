@@ -7,6 +7,8 @@ which this repository uses to build itself.
 
 **Start with the package README:** [`packages/agent/README.md`](packages/agent/README.md). It has
 runnable examples for Node and Cloudflare, the entry points, the CLIs, and the supported subset.
+Then the **[guides](guides/README.md)** go deep: writing Agent Script, durable agents, actions,
+Cloudflare, the OpenSpec ontology, and executing changes with the task loop.
 
 ## Thirty seconds
 
@@ -14,7 +16,8 @@ runnable examples for Node and Cloudflare, the entry points, the CLIs, and the s
 pnpm install && pnpm build
 
 # run a script once on your Claude subscription
-pnpm agent run examples/hello-world/hello.agent --provider claude-code --model claude-haiku-4-5
+pnpm agent run examples/hello-world/hello.agent --entry greet --entry decide --entry sign_off \
+  --provider claude-code --model claude-haiku-4-5
 
 # the same script as a durable, resumable task
 pnpm --filter hello-world-example start Ada
@@ -27,6 +30,7 @@ pnpm task <change-id> 2.1
 
 | Path | What's there |
 |---|---|
+| [`guides/`](guides/README.md) | Step-by-step guides, from a first script to running OpenSpec changes with the task loop |
 | [`packages/agent`](packages/agent) | The package: authoring, interpreter, pi and Claude Code ports, durable execution, the Cloudflare host, the OpenSpec ontology, the task and group loops |
 | [`examples/hello-world`](examples/hello-world) | One script, run durably on Node |
 | [`examples/cloudflare-worker`](examples/cloudflare-worker) | `AgentScriptHost` in a Worker, with a faux model for `wrangler dev --local` |
