@@ -110,7 +110,7 @@ describe("task/headless: The runner never commits", () => {
 		const files = [
 			...readdirSync(join(SRC, "task")).filter((f) => f.endsWith(".ts")).map((f) => join(SRC, "task", f)),
 			join(SRC, "bin", "agentscript-task.ts"),
-			join(SRC, "durable", "builtins.ts"),
+			join(SRC, "node", "builtins.ts"),
 		];
 		const calls: string[] = [];
 		for (const file of files) {

@@ -54,7 +54,7 @@
   - `--no-delegates`, listed in the options usage.
 
   Then `agentscript.config.json`: drop `delegateModel` and `delegateContext`, and add `delegates.claude_code` (`runner` `claude-code`, `model` `opus`, `allow` `["pnpm", "node"]`, `context` `["CLAUDE.md"]`). `__tests__/repo/config.test.ts` pins the modified scenario.
-- [ ] 3.6 Retire the old delegate and free `./durable` of Node:
+- [x] 3.6 Retire the old delegate and free `./durable` of Node:
   - move `src/durable/builtins.ts` to `src/node/builtins.ts`, where `builtinActions({ workspace: dir, … })` = `workspaceActions(localWorkspace(dir), …)`, with no `delegate_claude_code` and no `delegateModel`, `delegateContext` or `claudeBinary`;
   - move `confine`, `runArgv` and `splitCommand` into `src/node/`;
   - `src/durable/index.ts` re-exports nothing Node, and `src/durable/` imports no `node:` module and not `src/claude-code/`;
