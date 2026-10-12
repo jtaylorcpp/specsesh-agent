@@ -1,12 +1,334 @@
 # @specsesh/agent
 
-Agent Script as an **authoring format**, plus an **interpreter** over a declared
-subset of it, and the hosts that run it: any pi provider, your own Claude Code
-subscription, crash-safe pi-durable tasks on Node, or a Cloudflare Durable Object.
+Write an agent as an **Agent Script** file, then run it anywhere: once on any model, crash-safe
+on Node, on your own Claude subscription, or inside a Cloudflare Durable Object. A script's
+steps reason on a model; its **actions** do real work (read and edit files, run commands and
+checks) in a workspace you confine them to. On top of that sits an OpenSpec **task loop** that
+works a change's tasks until the checks pass.
 
 ```bash
 npm install @specsesh/agent
+# then the peers for the layers you use, e.g. for durable runs on Node:
+npm install @earendil-works/pi-ai @earendil-works/pi-durable @earendil-works/chord
 ```
+
+- [A script](#a-script)
+- [Run it once](#run-it-once) (CLI, or from code on any pi provider, or on your Claude subscription)
+- [Durable runs on Node](#durable-runs-on-node)
+- [Actions: let a script do work](#actions-let-a-script-do-work)
+- [The OpenSpec task loop](#the-openspec-task-loop)
+- [On Cloudflare](#on-cloudflare)
+- [Entry points](#entry-points) · [Command-line tools](#command-line-tools) · [Roadmap](#roadmap)
+
+## A script
+
+`hello.agent`: two model steps and one deterministic one. Variables are typed; a `set … =
+@outputs.x` line makes the step answer with a structured result; logic lines never reach the
+model.
+
+```
+config:
+    agent_name: "hello-world"
+
+system:
+    instructions: |
+        You are the voice of a tiny hello world program. Keep every answer to one short line.
+
+variables:
+    name: mutable string = "World"
+        description: "who to greet"
+    greeting: mutable string = ""
+        description: "the greeting the model wrote"
+    excited: mutable boolean = False
+        description: "set by logic when greeting the whole world"
+
+subagent greet:
+    description: "Write the greeting"
+
+    reasoning:
+        instructions: ->
+            | Write a one-line greeting for {!@variables.name}.
+            set @variables.greeting = @outputs.greeting
+
+subagent decide:
+    description: "Decide the tone, without the model"
+
+    reasoning:
+        instructions: ->
+            if @variables.name == "World":
+                set @variables.excited = True
+
+subagent sign_off:
+    description: "Close the program"
+
+    reasoning:
+        instructions: ->
+            if @variables.excited:
+                | Write an enthusiastic one-line sign-off for a program that just said: {!@variables.greeting}
+            else:
+                | Write a calm one-line sign-off for a program that just said: {!@variables.greeting}
+```
+
+Anything outside [the supported subset](#the-supported-subset) is refused before the run
+starts, by name and position. Nothing is ever compiled.
+
+## Run it once
+
+**From the command line**, on any pi provider (credentials are pi-ai's environment variables,
+e.g. `ANTHROPIC_API_KEY`), or on your Claude subscription through your own `claude` binary:
+
+```bash
+agentscript-pi run hello.agent --provider anthropic --model claude-haiku-4-5 --var name=Ada
+agentscript-pi run hello.agent --provider claude-code --model claude-haiku-4-5 --json
+```
+
+**From code.** The interpreter holds no credential and imports no model client: reasoning leaves
+through a `ReasoningPort` you inject. `@specsesh/agent/pi` builds one on pi-ai:
+
+```ts
+import { readFileSync } from "node:fs";
+import { createModels } from "@earendil-works/pi-ai";
+import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { run } from "@specsesh/agent/interpreter";
+import { createPiReasoningPort, resolveModel } from "@specsesh/agent/pi";
+
+const models = createModels();
+models.setProvider(anthropicProvider());
+const port = createPiReasoningPort({ models, model: resolveModel(models, "anthropic", "claude-haiku-4-5") });
+
+const result = await run(readFileSync("hello.agent", "utf8"), {
+  port,
+  entry: ["greet", "decide", "sign_off"],
+  variables: { name: "Ada" },
+});
+console.log(result.kind, result.variables.greeting);   // "completed", "Hello, Ada!"
+```
+
+Swap in `claudeCodeProvider()` from `@specsesh/agent/claude-code` (model provider
+`claude-code`) to run each step through `claude -p` on your subscription. It never uses
+`--bare`, strips `ANTHROPIC_API_KEY`, and never reads Claude Code's OAuth token.
+
+## Durable runs on Node
+
+The same script as a [pi-durable](https://www.npmjs.com/package/@earendil-works/pi-durable)
+task: every step is checkpointed in SQLite, so a killed process resumes where it stopped and
+never repeats a finished step.
+
+```ts
+import { readFileSync } from "node:fs";
+import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
+import { createModels } from "@earendil-works/pi-ai";
+import { createRegistry, Harness } from "@earendil-works/pi-durable";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { claudeCodeProvider } from "@specsesh/agent/claude-code";
+import { AgentScript, AgentScriptStepExtension, runScript } from "@specsesh/agent/durable";
+
+const models = createModels();
+models.setProvider(claudeCodeProvider());                       // or anthropicProvider()
+const registry = createRegistry();
+registry.install(AgentScript);
+registry.install(AgentScriptStepExtension);
+const harness = await Harness.open(await openNodeSqliteStorage("hello.sqlite"), { models, registry }, context);
+
+const result = await runScript(
+  harness,
+  readFileSync("hello.agent", "utf8"),
+  { model: { provider: "claude-code", modelId: "claude-haiku-4-5" }, entry: ["greet", "decide", "sign_off"] },
+  context,
+);
+await harness.close(context);
+```
+
+`startScript` + `waitForScript` split that in two (start now, await later), and
+`harness.resume()` finishes runs whose process died. From the shell:
+
+```bash
+agentscript-durable run hello.agent --db hello.sqlite --provider claude-code
+agentscript-durable resume 7 --db hello.sqlite          # task 7's process died mid-step
+```
+
+The full program is [`examples/hello-world`](../../examples/hello-world).
+
+## Actions: let a script do work
+
+An action is declared in the script with typed inputs and outputs and an `mcpTool://<name>`
+target, and called either **deterministically** with `run` or **by the model** as a reasoning
+action. The host maps each name to a host action; every binding is checked whole before
+anything runs, so a typo or a type mismatch is refused up front, not mid-run.
+
+```
+variables:
+    passed: mutable boolean = False
+        description: "whether the checks passed"
+
+subagent fix:
+    description: "Edit the file"
+
+    actions:
+        edit_file:
+            description: "Replace a file's content"
+            inputs:
+                path: string
+                content: string
+            outputs:
+                ok: boolean
+            target: "mcpTool://edit_file"
+
+    reasoning:
+        instructions: ->
+            | Make src/greet.ts export greet(name) returning "Hello, <name>!".
+        actions:
+            edit: @actions.edit_file
+                with path = ...
+                with content = ...
+
+subagent check:
+    description: "Run the checks, without the model"
+
+    actions:
+        run_checks:
+            description: "Run the configured checks"
+            inputs:
+                task_id: string
+            outputs:
+                passed: boolean
+                output: string
+            target: "mcpTool://run_checks"
+
+    reasoning:
+        instructions: ->
+            run @actions.run_checks
+                with task_id = "1"
+                set @variables.passed = @outputs.passed
+```
+
+(Shown as a fragment: a full script also has `config` and `system` blocks, as in `hello.agent`.)
+
+The built-ins are `read_file`, `edit_file`, `run_command` (an allowlist of first words, no
+shell) and `run_checks`, all confined to one workspace directory, each recording an ontology
+`Action` with its `Evidence` (a diff, a command's exit code):
+
+```ts
+import { agentScriptExtensions, builtinActions, createActionRegistry } from "@specsesh/agent/durable";
+
+const workspace = "/path/to/repo";
+const actions = createActionRegistry(
+  builtinActions({ workspace, allow: ["pnpm", "node"], checks: ["pnpm test"] }),
+);
+const { run, step } = agentScriptExtensions({ actions, workspace });
+registry.install(run);       // instead of AgentScript / AgentScriptStepExtension, which register no actions
+registry.install(step);
+```
+
+Add your own `HostAction`s beside the built-ins. A command action's replay policy is
+`"unsafe"`: if the process dies mid-command, it fails rather than running twice.
+
+## The OpenSpec task loop
+
+`@specsesh/agent/task` works one task of an [OpenSpec](https://github.com/Fission-AI/OpenSpec)
+change as a durable loop: **orient → act → check → judge**, again, until the task converges, a
+person is needed, or the budget runs out. The judge's "done" only counts when every configured
+check passes, and `next_action` is constrained to `retry`, `amend-spec` or `ask`. A converged
+task is ticked in `tasks.md`; the loop never commits.
+
+`agentscript.config.json` at the repo root:
+
+```json
+{
+  "task": {
+    "provider": "claude-code",
+    "model": "opus",
+    "script": "task-delegate",
+    "delegateModel": "opus",
+    "delegateContext": ["CLAUDE.md"],
+    "checks": ["pnpm check", "pnpm test"],
+    "allow": ["pnpm", "node"],
+    "db": ".agentscript/task-loops.sqlite",
+    "maxIterations": 8
+  }
+}
+```
+
+```bash
+agentscript-task run add-thing 2.1                     # one task
+agentscript-task run add-thing --next                  # the first unticked task
+agentscript-task run add-thing 2                       # a whole group (2.1, 2.2, …), then the group check
+agentscript-task run add-thing 2.1 --worktree --db .agentscript/2.1.sqlite   # in its own git worktree
+agentscript-task status                                # every loop in the database
+agentscript-task resume 42                             # finish a loop whose process died
+agentscript-task answer 42 --by principal --decision "Relax the schema now"   # unblock an escalation
+```
+
+Progress is JSON Lines on stderr. `task.agent` acts with the model's own tools;
+`task-delegate.agent` hands the act step to headless Claude Code, for subscription models
+that can't serve tools.
+
+## On Cloudflare
+
+`AgentScriptHost` is a Durable Object class: runs are pi-durable tasks in the object's SQLite
+storage, on **Workers AI** through the `AI` binding.
+
+`wrangler.jsonc`:
+
+```jsonc
+{
+  "name": "my-agents",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "ai": { "binding": "AI" },
+  "durable_objects": { "bindings": [{ "name": "HOST", "class_name": "Agents" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Agents"] }]
+}
+```
+
+`src/index.ts`:
+
+```ts
+import { AgentScriptHost, type AgentScriptEnv } from "@specsesh/agent/cloudflare";
+
+interface Env extends AgentScriptEnv {
+  HOST: DurableObjectNamespace<Agents>;
+}
+
+export class Agents extends AgentScriptHost<Env> {}      // Workers AI; AGENTSCRIPT_MODEL picks the model
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const [, root, host] = new URL(request.url).pathname.split("/");
+    if (root !== "runs" || !host) return new Response("use /runs/<host>", { status: 404 });
+    return env.HOST.getByName(host).fetch(request);    // one object (one durable store) per host name
+  },
+} satisfies ExportedHandler<Env>;
+```
+
+```bash
+curl -X POST "https://my-agents.example.workers.dev/runs/demo?wait=1" \
+  -H 'content-type: application/json' \
+  -d "{\"source\": $(jq -Rs . < hello.agent), \"entry\": [\"greet\", \"decide\", \"sign_off\"], \"variables\": {\"name\": \"Ada\"}}"
+curl "https://my-agents.example.workers.dev/runs/demo/1"     # progress, then the outcome
+```
+
+To pick a model in code instead of `AGENTSCRIPT_MODEL`, or another provider, override
+`createModel()`. It runs in the constructor, before pi resumes unfinished work, and may read
+only `this.env`:
+
+```ts
+import { createAI } from "agents/models/pi-ai";
+import { AgentScriptHost, type ModelChoice } from "@specsesh/agent/cloudflare";
+
+export class Agents extends AgentScriptHost<Env> {
+  protected override createModel(): ModelChoice {
+    const ai = createAI({ binding: this.env.AI as Ai });
+    const model = ai("@cf/qwen/qwen3-coder");
+    return { provider: ai.provider, model: { provider: model.provider, modelId: model.id } };
+  }
+}
+```
+
+Today a Cloudflare host runs scripts **without actions** (it has no workspace yet); see the
+[roadmap](#roadmap). [`examples/cloudflare-worker`](../../examples/cloudflare-worker) adds a
+faux model for local testing on `wrangler dev --local`.
 
 ## Entry points
 
@@ -19,12 +341,50 @@ peer dependencies, so a consumer of the interpreter alone installs none of them.
 | `@specsesh/agent/interpreter` | `run`, the step machine (`start`/`next`/`apply`), `ReasoningPort`, the subset | none |
 | `@specsesh/agent/pi` | A `ReasoningPort` on pi-ai, plus model helpers | `@earendil-works/pi-ai` |
 | `@specsesh/agent/claude-code` | A `ReasoningPort` and a pi provider that run each step through your own `claude -p` (Node only) | `@earendil-works/pi-ai` |
-| `@specsesh/agent/durable` | The pi-durable extensions and `startScript` / `waitForScript` / `runScript` | `@earendil-works/pi-ai`, `@earendil-works/pi-durable`, `@earendil-works/chord` |
+| `@specsesh/agent/durable` | The pi-durable extensions, `startScript` / `waitForScript` / `runScript`, actions and the built-ins | `@earendil-works/pi-ai`, `@earendil-works/pi-durable`, `@earendil-works/chord` |
 | `@specsesh/agent/cloudflare` | `AgentScriptHost`, a Durable Object class for a Worker to re-export (workerd only) | the durable peers and `agents` |
 | `@specsesh/agent/openspec` | The OpenSpec ontology: typed schemas for a change, its lifecycle steps, its execution loops and their evidence | none (uses the `typebox` dependency) |
-| `@specsesh/agent/task` | The task loop: `startTaskLoop` / `waitForTaskLoop` / `answerEscalation`, `taskLoopExtensions`, and the bundled `task.agent` and `task-delegate.agent` (Node only) | the durable peers |
+| `@specsesh/agent/task` | The task and group loops (`startTaskLoop`, `startGroupLoop`, `answerEscalation`, …), `taskLoopExtensions`, and the bundled `task.agent`, `task-delegate.agent` and `group.agent` (Node only) | the durable peers |
 
 The authoring, interpreter and openspec entries run on Node and on Workers.
+
+## Roadmap
+
+Specified and validated in [`openspec/changes/`](../../openspec/changes), **not yet built**.
+Each lands in order:
+
+1. **[`add-actors-and-workspaces`](../../openspec/changes/add-actors-and-workspaces)** — an agent
+   acts by itself or through a **delegate the user grants** (`mcpTool://delegate/<name>`, terms
+   set in config), and every actor works in the loop's one `Workspace`. A typed host config,
+   with models as closures over the runtime's environment:
+
+   ```ts
+   const { harness, models } = await createAgentHarness({
+     models: {
+       default: () => ({ provider: claudeCodeProvider(), model: { provider: "claude-code", modelId: "opus" } }),
+       reviewer: () => ({ provider: anthropicProvider(), model: { provider: "anthropic", modelId: "claude-haiku-4-5" } }),
+     },
+     workspace: () => localWorkspace("/path/to/worktree"),
+     delegates: { claude_code: { runner: "claude-code", model: "opus", allow: ["pnpm"] } },
+   }, { storage, env: process.env, context });
+   ```
+
+   Adds a `./node` entry, so `./durable` (and `./cloudflare`) carry no Node-only code.
+2. **[`add-agent-runner`](../../openspec/changes/add-agent-runner)** — delegate to one of your own
+   agents on another model, as a durable child run with only the tools you grant; workspaces
+   gain `list_files` and `search_files`.
+3. **[`add-cloudflare-workspace`](../../openspec/changes/add-cloudflare-workspace)** — the same
+   config on Cloudflare: models on the `AI` binding, the workspace a Cloudflare Sandbox cloned
+   from a per-task Artifacts fork:
+
+   ```ts
+   export class Agent extends defineAgentHost<Env>({
+     models: { default: (env) => workersAI(env.AI, "@cf/meta/llama-4-scout") },
+     workspace: (env) => artifactsSandboxWorkspace(env.ARTIFACTS, getSandbox(env.SANDBOX, "task-2.1"),
+                                                   { repo: "my-app", fork: "task-2.1", dir: "/workspace" }),
+     checks: ["pnpm test"],
+   }) {}
+   ```
 
 ## `@specsesh/agent/openspec`
 
@@ -59,14 +419,12 @@ no files and runs no loop.
   lists a provider's models. Needs `@earendil-works/pi-ai`.
 - `agentscript-durable run <file> --db <path> [...]` runs a script as a durable task on a Node SQLite file;
   `agentscript-durable resume <task-id> --db <path>` finishes one whose process died. Needs the durable peers.
-- `agentscript-task run <change> <task-id>|--next [--db <path>] [...]` works one task of an OpenSpec change as a
-  durable task loop (plan, act, check, judge, again) until it converges, blocks, or spends its budget, and
-  ticks the task in tasks.md when it converges; `agentscript-task resume <loop-id>` finishes one whose process
-  died, `agentscript-task answer <loop-id> --by principal --decision <text>` answers a blocked loop's
-  escalation, and `agentscript-task status` lists the loops in a database. Defaults come from the nearest
-  `agentscript.config.json` (`task` object); `<change>` is an id under its `changesDir`, or a path. It runs
-  headless (JSON Lines progress on stderr), refuses a dirty git tree unless `--allow-dirty`, never commits,
-  and with `--worktree` runs the task in a new git worktree on `task/<change>/<task-id>`. Needs the durable peers.
+- `agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [...]` works a task, or a
+  whole task group, of an OpenSpec change as a durable loop until it converges (every check passing), blocks
+  on a question, or spends its budget; `resume`, `answer` and `status` manage loops in a database. Defaults
+  come from the nearest `agentscript.config.json`. It runs headless (JSON Lines progress on stderr), refuses
+  a dirty git tree unless `--allow-dirty`, never commits, and with `--worktree` runs in a new git worktree.
+  Needs the durable peers.
 
 Credentials are pi-ai's own environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, ...).
 
