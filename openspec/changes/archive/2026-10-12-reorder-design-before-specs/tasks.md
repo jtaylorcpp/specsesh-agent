@@ -15,5 +15,5 @@
 
 ## 3. Verify
 
-- [ ] 3.1 `pnpm check`, `pnpm test`, `pnpm spec:check` and `pnpm docs:check` pass
-- [ ] 3.2 `pnpm spec:archive reorder-design-before-specs`
+- [x] 3.1 `pnpm check`, `pnpm test`, `pnpm spec:check` and `pnpm docs:check` pass
+- [x] 3.2 `pnpm spec:archive reorder-design-before-specs`

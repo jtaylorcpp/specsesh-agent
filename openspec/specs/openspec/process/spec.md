@@ -35,18 +35,15 @@ The model SHALL define the `propose` step with input `Intent` = `{ words: string
 - **THEN** `capabilities.modified` SHALL hold `["durable","cli"]`, not a near-duplicate path
 
 ### Requirement: Specify turns a proposal into deltas
-The model SHALL define the `specify` step with input `{ proposal: Proposal, base: Capability[] }`, output `Delta[]`, actor `"agent"`. Each capability in `proposal.capabilities` SHALL receive at least one delta, and each `Modified` or `Removed` delta MUST name a requirement present in `base`.
+The model SHALL define the `specify` step with input `{ proposal: Proposal, design: Design, base: Capability[] }`, output `Delta[]`, actor `"agent"`. Each capability in `proposal.capabilities` SHALL receive at least one delta, and each `Modified` or `Removed` delta MUST name a requirement present in `base`.
 
 #### Scenario: A modified delta must exist in the base
 - **WHEN** `specify` emits a `Modified` delta whose requirement name is absent from `base`
 - **THEN** the output SHALL fail validation
 
-### Requirement: Design and plan follow the deltas
-The model SHALL define `design` with input `{ proposal, deltas }`, output `Design`, actor `"agent"`; and `plan` with input `{ proposal, deltas, design }`, output `TaskList`, actor `"agent"`.
-
-#### Scenario: Plan sees the design
-- **WHEN** the `plan` step runs
-- **THEN** its input SHALL include the `design` the `design` step produced
+#### Scenario: Specify sees the design
+- **WHEN** a `SpecifyInput` without a `design` is checked
+- **THEN** the check SHALL fail
 
 ### Requirement: Validate reports issues by level
 The model SHALL define `validate` with input `Change`, output `ValidationReport`, actor `"tool"`, where `ValidationReport` is `{ valid: boolean, issues: { level: "ERROR" | "WARNING" | "INFO", path: string, message: string }[] }`. Under strict validation, `valid` SHALL be `false` when any issue is `ERROR` or `WARNING`.
@@ -83,7 +80,7 @@ The model SHALL define `archive` with input `{ change: Change, outcome: LoopOutc
 - **THEN** it SHALL fail with `kind` `"refused"`
 
 ### Requirement: A change moves through a fixed sequence of states
-The model SHALL define `ChangeState` as `"drafting"`, `"specified"`, `"designed"`, `"planned"`, `"validated"`, `"approved"`, `"executing"`, `"converged"`, `"archived"`, `"amended"` or `"abandoned"`. `"drafting"` SHALL be the initial state. The forward path SHALL be drafting → specified → designed → planned → validated → approved → executing → converged → archived.
+The model SHALL define `ChangeState` as `"drafting"`, `"designed"`, `"specified"`, `"planned"`, `"validated"`, `"approved"`, `"executing"`, `"converged"`, `"archived"`, `"amended"` or `"abandoned"`. `"drafting"` SHALL be the initial state. The forward path SHALL be drafting → designed → specified → planned → validated → approved → executing → converged → archived.
 
 #### Scenario: The forward path
 - **WHEN** a change completes every step without amendment
@@ -94,10 +91,14 @@ The model SHALL define `ChangeState` as `"drafting"`, `"specified"`, `"designed"
 - **THEN** the change SHALL exist in state `"drafting"`, and no transition SHALL lead into `"drafting"`
 
 ### Requirement: Each forward transition follows its step
-`drafting → specified` SHALL follow `specify`; `→ designed` follows `design`; `→ planned` follows `plan`; `planned → validated` needs a `ValidationReport` with `valid` `true`. Any other transition than those defined in `openspec/process` MUST be refused.
+`drafting → designed` SHALL follow `design`; `→ specified` follows `specify`; `→ planned` follows `plan`; `planned → validated` needs a `ValidationReport` with `valid` `true`. Any other transition than those defined in `openspec/process` MUST be refused.
 
 #### Scenario: Skipping planning is refused
-- **WHEN** a change in `designed` is moved to `validated`
+- **WHEN** a change in `specified` is moved to `validated`
+- **THEN** the transition SHALL be refused
+
+#### Scenario: Specifying before designing is refused
+- **WHEN** `specify` completes for a change in `drafting`
 - **THEN** the transition SHALL be refused
 
 ### Requirement: Execution needs approval
@@ -129,3 +130,21 @@ Every state except `archived` SHALL allow a transition to `abandoned`. `abandone
 #### Scenario: An archived change cannot be abandoned
 - **WHEN** a change in `archived` is moved to `abandoned`
 - **THEN** the transition SHALL be refused
+
+### Requirement: Design follows the proposal
+The model SHALL define `design` with input `{ proposal: Proposal }`, output `Design`, actor `"agent"`. `STEPS` SHALL list `design` second, after `propose` and before `specify`.
+
+#### Scenario: Design sees only the proposal
+- **WHEN** a `DesignInput` holding a proposal and deltas is checked
+- **THEN** the check SHALL fail, and one holding only the proposal SHALL pass
+
+#### Scenario: The steps in lifecycle order
+- **WHEN** the names in `STEPS` are listed
+- **THEN** they SHALL be `propose`, `design`, `specify`, `plan`, `validate`, `approve`, `execute`, `archive`
+
+### Requirement: Plan follows the deltas and the design
+The model SHALL define `plan` with input `{ proposal, deltas, design }`, output `TaskList`, actor `"agent"`.
+
+#### Scenario: Plan sees the design
+- **WHEN** the `plan` step runs
+- **THEN** its input SHALL include the `design` the `design` step produced
