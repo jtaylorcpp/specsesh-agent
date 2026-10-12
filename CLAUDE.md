@@ -18,7 +18,7 @@ nine exports, in this order: `./authoring`, `./interpreter`, `./pi`, `./claude-c
 | `src/authoring`, `src/interpreter` → `./authoring`, `./interpreter` | The core: authoring + interpreter. No model client, ever. |
 | `src/pi` → `./pi` | A `ReasoningPort` on `@earendil-works/pi-ai`, so any pi provider can run a script. Default testing model: `anthropic/claude-haiku-4-5`. |
 | `src/claude-code` → `./claude-code` | The claude-code port and pi provider (Node only). |
-| `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). Runtime-neutral: never imports `node:` or `src/claude-code`, so `./cloudflare` can import it. Holds `workspace.ts` (`Workspace`, `workspaceActions`, `runChecks`, `diffSnapshots`), `delegation.ts` (grants, `delegationActions`) and `agent-config.ts` (`AgentConfig`, `createAgentHarness`). |
+| `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). Runtime-neutral: never imports `node:` or `src/claude-code`, so `./cloudflare` can import it. Holds `workspace.ts` (`Workspace`, `workspaceActions`, `runChecks`, `diffSnapshots`), `delegation.ts` (grants, `delegationActions`), `agent-runner.ts` (`agentRunner()`, the `agent` runner: checks a grant against the harness's models and registry, runs it as a durable host action whose child ID commits with the `act` checkpoint, answers `{ ok, summary, files_changed }`; also in node `defaultRunners`), `delegate-scripts.ts` (`READ_AGENT`, `EDIT_AGENT` as source strings, no file system, so they work in Workers; the delegate contract: `instructions` seeded, `ok` and `summary` read back) and `agent-config.ts` (`AgentConfig`, `createAgentHarness`). |
 | `src/node` → `./node` | The Node side of `./durable`: `localWorkspace(dir)`, `builtinActions` (moved from `src/durable/builtins.ts`), `claudeCodeRunner({ binary? })` and `defaultRunners`. Adds `src/durable` and `src/claude-code`. |
 | `src/cloudflare` → `./cloudflare` | `AgentScriptHost`, the Durable Object class (via Cloudflare's `PiHarness`, `agents` 0.28.0), Workers AI by default. |
 | `src/openspec` → `./openspec` | The OpenSpec ontology (`openspec/{model,process,loops,evidence}`): TypeBox schemas (each a JSON Schema) with `Static` types and refinements, plus pure rules. Imports only `typebox`; no parser, no loop runner. |
@@ -148,6 +148,21 @@ pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop pr
   The retired `task.delegateModel` and `task.delegateContext` keys are refused with
   `grant a delegate under "delegates" instead`; an invalid grant exits 2, naming the grant and the
   key. No CLI flag can grant or reconfigure a delegate.
+- **Agent delegates.** Runner `agent` delegates to one of our own scripts, on a model the config names:
+  ```json
+  "models": { "reviewer": { "provider": "anthropic", "model": "claude-haiku-4-5" } },
+  "delegates": { "reviewer": { "runner": "agent", "model": "reviewer", "script": "read",
+    "tools": ["read_file", "list_files", "search_files"], "maxSteps": 20, "maxCalls": 5 } }
+  ```
+  - `script` is `read` (`READ_AGENT`), `edit` (`EDIT_AGENT`) or a path relative to the config file.
+  - `model` is `default` (the run's own) or a key of `models`. Redefining `models.default`, an
+    unknown provider or model, or a missing script path exits 2.
+  - `tools` defaults to `read_file`, `list_files`, `search_files`, and `maxSteps` to 20. `tools`
+    cannot include `delegate/…`: delegates don't nest.
+  - Call it with `run @actions.<x>` and `instructions`; it answers `{ ok, summary, files_changed }`.
+    Offering it under `reasoning.actions` is refused with `call it with run`.
+  - It runs as a durable child `agentscript.run` in the caller's workspace, so a crash resumes the
+    same child. A harness refuses a bad grant with `DelegateGrantError`.
 - **Delegations act through the workspace.** A delegate acts only in the loop's workspace, and each
   delegation records `files_changed` (the number of files it changed, or -1 when the workspace can't
   snapshot).

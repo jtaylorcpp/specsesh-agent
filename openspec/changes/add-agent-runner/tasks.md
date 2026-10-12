@@ -38,8 +38,8 @@
 
 ## 5. Docs
 
-- [ ] 5.1 `docs/ontology/loops/action.md`: the two runner kinds (process, agent), the durable delegate call, scope and step limits; `pnpm docs:check` passes
-- [ ] 5.2 `CLAUDE.md`: "Running a task" shows an agent grant with a named model; the layout notes `src/durable/agent-runner.ts` and `delegate-scripts.ts`
+- [x] 5.1 `docs/ontology/loops/action.md`: the two runner kinds (process, agent), the durable delegate call, scope and step limits; `pnpm docs:check` passes
+- [x] 5.2 `CLAUDE.md`: "Running a task" shows an agent grant with a named model; the layout notes `src/durable/agent-runner.ts` and `delegate-scripts.ts`
 
 ## 6. Verify
 
