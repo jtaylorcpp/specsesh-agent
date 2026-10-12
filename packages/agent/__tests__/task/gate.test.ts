@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { MemoryStorage, type TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { WorkspaceError, type ExecOptions, type ExecResult, type Workspace } from "../../src/durable/index.js";
 import type { LoopOutcome, TaskOutcome } from "../../src/openspec/index.js";
 import { LoopWatcher, type StreamEvent, type TaskEvent } from "../../src/task/events.js";
 import { judgeIteration } from "../../src/task/judge.js";
@@ -24,6 +25,7 @@ import {
 	tinyChange,
 	verdict,
 } from "./helpers.js";
+import { setup } from "../durable/helpers.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TS_HOOK = join(HERE, "..", "durable", "fixtures", "ts-resolve.mjs");
@@ -237,6 +239,72 @@ describe("task/agent: A gate failure carries the failing output", () => {
 			expect.objectContaining({ command: good, exitCode: 0 }),
 			expect.objectContaining({ command: bad, exitCode: 1 }),
 		]);
+	});
+});
+
+/** An in-memory workspace logging every `exec`, each answered `exited 0`; or, with `exec` false, one that cannot run commands. */
+function recordingWorkspace(exec = true) {
+	const execs: (readonly string[])[] = [];
+	const workspace: Workspace = {
+		root: "memory",
+		read: async (path) => {
+			throw new WorkspaceError("no such file", path);
+		},
+		write: async () => {},
+		...(exec
+			? {
+					exec: async (argv: readonly string[], _options: ExecOptions): Promise<ExecResult> => {
+						execs.push(argv);
+						return { kind: "exited", code: 0, stdout: "", stderr: "" };
+					},
+				}
+			: {}),
+	};
+	return { workspace, execs };
+}
+
+/** A loop of JUDGE_ONLY checking `pnpm test`, its extensions given `workspace` (the input keeps a directory). */
+async function boundLoop(workspace: Workspace, responses: Parameters<ReturnType<typeof setup>["faux"]["setResponses"]>[0], maxIterations = 8) {
+	const dir = tinyChange();
+	const env = setup();
+	for (const extension of taskLoopExtensions({ workspace, checks: ["pnpm test"] })) env.registry.install(extension);
+	const harness = await loopHarness(env);
+	env.faux.setResponses(responses);
+	const options: TaskLoopOptions = {
+		change: { dir },
+		task: "1.1",
+		script: { text: JUDGE_ONLY },
+		workspace: temp("task-ws-"),
+		model: env.model,
+		checks: ["pnpm test"],
+		budget: { maxIterations },
+	};
+	const id = await startTaskLoop(harness, options, context);
+	harness.resume();
+	const { outcome } = await waitForTaskLoopResult(harness, id, context);
+	await harness.close(context);
+	return { dir, outcome };
+}
+
+describe("actions/workspace: The loop's checks run through the workspace", () => {
+	it("Scenario: The gate's checks go through the workspace", async () => {
+		const { workspace, execs } = recordingWorkspace();
+		const r = await boundLoop(workspace, [verdict(true)]);
+		expect(execs).toEqual([["pnpm", "test"]]);
+		expect(r.outcome.status).toBe("converged");
+		expect(isTicked(r.dir)).toBe(true);
+	});
+
+	it("without exec the gate fails with `this workspace cannot run commands` and the iteration is unmet", async () => {
+		const { workspace } = recordingWorkspace(false);
+		const r = await boundLoop(workspace, [verdict(true)], 1);
+		expect(r.outcome.status).toBe("exhausted");
+		const first = r.outcome.iterations[0];
+		expect(first?.verdict.met).toBe(false);
+		expect(first?.feedback[0]?.from.evidence).toEqual([
+			expect.objectContaining({ command: "pnpm test", output: "this workspace cannot run commands" }),
+		]);
+		expect(isTicked(r.dir)).toBe(false);
 	});
 });
 

@@ -10,13 +10,15 @@ import { MemoryStorage, type StorageWrite, type TaskId } from "@earendil-works/p
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import {
 	agentScriptExtensions,
-	builtinActions,
 	createActionRegistry,
+	delegationActions,
 	runScript,
 	startScript,
 	waitForScript,
+	workspaceActions,
 	type HostAction,
 } from "../../src/durable/index.js";
+import { builtinActions, defaultRunners, localWorkspace } from "../../src/node/index.js";
 import { context, ENTRIES, openHarness, PIPELINE, setup } from "./helpers.js";
 import { deterministicScript, hostAction, OFFERING, recordingAction } from "./action-scripts.js";
 import { taskAgentFile } from "../core/helpers/actions.js";
@@ -449,11 +451,19 @@ describe("the default task scripts, end to end on a faux model", () => {
 			'require("node:fs").writeFileSync("DELEGATED.md", "done"); process.stdout.write(JSON.stringify({ is_error: false, result: "Wrote DELEGATED.md" }));',
 		);
 		const savedPath = process.env.PATH;
-		process.env.PATH = bin;
+		// Prepended, not replaced: the delegate's workspace snapshot still needs git.
+		process.env.PATH = `${bin}:${savedPath ?? ""}`;
 		try {
 			for (const script of ["task.agent", "task-delegate.agent"] as const) {
 				const workspace = temp("agentscript-ws-");
-				const { env } = withActions(builtinActions({ workspace, allow: ["pnpm"], checks: ["pnpm test"] }), workspace);
+				const ws = localWorkspace(workspace);
+				const { env } = withActions(
+					[
+						...workspaceActions(ws, { allow: ["pnpm"], checks: ["pnpm test"] }),
+						...delegationActions({ claude_code: { runner: "claude-code" } }, { workspace: ws, runners: defaultRunners }),
+					],
+					workspace,
+				);
 				const judge = fauxAssistantMessage(
 					[fauxToolCall("submit_result", { met: true, unmet: "", next_action: "retry", question: "" })],
 					{ stopReason: "toolUse" },
@@ -488,7 +498,7 @@ describe("the default task scripts, end to end on a faux model", () => {
 				} else {
 					expect(readFileSync(join(workspace, "DELEGATED.md"), "utf8")).toBe("done");
 					expect(result.variables).toMatchObject({ act_ok: true, act_summary: "Wrote DELEGATED.md" });
-					expect(result.actions.map((a) => a.call.tool)).toEqual(["delegate_claude_code", "run_checks"]);
+					expect(result.actions.map((a) => a.call.tool)).toEqual(["delegate/claude_code", "run_checks"]);
 				}
 			}
 		} finally {

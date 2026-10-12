@@ -24,12 +24,24 @@ import {
 	defineTask,
 	type Extension,
 	type Task,
+	type TaskDefinition,
 	type TaskId,
 } from "@earendil-works/pi-durable";
-import { AgentScriptRun, agentScriptExtensions, builtinActions, createActionRegistry, type RunInput } from "../durable/index.js";
+import {
+	AgentScriptRun,
+	agentScriptExtensions,
+	createActionRegistry,
+	delegationActions,
+	workspaceActions,
+	type DelegateGrants,
+	type RunInput,
+	type Runners,
+	type Workspace,
+} from "../durable/index.js";
+import { defaultRunners, localWorkspace } from "../node/index.js";
 import { LoopOutcome, TaskOutcome, check, explain, outcomeStatus, type Finding, type Iteration } from "../openspec/index.js";
 import { NEXT_ACTIONS } from "./contract.js";
-import { checkEvidence, runGroupChecks } from "./checks.js";
+import { checkEvidence, runLoopChecks } from "./checks.js";
 import { readRun, recordIteration, taskTarget } from "./iteration.js";
 import { judgeIteration } from "./judge.js";
 import type { LoopCheckpoint, TaskLoopInput, TaskLoopResult } from "./loop-input.js";
@@ -73,6 +85,59 @@ function converge(input: TaskLoopInput, iterations: Iteration[]): TaskLoopResult
 	);
 }
 
+/**
+ * The workspace a loop's checks run in: `bound`, the `Workspace` the extensions were given, as
+ * it is; else a `localWorkspace` over the loop's worktree or workspace directory. Never stored:
+ * the durable input keeps the directory.
+ */
+export function loopWorkspace(input: Pick<TaskLoopInput, "workspace" | "worktree">, bound?: Workspace): Workspace {
+	return bound ?? localWorkspace(input.worktree?.path ?? input.workspace);
+}
+
+type LoopPhases = TaskDefinition<TaskLoopInput, LoopCheckpoint, TaskLoopResult, object>["phases"];
+
+/**
+ * The gate phase over `loopWorkspace(input, bound)`. Runs the checks and starts no child.
+ * Nothing is stored before they finish, so a process that dies here reruns them; checks only read.
+ */
+function gatePhase(bound?: Workspace): LoopPhases["gate"] {
+	return async (task, runtime, context) => {
+		const { iterations, read } = task.state.checkpoint;
+		const input = task.input;
+		const n = iterations.length + 1;
+		const runs = await runLoopChecks(loopWorkspace(input, bound), input.checks);
+		const failing = runs.filter((r) => r.exitCode !== 0);
+		if (failing.length === 0) {
+			const done = converge(input, [...iterations, recordIteration(n, input.task, read)]);
+			await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
+			return;
+		}
+
+		const reason = `the judge said met, but the checks failed: ${failing.map((r) => `${r.command} exited ${r.exitCode}`).join(", ")}`;
+		const target = taskTarget(input.task);
+		const finding: Finding = { kind: "code-defect", target, evidence: checkEvidence(runs), message: reason };
+		const iteration: Iteration = {
+			n,
+			plan: read.plan,
+			actions: read.actions,
+			evidence: read.evidence,
+			verdict: { met: false, satisfied: [], unmet: [{ target, reason }] },
+			feedback: [{ from: finding, action: "retry" }],
+		};
+		const all = [...iterations, iteration];
+		const status = outcomeStatus(all.slice(input.earlier.length), input.budget);
+		if (status === undefined) {
+			const carried =
+				reason + "\n\n" + failing.map((c) => "$ " + c.command + " (exit " + c.exitCode + ")\n" + c.output.slice(-4000)).join("\n\n");
+			await runtime.commit(() => ({ status: "running", checkpoint: { phase: "iterate", iterations: all, carried } }), context);
+			return;
+		}
+		const done = result({ status, iterations: all } as TaskLoopResult["outcome"], []);
+		await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
+	};
+}
+
+/** The loop task with no bound workspace: its gate runs the checks in the input's directory. */
 export const TaskLoopTask: Task<TaskLoopInput, LoopCheckpoint, TaskLoopResult, object> = defineTask<
 	TaskLoopInput,
 	LoopCheckpoint,
@@ -148,82 +213,76 @@ export const TaskLoopTask: Task<TaskLoopInput, LoopCheckpoint, TaskLoopResult, o
 					: result(decision.outcome as TaskLoopResult["outcome"], decision.notes);
 			await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
 		},
-		// Runs the checks and starts no child. Nothing is stored before they finish, so a
-		// process that dies here reruns them; checks only read.
-		gate: async (task, runtime, context) => {
-			const { iterations, read } = task.state.checkpoint;
-			const input = task.input;
-			const n = iterations.length + 1;
-			const runs = await runGroupChecks(input.checks, input.workspace);
-			const failing = runs.filter((r) => r.exitCode !== 0);
-			if (failing.length === 0) {
-				const done = converge(input, [...iterations, recordIteration(n, input.task, read)]);
-				await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
-				return;
-			}
-
-			const reason = `the judge said met, but the checks failed: ${failing.map((r) => `${r.command} exited ${r.exitCode}`).join(", ")}`;
-			const target = taskTarget(input.task);
-			const finding: Finding = { kind: "code-defect", target, evidence: checkEvidence(runs), message: reason };
-			const iteration: Iteration = {
-				n,
-				plan: read.plan,
-				actions: read.actions,
-				evidence: read.evidence,
-				verdict: { met: false, satisfied: [], unmet: [{ target, reason }] },
-				feedback: [{ from: finding, action: "retry" }],
-			};
-			const all = [...iterations, iteration];
-			const status = outcomeStatus(all.slice(input.earlier.length), input.budget);
-			if (status === undefined) {
-				const carried =
-					reason + "\n\n" + failing.map((c) => "$ " + c.command + " (exit " + c.exitCode + ")\n" + c.output.slice(-4000)).join("\n\n");
-				await runtime.commit(() => ({ status: "running", checkpoint: { phase: "iterate", iterations: all, carried } }), context);
-				return;
-			}
-			const done = result({ status, iterations: all } as TaskLoopResult["outcome"], []);
-			await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
-		},
+		gate: gatePhase(),
 	},
 	abort: async (_task, runtime, context) => {
 		await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted", reason: "aborted" } }), context);
 	},
 });
 
+/** `TaskLoopTask` with its gate bound to `workspace`. pi-durable runs a task's phases from the installed definition. */
+function boundTaskLoopTask(workspace: Workspace): Task<TaskLoopInput, LoopCheckpoint, TaskLoopResult, object> {
+	const definition = TaskLoopTask.definition;
+	return defineTask<TaskLoopInput, LoopCheckpoint, TaskLoopResult>({
+		...definition,
+		phases: { ...definition.phases, gate: gatePhase(workspace) },
+	});
+}
+
 /** Brings the `agentscript.task-loop` task. Installed beside the run and step extensions bound to the loop's actions. */
 export const TaskLoop: Extension = defineExtension({ name: TASK_LOOP, tasks: [TaskLoopTask] });
 
 export interface TaskLoopActionOptions {
-	readonly workspace: string;
+	/** A directory (made `localWorkspace`) or a `Workspace`. */
+	readonly workspace: string | Workspace;
 	readonly checks?: readonly string[];
 	readonly allow?: readonly string[];
-	/** The Claude Code binary `delegate_claude_code` runs. Defaults to `claude` on PATH. */
-	readonly claudeBinary?: string;
-	readonly delegateModel?: string;
-	readonly delegateContext?: readonly string[];
+	/** Per command before it is killed. Defaults to the workspace actions' own. */
+	readonly timeoutMs?: number;
+	/** The delegates granted, one `delegate/<name>` each. Unset: none. */
+	readonly delegates?: DelegateGrants;
+	/** The runners grants name. Defaults to `defaultRunners`. */
+	readonly runners?: Runners;
 }
 
-/** The registry `startTaskLoop` checks a script against: the built-ins for the loop's workspace, checks, allowlist and delegate. */
-export function taskLoopRegistry(options: TaskLoopActionOptions) {
-	return createActionRegistry(
-		builtinActions({
-			workspace: options.workspace,
+function workspaceOf(workspace: string | Workspace): Workspace {
+	return typeof workspace === "string" ? localWorkspace(workspace) : workspace;
+}
+
+/** The `Workspace` the options carry, which the loops' checks use as given; a directory binds none (`loopWorkspace` resolves it per loop). */
+export function boundWorkspace(options: TaskLoopActionOptions): Workspace | undefined {
+	return typeof options.workspace === "string" ? undefined : options.workspace;
+}
+
+function registryOver(workspace: Workspace, options: TaskLoopActionOptions) {
+	return createActionRegistry([
+		...workspaceActions(workspace, {
 			checks: options.checks ?? [],
 			allow: options.allow ?? [],
-			...(options.claudeBinary !== undefined ? { claudeBinary: options.claudeBinary } : {}),
-			...(options.delegateModel !== undefined ? { delegateModel: options.delegateModel } : {}),
-			...(options.delegateContext !== undefined ? { delegateContext: options.delegateContext } : {}),
+			...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
 		}),
-	);
+		...delegationActions(options.delegates ?? {}, { workspace, runners: options.runners ?? defaultRunners }),
+	]);
 }
 
 /**
- * What a harness running task loops installs: `TaskLoop`, and the run and step
- * extensions over the built-in actions for one workspace, check list,
- * allowlist and delegate configuration. A harness runs the loops of that one
- * configuration.
+ * The registry `startTaskLoop` checks a script against, the same the extensions run:
+ * the workspace actions for the loop's workspace, checks and allowlist, and one
+ * `delegate/<name>` per grant. Throws `DelegateGrantError` for an invalid grant.
+ */
+export function taskLoopRegistry(options: TaskLoopActionOptions) {
+	return registryOver(workspaceOf(options.workspace), options);
+}
+
+/**
+ * What a harness running task loops installs: `TaskLoop` (its gate bound to a given
+ * `Workspace`), and the run and step extensions over `taskLoopRegistry(options)`.
+ * A harness runs the loops of that one configuration.
  */
 export function taskLoopExtensions(options: TaskLoopActionOptions): readonly [Extension, Extension, Extension] {
-	const { run, step } = agentScriptExtensions({ actions: taskLoopRegistry(options), workspace: options.workspace });
-	return [TaskLoop, run, step];
+	const workspace = workspaceOf(options.workspace);
+	const { run, step } = agentScriptExtensions({ actions: registryOver(workspace, options), workspace: workspace.root });
+	const bound = boundWorkspace(options);
+	const loop = bound === undefined ? TaskLoop : defineExtension({ name: TASK_LOOP, tasks: [boundTaskLoopTask(bound)] });
+	return [loop, run, step];
 }

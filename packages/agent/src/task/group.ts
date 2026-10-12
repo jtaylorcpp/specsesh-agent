@@ -12,6 +12,7 @@ import {
 	type JsonObject,
 	type ModelRef,
 	type Task,
+	type TaskDefinition,
 	type TaskId,
 } from "@earendil-works/pi-durable";
 import {
@@ -30,14 +31,14 @@ import {
 	type Target,
 	type TaskOutcome,
 } from "../openspec/index.js";
-import { AgentScriptRun, type RunInput } from "../durable/index.js";
+import { AgentScriptRun, type DelegateGrants, type RunInput, type Workspace } from "../durable/index.js";
 import type { RunResult } from "../interpreter/index.js";
-import { checkEvidence, runGroupChecks, type CheckRun } from "./checks.js";
+import { checkEvidence, runLoopChecks, type CheckRun } from "./checks.js";
 import { concatDeltas } from "./deltas.js";
 import { TaskLoopStartError } from "./errors.js";
 import { GROUP_NEXT_ACTIONS, readGroupVerdict, seedGroupJudge, type GroupVerdict } from "./group-judge.js";
 import type { TaskLoopInput, TaskLoopResult } from "./loop-input.js";
-import { TaskLoopTask, subagentsOf } from "./loop.js";
+import { TaskLoopTask, loopWorkspace, subagentsOf } from "./loop.js";
 import {
 	BUNDLED_SCRIPTS,
 	DEFAULT_ESCALATE_TO,
@@ -47,6 +48,7 @@ import {
 	type TaskLoopOptions,
 } from "./options.js";
 import { readChange, readScript, readSource } from "./sources.js";
+import { delegatesOf } from "./start.js";
 import { untick } from "./tick.js";
 
 /** Any JSON value; pi-durable exports `JsonObject` but not its value type. */
@@ -103,8 +105,7 @@ export interface GroupLoopInput {
 	readonly allow: readonly string[];
 	readonly escalateTo: Recipient;
 	readonly model?: ModelRef;
-	readonly delegateModel?: string;
-	readonly delegateContext?: readonly string[];
+	readonly delegates?: DelegateGrants;
 	readonly worktree?: LoopWorktree;
 	/** Set only on a run that answers a blocked group loop: the encoded checkpoint it starts from, and the loop it answers. */
 	readonly resume?: { readonly checkpoint: JsonObject; readonly answers: number };
@@ -186,8 +187,7 @@ export function readGroupInput(options: ResolvedGroupOptions): GroupLoopInput {
 		allow: [...(options.allow ?? [])],
 		escalateTo: options.escalateTo ?? DEFAULT_ESCALATE_TO,
 		...(options.model !== undefined ? { model: options.model } : {}),
-		...(options.delegateModel !== undefined ? { delegateModel: options.delegateModel } : {}),
-		...(options.delegateContext !== undefined ? { delegateContext: [...options.delegateContext] } : {}),
+		...delegatesOf(options),
 		...(options.worktree !== undefined ? { worktree: { path: options.worktree.path, branch: options.worktree.branch } } : {}),
 	};
 }
@@ -478,8 +478,7 @@ export function taskLoopInputFor(input: GroupLoopInput, task: string, carried: s
 		allow: input.allow,
 		escalateTo: input.escalateTo,
 		...(input.model !== undefined ? { model: input.model } : {}),
-		...(input.delegateModel !== undefined ? { delegateModel: input.delegateModel } : {}),
-		...(input.delegateContext !== undefined ? { delegateContext: input.delegateContext } : {}),
+		...(input.delegates !== undefined ? { delegates: input.delegates } : {}),
 		...(input.worktree !== undefined ? { worktree: input.worktree } : {}),
 		carried,
 		earlier: [],
@@ -614,6 +613,26 @@ export function nextCheckpoint(cp: GroupCheckpoint): GroupCheckpoint {
 		: { ...kept, phase: "task", queue: rest, child: { task: head } };
 }
 
+type GroupPhases = TaskDefinition<GroupLoopInput, StoredGroupCheckpoint, GroupLoopResult, object>["phases"];
+
+/**
+ * The check phase over `loopWorkspace(input, bound)`. Nothing is stored before the checks
+ * finish, so a process that dies here reruns them all.
+ */
+function checkPhase(bound?: Workspace): GroupPhases["check"] {
+	return async (task, runtime, context) => {
+		const cp = decodeCheckpoint(task.state.checkpoint);
+		const runs = await runLoopChecks(loopWorkspace(task.input, bound), task.input.checks);
+		if (runs.every((r) => r.exitCode === 0)) {
+			const done = convergedGroup(task.input, cp, runs);
+			await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
+			return;
+		}
+		await runtime.commit(() => ({ status: "running", checkpoint: stored({ ...cp, phase: "judge", checkOutput: runs }) }), context);
+	};
+}
+
+/** The group loop task with no bound workspace: its check runs in the input's directory. */
 export const GroupLoopTask: Task<GroupLoopInput, StoredGroupCheckpoint, GroupLoopResult, object> = defineTask<
 	GroupLoopInput,
 	StoredGroupCheckpoint,
@@ -666,17 +685,7 @@ export const GroupLoopTask: Task<GroupLoopInput, StoredGroupCheckpoint, GroupLoo
 			const done = endedGroup(task.input, { entries, iterations: cp.iterations }, current, outcome);
 			await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
 		},
-		// Nothing is stored before the checks finish, so a process that dies here reruns them all.
-		check: async (task, runtime, context) => {
-			const cp = decodeCheckpoint(task.state.checkpoint);
-			const runs = await runGroupChecks(task.input.checks, task.input.workspace);
-			if (runs.every((r) => r.exitCode === 0)) {
-				const done = convergedGroup(task.input, cp, runs);
-				await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
-				return;
-			}
-			await runtime.commit(() => ({ status: "running", checkpoint: stored({ ...cp, phase: "judge", checkOutput: runs }) }), context);
-		},
+		check: checkPhase(),
 		// Like `task`: the judge's run is created and its id stored in one commit; a later entry
 		// waits for that id, reads the four variables back and decides.
 		judge: async (task, runtime, context) => {
@@ -729,3 +738,13 @@ export const GroupLoopTask: Task<GroupLoopInput, StoredGroupCheckpoint, GroupLoo
 
 /** Brings the `agentscript.group-loop` task. Installed beside `taskLoopExtensions`, whose task loops are its children. */
 export const GroupLoop: Extension = defineExtension({ name: GROUP_LOOP, tasks: [GroupLoopTask] });
+
+/** `GroupLoop` with its check bound to `workspace`. pi-durable runs a task's phases from the installed definition. */
+export function boundGroupLoop(workspace: Workspace): Extension {
+	const definition = GroupLoopTask.definition;
+	const task = defineTask<GroupLoopInput, StoredGroupCheckpoint, GroupLoopResult>({
+		...definition,
+		phases: { ...definition.phases, check: checkPhase(workspace) },
+	});
+	return defineExtension({ name: GROUP_LOOP, tasks: [task] });
+}

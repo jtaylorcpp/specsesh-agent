@@ -6,7 +6,7 @@
  *   agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [--script <name|path>] [--workspace <dir>]
  *                    [--check <command>]... [--allow <word>]... [--max-iterations <n>]
  *                    [--escalate-to principal|agent] [--provider <id>] [--model <id>]
- *                    [--allow-dirty] [--worktree] [--json]
+ *                    [--allow-dirty] [--worktree] [--no-delegates] [--json]
  *   agentscript-task resume <loop-id> [--db <path>] [--json]
  *   agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--json]
  *   agentscript-task status [--db <path>]
@@ -28,6 +28,9 @@
  * `--provider claude-code` runs each step through your own `claude` binary; pair
  * it with the bundled task-delegate script, since that provider serves no
  * model-callable tools.
+ *
+ * The harness comes from `createAgentHarness`: the loop's model, its workspace,
+ * checks and allowlist, and the config's `delegates` (none under `--no-delegates`).
  */
 
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
@@ -35,19 +38,22 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { Models } from "@earendil-works/pi-ai";
-import { createRegistry, Harness, type Registry, type Storage, type TaskId } from "@earendil-works/pi-durable";
+import type { Models, Provider } from "@earendil-works/pi-ai";
+import type { Cursor, Harness, ModelRef, Storage, TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import type { AgentHarness } from "../durable/agent-config.js";
+import type { DelegateGrants } from "../durable/delegation.js";
+import { createAgentHarness } from "../durable/harness.js";
+import { defaultRunners, localWorkspace } from "../node/index.js";
 import type { Escalation, GroupOutcome, LoopOutcome, Recipient, TaskOutcome } from "../openspec/index.js";
 import {
 	GroupLoop,
+	TASK_LOOP,
 	TaskLoop,
 	answerEscalation,
 	answerGroupEscalation,
-	groupLoopExtensions,
 	startGroupLoop,
 	startTaskLoop,
-	taskLoopExtensions,
 	waitForGroupLoop,
 	waitForTaskLoopResult,
 	type GroupLoopOptions,
@@ -73,9 +79,9 @@ import { GroupWatcher, LoopWatcher, jsonLines, now, type EventSink, type TaskEve
 import { changedBetween, insideGit, repoRoot, snapshot, status } from "../task/git.js";
 import { DatabaseLockedError, lockDatabase, type DbLock } from "../task/lock.js";
 import { ChangeNotFoundError, nextGroup, nextTask, resolveChange } from "../task/resolve.js";
-import type { GroupLoopInput, GroupLoopResult } from "../task/group.js";
+import { GROUP_LOOP_NAME, type GroupLoopInput, type GroupLoopResult } from "../task/group.js";
 import { readResult } from "../task/group-api.js";
-import { changeOf, formatLoop, listLoops, loopKind, scriptOf } from "../task/status.js";
+import { changeOf, formatLoop, listLoops, scriptOf } from "../task/status.js";
 import { WorktreeRefusedError, checkWorktree, createWorktree, inRepo, planWorktree, rebase, runSetup } from "../task/worktree.js";
 
 export { DEFAULT_MODEL, DEFAULT_PROVIDER };
@@ -88,6 +94,7 @@ const USAGE = `usage:
       options: --script <name|path>  --workspace <dir>  --check <command>...  --allow <word>...
                --max-iterations <n>  --escalate-to principal|agent  --provider <id>  --model <id>
                --allow-dirty  --worktree  --json
+               --no-delegates   withdraw every delegate grant for this run
   agentscript-task resume <loop-id> [--db <path>] [--json]
   agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--json]
   agentscript-task status [--db <path>]`;
@@ -177,6 +184,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 				"next-group": { type: "boolean", default: false },
 				"allow-dirty": { type: "boolean", default: false },
 				worktree: { type: "boolean" },
+				"no-delegates": { type: "boolean", default: false },
 				by: { type: "string" },
 				decision: { type: "string" },
 				json: { type: "boolean", default: false },
@@ -204,7 +212,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 			if (db === undefined) return usage("status needs --db <path>, or a db in agentscript.config.json");
 			return await showStatus(db, out);
 		}
-		return await continueLoop(command, parsed.values, parsed.positionals, config, cwd, deps, io, usage);
+		return await continueLoop(command, parsed.values, parsed.positionals, config, cwd, env, deps, io, usage);
 	} catch (error) {
 		if (isRefusal(error)) {
 			err(message(error));
@@ -288,16 +296,18 @@ async function run(
 	const groupScript = group !== undefined ? resolveGroupScript(settings.groupScript.value, settings.groupScript.base) : undefined;
 
 	const models = await (deps.models ?? builtin)();
-	if (models.getModel(settings.provider, settings.model) === undefined) {
+	const provider = models.getProvider(settings.provider);
+	if (provider === undefined || models.getModel(settings.provider, settings.model) === undefined) {
 		io.err(`no model "${settings.model}" on provider "${settings.provider}"`);
 		return 2;
 	}
+	const model: ModelRef = { provider: settings.provider, modelId: settings.model };
 
 	// Warnings found before the loop exists go out after the resume hint, which stays the first stderr line.
 	const warnings: string[] = [];
 	let workspace = settings.workspace;
 	let changeDir = change.dir;
-	let delegateContext = settings.delegateContext;
+	let delegates: DelegateGrants = values["no-delegates"] === true ? {} : config.delegates;
 	let worktree: LoopWorktree | undefined;
 	if (settings.worktree) {
 		const plan = planWorktree({
@@ -318,7 +328,7 @@ async function run(
 		}
 		workspace = rebase(plan, workspace);
 		changeDir = rebase(plan, change.dir);
-		delegateContext = delegateContext.map((file) => rebase(plan, file));
+		delegates = rebaseContext(delegates, (file) => rebase(plan, file));
 		if (dirty > 0) {
 			warnings.push(`${dirty} uncommitted change${dirty === 1 ? " is" : "s are"} in the main tree and not in the worktree`);
 		}
@@ -339,6 +349,10 @@ async function run(
 	const lock = lockDatabase(db.path);
 	if (lock.staleFrom !== undefined) warnings.push(`took over a stale lock on ${db.label} left by process ${lock.staleFrom}, which is no longer running`);
 	try {
+		const storage = await openNodeSqliteStorage(db.path);
+		// After the worktree exists, so the actions, the gate and the delegates all work in it.
+		const built = await buildHarness(storage, { provider, model }, { workspace, checks: settings.checks, allow: settings.allow, delegates });
+		const harness = built.harness;
 		const options: Omit<TaskLoopOptions, "task"> = {
 			change: { dir: changeDir },
 			script: { path: settings.script.path },
@@ -347,16 +361,11 @@ async function run(
 			checks: settings.checks,
 			allow: settings.allow,
 			escalateTo: settings.escalateTo,
-			model: { provider: settings.provider, modelId: settings.model },
-			delegateModel: settings.delegateModel,
-			delegateContext,
+			model: built.models["default"] ?? model,
+			// Nothing granted stores nothing, so the loop records no `delegates`.
+			...(Object.keys(delegates).length > 0 ? { delegates } : {}),
 			...(worktree !== undefined ? { worktree } : {}),
 		};
-		const registry = createRegistry();
-		const extensions = group !== undefined ? groupLoopExtensions(options) : taskLoopExtensions(options);
-		for (const extension of extensions) registry.install(extension);
-		const storage = await openNodeSqliteStorage(db.path);
-		const harness = await Harness.open(storage, { models, registry }, BACKGROUND_CONTEXT);
 		try {
 			if (group !== undefined && groupScript !== undefined) {
 				return await runGroup(harness, storage, groupLoopOptions(options, group, groupScript, settings), io, db);
@@ -381,6 +390,61 @@ async function run(
 	} finally {
 		lock.release();
 	}
+}
+
+/** The grants with each `context` entry mapped, as worktree runs rebase them into the worktree. */
+function rebaseContext(grants: DelegateGrants, map: (file: string) => string): DelegateGrants {
+	return Object.fromEntries(
+		Object.entries(grants).map(([name, grant]) => [
+			name,
+			Array.isArray(grant["context"]) ? { ...grant, context: (grant["context"] as string[]).map(map) } : grant,
+		]),
+	);
+}
+
+/** What a loop's harness is built over: its workspace, checks, allowlist and grants, as `run` resolved them or the loop stored them. */
+export interface LoopHarnessTerms {
+	readonly workspace: string;
+	readonly checks: readonly string[];
+	readonly allow: readonly string[];
+	readonly delegates?: DelegateGrants;
+}
+
+/**
+ * The CLI's harness: `createAgentHarness` with `models.default` the loop's model,
+ * `localWorkspace` over its workspace, its checks, allowlist and grants on
+ * `defaultRunners`, and `TaskLoop` and `GroupLoop` installed.
+ */
+export async function buildHarness(
+	storage: Storage,
+	model: { readonly provider: Provider; readonly model: ModelRef },
+	terms: LoopHarnessTerms,
+): Promise<AgentHarness> {
+	return await createAgentHarness<Record<string, never>>(
+		{
+			models: { default: () => ({ provider: model.provider, model: model.model }) },
+			workspace: () => localWorkspace(terms.workspace),
+			checks: terms.checks,
+			allow: terms.allow,
+			delegates: terms.delegates ?? {},
+			runners: defaultRunners,
+		},
+		{ storage, env: {}, extensions: [TaskLoop, GroupLoop], context: BACKGROUND_CONTEXT },
+	);
+}
+
+/** A task or group loop's record by ID, read from storage before any harness is open. */
+async function findLoop(storage: Storage, id: number) {
+	for (const kind of [TASK_LOOP, GROUP_LOOP_NAME]) {
+		let cursor: Cursor | undefined;
+		do {
+			const page = await storage.scanTasks({ kind }, 100, cursor, BACKGROUND_CONTEXT);
+			const found = page.items.find((record) => Number(record.id) === id);
+			if (found !== undefined) return { kind: kind === GROUP_LOOP_NAME ? ("group" as const) : ("task" as const), record: found };
+			cursor = page.next;
+		} while (cursor !== undefined);
+	}
+	return undefined;
 }
 
 /** What `run` was told to work, with the change already checked; or the usage failure. */
@@ -505,6 +569,7 @@ async function continueLoop(
 	positionals: readonly string[],
 	config: LoadedConfig,
 	cwd: string,
+	env: Readonly<Record<string, string | undefined>>,
 	deps: CliDeps,
 	io: Io,
 	usage: (text?: string) => number,
@@ -532,28 +597,35 @@ async function continueLoop(
 	const lock: DbLock = lockDatabase(db.path);
 	if (lock.staleFrom !== undefined) warnings.push(`took over a stale lock on ${db.label} left by process ${lock.staleFrom}, which is no longer running`);
 	try {
-		const registry = createRegistry();
-		registry.install(GroupLoop);
-		registry.install(TaskLoop);
 		const storage = await openNodeSqliteStorage(db.path);
-		const harness = await Harness.open(storage, { models, registry }, BACKGROUND_CONTEXT);
+		const id = Number(target) as LoopId;
+		const found = Number.isInteger(id) ? await findLoop(storage, id) : undefined;
+		// A group's input carries the same workspace, checks, allowlist, model and delegates a task loop's does.
+		const stored = found?.record.input as unknown as (TaskLoopInput | GroupLoopInput) | undefined;
+		const model: ModelRef = stored?.model ?? {
+			provider: env["AGENTSCRIPT_PROVIDER"] ?? config.task.provider ?? DEFAULT_PROVIDER,
+			modelId: env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL,
+		};
+		const provider = models.getProvider(model.provider);
+		if (found === undefined || stored === undefined || provider === undefined) {
+			await storage.close(BACKGROUND_CONTEXT);
+			io.err(found === undefined ? `no loop ${target} in ${db.label}` : `no provider "${model.provider}" for loop ${target}`);
+			return 2;
+		}
+		// The loop's own terms, so a resumed loop delegates and checks as it started.
+		const { harness } = await buildHarness(storage, { provider, model }, stored);
 		try {
-			const id = Number(target) as LoopId;
-			const kind = Number.isInteger(id) ? await loopKind(harness, id) : undefined;
-			const record = kind !== undefined ? await harness.getTask(id, BACKGROUND_CONTEXT) : undefined;
-			if (kind === undefined || record === undefined) {
+			const record = await harness.getTask(id, BACKGROUND_CONTEXT);
+			if (record === undefined) {
 				io.err(`no loop ${target} in ${db.label}`);
 				return 2;
 			}
-			if (kind === "group") {
-				// A group's input carries the same workspace, checks, allowlist and delegate a task loop's does.
-				installActions(registry, record.input as unknown as GroupLoopInput);
+			if (found.kind === "group") {
 				for (const warning of warnings) io.emit({ event: "warning", loop: Number(id), message: warning });
 				const answer = command === "answer" ? { by: by as Recipient, decision: decision as string } : undefined;
 				return await continueGroup(command, harness, storage, id as unknown as GroupId, answer, io, db);
 			}
 			const input = record.input as unknown as TaskLoopInput;
-			installActions(registry, input);
 			const context = {
 				io,
 				db,
@@ -596,22 +668,6 @@ async function continueLoop(
 	} finally {
 		lock.release();
 	}
-}
-
-/** Bind the loop's actions to the workspace, checks, allowlist and delegate it was started with. */
-function installActions(
-	registry: Registry,
-	input: Pick<TaskLoopInput, "workspace" | "checks" | "allow" | "delegateModel" | "delegateContext">,
-): void {
-	const [, run, step] = taskLoopExtensions({
-		workspace: input.workspace,
-		checks: input.checks,
-		allow: input.allow,
-		...(input.delegateModel !== undefined ? { delegateModel: input.delegateModel } : {}),
-		...(input.delegateContext !== undefined ? { delegateContext: input.delegateContext } : {}),
-	});
-	registry.install(run);
-	registry.install(step);
 }
 
 async function showStatus(db: DbPath, out: (line: string) => void): Promise<number> {

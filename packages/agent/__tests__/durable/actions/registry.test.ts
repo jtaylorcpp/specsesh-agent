@@ -10,11 +10,12 @@ import {
 	AgentScript,
 	AgentScriptStepExtension,
 	agentScriptExtensions,
-	builtinActions,
 	createActionRegistry,
 	startScript,
+	workspaceActions,
 	type HostAction,
 } from "../../../src/durable/index.js";
+import { builtinActions, localWorkspace } from "../../../src/node/index.js";
 import { context, openHarness, setup } from "../helpers.js";
 import { RUN_CHECKS_DEFINITION, subagentDocument } from "../../core/helpers/actions.js";
 
@@ -122,9 +123,17 @@ describe("actions/registry: An action registry maps names to host actions", () =
 		expect(() => createActionRegistry([runChecks, { ...runChecks }])).toThrow(/run_checks/);
 	});
 
-	it("builtinActions returns the five built-ins, and a host may add its own beside them", () => {
+	it("Scenario: No delegate is built in", () => {
+		for (const actions of [builtinActions({ workspace }), workspaceActions(localWorkspace(workspace))]) {
+			const names = actions.map((a) => a.name);
+			expect(names).toEqual(["read_file", "edit_file", "run_command", "run_checks"]);
+			expect(names).not.toContain("delegate_claude_code");
+			expect(names.filter((name) => name.startsWith("delegate/"))).toEqual([]);
+		}
+	});
+
+	it("a host may add its own actions beside the built-ins", () => {
 		const actions = builtinActions({ workspace });
-		expect(actions.map((a) => a.name)).toEqual(["read_file", "edit_file", "run_command", "run_checks", "delegate_claude_code"]);
 		const own: HostAction = { ...(actions[0] as HostAction), name: "deploy" };
 		expect([...createActionRegistry([...actions, own]).keys()]).toContain("deploy");
 	});
@@ -299,42 +308,6 @@ describe("actions/registry: run_checks passes only when every configured check e
 		const result = await exec(builtins()["run_checks"], { task_id: "2.4" });
 		expect(result.ok).toBe(false);
 		expect(failure(result)).toContain("no checks configured");
-	});
-});
-
-describe("actions/registry: delegate_claude_code runs headless Claude Code inside this project's hard lines", () => {
-	it("Scenario: The delegate's argv and environment keep the hard lines", async () => {
-		fake("claude", { stdout: JSON.stringify({ type: "result", is_error: false, result: "Edited src/a.ts." }) });
-		const log = onlyFakesOnPath();
-		process.env.ANTHROPIC_API_KEY = "sk-test-not-real";
-		process.env.CLAUDECODE = "1";
-		try {
-			const result = await exec(builtins()["delegate_claude_code"], { instructions: "Add a test for 2.4" });
-			expect(result).toMatchObject({ ok: true, outputs: { ok: true, summary: "Edited src/a.ts." } });
-			const record = ontologyRecord(result);
-			expect((record.action as { kind: string }).kind).toBe("delegate");
-			expect((record.evidence[0] as { kind: string }).kind).toBe("check");
-		} finally {
-			delete process.env.ANTHROPIC_API_KEY;
-			delete process.env.CLAUDECODE;
-		}
-		const [call] = logged(log);
-		expect(call?.name).toBe("claude");
-		expect(call?.argv).toContain("-p");
-		expect(call?.argv).toContain("--safe-mode");
-		expect(call?.argv).not.toContain("--bare");
-		const tools = call?.argv.indexOf("--tools") ?? -1;
-		if (tools >= 0) expect(call?.argv[tools + 1]).not.toBe("");
-		expect(call?.env["ANTHROPIC_API_KEY"]).toBeUndefined();
-		expect(call?.env["CLAUDECODE"]).toBeUndefined();
-		expect(call?.cwd).toBe(workspace);
-		expect(call?.stdin).toBe("Add a test for 2.4");
-		expect(builtins()["delegate_claude_code"]?.replay).toBe("unsafe");
-	});
-
-	it("never reads Claude Code's OAuth token", () => {
-		const source = readFileSync(join(__dirname, "../../../src/durable/builtins.ts"), "utf8");
-		expect(source).not.toMatch(/CLAUDE_CODE_OAUTH_TOKEN|\.credentials\.json|oauthToken/i);
 	});
 });
 

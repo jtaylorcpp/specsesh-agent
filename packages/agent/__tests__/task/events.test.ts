@@ -10,7 +10,7 @@ afterEach(() => cleanTemps());
 /** A committed repo with the fake-claude config, and extra config fields merged into `task`. */
 function repoWithConfig(task: Record<string, unknown> = {}) {
 	const config = JSON.parse(FAKE_CLAUDE_CONFIG) as { task: Record<string, unknown> };
-	return gitRepo({ "agentscript.config.json": JSON.stringify({ task: { ...config.task, ...task } }) });
+	return gitRepo({ "agentscript.config.json": JSON.stringify({ ...config, task: { ...config.task, ...task } }) });
 }
 
 const lines = (stderr: string) => stderr.trimEnd().split("\n");
@@ -80,7 +80,7 @@ describe("task/headless: The stream has six event kinds", () => {
 		expect(parsed[verdict]).toMatchObject({ iteration: 1, unmet: "", next: "done" });
 		expect(parsed[ended]).toMatchObject({ iterations: 1, ticked: true });
 		const action = parsed.find((e) => e["event"] === "action");
-		expect(action).toMatchObject({ iteration: 1, kind: "delegate", summary: "edit src/a.ts", refs: [] });
+		expect(action).toMatchObject({ iteration: 1, kind: "delegate", summary: "edit src/a.ts", refs: ["delegate/claude_code"] });
 	});
 
 	it("Scenario: A check becomes an evidence event", async () => {

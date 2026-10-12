@@ -13,7 +13,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { splitCommand } from "../durable/index.js";
+import { splitCommand } from "../node/index.js";
 import { addWorktree, branchExists, existsAtHead, insideGit, repoRoot, worktreePaths } from "./git.js";
 
 /** Worktree mode refused before anything was created. Exit 2. */

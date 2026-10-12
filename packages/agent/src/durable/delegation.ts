@@ -82,7 +82,7 @@ function positiveInteger(value: unknown): string | undefined {
 }
 
 /** Every grant's terms, in grant order. Throws `DelegateGrantError` at the first invalid one. */
-function validateGrants(grants: DelegateGrants, runners: Runners): DelegateTerms[] {
+export function validateGrants(grants: DelegateGrants, runners: Runners): DelegateTerms[] {
 	return Object.entries(grants).map(([name, grant]) => validateGrant(name, grant, runners));
 }
 

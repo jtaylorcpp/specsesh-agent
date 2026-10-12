@@ -33,22 +33,22 @@
 
 ## 3. The switch (one group, so group 4's run starts on grants and workspaces: the agent runs on this code)
 
-- [ ] 3.1 `packages/agent/src/task/options.ts`, `src/task/loop-input.ts`, `src/task/loop.ts`, `src/task/start.ts`, `src/task/group.ts`:
+- [x] 3.1 `packages/agent/src/task/options.ts`, `src/task/loop-input.ts`, `src/task/loop.ts`, `src/task/start.ts`, `src/task/group.ts`:
   - `delegates?: DelegateGrants` replaces `delegateModel` and `delegateContext` through the options, the durable input and the group input;
   - `taskLoopExtensions({ workspace, checks, allow, delegates, runners })`, where `workspace` is a directory or a `Workspace` and `runners` defaults to `defaultRunners`;
   - its registry is `workspaceActions` plus `delegationActions`, the same at start and at run.
-- [ ] 3.2 `packages/agent/src/task/loop.ts` (the gate) + `src/task/group.ts` (the group check): checks run with `runChecks` over the loop's workspace (replacing the group's own runner); no `exec` fails with `this workspace cannot run commands`
-- [ ] 3.3 `packages/agent/src/task/scripts/task-delegate.agent`:
+- [x] 3.2 `packages/agent/src/task/loop.ts` (the gate) + `src/task/group.ts` (the group check): checks run with `runChecks` over the loop's workspace (replacing the group's own runner); no `exec` fails with `this workspace cannot run commands`
+- [x] 3.3 `packages/agent/src/task/scripts/task-delegate.agent`:
   - `act` runs an action `claude_code` targeting `mcpTool://delegate/claude_code`, with outputs `ok`, `summary` and `files_changed`, setting `act_ok`, `act_summary` and `act_files` (declared `number`);
   - the judge gains `Files the delegate changed: {!@variables.act_files}`;
   - orient's iteration-2+ block gains the different-approach line from `design.md`;
   - it still lints clean, keeps the contract and keeps the iterate-first judge lines.
-- [ ] 3.4 `packages/agent/src/task/config.ts`:
+- [x] 3.4 `packages/agent/src/task/config.ts`:
   - read the top-level `delegates`, validated with the grant rules against `defaultRunners`; errors name the config path, the grant and the key, and exit `2`;
   - resolve each grant's `context` against the config's directory;
   - refuse `delegateModel` and `delegateContext` with `moved: grant a delegate under "delegates" instead`;
   - update `__tests__/task/config.test.ts` for the new field set.
-- [ ] 3.5 `packages/agent/src/bin/agentscript-task.ts` + `__tests__/task/cli-helpers.ts`:
+- [x] 3.5 `packages/agent/src/bin/agentscript-task.ts` + `__tests__/task/cli-helpers.ts`:
   - build the harness with `createAgentHarness` (`host/agent-config`, "The task CLI builds its harness from a config");
   - pass `delegates` to task and group loops (worktree runs rebase grant context paths as they did `delegateContext`);
   - `--no-delegates`, listed in the options usage.

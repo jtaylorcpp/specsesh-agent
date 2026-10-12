@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,8 +43,14 @@ function reduce(file: string, spec: string): string {
 const CORE = ["node", "src/authoring", "src/interpreter"];
 const PI = [...CORE, "@earendil-works/pi-ai", "src/pi"];
 const CLAUDE_CODE = [...PI, "src/claude-code"];
-const DURABLE = [...CLAUDE_CODE, "@earendil-works/pi-durable", "@earendil-works/chord", "src/openspec", "src/durable"];
-const NODE = [...DURABLE, "src/node"];
+const DURABLE = [
+	...PI.filter((dep) => dep !== "node"),
+	"@earendil-works/pi-durable",
+	"@earendil-works/chord",
+	"src/openspec",
+	"src/durable",
+];
+const NODE = [...DURABLE, "node", "src/claude-code", "src/node"];
 const TASK = [...NODE, "src/task"];
 const CLOUDFLARE = [...DURABLE, "agents", "cloudflare:workers", "src/cloudflare"];
 const OPENSPEC = ["typebox", "src/openspec"];
@@ -88,7 +94,42 @@ describe("Each layer imports only its own peers and the layers beneath it", () =
 		expect(reduced).toContain("src/openspec");
 		expect(reduced).not.toContain("typebox");
 	});
+
+	it("Scenario: The durable layer is free of Node", () => {
+		const nodeFree = (file: string, spec: string) => {
+			const reduced = reduce(file, spec);
+			const where = `${relative(PKG_DIR, file)} imports ${spec}`;
+			expect(spec, where).not.toMatch(/^node:/);
+			expect(["node", "src/claude-code", "src/node"], where).not.toContain(reduced);
+		};
+
+		const durable = filesUnder(join(SRC, "durable"));
+		expect(durable.length).toBeGreaterThan(0);
+		for (const file of durable) for (const spec of importsOf(file)) nodeFree(file, spec);
+
+		// Everything src/cloudflare/ reaches inside src/, followed import by import.
+		const seen = new Set<string>();
+		const queue = filesUnder(join(SRC, "cloudflare"));
+		expect(queue.length).toBeGreaterThan(0);
+		while (queue.length > 0) {
+			const file = queue.pop() as string;
+			if (seen.has(file)) continue;
+			seen.add(file);
+			for (const spec of importsOf(file)) {
+				nodeFree(file, spec);
+				if (spec.startsWith(".")) queue.push(sourceOf(join(dirname(file), spec)));
+			}
+		}
+		expect([...seen].some((file) => file.startsWith(`${join(SRC, "durable")}/`))).toBe(true);
+	});
 });
+
+/** The `.ts` file a relative `.js` import names. */
+function sourceOf(path: string): string {
+	const file = path.replace(/\.js$/, ".ts");
+	expect(existsSync(file), `${relative(PKG_DIR, file)} does not exist`).toBe(true);
+	return file;
+}
 
 describe("The model is Workers AI unless faux mode is on", () => {
 	it("Scenario: The published host has no faux mode", () => {

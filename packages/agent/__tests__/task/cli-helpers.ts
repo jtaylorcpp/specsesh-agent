@@ -9,8 +9,10 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
+import { MemoryStorage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { main } from "../../src/bin/agentscript-task.js";
+import { buildHarness, main } from "../../src/bin/agentscript-task.js";
+import type { DelegateGrants } from "../../src/durable/delegation.js";
 import { GROUP_LOOP_NAME, type GroupLoopInput } from "../../src/task/group.js";
 import { TASK_LOOP, type TaskLoopInput } from "../../src/task/index.js";
 import { JUDGE_ONLY, PROPOSAL, DELTA, TASKS, context, temp } from "./helpers.js";
@@ -46,16 +48,17 @@ export interface CliRun {
 
 /**
  * main() in process. `cwd` defaults to a fresh temp directory outside any repo
- * and config, `env` to one without AGENTSCRIPT_* unless given.
+ * and config, `env` to one without AGENTSCRIPT_* unless given. `noDelegates`
+ * appends `--no-delegates`.
  */
 export async function cli(
 	argv: string[],
 	env = fauxModels(),
-	options: { cwd?: string; env?: Record<string, string | undefined> } = {},
+	options: { cwd?: string; env?: Record<string, string | undefined>; noDelegates?: boolean } = {},
 ): Promise<CliRun> {
 	const out: string[] = [];
 	const err: string[] = [];
-	const code = await main(argv, {
+	const code = await main(options.noDelegates === true ? [...argv, "--no-delegates"] : argv, {
 		models: () => env.models,
 		out: (l) => out.push(l),
 		err: (l) => err.push(l),
@@ -64,6 +67,22 @@ export async function cli(
 		pollMs: 10,
 	});
 	return { code, out: out.join("\n"), err: err.join("\n"), errLines: err, env };
+}
+
+/**
+ * The action names of the harness `run` builds over `workspace` and `delegates`,
+ * through the CLI's own `buildHarness`, on a faux model and memory storage.
+ */
+export async function cliActions(workspace: string, delegates: DelegateGrants = {}): Promise<string[]> {
+	const { faux } = fauxModels();
+	const model = faux.getModel();
+	const built = await buildHarness(
+		new MemoryStorage(),
+		{ provider: faux.provider, model: { provider: model.provider, modelId: model.id } },
+		{ workspace, checks: [], allow: [], delegates },
+	);
+	await built.harness.close(context);
+	return [...built.actions.keys()];
 }
 
 /** The stored loop inputs in a database. */
@@ -228,18 +247,18 @@ process.stdout.write(JSON.stringify(out));
 
 /**
  * A config for spawned runs on the fake `claude`: the claude-code provider,
- * `task-delegate`, and a `node` check that always passes.
+ * `task-delegate` with its `claude_code` grant, and a `node` check that always passes.
  */
 export const FAKE_CLAUDE_CONFIG = JSON.stringify({
 	task: {
 		provider: "claude-code",
 		model: "claude-haiku-4-5",
-		delegateModel: "sonnet",
 		script: "task-delegate",
 		checks: ["node --version"],
 		allow: ["node"],
 		db: ".agentscript/task-loops.sqlite",
 	},
+	delegates: { claude_code: { runner: "claude-code", model: "sonnet", allow: ["node"] } },
 });
 
 export interface BinRun {

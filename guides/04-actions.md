@@ -1,6 +1,6 @@
 # Actions: letting an agent do work
 
-A script's model steps can only talk. Actions are how a script reads files, edits them, runs commands and calls your own code. By the end of this guide you will be able to declare an action in a script, call it deterministically or hand it to the model, register the built-in actions (`read_file`, `edit_file`, `run_command`, `run_checks`, `delegate_claude_code`), write a host action of your own, and know exactly what happens to each kind of action when the process dies mid-call.
+A script's model steps can only talk. Actions are how a script reads files, edits them, runs commands and calls your own code. By the end of this guide you will be able to declare an action in a script, call it deterministically or hand it to the model, register the built-in actions (`read_file`, `edit_file`, `run_command`, `run_checks`), write a host action of your own, and know exactly what happens to each kind of action when the process dies mid-call.
 
 ## Prerequisites
 
@@ -11,7 +11,7 @@ npm install @specsesh/agent
 npm install @earendil-works/pi-ai @earendil-works/pi-durable @earendil-works/chord
 ```
 
-Node 22.19 or newer. You should already have opened a `Harness` and run a script; if not, read [Durable agents on Node](03-durable-agents.md) first. `delegate_claude_code` also needs the `claude` binary on your `PATH`. A Cloudflare host does not run actions yet (see [Agents on Cloudflare](05-cloudflare.md)).
+Node 22.19 or newer. You should already have opened a `Harness` and run a script; if not, read [Durable agents on Node](03-durable-agents.md) first. A granted `claude-code` delegate also needs the `claude` binary on your `PATH`. A Cloudflare host does not run actions yet (see [Agents on Cloudflare](05-cloudflare.md)).
 
 ## The pieces
 
@@ -145,7 +145,8 @@ import { createModels } from "@earendil-works/pi-ai";
 import { createRegistry, Harness } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { claudeCodeProvider } from "@specsesh/agent/claude-code";
-import { agentScriptExtensions, builtinActions, createActionRegistry, runScript } from "@specsesh/agent/durable";
+import { agentScriptExtensions, createActionRegistry, runScript } from "@specsesh/agent/durable";
+import { builtinActions } from "@specsesh/agent/node";
 
 const workspace = "/path/to/repo";
 const actions = createActionRegistry(
@@ -179,7 +180,7 @@ Three things to know:
 
 ## The built-ins
 
-`builtinActions(options)` returns five host actions bound to one workspace.
+`builtinActions(options)` (from `@specsesh/agent/node`) returns four host actions bound to one workspace directory: `workspaceActions(localWorkspace(dir), …)`. No delegate is built in; a host grants one with `delegationActions` from `@specsesh/agent/durable`.
 
 | Action | Inputs → outputs | `kind` | `replay` |
 |---|---|---|---|
@@ -187,19 +188,15 @@ Three things to know:
 | `edit_file` | `path`, `content` → `ok` | edit | safe |
 | `run_command` | `command` → `exit_code`, `output` | command | unsafe |
 | `run_checks` | `task_id` → `passed`, `output` | command | unsafe |
-| `delegate_claude_code` | `instructions` → `ok`, `summary` | delegate | unsafe |
 
 The options:
 
 | Option | Meaning |
 |---|---|
 | `workspace` | Required. The directory every built-in is confined to and runs in. |
-| `allow` | First words `run_command` may run (and the shell commands the delegate may use). Empty or absent: nothing runs. |
+| `allow` | First words `run_command` may run. Empty or absent: nothing runs. |
 | `checks` | Commands `run_checks` runs, in order. Empty or absent: `run_checks` refuses. |
-| `timeoutMs` | Per command, and per delegate run, before it is killed. Default 600000 (ten minutes). |
-| `claudeBinary` | The Claude Code binary. Default `claude` on your `PATH`. |
-| `delegateModel` | `--model` for the delegate. Unset: Claude Code's own default. |
-| `delegateContext` | Files appended to the delegate's system prompt, in order, resolved against the workspace. A missing file fails the action without starting Claude Code. |
+| `timeoutMs` | Per command before it is killed. Default 600000 (ten minutes). |
 
 How each behaves:
 
@@ -207,7 +204,6 @@ How each behaves:
 - **`edit_file`** replaces the whole file, creating parent directories inside the workspace. To change one line, read the file, change the text, write it all back.
 - **`run_command`** splits the command on whitespace into an argument list. There is no shell and no quoting. `pnpm test; rm -rf src` starts `pnpm` with four arguments and nothing else. The first word must be in `allow`, or the answer is `ok: false` and nothing starts. A command that exits non-zero is **not** a refusal: you get `ok: true` with its `exit_code` and `output`, so the script can read the failure.
 - **`run_checks`** runs every command in `checks`, in order, even after one fails, and answers `passed: true` only if all exited 0 and none timed out. `output` holds each command, its output and its exit code. With no `checks` configured it answers `ok: false` ("no checks configured") instead of passing vacuously. `task_id` is only recorded in the action's summary.
-- **`delegate_claude_code`** writes `instructions` to the stdin of `claude -p --safe-mode`, with file tools and a `Bash` allowed only for the first words in `allow`, and `--permission-mode dontAsk` so it never waits for a prompt. It runs in the workspace. `ANTHROPIC_API_KEY` and `CLAUDECODE` are removed from its environment, so it signs in as you, on your subscription; it never uses `--bare` and never reads Claude Code's OAuth token. The answer is `ok: true` with `ok` (did Claude Code succeed) and `summary` (its result text), so a failed delegate is something the script reads, not a crash.
 
 A script that calls `run_checks` declares it as [the package README](../packages/agent/README.md#actions-let-a-script-do-work) shows: `task_id: string` in, `passed: boolean` and `output: string` out. Declare every input and output the host action has, with the same types, or the binding check refuses the script (below).
 
@@ -222,7 +218,7 @@ An action that changes or runs something attaches a `record` to its result: an o
 }
 ```
 
-`run_command` and `run_checks` record a `command` action with one `check` evidence per command (its exit code and output). The delegate records a `delegate` action. `read_file` records nothing. The record rides along in `RunResult.actions[n].result.record` for a `run`, and in `toolCalls[n].record` for a model call. The interpreter keeps it as given and never reads it.
+`run_command` and `run_checks` record a `command` action with one `check` evidence per command (its exit code and output). A granted delegate records a `delegate` action. `read_file` records nothing. The record rides along in `RunResult.actions[n].result.record` for a `run`, and in `toolCalls[n].record` for a model call. The interpreter keeps it as given and never reads it.
 
 ## Write your own action
 
@@ -278,12 +274,13 @@ await harness.close(context);
 
 ### A write with a record, confinement and `unsafe` replay
 
-`append_note` appends a line to a file in the workspace, the action the `reasoning.actions` script above calls. Appending twice writes the line twice, so it is `unsafe`. It uses `confine` (exported from `@specsesh/agent/durable`) so the model cannot write outside the workspace, and attaches a record so the change is traceable.
+`append_note` appends a line to a file in the workspace, the action the `reasoning.actions` script above calls. Appending twice writes the line twice, so it is `unsafe`. It uses `confine` (exported from `@specsesh/agent/node`) so the model cannot write outside the workspace, and attaches a record so the change is traceable.
 
 ```ts
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, relative } from "node:path";
-import { confine, type ActionRecord, type HostAction } from "@specsesh/agent/durable";
+import { type ActionRecord, type HostAction } from "@specsesh/agent/durable";
+import { confine } from "@specsesh/agent/node";
 
 export const appendNote: HostAction = {
   name: "append_note",
@@ -379,7 +376,7 @@ Every `execute` receives `workspace`, the directory you passed to `agentScriptEx
 
 - `read_file` and `edit_file` refuse an absolute path, a `..` that escapes, and a path that leaves the workspace through a symlink, however deep. The answer is `ok: false` with "`<path>` is outside the workspace; nothing was read or written". Your own actions get the same check from `confine(workspace, path)`, which returns the resolved path, or an `ActionResult` refusal to return as is.
 - `run_command` and `run_checks` use the workspace as the working directory. That is **not** a sandbox. Whatever program you allow can do whatever that program does: `pnpm` can run any script in the package. Allow only first words you would run yourself, and prefer `run_checks` with a fixed list over a general `run_command`.
-- `delegate_claude_code` runs Claude Code in the workspace with `Bash` limited to your `allow` list. What its file tools may touch is Claude Code's own permission model; this package does not add to it.
+- A granted `claude-code` delegate runs Claude Code in the workspace with `Bash` limited to its grant's `allow` list. What its file tools may touch is Claude Code's own permission model; this package does not add to it.
 
 ## Next
 

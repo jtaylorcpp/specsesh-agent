@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RunResult } from "../../src/interpreter/index.js";
+import { claudeCodeRunner } from "../../src/node/index.js";
 import { failedActionOf, readRun } from "../../src/task/iteration.js";
 import { SCRIPTS, cleanTemps, context, plan, prompts, runLoop, temp, verdict } from "./helpers.js";
 
@@ -23,14 +24,20 @@ const installClaude = (path: string) => {
 	chmodSync(path, 0o755);
 };
 
-const TIMED_OUT = "Claude Code timed out after 600000ms";
+/** The `claude_code` grant, its runner on `binary`. */
+const granted = (binary: string) => ({
+	overrides: { delegates: { claude_code: { runner: "claude-code" } } },
+	actions: { runners: { "claude-code": claudeCodeRunner({ binary }) } },
+});
+
+const TIMED_OUT = "Claude Code timed out after 900000ms";
 const failedRun = (message: string): RunResult => ({
 	kind: "failed",
 	steps: [],
 	actions: [
 		{
 			subagent: "act",
-			call: { subagent: "act", action: "delegate_claude_code", tool: "delegate_claude_code", inputs: {}, index: 0 },
+			call: { subagent: "act", action: "claude_code", tool: "delegate/claude_code", inputs: {}, index: 0 },
 			result: { ok: false, message },
 		},
 	],
@@ -40,10 +47,11 @@ const failedRun = (message: string): RunResult => ({
 describe("task/agent: A run ended by a failed action is retried within budget", () => {
 	it("Scenario: A delegate timeout costs one iteration", async () => {
 		// The timeout itself takes ten minutes to happen, so a pure read pins its message and the loop runs on the other `ok` false answer.
-		expect(failedActionOf(failedRun(TIMED_OUT))).toEqual({ action: "delegate_claude_code", message: TIMED_OUT });
+		expect(failedActionOf(failedRun(TIMED_OUT))).toEqual({ action: "claude_code", message: TIMED_OUT });
 		expect(readRun(failedRun(TIMED_OUT), undefined, ["act"])).toMatchObject({ ok: false, actionFailed: true, message: TIMED_OUT });
 
 		const claude = missingClaude();
+		const grant = granted(claude);
 		const r = await runLoop(
 			[
 				plan("edit a"),
@@ -54,8 +62,8 @@ describe("task/agent: A run ended by a failed action is retried within budget", 
 				},
 				verdict(true),
 			],
-			{ script: { text: DELEGATE_NO_CHECKS }, budget: { maxIterations: 8 } },
-			{ claudeBinary: claude },
+			{ script: { text: DELEGATE_NO_CHECKS }, budget: { maxIterations: 8 }, ...grant.overrides },
+			grant.actions,
 		);
 		await r.harness.close(context);
 
@@ -69,7 +77,8 @@ describe("task/agent: A run ended by a failed action is retried within budget", 
 	});
 
 	it("Scenario: A failed action on the last iteration exhausts", async () => {
-		const r = await runLoop([plan("edit a")], { script: { text: DELEGATE_NO_CHECKS }, budget: { maxIterations: 1 } }, { claudeBinary: missingClaude() });
+		const grant = granted(missingClaude());
+		const r = await runLoop([plan("edit a")], { script: { text: DELEGATE_NO_CHECKS }, budget: { maxIterations: 1 }, ...grant.overrides }, grant.actions);
 		await r.harness.close(context);
 
 		expect(r.outcome.status).toBe("exhausted");

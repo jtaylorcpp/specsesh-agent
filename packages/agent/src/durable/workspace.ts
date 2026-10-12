@@ -58,7 +58,8 @@ export class WorkspaceError extends Error {
 }
 
 export const NO_EXEC = "this workspace cannot run commands";
-const DEFAULT_TIMEOUT_MS = 600_000;
+/** Per command, before it is killed: 10 minutes. */
+export const DEFAULT_TIMEOUT_MS = 600_000;
 /** Exit code recorded for a command that could not be spawned, as a shell reports a missing command. Module-internal. */
 export const SPAWN_FAILED_EXIT_CODE = 127;
 
@@ -85,7 +86,7 @@ export function diffSnapshots(before: WorkspaceSnapshot, after: WorkspaceSnapsho
 }
 
 /** Split a command line on whitespace. No quoting, no shell: what you see is the argv. */
-function splitCommand(command: string): string[] {
+export function splitCommand(command: string): string[] {
 	return command.trim().split(/\s+/).filter((word) => word !== "");
 }
 
@@ -126,8 +127,14 @@ export async function runChecks(
 	};
 }
 
+/** What a host action puts in its result's `record`. */
+export interface ActionRecord {
+	readonly action: Action;
+	readonly evidence: readonly Evidence[];
+}
+
 /** Build a record, checking each part against the ontology before it leaves. Module-internal: not in `./index.ts`. */
-export function actionRecord(action: Action, evidence: readonly Evidence[]): { action: Action; evidence: readonly Evidence[] } {
+export function actionRecord(action: Action, evidence: readonly Evidence[]): ActionRecord {
 	const parts: [typeof Action | typeof Evidence, unknown][] = [[Action, action], ...evidence.map((e) => [Evidence, e] as [typeof Evidence, unknown])];
 	for (const [schema, value] of parts) {
 		if (!check(schema, value)) {

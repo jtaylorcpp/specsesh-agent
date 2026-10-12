@@ -23,12 +23,13 @@ export {
 	type ActionRegistry,
 	type HostAction,
 } from "./actions.js";
-export { DEFAULT_TIMEOUT_MS, builtinActions, confine, delegateArgs, runArgv, splitCommand, type Ran, type ActionRecord, type BuiltinActionOptions, type DelegateArgsOptions } from "./builtins.js";
 export {
+	DEFAULT_TIMEOUT_MS,
 	WorkspaceError,
 	diffSnapshots,
 	runChecks,
 	workspaceActions,
+	type ActionRecord,
 	type ChecksRun,
 	type ExecOptions,
 	type ExecResult,

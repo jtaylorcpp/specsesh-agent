@@ -213,7 +213,8 @@ shell) and `run_checks`, all confined to one workspace directory, each recording
 `Action` with its `Evidence` (a diff, a command's exit code):
 
 ```ts
-import { agentScriptExtensions, builtinActions, createActionRegistry } from "@specsesh/agent/durable";
+import { agentScriptExtensions, createActionRegistry } from "@specsesh/agent/durable";
+import { builtinActions } from "@specsesh/agent/node";
 
 const workspace = "/path/to/repo";
 const actions = createActionRegistry(

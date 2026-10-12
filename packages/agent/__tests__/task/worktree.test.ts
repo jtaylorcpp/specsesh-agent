@@ -58,7 +58,7 @@ describe("task/headless: --worktree runs the loop in a new git worktree", () => 
 	it("rebases the workspace, the change and the config's paths into the worktree", async () => {
 		const repo = gitRepo({
 			"CLAUDE.md": "# main\n",
-			"agentscript.config.json": JSON.stringify({ task: { delegateContext: ["CLAUDE.md"] } }),
+			"agentscript.config.json": JSON.stringify({ delegates: { claude_code: { runner: "claude-code", context: ["CLAUDE.md", "/elsewhere/NOTES.md"] } } }),
 		});
 		const r = await runWorktree(repo);
 		expect(r.code, r.err).toBe(0);
@@ -67,7 +67,7 @@ describe("task/headless: --worktree runs the loop in a new git worktree", () => 
 		expect(input).toMatchObject({
 			workspace: worktree,
 			tasksPath: join(worktree, "openspec/changes/tiny/tasks.md"),
-			delegateContext: [join(worktree, "CLAUDE.md")],
+			delegates: { claude_code: { context: [join(worktree, "CLAUDE.md"), "/elsewhere/NOTES.md"] } },
 			worktree: { path: worktree, branch: "task/tiny/1.1" },
 		});
 	});
@@ -335,7 +335,8 @@ async function runGroupTwo() {
 	const repo = gitRepo(
 		{
 			"agentscript.config.json": JSON.stringify({
-				task: { provider: "claude-code", model: "claude-haiku-4-5", delegateModel: "sonnet", script: "task-delegate", checks: ["true"], allow: ["true"] },
+				task: { provider: "claude-code", model: "claude-haiku-4-5", script: "task-delegate", checks: ["true"], allow: ["true"] },
+				delegates: { claude_code: { runner: "claude-code", model: "sonnet", allow: ["true"] } },
 			}),
 			"openspec/changes/add-group-loop/proposal.md": PROPOSAL,
 			"openspec/changes/add-group-loop/specs/value/file/spec.md": DELTA,

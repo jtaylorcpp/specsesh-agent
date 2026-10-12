@@ -1,4 +1,5 @@
 import type { JsonObject, ModelRef, TaskId } from "@earendil-works/pi-durable";
+import type { DelegateGrants } from "../durable/delegation.js";
 import type { Escalation, Iteration, LoopOutcome, Recipient, TaskOutcome } from "../openspec/index.js";
 import type { IterationRead } from "./iteration.js";
 import type { LoopWorktree } from "./options.js";
@@ -20,8 +21,8 @@ export interface TaskLoopInput {
 	readonly allow: readonly string[];
 	readonly escalateTo: Recipient;
 	readonly model?: ModelRef;
-	readonly delegateModel?: string;
-	readonly delegateContext?: readonly string[];
+	/** The grants the loop started with; a resumed loop rebuilds its registry from them. */
+	readonly delegates?: DelegateGrants;
 	readonly worktree?: LoopWorktree;
 	/** What the first iteration of this run is seeded with: `""`, or an answered escalation's decision. */
 	readonly carried: string;

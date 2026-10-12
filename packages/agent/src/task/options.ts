@@ -6,6 +6,7 @@
  */
 
 import type { ModelRef } from "@earendil-works/pi-durable";
+import type { DelegateGrants } from "../durable/delegation.js";
 import type { Recipient, TaskId } from "../openspec/index.js";
 
 /** Inline text, or a file read when the loop starts. */
@@ -37,10 +38,8 @@ export interface TaskLoopOptions {
 	readonly escalateTo?: Recipient;
 	/** The model every step runs on. Defaults to the owning conversation's model. */
 	readonly model?: ModelRef;
-	/** `--model` for `delegate_claude_code`. Unset: Claude Code's default. */
-	readonly delegateModel?: string;
-	/** Files appended to the delegate's system prompt, resolved against the workspace. */
-	readonly delegateContext?: readonly string[];
+	/** The delegates the loop's scripts may call, as `mcpTool://delegate/<name>`. Unset: none. */
+	readonly delegates?: DelegateGrants;
 	/** The git worktree a host created for this loop, recorded so a resume or a status can name it. */
 	readonly worktree?: LoopWorktree;
 }

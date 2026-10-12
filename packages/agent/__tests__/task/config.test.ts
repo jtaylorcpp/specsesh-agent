@@ -44,7 +44,7 @@ describe("task/headless: The repo config is found by walking up", () => {
 		const env = fauxModels();
 		env.faux.setResponses([verdict(true)]);
 		const cwd = temp("task-cwd-");
-		expect(loadConfig(cwd)).toEqual({ dir: cwd, task: {} });
+		expect(loadConfig(cwd)).toEqual({ dir: cwd, task: {}, delegates: {} });
 		const r = await cli(["run", tinyChange(), "1.1", "--db", db, "--script", script, ...env.args], env, { cwd });
 		expect(r.code, r.err).toBe(0);
 		const { inputs } = await storedLoops(db);
@@ -64,10 +64,10 @@ describe("task/headless: The repo config is found by walking up", () => {
 		expect(inputs[0]).toMatchObject({ budget: { maxIterations: DEFAULT_MAX_ITERATIONS } });
 	});
 
-	it("only the task object is read; other top-level keys are ignored", () => {
+	it("only the task and delegates objects are read; other top-level keys are ignored", () => {
 		const root = temp("task-config-");
 		writeFileSync(join(root, "agentscript.config.json"), JSON.stringify({ other: { anything: 1 }, task: { model: "m" } }));
-		expect(loadConfig(root).task).toEqual({ model: "m" });
+		expect(loadConfig(root)).toMatchObject({ task: { model: "m" }, delegates: {} });
 	});
 });
 
@@ -80,7 +80,6 @@ describe("task/headless: The task config has a fixed set of typed fields", () =>
 		expect(settings).toMatchObject({
 			provider: "anthropic",
 			model: "claude-haiku-4-5",
-			delegateModel: "claude-haiku-4-5",
 			checks: [],
 			allow: [],
 			maxIterations: 8,
@@ -88,7 +87,6 @@ describe("task/headless: The task config has a fixed set of typed fields", () =>
 			requireCleanTree: true,
 			worktree: false,
 			worktreeSetup: [],
-			delegateContext: [],
 			changesDir: join(config.dir, "openspec", "changes"),
 			workspace: sub,
 		});
@@ -102,13 +100,13 @@ describe("task/headless: The task config has a fixed set of typed fields", () =>
 			db: "d",
 			provider: "p",
 			model: "m",
-			delegateModel: "dm",
 			script: "task",
+			groupScript: "g.agent",
 			checks: ["a"],
 			allow: ["b"],
 			maxIterations: 2,
+			maxReworks: 3,
 			escalateTo: "agent",
-			delegateContext: ["CLAUDE.md"],
 			requireCleanTree: false,
 			worktree: true,
 			worktreeDir: "w",
@@ -188,17 +186,24 @@ describe("task/headless: Values resolve flag, then environment, then config, the
 		expect(inputs[0]).toMatchObject({ checks: ["pnpm test"], budget: { maxIterations: 5 }, escalateTo: "principal" });
 	});
 
-	it("the delegate model defaults to the resolved model, and the config's delegate settings reach the loop", async () => {
-		const { sub, root } = configured({ db: "loops.sqlite", delegateModel: "sonnet", delegateContext: ["CLAUDE.md"] });
+	it("the config's delegates reach the loop, each context entry anchored at the config", async () => {
+		const { sub, root } = configured({ db: "loops.sqlite" });
+		writeFileSync(
+			join(root, "agentscript.config.json"),
+			JSON.stringify({ task: { db: "loops.sqlite" }, delegates: { claude_code: { runner: "claude-code", model: "sonnet", context: ["CLAUDE.md"] } } }),
+		);
 		writeFileSync(join(root, "CLAUDE.md"), "# repo\n");
-		expect(resolveRunSettings({ model: "x" }, {}, { dir: sub, task: {} }, sub).delegateModel).toBe("x");
+		// As written, without the runner's defaults filled in.
+		expect(loadConfig(sub).delegates).toEqual({ claude_code: { runner: "claude-code", model: "sonnet", context: [join(root, "CLAUDE.md")] } });
 		const { script } = workdir();
 		const env = fauxModels();
 		env.faux.setResponses([verdict(true)]);
 		const r = await cli(["run", tinyChange(), "1.1", "--script", script, ...env.args], env, { cwd: sub });
 		expect(r.code, r.err).toBe(0);
 		const { inputs } = await storedLoops(join(root, "loops.sqlite"));
-		expect(inputs[0]).toMatchObject({ delegateModel: "sonnet", delegateContext: [join(root, "CLAUDE.md")] });
+		expect(inputs[0]).toMatchObject({
+			delegates: { claude_code: { runner: "claude-code", model: "sonnet", context: [join(root, "CLAUDE.md")] } },
+		});
 	});
 });
 

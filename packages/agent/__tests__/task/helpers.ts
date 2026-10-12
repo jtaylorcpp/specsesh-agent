@@ -36,8 +36,11 @@ export function cleanTemps(): void {
 	for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 }
 
+/** The loop's action options as the tests give them: the workspace is always a directory. */
+export type LoopActions = Partial<Omit<TaskLoopActionOptions, "workspace">> & { readonly workspace?: string };
+
 /** A faux-model environment with `taskLoopExtensions` installed for `actions`. */
-export function loopEnv(actions: Partial<TaskLoopActionOptions> = {}) {
+export function loopEnv(actions: LoopActions = {}) {
 	const workspace = actions.workspace ?? temp("task-ws-");
 	const env = setup();
 	for (const extension of taskLoopExtensions({ ...actions, workspace })) env.registry.install(extension);
@@ -199,13 +202,14 @@ export function fakePnpm(): () => void {
 export async function runLoop(
 	responses: Parameters<ReturnType<typeof setup>["faux"]["setResponses"]>[0],
 	overrides: Partial<TaskLoopOptions> = {},
-	actions: Partial<TaskLoopActionOptions> = {},
+	actions: LoopActions = {},
 ) {
 	const { env, workspace } = loopEnv({
 		...actions,
 		...(overrides.workspace !== undefined ? { workspace: overrides.workspace } : {}),
 		...(overrides.checks !== undefined ? { checks: overrides.checks } : {}),
 		...(overrides.allow !== undefined ? { allow: overrides.allow } : {}),
+		...(overrides.delegates !== undefined ? { delegates: overrides.delegates } : {}),
 	});
 	const storage = new MemoryStorage();
 	const harness = await loopHarness(env, storage);

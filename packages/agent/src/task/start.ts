@@ -7,7 +7,7 @@
 import { start } from "../interpreter/index.js";
 import type { Context } from "@earendil-works/chord";
 import type { Harness, TaskId } from "@earendil-works/pi-durable";
-import { checkBindings } from "../durable/index.js";
+import { checkBindings, type DelegateGrants } from "../durable/index.js";
 import { TaskId as OntologyTaskId, check, type LoopOutcome, type TaskOutcome } from "../openspec/index.js";
 import { checkContract } from "./contract.js";
 import { concatDeltas } from "./deltas.js";
@@ -17,6 +17,11 @@ import { TaskLoopTask, subagentsOf, taskLoopRegistry } from "./loop.js";
 import { DEFAULT_ESCALATE_TO, DEFAULT_MAX_ITERATIONS, type TaskLoopOptions } from "./options.js";
 import { readChange, readScript } from "./sources.js";
 import { findTask } from "./tasks-md.js";
+
+/** `{ delegates }` as plain JSON, for the durable input and the registry alike; `{}` when none are granted. */
+export function delegatesOf(options: { readonly delegates?: DelegateGrants }): { delegates?: DelegateGrants } {
+	return options.delegates !== undefined ? { delegates: structuredClone(options.delegates) } : {};
+}
 
 /** The loop's durable input, or the refusal. Reads every source once. */
 export function prepareTaskLoop(options: TaskLoopOptions): TaskLoopInput {
@@ -36,7 +41,7 @@ export function prepareTaskLoop(options: TaskLoopOptions): TaskLoopInput {
 	start(script, { entry: subagentsOf(script) });
 	const checks = [...(options.checks ?? [])];
 	const allow = [...(options.allow ?? [])];
-	checkBindings(script, taskLoopRegistry({ workspace: options.workspace, checks, allow }));
+	checkBindings(script, taskLoopRegistry({ workspace: options.workspace, checks, allow, ...delegatesOf(options) }));
 
 	return {
 		task: options.task,
@@ -52,8 +57,7 @@ export function prepareTaskLoop(options: TaskLoopOptions): TaskLoopInput {
 		allow,
 		escalateTo: options.escalateTo ?? DEFAULT_ESCALATE_TO,
 		...(options.model !== undefined ? { model: options.model } : {}),
-		...(options.delegateModel !== undefined ? { delegateModel: options.delegateModel } : {}),
-		...(options.delegateContext !== undefined ? { delegateContext: [...options.delegateContext] } : {}),
+		...delegatesOf(options),
 		...(options.worktree !== undefined ? { worktree: { path: options.worktree.path, branch: options.worktree.branch } } : {}),
 		carried: "",
 		earlier: [],

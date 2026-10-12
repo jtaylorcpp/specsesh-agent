@@ -12,21 +12,23 @@ import { checkContract } from "./contract.js";
 import {
 	GroupLoop,
 	GroupLoopTask,
+	boundGroupLoop,
 	validateGroupStart,
 	type GroupLoopOptions,
 	type GroupLoopResult,
 } from "./group.js";
 import { checkGroupContract } from "./group-judge.js";
-import { subagentsOf, taskLoopExtensions, taskLoopRegistry, type TaskLoopActionOptions } from "./loop.js";
+import { boundWorkspace, subagentsOf, taskLoopExtensions, taskLoopRegistry, type TaskLoopActionOptions } from "./loop.js";
 
 export { GroupLoop };
 
 const GroupLoopOutcome = LoopOutcome(GroupOutcome);
 
-/** `GroupLoop` plus the three extensions `taskLoopExtensions` returns for the same options. */
+/** `GroupLoop` (its check bound to a given `Workspace`) plus the three extensions `taskLoopExtensions` returns for the same options. */
 export function groupLoopExtensions(options: TaskLoopActionOptions): readonly [Extension, Extension, Extension, Extension] {
 	const [loop, run, step] = taskLoopExtensions(options);
-	return [GroupLoop, loop, run, step];
+	const bound = boundWorkspace(options);
+	return [bound === undefined ? GroupLoop : boundGroupLoop(bound), loop, run, step];
 }
 
 /**
@@ -47,7 +49,12 @@ export async function startGroupLoop(
 	start(input.script, { entry: subagentsOf(input.script) });
 	checkBindings(
 		input.script,
-		taskLoopRegistry({ workspace: input.workspace, checks: [...input.checks], allow: [...input.allow] }),
+		taskLoopRegistry({
+			workspace: input.workspace,
+			checks: [...input.checks],
+			allow: [...input.allow],
+			...(input.delegates !== undefined ? { delegates: input.delegates } : {}),
+		}),
 	);
 
 	const owner = await harness.root(context);

@@ -55,8 +55,8 @@ function composeJudge(source: string, variables: Record<string, VariableValue>):
 			const outputs: Record<string, VariableValue> | undefined =
 				step.call.action === "run_checks"
 					? { passed: true, output: "ok" }
-					: step.call.action === "delegate_claude_code"
-						? { ok: true, summary: "done" }
+					: step.call.tool === "delegate/claude_code"
+						? { ok: true, summary: "done", files_changed: 1 }
 						: undefined;
 			if (outputs === undefined) throw new Error(`unexpected action ${step.call.action}`);
 			state = applyAction(source, step.state, { ok: true, outputs });

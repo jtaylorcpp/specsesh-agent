@@ -163,6 +163,21 @@ describe("actions/delegation: the claude-code runner keeps the hard lines", () =
 		expect(logged().env).not.toHaveProperty("ANTHROPIC_API_KEY");
 		expect(logged().env).not.toHaveProperty("CLAUDECODE");
 	});
+
+	it("passes one --append-system-prompt-file per context file, in order, and no --model when none is set", async () => {
+		writeFileSync(join(workspace.root, "A.md"), "a\n");
+		writeFileSync(join(workspace.root, "B.md"), "b\n");
+		await delegate({ context: ["A.md", "B.md"] }, "Do it");
+		const { argv } = logged();
+		const files = argv.flatMap((arg, i) => (arg === "--append-system-prompt-file" ? [argv[i + 1]] : []));
+		expect(files).toEqual([join(workspace.root, "A.md"), join(workspace.root, "B.md")]);
+		expect(argv).not.toContain("--model");
+	});
+
+	it("never reads Claude Code's OAuth token", () => {
+		const source = readFileSync(join(__dirname, "../../src/node/claude-code-runner.ts"), "utf8");
+		expect(source).not.toMatch(/CLAUDE_CODE_OAUTH_TOKEN|\.credentials\.json|oauthToken/i);
+	});
 });
 
 describe("actions/delegation: the claude-code runner never prompts", () => {

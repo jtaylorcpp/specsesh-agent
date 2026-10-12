@@ -1,17 +1,21 @@
 /**
  * The repo config: `agentscript.config.json`, found by walking up from the
- * current directory, of which only the `task` object is read.
+ * current directory, of which only the `task` and `delegates` objects are read.
  *
  * Every field is optional and typed. An unknown key or a wrongly typed value
  * refuses the run, naming the key and the file: a typo must never fall back
  * to a default silently. Values resolve field by field as flag, then
  * environment (`AGENTSCRIPT_PROVIDER`, `AGENTSCRIPT_MODEL`), then config, then
  * default; paths from the config are relative to the config's directory.
+ * `delegates` maps grant names to `DelegateGrant`s, checked whole against
+ * `defaultRunners`; without it, nothing is granted.
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DelegateGrantError, validateGrants, type DelegateGrant, type DelegateGrants } from "../durable/delegation.js";
+import { defaultRunners } from "../node/index.js";
 import { DEFAULT_MAX_REWORKS } from "./group.js";
 import { BUNDLED_SCRIPTS, DEFAULT_ESCALATE_TO, DEFAULT_MAX_ITERATIONS } from "./options.js";
 
@@ -28,7 +32,6 @@ const FIELDS = {
 	db: "string",
 	provider: "string",
 	model: "string",
-	delegateModel: "string",
 	script: "string",
 	groupScript: "string",
 	checks: "strings",
@@ -36,12 +39,14 @@ const FIELDS = {
 	maxIterations: "positive-integer",
 	maxReworks: "positive-integer",
 	escalateTo: "recipient",
-	delegateContext: "strings",
 	requireCleanTree: "boolean",
 	worktree: "boolean",
 	worktreeDir: "string",
 	worktreeSetup: "strings",
 } as const satisfies Record<string, FieldKind>;
+
+/** `task` keys that moved to `delegates`: refused with directions rather than as unknown. */
+const RETIRED = ["delegateModel", "delegateContext"] as const;
 
 const DESCRIBE: Record<FieldKind, string> = {
 	string: "a string",
@@ -57,7 +62,6 @@ export interface TaskConfig {
 	readonly db?: string;
 	readonly provider?: string;
 	readonly model?: string;
-	readonly delegateModel?: string;
 	readonly script?: string;
 	readonly groupScript?: string;
 	readonly checks?: readonly string[];
@@ -65,7 +69,6 @@ export interface TaskConfig {
 	readonly maxIterations?: number;
 	readonly maxReworks?: number;
 	readonly escalateTo?: "principal" | "agent";
-	readonly delegateContext?: readonly string[];
 	readonly requireCleanTree?: boolean;
 	readonly worktree?: boolean;
 	readonly worktreeDir?: string;
@@ -78,6 +81,8 @@ export interface LoadedConfig {
 	/** The directory config paths are relative to: the file's, or the current directory without one. */
 	readonly dir: string;
 	readonly task: TaskConfig;
+	/** The granted delegates, each `context` entry absolute; `{}` grants nothing. */
+	readonly delegates: DelegateGrants;
 }
 
 /** A config the CLI refuses to run with. Exit 2. */
@@ -117,6 +122,9 @@ export function validateTaskConfig(value: unknown, path: string): TaskConfig {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) {
 		throw new ConfigError(`${path}: "task" must be an object`);
 	}
+	for (const key of RETIRED) {
+		if (Object.hasOwn(value, key)) throw new ConfigError(`${path}: task.${key}: moved: grant a delegate under "delegates" instead`);
+	}
 	for (const [key, field] of Object.entries(value)) {
 		const kind = (FIELDS as Record<string, FieldKind>)[key];
 		if (kind === undefined) {
@@ -129,10 +137,36 @@ export function validateTaskConfig(value: unknown, path: string): TaskConfig {
 	return value as TaskConfig;
 }
 
-/** The nearest config's `task` object, or an empty one when there is no config. */
+/**
+ * Validate a parsed config file's `delegates` object with the grant rules,
+ * every grant before any is returned. The grants come back as written (no
+ * defaults filled in), with each `context` entry resolved against `dir`.
+ */
+export function validateDelegates(value: unknown, path: string, dir: string): DelegateGrants {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		throw new ConfigError(`${path}: "delegates" must be an object`);
+	}
+	const grants = value as DelegateGrants;
+	try {
+		validateGrants(grants, defaultRunners);
+	} catch (error) {
+		if (error instanceof DelegateGrantError) throw new ConfigError(`${path}: ${error.message}`);
+		throw error;
+	}
+	return Object.fromEntries(
+		Object.entries(grants).map(([name, grant]): [string, DelegateGrant] => {
+			const copy: Record<string, unknown> = structuredClone(grant);
+			const context = copy["context"];
+			if (Array.isArray(context)) copy["context"] = context.map((entry: string) => resolve(dir, entry));
+			return [name, copy as DelegateGrant];
+		}),
+	);
+}
+
+/** The nearest config's `task` and `delegates` objects, or empty ones when there is no config. */
 export function loadConfig(cwd: string): LoadedConfig {
 	const path = findConfig(cwd);
-	if (path === undefined) return { dir: resolve(cwd), task: {} };
+	if (path === undefined) return { dir: resolve(cwd), task: {}, delegates: {} };
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(readFileSync(path, "utf8"));
@@ -142,8 +176,15 @@ export function loadConfig(cwd: string): LoadedConfig {
 	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
 		throw new ConfigError(`${path}: the file must hold a JSON object`);
 	}
+	const dir = dirname(path);
 	const task = (parsed as Record<string, unknown>)["task"];
-	return { path, dir: dirname(path), task: task === undefined ? {} : validateTaskConfig(task, path) };
+	const delegates = (parsed as Record<string, unknown>)["delegates"];
+	return {
+		path,
+		dir,
+		task: task === undefined ? {} : validateTaskConfig(task, path),
+		delegates: delegates === undefined ? {} : validateDelegates(delegates, path, dir),
+	};
 }
 
 /** The bundled scripts by name. */
@@ -216,7 +257,6 @@ export interface RunSettings {
 	readonly db?: DbPath;
 	readonly provider: string;
 	readonly model: string;
-	readonly delegateModel: string;
 	readonly script: ResolvedScript;
 	/** Not resolved here: only a group run needs the file, so a task run never refuses over it. Pass to `resolveGroupScript`. */
 	readonly groupScript: { readonly value: string; readonly base: string };
@@ -226,7 +266,6 @@ export interface RunSettings {
 	readonly maxIterations: number;
 	readonly maxReworks: number;
 	readonly escalateTo: "principal" | "agent";
-	readonly delegateContext: readonly string[];
 	readonly requireCleanTree: boolean;
 	readonly worktree: boolean;
 	/** Absolute; undefined means the default beside the repository. */
@@ -241,14 +280,13 @@ export interface RunSettings {
 export function resolveRunSettings(
 	flags: RunFlags,
 	env: Readonly<Record<string, string | undefined>>,
-	config: LoadedConfig,
+	config: Pick<LoadedConfig, "dir" | "task">,
 	cwd: string,
 ): RunSettings {
 	const task = config.task;
 	const fromConfig = (path: string) => resolve(config.dir, path);
 	const worktree = flags.worktree ?? task.worktree ?? false;
 	const db = worktree && flags.db === undefined ? undefined : resolveDb(flags.db, config, cwd);
-	const model = flags.model ?? env["AGENTSCRIPT_MODEL"] ?? task.model ?? DEFAULT_MODEL;
 	const script =
 		flags.script !== undefined
 			? resolveScript(flags.script, cwd)
@@ -259,8 +297,7 @@ export function resolveRunSettings(
 		changesDir: fromConfig(task.changesDir ?? DEFAULT_CHANGES_DIR),
 		...(db !== undefined ? { db } : {}),
 		provider: flags.provider ?? env["AGENTSCRIPT_PROVIDER"] ?? task.provider ?? DEFAULT_PROVIDER,
-		model,
-		delegateModel: task.delegateModel ?? model,
+		model: flags.model ?? env["AGENTSCRIPT_MODEL"] ?? task.model ?? DEFAULT_MODEL,
 		script,
 		groupScript:
 			flags.groupScript !== undefined
@@ -272,7 +309,6 @@ export function resolveRunSettings(
 		maxIterations: flags.maxIterations ?? task.maxIterations ?? DEFAULT_MAX_ITERATIONS,
 		maxReworks: flags.maxReworks ?? task.maxReworks ?? DEFAULT_MAX_REWORKS,
 		escalateTo: flags.escalateTo ?? task.escalateTo ?? DEFAULT_ESCALATE_TO,
-		delegateContext: (task.delegateContext ?? []).map(fromConfig),
 		requireCleanTree: flags.allowDirty === true ? false : (task.requireCleanTree ?? true),
 		worktree,
 		...(task.worktreeDir !== undefined ? { worktreeDir: fromConfig(task.worktreeDir) } : {}),
@@ -281,7 +317,7 @@ export function resolveRunSettings(
 }
 
 /** The database `resume`, `answer` and `status` use: `--db`, else the config's. */
-export function resolveDb(flag: string | undefined, config: LoadedConfig, cwd: string): DbPath | undefined {
+export function resolveDb(flag: string | undefined, config: Pick<LoadedConfig, "dir" | "task">, cwd: string): DbPath | undefined {
 	if (flag !== undefined) return { path: resolve(cwd, flag), label: flag };
 	if (config.task.db === undefined) return undefined;
 	const path = resolve(config.dir, config.task.db);

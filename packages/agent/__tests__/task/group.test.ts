@@ -6,7 +6,7 @@ import type { Harness, JsonObject, TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { analyze } from "../../src/authoring/index.js";
-import { RESULT_TOOL } from "../../src/durable/index.js";
+import { RESULT_TOOL, type Workspace } from "../../src/durable/index.js";
 import { scanDocument } from "../../src/interpreter/index.js";
 import { GroupOutcome, Iteration, LoopOutcome, TaskOutcome, check, type Escalation } from "../../src/openspec/index.js";
 import {
@@ -24,6 +24,7 @@ import {
 	GROUP_LOOP_VERSION,
 	GroupLoopTask,
 	blockedBy,
+	boundGroupLoop,
 	buildGroupOutcome,
 	decodeCheckpoint,
 	encodeCheckpoint,
@@ -459,6 +460,22 @@ describe("task/group: The group loop is a durable task over a queue", () => {
 				["node -e process.exit(3)", 3],
 				["node -e console.log('second')", 0],
 			]);
+		});
+
+		it("without exec the group check fails with `this workspace cannot run commands`", async () => {
+			const noExec: Workspace = { root: "memory", read: async () => "", write: async () => {} };
+			const committed: { status: string; checkpoint?: JsonObject }[] = [];
+			const runtime = { commit: async (fn: () => unknown) => void committed.push(fn() as (typeof committed)[number]) };
+			const cp: GroupCheckpoint = { phase: "check", queue: [], entries: [], reworks: 0, iterations: [] };
+			const task = boundGroupLoop(noExec).tasks?.[0] as typeof GroupLoopTask;
+			const handler = task.definition.phases.check as unknown as (t: unknown, r: unknown, c: unknown) => Promise<void>;
+			await handler({ state: { checkpoint: encodeCheckpoint(cp) }, input: { ...input(), checks: ["pnpm test"] } }, runtime, undefined);
+			expect(committed).toHaveLength(1);
+			expect(committed[0]?.status).toBe("running");
+			const next = decodeCheckpoint(committed[0]?.checkpoint as JsonObject);
+			expect(next.phase).toBe("judge");
+			expect(next.checkOutput).toEqual([{ command: "pnpm test", exitCode: 127, output: "this workspace cannot run commands" }]);
+			expect(roundIteration({ groupNumber: 1, round: 1, checks: next.checkOutput ?? [] }).verdict.met).toBe(false);
 		});
 
 		it("formatCheckOutput renders only the failing checks", () => {

@@ -30,8 +30,8 @@ Each execution SHALL put an ontology record in its result's `record`: `edit_file
 
 ### Requirement: The delegate never prompts
 **Reason**: Moved with the delegate.
-**Migration**: "The runner never prompts" in `actions/delegation`, with the grant's tools and allowlist.
+**Migration**: "The claude-code runner never prompts" in `actions/delegation`, with the grant's tools and allowlist.
 
 ### Requirement: The delegate's model and context are configurable
 **Reason**: Model and context are now a grant's terms, not `builtinActions` options.
-**Migration**: "A grant has typed fields and defaults" and "Context files are resolved and must exist" in `actions/delegation`.
+**Migration**: "A grant has typed fields and defaults" and "The claude-code runner's context files must exist" in `actions/delegation`.

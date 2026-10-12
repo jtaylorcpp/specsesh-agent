@@ -3,7 +3,8 @@
  * phase. It sits below both so neither imports the other for it.
  */
 
-import { DEFAULT_TIMEOUT_MS, runArgv, splitCommand } from "../durable/index.js";
+import { DEFAULT_TIMEOUT_MS, runChecks, type Workspace } from "../durable/index.js";
+import { NO_EXEC } from "../durable/workspace.js";
 import type { CheckEvidence } from "../openspec/index.js";
 
 /** One check's result: the command as configured, its exit code and its stdout and stderr combined. */
@@ -12,28 +13,26 @@ export type CheckRun = { command: string; exitCode: number; output: string };
 /** Exit code recorded for a command that could not be spawned, as a shell reports a missing command. */
 export const SPAWN_FAILED_EXIT_CODE = 127;
 
+/** Per command before it is killed: the loops' check timeout. */
+export const CHECK_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
+
 /** The check evidence of one round: one entry per configured check, in check order. */
 export function checkEvidence(runs: readonly CheckRun[]): CheckEvidence[] {
 	return runs.map((r) => ({ kind: "check", command: r.command, exitCode: r.exitCode, output: r.output }));
 }
 
 /**
- * Run every check in order over the workspace, none skipped after a failure. Each command is
- * split into an argv and spawned with no shell. One that cannot start is a failure (127, the
- * spawn error as output); one that times out is a failure too (-1). Nothing here throws.
+ * Run every check in order through the workspace with `runChecks`, none skipped after a failure.
+ * A workspace with no `exec` runs none: each check is a failure (127) whose output is
+ * `this workspace cannot run commands`, so a round is never met without running its checks.
  */
-export async function runGroupChecks(
+export async function runLoopChecks(
+	workspace: Workspace,
 	commands: readonly string[],
-	workspace: string,
 	signal?: AbortSignal,
-	timeoutMs = DEFAULT_TIMEOUT_MS,
+	timeoutMs = CHECK_TIMEOUT_MS,
 ): Promise<CheckRun[]> {
-	const runs: CheckRun[] = [];
-	for (const command of commands) {
-		const ran = await runArgv(splitCommand(command), { cwd: workspace, timeoutMs, signal });
-		if (ran.kind === "exited") runs.push({ command, exitCode: ran.code, output: ran.output });
-		else if (ran.kind === "timed-out") runs.push({ command, exitCode: -1, output: `${ran.output}\n(timed out after ${timeoutMs}ms)` });
-		else runs.push({ command, exitCode: SPAWN_FAILED_EXIT_CODE, output: ran.message });
-	}
-	return runs;
+	if (workspace.exec === undefined) return commands.map((command) => ({ command, exitCode: SPAWN_FAILED_EXIT_CODE, output: NO_EXEC }));
+	const ran = await runChecks(workspace, commands, timeoutMs, signal);
+	return ran.evidence.map((e) => ({ command: e.command, exitCode: e.exitCode, output: e.output }));
 }
