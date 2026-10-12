@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BUNDLED_SCRIPTS } from "../../src/task/index.js";
+import { BUNDLED_SCRIPTS, DEFAULT_MAX_ITERATIONS } from "../../src/task/index.js";
 import { ConfigError, loadConfig, resolveGroupScript, resolveRunSettings, validateTaskConfig } from "../../src/task/config.js";
 import { cli, fauxModels, storedLoops, workdir } from "./cli-helpers.js";
 import { cleanTemps, fakePnpm, temp, tinyChange, verdict } from "./helpers.js";
@@ -49,6 +49,19 @@ describe("task/headless: The repo config is found by walking up", () => {
 		expect(r.code, r.err).toBe(0);
 		const { inputs } = await storedLoops(db);
 		expect(inputs[0]).toMatchObject({ checks: [], allow: [], budget: { maxIterations: 8 }, escalateTo: "principal", workspace: cwd });
+	});
+
+	it("Scenario: The iteration budget defaults to eight", async () => {
+		const { script, db } = workdir();
+		const env = fauxModels();
+		env.faux.setResponses([verdict(true)]);
+		const cwd = temp("task-cwd-");
+		expect(DEFAULT_MAX_ITERATIONS).toBe(8);
+		expect(resolveRunSettings({}, {}, loadConfig(cwd), cwd).maxIterations).toBe(DEFAULT_MAX_ITERATIONS);
+		const r = await cli(["run", tinyChange(), "1.1", "--db", db, "--script", script, ...env.args], env, { cwd });
+		expect(r.code, r.err).toBe(0);
+		const { inputs } = await storedLoops(db);
+		expect(inputs[0]).toMatchObject({ budget: { maxIterations: DEFAULT_MAX_ITERATIONS } });
 	});
 
 	it("only the task object is read; other top-level keys are ignored", () => {

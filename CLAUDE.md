@@ -101,10 +101,10 @@ nothing needs `tsx`.
 ## Running a task
 
 `agentscript.config.json` holds the task runner's defaults for this repo: the claude-code provider
-(your subscription) running the bundled `task-delegate` script, Haiku for orient and judge, Sonnet
-for the delegate, checks `pnpm check` and `pnpm test`, allowlist `pnpm` and `node`, `CLAUDE.md` as the
-delegate's context, and the database `.agentscript/task-loops.sqlite` (gitignored). Build first
-(`pnpm build`); flags override any config value.
+(your subscription) running the bundled `task-delegate` script on Opus (`model` and `delegateModel`
+are `opus`), `maxIterations` 8, checks `pnpm check` and `pnpm test`, allowlist `pnpm` and `node`,
+`CLAUDE.md` as the delegate's context, and the database `.agentscript/task-loops.sqlite`
+(gitignored). Build first (`pnpm build`); flags override any config value.
 
 ```bash
 pnpm task <change-id> <task-id>        # work one task of openspec/changes/<change-id>, unattended
@@ -118,6 +118,19 @@ pnpm task resume <loop-id>             # finish a loop whose process died (workt
 pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop prints this exact command
 ```
 
+- **When the loop converges.** A task iterates until its checks pass or it runs out of budget, and
+  iterating is the default. A `met` verdict converges only when every configured check passes: the
+  loop runs the checks itself in a `gate` phase, with no model. If a check fails, the iteration is
+  recorded unmet, the failing commands and the last part of their output go into the next
+  iteration, and the loop retries within budget. With no checks configured, `met` alone converges.
+- **The budget.** `maxIterations` defaults to 8 in the library and the CLI. This repo's
+  `agentscript.config.json` also sets 8.
+- **`next_action` is constrained.** It must be exactly one of `retry`, `amend-spec` or `ask` in the
+  task loop, and one of `rework`, `ask` or `amend-spec` in the group loop. The loop passes these as
+  start `choices`, so the judge's `submit_result` schema shows them as an `enum`. A value outside
+  them sets no variable and fails the step. A script whose default `next_action` is outside them is
+  refused at start. The bundled judges retry by default: `amend-spec` only when the deltas
+  contradict themselves or the code, and `ask` only for a decision no passing check could settle.
 - **Headless.** It never prompts. Progress is JSON Lines on stderr after the resume hint; the outcome
   is on stdout. Exit `0` converged, `1` blocked/exhausted/failed, `2` refused.
 - **Clean tree.** `run` refuses uncommitted changes (listing them) so every edit after it is the
@@ -156,6 +169,8 @@ behaviour only; internals go in a change's `design.md`. Stock `spec-driven` sche
 
 - Every behaviour change starts as `openspec new change <verb-led-id>` with deltas against these specs.
 - One test per scenario, named `Scenario: <exact scenario name>`.
+- A task names at most about 8 scenarios. Split a capability's tests across tasks rather than
+  writing one task for all of them.
 - **Never `openspec archive` directly.** 1.14.1 archives invalid changes with exit 0 and drops
   requirements; `pnpm spec:archive` refuses unless the change validates and a trial fold into a temp copy of `openspec/` validates too.
 - A delta that creates a capability should carry `## Purpose`: it is only read at creation, and

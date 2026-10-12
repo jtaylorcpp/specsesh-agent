@@ -30,10 +30,10 @@
 
 ## 5. Defaults, config and docs
 
-- [ ] 5.1 `packages/agent/src/task/config.ts`: the CLI's `maxIterations` default comes from `DEFAULT_MAX_ITERATIONS` (`8`); `Scenario: The iteration budget defaults to eight` in `__tests__/task/config.test.ts`, updating the tests that pinned `3` as the default
-- [ ] 5.2 `agentscript.config.json`: `model` `opus`, `delegateModel` `opus`, `maxIterations` `8`; `packages/agent/__tests__/repo/config.test.ts` pins the modified scenario
-- [ ] 5.3 `docs/ontology/loops/task-loop.md`: four phases with the gate, `next_action` choices, the renamed requirement reference; `pnpm docs:check` passes
-- [ ] 5.4 `CLAUDE.md`: "Running a task" says the loop converges only when the checks pass, the budget defaults to 8, and `next_action` is constrained; the spec workflow gains "a task names at most about 8 scenarios; split a capability's tests across tasks"
+- [x] 5.1 `packages/agent/src/task/config.ts`: the CLI's `maxIterations` default comes from `DEFAULT_MAX_ITERATIONS` (`8`); `Scenario: The iteration budget defaults to eight` in `__tests__/task/config.test.ts`, updating the tests that pinned `3` as the default
+- [x] 5.2 `agentscript.config.json`: `model` `opus`, `delegateModel` `opus`, `maxIterations` `8`; `packages/agent/__tests__/repo/config.test.ts` pins the modified scenario
+- [x] 5.3 `docs/ontology/loops/task-loop.md`: four phases with the gate, `next_action` choices, the renamed requirement reference; `pnpm docs:check` passes
+- [x] 5.4 `CLAUDE.md`: "Running a task" says the loop converges only when the checks pass, the budget defaults to 8, and `next_action` is constrained; the spec workflow gains "a task names at most about 8 scenarios; split a capability's tests across tasks"
 
 ## 6. Verify
 
