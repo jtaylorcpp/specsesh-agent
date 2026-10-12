@@ -19,12 +19,17 @@ Running a script as start, next and apply over a plain-JSON RunState, so a host 
 - **AND** the result SHALL carry no `updatedSource` unless `persistVariables` was asked for
 
 ### Requirement: Every Error Names Itself
-Each step-machine error — `SourceMismatchError`, `RunStateError`, `UnparsedDocumentError`, `UnreadableDocumentError`, `NoEntrySubagentError`, `UnknownSubagentError`, `UndeclaredOverrideError`, `EmptyPromptError` — SHALL be exported, SHALL extend `Error`, and SHALL set `name` to its class name, so a caller tells refusals apart without reading the message.
+Each step-machine error — `SourceMismatchError`, `RunStateError`, `UnparsedDocumentError`, `UnreadableDocumentError`, `NoEntrySubagentError`, `UnknownSubagentError`, `UndeclaredOverrideError`, `InvalidChoicesError`, `EmptyPromptError` — SHALL be exported, SHALL extend `Error`, and SHALL set `name` to its class name, so a caller tells refusals apart without reading the message.
 
 #### Scenario: A refusal is identifiable by class and name
 - **WHEN** `start` is called with an entry the document does not declare
 - **THEN** the thrown value SHALL be an instance of `UnknownSubagentError` and of `Error`
 - **AND** its `name` SHALL be `"UnknownSubagentError"`
+
+#### Scenario: A choices refusal is identifiable by class and name
+- **WHEN** `start` is called with `choices` naming an undeclared variable
+- **THEN** the thrown value SHALL be an instance of `InvalidChoicesError` and of `Error`
+- **AND** its `name` SHALL be `"InvalidChoicesError"`
 
 ### Requirement: Start Checks The Whole Document Before Anything Else
 `start(source, options?)` SHALL analyse the source once and refuse in this order before returning a state: any error-severity (LSP `1`) diagnostic → `UnparsedDocumentError`; no document root → `UnreadableDocumentError`; any unsupported construct → `UnsupportedConstructError` with every finding (`core/subset`); any undeclared `@variables.x` on any branch → the first `UndeclaredVariableError` (`core/composition`). Warning, information and hint diagnostics MUST NOT refuse.
@@ -127,7 +132,7 @@ When the analysis yields no document root, `start` SHALL throw `UnreadableDocume
 - **THEN** it SHALL throw `UnknownSubagentError` whose message contains `no subagent named "nope"`
 
 ### Requirement: A Fresh Run State Has An Exact Shape And Is Plain JSON
-`start` SHALL return a `RunState` with exactly `version: 1`, `sourceHash: hashSource(source)`, `entries`, `cursor: 0`, `variables`, `steps: []` and `actions: []`, and no `stopped` or `awaiting`. Every `RunState` the machine produces SHALL be plain JSON (no functions, class instances, `Map`s or cycles), so a `JSON.parse(JSON.stringify(state))` copy behaves identically in `next`, `apply` and `applyAction`.
+`start` SHALL return a `RunState` with exactly `version: 1`, `sourceHash: hashSource(source)`, `entries`, `cursor: 0`, `variables`, `steps: []` and `actions: []`, plus `choices` only when `start` was given choices, and no `stopped` or `awaiting`. Every `RunState` the machine produces SHALL be plain JSON (no functions, class instances, `Map`s or cycles), so a `JSON.parse(JSON.stringify(state))` copy behaves identically in `next`, `apply` and `applyAction`.
 
 #### Scenario: The initial state has no step awaiting
 - **WHEN** `start` returns
@@ -139,6 +144,11 @@ When the analysis yields no document root, `start` SHALL throw `UnreadableDocume
 - **GIVEN** a run driven by hand where every state is passed through `JSON.parse(JSON.stringify(...))` between every call
 - **WHEN** it is driven with the same answers as `run()` is given through a port
 - **THEN** the hand-driven result SHALL deep-equal `run()`'s result
+
+#### Scenario: Choices travel in the state
+- **WHEN** `start` is called with `choices: { next_action: ["retry", "ask"] }` on a document declaring `next_action` as a string defaulting to `"retry"`
+- **THEN** the state's `choices` SHALL equal `{ next_action: ["retry", "ask"] }`
+- **AND** a state started without choices SHALL have no `choices` key
 
 ### Requirement: A State Is Only Valid With The Source It Was Started On
 `next(source, state)` and `apply(source, state, outcome)` SHALL throw `SourceMismatchError` when `state.version` is not `1` or when `state.sourceHash` differs from `hashSource(source)`. Its message SHALL say the state `was started on a different document` and that `a changed script means a new run`. After this check both functions SHALL re-run the full load of the source, so every refusal `start` can raise MAY also be raised by `next` and `apply`.
@@ -309,7 +319,7 @@ A host SHALL be able to persist a run by saving only the source text and the lat
 - **THEN** the walk SHALL continue after that `run`, and the same call SHALL NOT be produced again
 
 ### Requirement: Run Drives The Step Machine Through A Port
-`run(source, options?)` SHALL reject with `NoReasoningPortError` first when `options.port` is undefined. Otherwise it SHALL call `start(source, { entry, variables })`, then loop `next` (with `persistVariables: options.persistVariables === true`) and `apply(await port.reason(request))` until `done`, passing each request unchanged; `start` refusals reject before any port call. The result is `{ kind, steps, variables }`, plus `updatedSource` only when asked.
+`run(source, options?)` SHALL reject with `NoReasoningPortError` first when `options.port` is undefined. Otherwise it SHALL call `start(source, { entry, variables, choices })`, then loop `next` (with `persistVariables: options.persistVariables === true`) and `apply(await port.reason(request))` until `done`, passing each request unchanged; `start` refusals reject before any port call. The result is `{ kind, steps, variables }`, plus `updatedSource` only when asked.
 
 #### Scenario: No port means a refusal, not a default
 - **WHEN** `run` is called with no `port`
@@ -324,6 +334,10 @@ A host SHALL be able to persist a run by saving only the source text and the lat
 - **GIVEN** a document with an error-severity diagnostic
 - **WHEN** `run` is called on it with a recording port
 - **THEN** it SHALL reject with `UnparsedDocumentError` and the port SHALL have received no request
+
+#### Scenario: run passes choices to start
+- **WHEN** `run` is called with `choices: { next_action: ["retry", "ask"] }` and a recording port
+- **THEN** the judge step's request SHALL carry `enum: ["retry", "ask"]` on `next_action`
 
 ### Requirement: The Source Fingerprint Is A Fixed FNV-1a Format
 `hashSource(source)` SHALL compute 32-bit FNV-1a (basis `0x811c9dc5`, prime `0x01000193`) over UTF-16 code units and return `<length>-<hash>`: `source.length` in unpadded lower-case hex, then the hash in lower-case hex padded to 8 digits. It SHALL use plain JavaScript with no Node or Web API, so it runs on Node and Workers. It is not cryptographic and MUST NOT be relied on against deliberate collisions.

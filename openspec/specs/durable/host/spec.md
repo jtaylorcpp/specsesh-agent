@@ -33,7 +33,7 @@ Starting and awaiting script runs from any host that holds a pi-durable Harness.
 - **THEN** the run SHALL proceed only through the harness's scheduler, and `startScript` itself SHALL have made no model request
 
 ### Requirement: startScript splits its options into start options and the model
-`StartScriptOptions` SHALL extend the core `StartOptions` (`entry`, `variables`) with `conversation?: Conversation` and `model?: ModelRef`. `startScript` MUST store the task input as `{ source, options: <every option except conversation and model>, model }`, omitting the `model` key when no model was given. `conversation` MUST NOT be stored in the task input.
+`StartScriptOptions` SHALL extend the core `StartOptions` (`entry`, `variables`, `choices`) with `conversation?: Conversation` and `model?: ModelRef`. `startScript` MUST store the task input as `{ source, options: <every option except conversation and model>, model }`, omitting the `model` key when no model was given. `conversation` MUST NOT be stored in the task input.
 
 #### Scenario: Entry and variable overrides reach the step machine
 - **WHEN** a host calls `startScript` with `{ entry: ["classify", "gate", "respond"], variables: { report: "slow" }, model }`
@@ -43,6 +43,10 @@ Starting and awaiting script runs from any host that holds a pi-durable Harness.
 #### Scenario: No model means no model key
 - **WHEN** a host calls `startScript` without `model`
 - **THEN** the task input SHALL have no `model` key
+
+#### Scenario: Choices reach the step machine
+- **WHEN** a host calls `startScript` with `{ choices: { next_action: ["retry", "ask"] }, model }`
+- **THEN** the task input's `options` SHALL equal `{ choices: { next_action: ["retry", "ask"] } }`
 
 ### Requirement: waitForScript returns the result of a completed run
 `@specsesh/agent/durable` SHALL export `waitForScript(harness, id, context): Promise<RunResult>`, which awaits `harness.waitForTask(id, context)` and, when the task is terminal with outcome status `completed`, MUST resolve to that outcome's `RunResult` unchanged — including runs whose `kind` is `"failed"` or `"cut-short"`.
