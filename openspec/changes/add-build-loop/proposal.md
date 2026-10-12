@@ -1,6 +1,6 @@
 ## Why
 
-The group loop drives one task group to green. Each task runs in its own task loop, and a judge agent reworks whichever task broke the group check. Executing a whole change still means running `--next-group` once per group and watching for the end. The principal wants one command that builds the change, with agents managing each chunk of tasks. The ontology already defines that loop: the change loop runs its group loops in order, then a change check, and returns `LoopOutcome<ChangeOutcome>`. Nothing implements it yet. This change does; the command follows in `add-build-cli`.
+The group loop drives one task group to green. Each task runs in its own task loop, and a judge agent reworks whichever task broke the group check. Executing a whole change still means running `--next-group` once per group and watching for the end. The principal wants one command that builds the change, with agents managing each chunk of tasks. The ontology already defines that loop: the change loop runs its group loops in order, then a change check, and returns `LoopOutcome<ChangeOutcome>`. Nothing implements it yet. This change does; the command, `pnpm change build`, follows in `add-change-build`.
 
 ## What Changes
 
@@ -15,7 +15,7 @@ The group loop drives one task group to green. Each task runs in its own task lo
 
 ## Out of scope
 
-- The `build` command: `add-build-cli`.
+- The `pnpm change build` command: `add-change-build`.
 - A change judge that reopens a group, or adds tasks for a scenario no task names. A failing change check ends the change `failed`.
 - Running groups in parallel.
 - JSON Lines events for change loops.
@@ -27,4 +27,4 @@ The group loop drives one task group to green. Each task runs in its own task lo
 ## Impact
 
 - New: `packages/agent/src/task/change-input.ts`, `change-guard.ts`, `change-loop.ts`, `change-api.ts`; tests with the faux provider and staged checks, like the group loop's.
-- Depends on `add-spec-review` for `approvals.json` and `add-spec-plan-stage` for `withClaims`, archived first. It comes after `add-draft-cli` in the queue so that `add-build-cli` can follow it.
+- Depends on `add-spec-review` for `approvals.json` and `add-spec-plan-stage` for `withClaims`, archived first. It comes after `add-change-approve` in the queue so that `add-change-build` can follow it.

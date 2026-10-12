@@ -1,6 +1,6 @@
 ## Why
 
-After the four stage changes, each stage is its own spec loop, started by its own `spec` command. Drafting a whole change means typing `spec`, reviewing, answering, then typing `spec` again for the next stage, four times. The principal wants one command that drafts a change from start to finish, stopping only for review. That needs a loop above the stages, the way the group loop sits above the task loops: it runs each unapproved stage in order as a child spec loop and passes each review up to the principal. This change builds that loop; the command follows in `add-draft-cli`.
+After the four stage changes, each stage is its own spec loop, started by its own `spec` command. Drafting a whole change means typing `spec`, reviewing, answering, then typing `spec` again for the next stage, four times. The principal wants one command that drafts a change from start to finish, stopping only for review. That needs a loop above the stages, the way the group loop sits above the task loops: it runs each unapproved stage in order as a child spec loop and passes each review up to the principal. This change builds that loop; the command, `pnpm change draft`, follows in `add-change-draft`.
 
 ## What Changes
 
@@ -15,7 +15,7 @@ After the four stage changes, each stage is its own spec loop, started by its ow
 
 ## Out of scope
 
-- The `draft` command, its output and `status`: `add-draft-cli`.
+- The `pnpm change draft` command and its output: `add-change-draft`.
 - JSON Lines events for draft loops.
 - Running stages in parallel. Each stage needs the one before it approved.
 

@@ -57,4 +57,4 @@ The guard runs before anything is created, so a refused build leaves no loop in 
 
 ## Risks
 
-- **A task that archives the change.** Today's task lists end with `pnpm spec:archive <change>` as a task. A build runs it like any other task, and the change check that follows would then validate an archived change. `add-build-cli` prints the archive command at the end instead, and `parked.md` records that the plan stage should stop writing archive tasks.
+- **A task that archives the change.** Today's task lists end with `pnpm spec:archive <change>` as a task. A build runs it like any other task, and the change check that follows would then validate an archived change. `pnpm change build` prints `pnpm change close` at the end instead, and `parked.md` records that the plan stage should stop writing archive tasks.

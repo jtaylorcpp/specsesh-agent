@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Change Command Flow</title>
+<style>
+:root {
+	--bg: #eef0f2; --panel: #ffffff; --ink: #1a1f24; --muted: #5f6a74; --line: #d6dce1;
+	--term-bg: #15181b; --term-ink: #e4e6e2; --term-dim: #8c918d;
+	--accent: #1f6f8b; --ok: #2e8b57; --warn: #b7791f; --err: #c0392b;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--bg: #111416; --panel: #191d20; --ink: #e8ebed; --muted: #97a1a9; --line: #2a3035;
+		--term-bg: #0a0c0d; --accent: #5fb3d1; --ok: #5cc48a; --warn: #e0a84a; --err: #ef6b5b;
+	}
+}
+:root[data-theme="dark"] {
+	--bg: #111416; --panel: #191d20; --ink: #e8ebed; --muted: #97a1a9; --line: #2a3035;
+	--term-bg: #0a0c0d; --accent: #5fb3d1; --ok: #5cc48a; --warn: #e0a84a; --err: #ef6b5b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 16px; }
+h1 { font-size: 22px; margin: 0; }
+.sub { color: var(--muted); margin: 4px 0 0; }
+.fake { display: inline-block; font-size: 12px; padding: 2px 8px; border: 1px solid var(--warn); color: var(--warn); border-radius: 999px; margin-left: 8px; vertical-align: middle; }
+.rail { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.st { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.st b { display: block; font-size: 14px; }
+.st[data-s="active"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.st[data-s="approved"] b::after { content: " \2713"; color: var(--ok); }
+.grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .rail { grid-template-columns: repeat(2, 1fr); } }
+.term { background: var(--term-bg); color: var(--term-ink); border-radius: 10px; padding: 14px 16px; min-height: 360px; overflow-x: auto;
+	font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; }
+.term .p { color: var(--accent); } .term .d { color: var(--term-dim); } .term .w { color: var(--warn); } .term .o { color: var(--ok); }
+.note { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.note h2 { font-size: 15px; margin: 0 0 6px; }
+.note p { margin: 0; color: var(--muted); }
+.controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.count { color: var(--muted); font-size: 13px; margin-left: auto; }
+</style>
+</head>
+<body>
+<main>
+	<div>
+		<h1>pnpm change <span class="fake">illustrative: fake change, fake output</span></h1>
+		<p class="sub">Four verbs, each taking the change's name: draft, approve, build, close. Every output ends with the command to run next.</p>
+	</div>
+	<div class="rail" id="rail">
+		<div class="st" data-stage="draft"><b>draft</b>write it with the agent</div>
+		<div class="st" data-stage="approve"><b>approve</b>accept each stage</div>
+		<div class="st" data-stage="build"><b>build</b>agents execute it</div>
+		<div class="st" data-stage="close"><b>close</b>fold into the specs</div>
+	</div>
+	<div class="grid">
+		<div class="term" id="term" aria-live="polite"></div>
+		<div class="note"><h2 id="nt"></h2><p id="nb"></p></div>
+	</div>
+	<div class="controls">
+		<button id="prev" type="button">Back</button>
+		<button id="next" class="primary" type="button">Next step</button>
+		<span class="count" id="count"></span>
+	</div>
+</main>
+<script>
+const P = (s) => '<span class="p">$</span> ' + s;
+const C = 'add-plan-export';
+const review = ['  revise:   pnpm change draft ' + C + ' "&lt;what to change&gt;"', '  approve:  pnpm change approve ' + C];
+const steps = [
+	{ stage: "draft", approved: [], title: "draft a new change",
+		body: "Give the intent once. The proposal stage drafts until its rules pass, then waits for you.",
+		term: [P('pnpm change draft ' + C + ' --intent "Export a plan as JSON so CI can read it"'), '# ' + C + ' — waiting for review of the proposal', '### proposal draft 1: 1 issue', '<span class="w">   WARNING proposal.md: touches 3 capabilities, over the budget of 2.</span>', '### proposal draft 2: <span class="o">clean</span>', '', 'Review openspec/changes/' + C + '/proposal.md, slices.md, then:', ...review] },
+	{ stage: "draft", approved: [], title: "draft with feedback revises",
+		body: "Text after the change's name is your feedback. At a review it's a revision; at a question it's your answer.",
+		term: [P('pnpm change draft ' + C + ' "JSON only; no CSV"'), '# ' + C + ' — waiting for review of the proposal', '### proposal draft 3: <span class="o">clean</span>', '', 'Review openspec/changes/' + C + '/proposal.md, slices.md, then:', ...review] },
+	{ stage: "approve", approved: [], title: "approve, and the next stage drafts",
+		body: "approve records your approval with a hash of each file, then drafts the design. The proposal was sliced, so the other slices' commands are listed once, here.",
+		term: [P('pnpm change approve ' + C), '# ' + C + ' — waiting for review of the design', '## proposal: <span class="o">approved</span>', '### design draft 1: <span class="o">clean</span>', '', 'Sliced into 3 changes. Draft the others when you\'re ready:', '  pnpm change draft add-plan-export-schema --intent "Publish the JSON Schema…"', '  pnpm change draft add-plan-export-ci --intent "Fail a PR whose plan export…"', '', 'Review design.md, design/mock.html, design/examples/export.sh, then:', ...review] },
+	{ stage: "approve", approved: [], title: "Lost your place? Run draft",
+		body: "draft with no feedback shows what's waiting and starts nothing.",
+		term: [P('pnpm change draft ' + C), '# ' + C + ' — waiting for review of the design', '## proposal: <span class="o">approved</span>', '### design draft 1: <span class="o">clean</span>', '', 'Review design.md, design/mock.html, design/examples/export.sh, then:', ...review] },
+	{ stage: "approve", approved: ["draft"], title: "Drafted",
+		body: "Two more approvals, for the specs and the tasks, and the change is drafted. The last line is the build command.",
+		term: [P('pnpm change approve ' + C), '<span class="d">  … specs review …</span>', P('pnpm change approve ' + C), '# ' + C + ' — drafted', '## proposal: <span class="o">approved</span>', '## design: <span class="o">approved</span>', '## specs: <span class="o">approved</span>', '## tasks: <span class="o">approved</span>', '', 'Build it: pnpm change build ' + C] },
+	{ stage: "build", approved: ["draft", "approve"], title: "build, and an agent asks",
+		body: "Each group runs its own task loops, and its judge agent reopens whichever task broke the group check. You're stopped only when an agent needs a decision.",
+		term: [P('pnpm change build ' + C), '# ' + C + ' — waiting for an answer', '## group 1: <span class="o">converged</span> (4 tasks, 0 reworks)', '## group 2: <span class="w">blocked at 2.3</span>', '', 'group 2 asks: The export can call the v1 or the v2 plan API. Which?', '  answer:  pnpm change build ' + C + ' "&lt;your answer&gt;"', '<span class="d">exit 1</span>'] },
+	{ stage: "build", approved: ["draft", "approve"], title: "build with an answer continues",
+		body: "The answer reaches the task that asked. The remaining groups run, then the change check. Nothing is committed.",
+		term: [P('pnpm change build ' + C + ' "Use the v2 API"'), '# ' + C + ' — built', '## group 1: <span class="o">converged</span> (4 tasks, 0 reworks)', '## group 2: <span class="o">converged</span> (3 tasks, 1 rework)', '## group 3: <span class="o">converged</span> (2 tasks, 0 reworks)', '## change check: <span class="o">passed</span>', '', 'Changed: packages/plan/src/export.ts, packages/plan/src/cli.ts, …', 'Read the diff, then close it: pnpm change close ' + C] },
+	{ stage: "close", approved: ["draft", "approve", "build"], title: "close folds it into the specs",
+		body: "close refuses an unfinished change. It folds into a copy of openspec/ first and only archives when the merged specs still validate.",
+		term: [P('pnpm change close ' + C), '# ' + C + ' — closed', 'Folded into plan/export (new) and plan/cli (2 modified).', 'Moved to openspec/changes/archive/2026-10-14-' + C + '/', '', 'Commit it: git add -A openspec &amp;&amp; git commit'] },
+];
+let at = 0;
+const $ = (id) => document.getElementById(id);
+function render() {
+	const s = steps[at];
+	for (const el of document.querySelectorAll(".st")) {
+		const n = el.dataset.stage;
+		el.dataset.s = s.approved.includes(n) ? "approved" : n === s.stage ? "active" : "";
+	}
+	$("term").innerHTML = s.term.join("\n");
+	$("nt").textContent = s.title;
+	$("nb").textContent = s.body;
+	$("prev").disabled = at === 0;
+	$("next").disabled = at === steps.length - 1;
+	$("count").textContent = "Step " + (at + 1) + " of " + steps.length;
+}
+$("prev").addEventListener("click", () => { if (at > 0) { at--; render(); } });
+$("next").addEventListener("click", () => { if (at < steps.length - 1) { at++; render(); } });
+document.addEventListener("keydown", (e) => { if (e.key === "ArrowRight") $("next").click(); if (e.key === "ArrowLeft") $("prev").click(); });
+render();
+</script>
+</body>
+</html>
