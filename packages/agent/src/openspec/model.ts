@@ -183,9 +183,17 @@ export type Renamed = Static<typeof Renamed>;
 export const Delta = Type.Union([Added, Modified, Removed, Renamed]);
 export type Delta = Static<typeof Delta>;
 
+/** A file under the change's `design/` directory: relative, and no `..` segment anywhere after `design/`. */
+export const DesignAttachment = closed({
+	path: Type.String({ pattern: "^design/(?!(.*/)?\\.\\.(/|$))[^\\s]+$" }),
+	kind: literals("mock", "example", "diagram", "other"),
+});
+export type DesignAttachment = Static<typeof DesignAttachment>;
+
 /** Free-form and in source order; no heading is required. Non-empty: a change with no design has none. */
 export const Design = closed({
 	sections: Type.Array(closed({ heading: Type.String(), body: Type.String() }), { minItems: 1 }),
+	attachments: Type.Optional(Type.Array(DesignAttachment)),
 });
 export type Design = Static<typeof Design>;
 

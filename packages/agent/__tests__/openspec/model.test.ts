@@ -7,6 +7,7 @@ import {
 	Change,
 	Clause,
 	Design,
+	DesignAttachment,
 	Modified,
 	Proposal,
 	Removed,
@@ -191,6 +192,28 @@ describe("A design is free-form sections", () => {
 			sections: ["Context", "Two halves", "Risks and gaps"].map((heading) => ({ heading, body: "…" })),
 		};
 		expect(check(Design, design)).toBe(true);
+		// A design with no files has no attachments, rather than an empty list.
+		expect("attachments" in design).toBe(false);
+	});
+
+	it("Scenario: A design lists its mock and examples", () => {
+		const attachments: DesignAttachment[] = [
+			{ path: "design/walkthrough.html", kind: "mock" },
+			{ path: "design/examples/cli.sh", kind: "example" },
+		];
+		expect(check(Design, { sections: [{ heading: "Context", body: "…" }], attachments })).toBe(true);
+		// The kind is one of four, and an attachment is closed.
+		expect(check(DesignAttachment, { path: "design/demo.mp4", kind: "video" })).toBe(false);
+		expect(check(DesignAttachment, { ...attachments[0]!, size: 1 })).toBe(false);
+	});
+
+	it("Scenario: An attachment outside design/ is refused", () => {
+		const design = (path: string) => ({ sections: [{ heading: "Context", body: "…" }], attachments: [{ path, kind: "mock" }] });
+		for (const path of ["proposal.md", "/tmp/mock.html", "design/../tasks.md", "design/a/../b"]) {
+			expect(check(Design, design(path)), path).toBe(false);
+		}
+		// A name that merely starts with dots is not a `..` segment.
+		expect(check(Design, design("design/..foo"))).toBe(true);
 	});
 });
 

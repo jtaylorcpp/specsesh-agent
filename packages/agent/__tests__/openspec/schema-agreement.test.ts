@@ -99,6 +99,7 @@ const FIXTURES: Record<string, { valid: unknown; invalid: unknown; args?: TSchem
 	Removed: { valid: { op: "REMOVED", capability: ["a"], name: "n", reason: "r", migration: "m" }, invalid: { op: "REMOVED", capability: ["a"], name: "n" } },
 	Renamed: { valid: { op: "RENAMED", capability: ["a"], from: "x", to: "y" }, invalid: { op: "RENAMED", capability: ["a"], from: "x", to: "x" } },
 	Delta: { valid: { op: "RENAMED", capability: ["a"], from: "x", to: "y" }, invalid: { op: "CHANGED", capability: ["a"] } },
+	DesignAttachment: { valid: { path: "design/walkthrough.html", kind: "mock" }, invalid: { path: "design/../tasks.md", kind: "mock" } },
 	Design: { valid: { sections: [{ heading: "Context", body: "" }] }, invalid: { sections: [] } },
 	Change: { valid: demoChange(), invalid: { ...demoChange(), id: "Add_Thing" } },
 	Target: { valid: { check: "strict validation" }, invalid: { check: "" } },

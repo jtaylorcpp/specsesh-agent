@@ -1,7 +1,7 @@
 ## 1. The type
 
-- [ ] 1.1 `packages/agent/src/openspec/model.ts`: `DesignAttachment` (`path` under `design/`, no `..`; `kind` one of four) and `Design.attachments` optional
-- [ ] 1.2 `packages/agent/__tests__/openspec/model.test.ts`: "A design lists its mock and examples" and "An attachment outside design/ is refused" (2); the custom-headings test still passes
+- [x] 1.1 `packages/agent/src/openspec/model.ts`: `DesignAttachment` (`path` under `design/`, no `..`; `kind` one of four) and `Design.attachments` optional
+- [x] 1.2 `packages/agent/__tests__/openspec/model.test.ts`: "A design lists its mock and examples" and "An attachment outside design/ is refused" (2); the custom-headings test still passes
 
 ## 2. Docs
 
