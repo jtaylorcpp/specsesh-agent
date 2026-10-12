@@ -36,15 +36,15 @@ export function cleanTemps(): void {
 	for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 }
 
-/** The loop's action options as the tests give them: the workspace is always a directory. */
-export type LoopActions = Partial<Omit<TaskLoopActionOptions, "workspace">> & { readonly workspace?: string };
+/** The loop's action options as the tests give them: a directory, or a `Workspace` whose `root` is the input's directory. */
+export type LoopActions = Partial<TaskLoopActionOptions>;
 
-/** A faux-model environment with `taskLoopExtensions` installed for `actions`. */
+/** A faux-model environment with `taskLoopExtensions` installed for `actions`; `workspace` is the directory. */
 export function loopEnv(actions: LoopActions = {}) {
-	const workspace = actions.workspace ?? temp("task-ws-");
+	const bound = actions.workspace ?? temp("task-ws-");
 	const env = setup();
-	for (const extension of taskLoopExtensions({ ...actions, workspace })) env.registry.install(extension);
-	return { env, workspace };
+	for (const extension of taskLoopExtensions({ ...actions, workspace: bound })) env.registry.install(extension);
+	return { env, workspace: typeof bound === "string" ? bound : bound.root };
 }
 
 export async function loopHarness(env: ReturnType<typeof setup>, storage: Storage = new MemoryStorage()) {

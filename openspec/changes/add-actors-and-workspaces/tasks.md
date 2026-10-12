@@ -64,8 +64,8 @@
 
 ## 4. Tests for the loop, config and CLI
 
-- [ ] 4.1 `packages/agent/__tests__/task/delegation-loop.test.ts` (faux provider and fake `claude` only): `task/agent` "The delegate configuration is stored with the loop" (moved from `__tests__/task/agent-options.test.ts`), "A delegating script without a grant is refused at start", "Only the delegate script delegates", "The judge sees an idle delegate" and "Orient asks for a different approach"; `actions/delegation` "The delegate runs in the loop's worktree"; `actions/workspace` "The gate's checks go through the workspace" (7). Also check that "A delegate timeout costs one iteration" in `__tests__/task/action-retry.test.ts` names `delegate/claude_code` and 900000 ms.
-- [ ] 4.2 `packages/agent/__tests__/task/config-delegates.test.ts`:
+- [x] 4.1 `packages/agent/__tests__/task/delegation-loop.test.ts` (faux provider and fake `claude` only): `task/agent` "The delegate configuration is stored with the loop" (moved from `__tests__/task/agent-options.test.ts`), "A delegating script without a grant is refused at start", "Only the delegate script delegates", "The judge sees an idle delegate" and "Orient asks for a different approach"; `actions/delegation` "The delegate runs in the loop's worktree"; `actions/workspace` "The gate's checks go through the workspace" (7). Also check that "A delegate timeout costs one iteration" in `__tests__/task/action-retry.test.ts` names `delegate/claude_code` and 900000 ms.
+- [x] 4.2 `packages/agent/__tests__/task/config-delegates.test.ts`:
   - `task/headless` "No config grants nothing", "A grant's context is anchored at the config", "A misspelled grant key is refused", "Grants reach the loop" and "An old config is refused with directions";
   - `task/cli` "A delegating script is refused without grants" and "A delegate-free script still runs";
   - `host/agent-config` "A granted delegate reaches the CLI's registry" (8).

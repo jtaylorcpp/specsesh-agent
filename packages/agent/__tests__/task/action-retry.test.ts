@@ -1,11 +1,12 @@
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ExecResult, Workspace } from "../../src/durable/workspace.js";
 import type { RunResult } from "../../src/interpreter/index.js";
-import { claudeCodeRunner } from "../../src/node/index.js";
+import { claudeCodeRunner, localWorkspace } from "../../src/node/index.js";
 import { failedActionOf, readRun } from "../../src/task/iteration.js";
-import { SCRIPTS, cleanTemps, context, plan, prompts, runLoop, temp, verdict } from "./helpers.js";
+import { SCRIPTS, cleanTemps, context, plan, prompts, runLoop, runTasks, temp, verdict } from "./helpers.js";
 
 afterEach(cleanTemps);
 
@@ -23,6 +24,40 @@ const installClaude = (path: string) => {
 	writeFileSync(path, FAKE_CLAUDE, { mode: 0o755 });
 	chmodSync(path, 0o755);
 };
+
+/** A `claude` that never answers. */
+const HANGING_CLAUDE = `#!${process.execPath}\nsetInterval(() => {}, 1000);\n`;
+
+/**
+ * `localWorkspace(dir)`, recording the time limit of each `claude` exec. The first runs the real
+ * exec under fake timers advanced by its own limit, so the workspace's timer kills the process at
+ * once; then `after` runs. Only that exec's timer is faked: the harness keeps real time.
+ */
+function fastForwardWorkspace(dir: string, claude: string, after: () => void): { workspace: Workspace; seen: number[] } {
+	const real = localWorkspace(dir);
+	const exec = real.exec as NonNullable<Workspace["exec"]>;
+	const seen: number[] = [];
+	const workspace: Workspace = {
+		...real,
+		async exec(argv, options) {
+			if (argv[0] !== claude) return exec(argv, options);
+			seen.push(options.timeoutMs);
+			if (seen.length > 1) return exec(argv, options);
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			let ran: Promise<ExecResult>;
+			try {
+				ran = exec(argv, options);
+				vi.advanceTimersByTime(options.timeoutMs);
+			} finally {
+				vi.useRealTimers();
+			}
+			const result = await ran;
+			after();
+			return result;
+		},
+	};
+	return { workspace, seen };
+}
 
 /** The `claude_code` grant, its runner on `binary`. */
 const granted = (binary: string) => ({
@@ -46,34 +81,35 @@ const failedRun = (message: string): RunResult => ({
 
 describe("task/agent: A run ended by a failed action is retried within budget", () => {
 	it("Scenario: A delegate timeout costs one iteration", async () => {
-		// The timeout itself takes ten minutes to happen, so a pure read pins its message and the loop runs on the other `ok` false answer.
 		expect(failedActionOf(failedRun(TIMED_OUT))).toEqual({ action: "claude_code", message: TIMED_OUT });
 		expect(readRun(failedRun(TIMED_OUT), undefined, ["act"])).toMatchObject({ ok: false, actionFailed: true, message: TIMED_OUT });
 
-		const claude = missingClaude();
+		// The grant has no `timeoutMs`, so the default 900000 ms applies; iteration 1's `claude` hangs until the workspace kills it.
+		const claude = join(temp("task-claude-"), "claude");
+		writeFileSync(claude, HANGING_CLAUDE, { mode: 0o755 });
+		const { workspace, seen } = fastForwardWorkspace(temp("task-ws-"), claude, () => installClaude(claude));
 		const grant = granted(claude);
 		const r = await runLoop(
-			[
-				plan("edit a"),
-				// Iteration 2 begins here: the binary now exists, so the delegate succeeds.
-				() => {
-					installClaude(claude);
-					return plan("edit a again");
-				},
-				verdict(true),
-			],
+			[plan("edit a"), plan("edit a again"), verdict(true)],
 			{ script: { text: DELEGATE_NO_CHECKS }, budget: { maxIterations: 8 }, ...grant.overrides },
-			grant.actions,
+			{ ...grant.actions, workspace },
 		);
+		const runs = await runTasks(r.storage);
 		await r.harness.close(context);
 
+		expect(seen).toEqual([900_000, 900_000]);
+		expect(r.outcome.status).not.toBe("failed");
 		expect(r.outcome.status).toBe("converged");
 		expect(r.outcome.iterations).toHaveLength(2);
+		const last = (runs[0]?.state.outcome?.result as RunResult | undefined)?.actions.at(-1);
+		expect(last?.call.tool).toBe("delegate/claude_code");
+		expect(last?.result).toMatchObject({ ok: false, message: TIMED_OUT });
 		const [first] = r.outcome.iterations;
 		expect(first?.verdict.met).toBe(false);
-		expect(first?.verdict.unmet[0]?.reason).toContain("Claude Code could not start");
+		expect(first?.verdict.unmet[0]?.reason).toContain(TIMED_OUT);
 		expect(first?.feedback[0]).toMatchObject({ action: "retry", from: { kind: "environment" } });
-		expect(prompts(r.env.requests)[1]).toContain("Still unmet from before: Claude Code could not start");
+		expect((runs[1]?.input as { options: { variables: { carried: string } } }).options.variables.carried).toContain("timed out after 900000ms");
+		expect(prompts(r.env.requests)[1]).toContain(`Still unmet from before: ${TIMED_OUT}`);
 	});
 
 	it("Scenario: A failed action on the last iteration exhausts", async () => {
