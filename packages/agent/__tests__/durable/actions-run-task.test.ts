@@ -16,6 +16,7 @@ import {
 	startScript,
 	waitForScript,
 	workspaceActions,
+	type ExecutedHostAction,
 	type HostAction,
 } from "../../src/durable/index.js";
 import { builtinActions, defaultRunners, localWorkspace } from "../../src/node/index.js";
@@ -308,7 +309,7 @@ describe("durable/run-task: The next phase asks the step machine and either fini
 		const storage = new RecordingStorage();
 		let executedBeforeAct = -1;
 		const runChecks = hostAction("run_checks", async () => ({ ok: true, outputs: { passed: true, output: "ok" } }));
-		const counted: HostAction = {
+		const counted: ExecutedHostAction = {
 			...runChecks,
 			execute: async (inputs, ctx) => {
 				executedBeforeAct = Math.max(executedBeforeAct, 0) + 1;
@@ -417,9 +418,9 @@ describe("durable/run-task: A run survives its process dying and resumes from th
 
 	it("Scenario: A crash during a safe action re-runs it", async () => {
 		const workspace = temp("agentscript-ws-");
-		const real = builtinActions({ workspace }).find((a) => a.name === "edit_file") as HostAction;
+		const real = builtinActions({ workspace }).find((a) => a.name === "edit_file") as ExecutedHostAction;
 		const calls: unknown[] = [];
-		const edit: HostAction = {
+		const edit: ExecutedHostAction = {
 			...real,
 			execute: async (inputs, ctx) => {
 				calls.push(inputs);

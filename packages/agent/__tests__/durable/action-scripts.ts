@@ -3,8 +3,9 @@
  * and the crash fixture.
  */
 
-import type { ActionResult, VariableValue } from "../../src/interpreter/index.js";
-import type { HostAction } from "../../src/durable/index.js";
+import type { TaskOutcome } from "@earendil-works/pi-durable";
+import type { ActionResult, RunResult, VariableValue } from "../../src/interpreter/index.js";
+import type { DurableFinishContext, DurableHostAction, ExecutedHostAction, RunInput } from "../../src/durable/index.js";
 
 /** The built-ins' signatures, so a script binds to a fake exactly as to the real one. */
 export const SIGNATURES = {
@@ -20,7 +21,7 @@ export type ActionName = keyof typeof SIGNATURES;
 export function hostAction(
 	name: ActionName,
 	execute: (inputs: Readonly<Record<string, VariableValue>>) => Promise<ActionResult>,
-): HostAction {
+): ExecutedHostAction {
 	const signature = SIGNATURES[name];
 	return { name, ...signature, execute: (inputs) => execute(inputs) };
 }
@@ -33,6 +34,35 @@ export function recordingAction(name: ActionName, result: ActionResult) {
 		return result;
 	});
 	return { action, calls };
+}
+
+/**
+ * `run_checks` as a durable action: its child runs `deterministicScript("run_command")`,
+ * and `finish` answers `passed` when the child completed with `exit_code` 0.
+ * `startResult` replaces the child input, for a start that refuses.
+ */
+export function durableChecks(startResult?: Extract<ActionResult, { ok: false }>) {
+	const starts: Readonly<Record<string, VariableValue>>[] = [];
+	const finishes: { outcome: TaskOutcome<RunResult>; context: DurableFinishContext }[] = [];
+	const action: DurableHostAction = {
+		name: "run_checks",
+		kind: "command",
+		inputs: SIGNATURES.run_checks.inputs,
+		outputs: SIGNATURES.run_checks.outputs,
+		replay: "safe",
+		durable: {
+			async start(inputs): Promise<RunInput | Extract<ActionResult, { ok: false }>> {
+				starts.push(inputs);
+				return startResult ?? { source: deterministicScript("run_command"), scope: ["run_command"] };
+			},
+			async finish(_inputs, outcome, context) {
+				finishes.push({ outcome, context });
+				const passed = outcome.status === "completed" && outcome.result.variables["exit_code"] === 0;
+				return { ok: true, outputs: { passed, output: `child ${context.child} ${outcome.status}` } };
+			},
+		},
+	};
+	return { action, starts, finishes };
 }
 
 const DEFINITIONS: Record<ActionName, string> = {

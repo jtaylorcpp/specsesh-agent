@@ -11,7 +11,7 @@ import { spawn } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import type { ActionResult } from "../interpreter/index.js";
-import type { HostAction } from "../durable/actions.js";
+import type { ExecutedHostAction } from "../durable/actions.js";
 import { workspaceActions, type WorkspaceActionOptions } from "../durable/workspace.js";
 import { localWorkspace } from "./local-workspace.js";
 
@@ -22,7 +22,7 @@ export interface BuiltinActionOptions extends WorkspaceActionOptions {
 	readonly workspace: string;
 }
 
-export function builtinActions({ workspace, ...options }: BuiltinActionOptions): HostAction[] {
+export function builtinActions({ workspace, ...options }: BuiltinActionOptions): ExecutedHostAction[] {
 	return workspaceActions(localWorkspace(workspace), options);
 }
 

@@ -44,7 +44,11 @@ export async function createAgentHarness<Env>(config: AgentConfig<Env>, options:
 	];
 	const actions = createActionRegistry(firstPass);
 
-	const installed = agentScriptExtensions({ actions, workspace: workspace.root });
+	const installed = agentScriptExtensions({
+		actions,
+		workspace: workspace.root,
+		...(workspace.snapshot !== undefined ? { snapshot: () => workspace.snapshot!() } : {}),
+	});
 	const registry = createRegistry();
 	for (const extension of [installed.run, installed.step, ...(options.extensions ?? [])]) registry.install(extension);
 	const harness = await Harness.open(options.storage, { models: registered, registry }, options.context);

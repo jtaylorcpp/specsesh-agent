@@ -8,8 +8,11 @@
  * not provide, or declares it with other inputs or outputs, never starts.
  */
 
-import { declaredActions, type ActionResult, type VariableValue } from "../interpreter/index.js";
+import type { TaskId, TaskOutcome } from "@earendil-works/pi-durable";
+import { declaredActions, type ActionResult, type RunResult, type VariableValue } from "../interpreter/index.js";
 import { isGrantedDelegate } from "./delegate-brand.js";
+import type { RunInput } from "./extension.js";
+import type { WorkspaceSnapshot } from "./workspace.js";
 
 /** The scalar types an action's inputs and outputs carry, like a script variable's. */
 export type ActionParameterType = "string" | "number" | "boolean";
@@ -27,18 +30,61 @@ export interface ActionContext {
 	readonly priorCalls?: (name: string) => number;
 }
 
-export interface HostAction {
+interface HostActionBase {
 	readonly name: string;
 	/** `read` changes nothing; the rest are the ontology's Action kinds. */
 	readonly kind: "read" | "edit" | "command" | "delegate";
 	readonly inputs: Readonly<Record<string, ActionParameterType>>;
 	readonly outputs: Readonly<Record<string, ActionParameterType>>;
+}
+
+/** A host action that runs once, within the `act` phase or a step's tool call. */
+export interface ExecutedHostAction extends HostActionBase {
 	/**
 	 * pi-durable's replay rule: on recovery an interrupted `safe` call runs again;
 	 * an interrupted `unsafe` one is reported and never silently repeated.
 	 */
 	readonly replay: "safe" | "unsafe";
 	execute(inputs: Readonly<Record<string, VariableValue>>, context: ActionContext): Promise<ActionResult>;
+	readonly durable?: never;
+}
+
+/** What `finish` gets besides its inputs: the child's id and the workspace around it. */
+export interface DurableFinishContext extends ActionContext {
+	readonly child: TaskId<RunResult>;
+	/** The workspace as the child was created; absent when the host cannot snapshot. */
+	readonly before?: WorkspaceSnapshot;
+	/** The workspace once the child settled; absent when the host cannot snapshot. */
+	readonly after?: WorkspaceSnapshot;
+}
+
+/**
+ * A host action that runs as a child `agentscript.run` task. `start` returns the
+ * child's input, or a failed result and no child is created; `finish` maps the
+ * settled child to the call's result. Its replay is always `safe`: a resumed call
+ * waits for the child it stored, or creates it if none was stored.
+ */
+export interface DurableHostAction extends HostActionBase {
+	readonly replay: "safe";
+	readonly durable: {
+		start(
+			inputs: Readonly<Record<string, VariableValue>>,
+			context: ActionContext,
+		): Promise<RunInput | Extract<ActionResult, { ok: false }>>;
+		finish(
+			inputs: Readonly<Record<string, VariableValue>>,
+			outcome: TaskOutcome<RunResult>,
+			context: DurableFinishContext,
+		): Promise<ActionResult>;
+	};
+	readonly execute?: never;
+}
+
+/** An executor or a durable pair, never both. */
+export type HostAction = ExecutedHostAction | DurableHostAction;
+
+export function isDurable(action: HostAction): action is DurableHostAction {
+	return action.durable !== undefined;
 }
 
 export type ActionRegistry = ReadonlyMap<string, HostAction>;
@@ -91,14 +137,18 @@ export class ActionBindingError extends Error {
  * registered, its input and output names exactly the registered ones, and each
  * type equal. Throws `ActionBindingError` naming every mismatch. An
  * unregistered `delegate/<name>` also lists the granted delegates; a grant the
- * script never targets is never a problem.
+ * script never targets is never a problem. With `scope`, a tool outside it is
+ * refused before the registry is consulted; without it, every registered tool
+ * is in scope.
  */
-export function checkBindings(source: string, registry: ActionRegistry): void {
+export function checkBindings(source: string, registry: ActionRegistry, scope?: readonly string[]): void {
 	const problems: ActionBindingProblem[] = [];
 	for (const declared of declaredActions(source)) {
 		const host = registry.get(declared.tool);
 		const mismatches: string[] = [];
-		if (host === undefined) {
+		if (scope !== undefined && !scope.includes(declared.tool)) {
+			mismatches.push(`mcpTool://${declared.tool} is outside this run's scope (${scope.join(", ") || "empty"})`);
+		} else if (host === undefined) {
 			mismatches.push(`mcpTool://${declared.tool} is not registered on this host${grantsNote(declared.tool, registry)}`);
 		} else {
 			mismatches.push(

@@ -7,9 +7,9 @@
 
 ## 2. Scope, step limits and durable host actions
 
-- [ ] 2.1 `packages/agent/src/durable/extension.ts` + `src/durable/actions.ts`: `RunInput.scope` (the binding check refuses an action outside it with `outside this run's scope`) and `RunInput.maxSteps` (the run ends `failed`, category `unknown`, `reached its limit of <n> steps`, before dispatching step `n + 1`)
-- [ ] 2.2 `packages/agent/src/durable/actions.ts` + `src/durable/extension.ts`: `HostAction.durable { start, finish }`. The `act` phase commits intent `{ replay: "safe" }`, then creates the child and stores `child` (and `before`, the workspace snapshot) in one commit, waits by id on every later entry, and applies `finish`. The `act` checkpoint shape gains `child?` and `before?`.
-- [ ] 2.3 `packages/agent/__tests__/durable/durable-actions.test.ts` (faux provider only): `durable/run-task` "An action outside the scope is refused", "The third step is never asked", "A durable action's child is created once", plus the modified "A deterministic subagent walks next, act, next" and "The script travels inside the task" still passing (5)
+- [x] 2.1 `packages/agent/src/durable/extension.ts` + `src/durable/actions.ts`: `RunInput.scope` (the binding check refuses an action outside it with `outside this run's scope`) and `RunInput.maxSteps` (the run ends `failed`, category `unknown`, `reached its limit of <n> steps`, before dispatching step `n + 1`)
+- [x] 2.2 `packages/agent/src/durable/actions.ts` + `src/durable/extension.ts`: `HostAction.durable { start, finish }`. The `act` phase commits intent `{ replay: "safe" }`, then creates the child and stores `child` (and `before`, the workspace snapshot) in one commit, waits by id on every later entry, and applies `finish`. The `act` checkpoint shape gains `child?` and `before?`.
+- [x] 2.3 `packages/agent/__tests__/durable/durable-actions.test.ts` (faux provider only): `durable/run-task` "An action outside the scope is refused", "The third step is never asked", "A durable action's child is created once", plus the modified "A deterministic subagent walks next, act, next" and "The script travels inside the task" still passing (5)
 
 ## 3. The agent runner
 

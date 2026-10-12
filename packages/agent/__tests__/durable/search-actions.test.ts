@@ -6,7 +6,7 @@ import {
 	globToRegExp,
 	matchGlob,
 	searchActions,
-	type HostAction,
+	type ExecutedHostAction,
 	type SearchMatch,
 	type Workspace,
 } from "../../src/durable/index.js";
@@ -51,11 +51,11 @@ const FILES = {
 	"src/a.js": "export const a = 1;\n",
 };
 
-function byName(actions: HostAction[]): Record<string, HostAction> {
+function byName(actions: ExecutedHostAction[]): Record<string, ExecutedHostAction> {
 	return Object.fromEntries(actions.map((action) => [action.name, action]));
 }
 
-function run(action: HostAction | undefined, inputs: Record<string, string>): Promise<ActionResult> {
+function run(action: ExecutedHostAction | undefined, inputs: Record<string, string>): Promise<ActionResult> {
 	if (action === undefined) throw new Error("no such action");
 	return action.execute(inputs, { workspace: "memory" });
 }

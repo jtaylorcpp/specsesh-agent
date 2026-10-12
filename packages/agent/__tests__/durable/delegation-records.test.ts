@@ -16,6 +16,7 @@ import {
 	startScript,
 	waitForScript,
 	type ExecResult,
+	type ExecutedHostAction,
 	type HostAction,
 	type ProcessRunner,
 	type Workspace,
@@ -98,7 +99,7 @@ function delegate(workspace: Workspace, runner: ProcessRunner, grant: Record<str
 }
 
 function call(action: HostAction, instructions: string): Promise<ActionResult> {
-	return action.execute({ instructions }, { workspace: "test" });
+	return (action as ExecutedHostAction).execute({ instructions }, { workspace: "test" });
 }
 
 type Recorded = { record: { action: unknown; evidence: { kind: string; files?: unknown }[] } };

@@ -22,6 +22,7 @@ import {
 	type DelegateGrants,
 	type ExecOptions,
 	type ExecResult,
+	type ExecutedHostAction,
 	type HostAction,
 	type ProcessRunner,
 	type Workspace,
@@ -95,7 +96,7 @@ const fake: ProcessRunner = {
 
 function call(action: HostAction | undefined, instructions: string, context: Partial<ActionContext> = {}): Promise<ActionResult> {
 	if (action === undefined) throw new Error("no such action");
-	return action.execute({ instructions }, { workspace: "memory", ...context });
+	return (action as ExecutedHostAction).execute({ instructions }, { workspace: "memory", ...context });
 }
 
 describe("delegation smoke test", () => {

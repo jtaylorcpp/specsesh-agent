@@ -13,7 +13,7 @@ import {
 	createActionRegistry,
 	startScript,
 	workspaceActions,
-	type HostAction,
+	type ExecutedHostAction,
 } from "../../../src/durable/index.js";
 import { builtinActions, localWorkspace } from "../../../src/node/index.js";
 import { context, openHarness, setup } from "../helpers.js";
@@ -81,11 +81,11 @@ const logged = (log: string): { name: string; argv: string[]; cwd: string; stdin
 
 function builtins(options: Partial<Parameters<typeof builtinActions>[0]> = {}) {
 	const actions = builtinActions({ workspace, ...options });
-	return Object.fromEntries(actions.map((a) => [a.name, a])) as Record<string, HostAction>;
+	return Object.fromEntries(actions.map((a) => [a.name, a])) as Record<string, ExecutedHostAction>;
 }
 
-const exec = (action: HostAction | undefined, inputs: Record<string, string>) =>
-	(action as HostAction).execute(inputs, { workspace });
+const exec = (action: ExecutedHostAction | undefined, inputs: Record<string, string>) =>
+	(action as ExecutedHostAction).execute(inputs, { workspace });
 
 /** A record's Action and Evidence, each checked against the ontology schemas. */
 function ontologyRecord(result: ActionResult): { action: unknown; evidence: unknown[] } {
@@ -119,7 +119,7 @@ describe("actions/registry: A host action has a name, a kind, typed inputs and o
 
 describe("actions/registry: An action registry maps names to host actions", () => {
 	it("Scenario: A duplicate name is refused", () => {
-		const runChecks = builtins()["run_checks"] as HostAction;
+		const runChecks = builtins()["run_checks"] as ExecutedHostAction;
 		expect(() => createActionRegistry([runChecks, { ...runChecks }])).toThrow(/run_checks/);
 	});
 
@@ -134,7 +134,7 @@ describe("actions/registry: An action registry maps names to host actions", () =
 
 	it("a host may add its own actions beside the built-ins", () => {
 		const actions = builtinActions({ workspace });
-		const own: HostAction = { ...(actions[0] as HostAction), name: "deploy" };
+		const own: ExecutedHostAction = { ...(actions[0] as ExecutedHostAction), name: "deploy" };
 		expect([...createActionRegistry([...actions, own]).keys()]).toContain("deploy");
 	});
 });
@@ -156,7 +156,7 @@ describe("actions/registry: A host installs the extensions with its registry", (
 });
 
 describe("actions/registry: Bindings are checked whole before anything runs", () => {
-	async function startWith(source: string, actions: HostAction[]) {
+	async function startWith(source: string, actions: ExecutedHostAction[]) {
 		const env = setup();
 		const installed = agentScriptExtensions({ actions: createActionRegistry(actions), workspace });
 		env.registry.install(installed.run);

@@ -12,7 +12,7 @@ import {
 	workspaceActions,
 	type ExecOptions,
 	type ExecResult,
-	type HostAction,
+	type ExecutedHostAction,
 	type Workspace,
 } from "../../src/durable/index.js";
 import { localWorkspace } from "../../src/node/index.js";
@@ -67,11 +67,11 @@ function memory(options: { exec?: boolean; answer?: (argv: readonly string[]) =>
 	return { workspace, files, calls };
 }
 
-function byName(actions: HostAction[]): Record<string, HostAction> {
+function byName(actions: ExecutedHostAction[]): Record<string, ExecutedHostAction> {
 	return Object.fromEntries(actions.map((action) => [action.name, action]));
 }
 
-function run(action: HostAction | undefined, inputs: Record<string, string>): Promise<ActionResult> {
+function run(action: ExecutedHostAction | undefined, inputs: Record<string, string>): Promise<ActionResult> {
 	if (action === undefined) throw new Error("no such action");
 	return action.execute(inputs, { workspace: "memory" });
 }

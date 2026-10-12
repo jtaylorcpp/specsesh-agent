@@ -11,7 +11,9 @@
  *   dispatch  create a fresh child conversation for the step, in one commit
  *   await     submit the step's prompt to it (idempotent by request ID), wait,
  *             and fold the answer back into the machine
- *   act       record the call's intent, run the host action once, fold its result in
+ *   act       record the call's intent, run the host action once, fold its result in;
+ *             a durable action instead creates a child run, stores its id in the
+ *             same commit, waits for it by id, and folds in `finish`'s answer
  *
  * Each step runs in its own conversation that the task owns, so a step sees only
  * the script's system instructions, its own prompt, the result tool and its own
@@ -64,8 +66,9 @@ import {
 	type ToolRegistration,
 	type Tx,
 } from "@earendil-works/pi-durable";
-import { type ActionRegistry, type HostAction, checkBindings } from "./actions.js";
+import { type ActionContext, type ActionRegistry, type HostAction, checkBindings, isDurable } from "./actions.js";
 import { checkResult } from "./result.js";
+import type { WorkspaceSnapshot } from "./workspace.js";
 
 /** The tool a structured step offers. Its arguments are the step's result. */
 export const RESULT_TOOL = "submit_result";
@@ -113,6 +116,10 @@ export interface RunInput {
 	readonly options?: StartOptions;
 	/** The model every step runs on; absent, steps use the owning conversation's model. */
 	readonly model?: ModelRef;
+	/** The tools the script may bind; absent, every registered action is in scope. */
+	readonly scope?: readonly string[];
+	/** The model steps the run may dispatch; the next one ends it failed instead. */
+	readonly maxSteps?: number;
 }
 
 export type RunCheckpoint =
@@ -124,7 +131,15 @@ export type RunCheckpoint =
 			readonly step: number;
 			readonly conversationId: ConversationId;
 	  }
-	| { readonly phase: "act"; readonly state: RunState; readonly intent: null | { readonly replay: "safe" | "unsafe" } };
+	| {
+			readonly phase: "act";
+			readonly state: RunState;
+			readonly intent: null | { readonly replay: "safe" | "unsafe" };
+			/** A durable action's child run, stored in the commit that created it. */
+			readonly child?: TaskId<RunResult>;
+			/** The workspace snapshot taken as the child was created, path → value. */
+			readonly before?: { readonly [path: string]: string };
+	  };
 
 type Runtime = TaskRuntime<RunInput, RunCheckpoint, RunResult, object>;
 
@@ -219,6 +234,8 @@ export interface AgentScriptExtensionOptions {
 	readonly actions: ActionRegistry;
 	/** The directory every action runs in and is confined to. */
 	readonly workspace: string;
+	/** The workspace's snapshot, taken around a durable action's child; absent, `before` and `after` are too. */
+	readonly snapshot?: () => Promise<WorkspaceSnapshot | undefined>;
 }
 
 /** The two extensions a host installs, bound to one registry and workspace. */
@@ -235,10 +252,14 @@ export interface AgentScriptExtensions {
  * workspace. Install both in place of the plain exports.
  */
 export function agentScriptExtensions(options: AgentScriptExtensionOptions): AgentScriptExtensions {
-	return createExtensions(options.actions, options.workspace);
+	return createExtensions(options.actions, options.workspace, options.snapshot);
 }
 
-function createExtensions(registry: ActionRegistry, workspace: string): AgentScriptExtensions {
+function createExtensions(
+	registry: ActionRegistry,
+	workspace: string,
+	snapshot?: () => Promise<WorkspaceSnapshot | undefined>,
+): AgentScriptExtensions {
 	/**
 	 * The offered action tools, by name. pi-durable resolves a conversation's
 	 * tools by name against the selected extensions at each use, and offer names
@@ -280,14 +301,23 @@ function createExtensions(registry: ActionRegistry, workspace: string): AgentScr
 		name: "agentscript.run",
 		version: 1,
 		initial: (input) => {
+			if (input.maxSteps !== undefined && !(Number.isInteger(input.maxSteps) && input.maxSteps > 0)) {
+				throw new Error(`maxSteps must be a positive integer, got ${String(input.maxSteps)}`);
+			}
 			const state = start(input.source, input.options);
 			// Checked whole, when the run is created: nothing has executed yet.
-			checkBindings(input.source, registry);
+			checkBindings(input.source, registry, input.scope);
 			return { phase: "next", state };
 		},
 		phases: {
 			next: async (task, runtime, context) => {
-				const step = next(task.input.source, task.state.checkpoint.state);
+				const { source, maxSteps } = task.input;
+				let step = next(source, task.state.checkpoint.state);
+				if (step.type === "request" && maxSteps !== undefined && step.state.steps.length >= maxSteps) {
+					// Never dispatched: the step fails in place, and the machine ends the run on it.
+					const limit = `reached its limit of ${maxSteps} steps`;
+					step = next(source, apply(source, step.state, { kind: "failed", category: "unknown", message: limit }));
+				}
 				await runtime.commit(
 					() =>
 						step.type === "done"
@@ -329,7 +359,57 @@ function createExtensions(registry: ActionRegistry, workspace: string): AgentScr
 				const action = registry.get(call.tool);
 				const priorCalls = (name: string) => reportedCalls(state, name);
 				let result: ActionResult;
-				if (action === undefined) {
+				if (action !== undefined && isDurable(action)) {
+					const { child, before } = task.state.checkpoint;
+					const actionContext: ActionContext = { workspace, priorCalls, ...(runtime.signal !== undefined ? { signal: runtime.signal } : {}) };
+					if (intent === null) {
+						await runtime.commit(
+							() => ({ status: "running", checkpoint: { phase: "act", state, intent: { replay: "safe" } } }),
+							context,
+						);
+					}
+					if (child === undefined) {
+						// Nothing stored a child yet, so none exists: creating it and storing it is one commit.
+						const started = await attempt(() => action.durable.start(call.inputs, actionContext));
+						if (!("source" in started)) {
+							await runtime.commit(
+								() => ({ status: "running", checkpoint: { phase: "next", state: applyAction(task.input.source, state, started) } }),
+								context,
+							);
+							return;
+						}
+						const runTask = runtime.registry.task(AgentScriptRun.definition.name) as typeof AgentScriptRun | undefined;
+						if (runTask === undefined) throw new Error(`${call.action} needs ${AgentScriptRun.definition.name} installed`);
+						const taken = await snapshot?.();
+						await runtime.commit(async (tx) => {
+							const id = await tx.createTask(runTask, started, { ownership: { kind: "task", taskId: runtime.taskId } });
+							return {
+								status: "waiting",
+								checkpoint: {
+									phase: "act",
+									state,
+									intent: { replay: "safe" },
+									child: id,
+									...(taken !== undefined ? { before: Object.fromEntries(taken) } : {}),
+								},
+								on: [id],
+								policy: "allSettled",
+							};
+						}, context);
+						return;
+					}
+					// Waiting by id is idempotent: a resumed run waits for the same child.
+					const settled = await runtime.waitForTask(child, context);
+					const after = await snapshot?.();
+					result = await attempt(() =>
+						action.durable.finish(call.inputs, settled.state.outcome, {
+							...actionContext,
+							child,
+							...(before !== undefined ? { before: new Map(Object.entries(before)) } : {}),
+							...(after !== undefined ? { after } : {}),
+						}),
+					);
+				} else if (action === undefined) {
 					result = { ok: false, message: `mcpTool://${call.tool} is not registered on this host` };
 				} else if (intent === null) {
 					// The intent lands before anything runs, so a crash mid-call is seen on resume.
@@ -356,7 +436,10 @@ function createExtensions(registry: ActionRegistry, workspace: string): AgentScr
 	return { run, step, task };
 }
 
-/** Run a host action once; a throw becomes a failed result carrying its message. */
+/**
+ * Run a host action once; a throw becomes a failed result carrying its message.
+ * A durable action runs only as a `run` call, through the `act` phase.
+ */
 async function execute(
 	action: HostAction,
 	inputs: Readonly<Record<string, VariableValue>>,
@@ -364,8 +447,14 @@ async function execute(
 	signal: AbortSignal | undefined,
 	priorCalls: (name: string) => number,
 ): Promise<ActionResult> {
+	if (isDurable(action)) return { ok: false, message: `${action.name} runs as a child task: call it with run` };
+	return attempt(() => action.execute(inputs, { workspace, priorCalls, ...(signal !== undefined ? { signal } : {}) }));
+}
+
+/** Await `call`; a throw becomes a failed result carrying its message. */
+async function attempt<T>(call: () => Promise<T>): Promise<T | { ok: false; message: string }> {
 	try {
-		return await action.execute(inputs, { workspace, priorCalls, ...(signal !== undefined ? { signal } : {}) });
+		return await call();
 	} catch (error) {
 		return { ok: false, message: error instanceof Error ? error.message : String(error) };
 	}

@@ -17,10 +17,14 @@ export {
 	ActionBindingError,
 	checkBindings,
 	createActionRegistry,
+	isDurable,
 	type ActionBindingProblem,
 	type ActionContext,
 	type ActionParameterType,
 	type ActionRegistry,
+	type DurableFinishContext,
+	type DurableHostAction,
+	type ExecutedHostAction,
 	type HostAction,
 } from "./actions.js";
 export {

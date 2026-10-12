@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { fauxProvider } from "@earendil-works/pi-ai";
 import { MemoryStorage, type ModelRef } from "@earendil-works/pi-durable";
 import type { ActionResult } from "../../src/interpreter/index.js";
-import { createAgentHarness, searchActions, type HostAction, type Workspace } from "../../src/durable/index.js";
+import { createAgentHarness, searchActions, type ExecutedHostAction, type Workspace } from "../../src/durable/index.js";
 import { localWorkspace } from "../../src/node/index.js";
 import { context } from "./helpers.js";
 
@@ -34,11 +34,11 @@ const fakeWorkspace: Workspace = {
 	snapshot: async () => undefined,
 };
 
-function byName(actions: HostAction[]): Record<string, HostAction> {
+function byName(actions: ExecutedHostAction[]): Record<string, ExecutedHostAction> {
 	return Object.fromEntries(actions.map((action) => [action.name, action]));
 }
 
-function run(action: HostAction | undefined, inputs: Record<string, string>): Promise<ActionResult> {
+function run(action: ExecutedHostAction | undefined, inputs: Record<string, string>): Promise<ActionResult> {
 	if (action === undefined) throw new Error("no such action");
 	return action.execute(inputs, { workspace: "test" });
 }

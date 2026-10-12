@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ActionResult } from "../../src/interpreter/index.js";
-import { delegationActions, type DelegateGrant, type DelegateTerms, type ProcessRunner, type Workspace } from "../../src/durable/index.js";
+import { delegationActions, isDurable, type DelegateGrant, type DelegateTerms, type ProcessRunner, type Workspace } from "../../src/durable/index.js";
 import { claudeCodeRunner, defaultRunners, localWorkspace } from "../../src/node/index.js";
 
 const STRIPPED = ["ANTHROPIC_API_KEY", "CLAUDECODE"] as const;
@@ -86,7 +86,7 @@ function spied() {
 async function delegate(grant: Omit<DelegateGrant, "runner">, instructions: string) {
 	const { runner, spy, calls } = spied();
 	const [action] = delegationActions({ claude_code: { runner: "claude-code", ...grant } }, { workspace, runners: { "claude-code": spy } });
-	if (action === undefined) throw new Error("no delegate action");
+	if (action === undefined || isDurable(action)) throw new Error("no delegate action");
 	const result: ActionResult = await action.execute({ instructions }, { workspace: "local" });
 	const call = calls[0];
 	if (call === undefined) throw new Error("prepare was never called");

@@ -14,7 +14,7 @@
  */
 
 import { Action, Evidence, check, explain, type CheckEvidence, type DiffEvidence } from "../openspec/index.js";
-import type { HostAction } from "./actions.js";
+import type { ExecutedHostAction } from "./actions.js";
 
 export interface ExecOptions {
 	readonly stdin?: string;
@@ -231,12 +231,12 @@ export interface WorkspaceActionOptions {
 }
 
 /** The four built-ins, every read, write and process going through `workspace`. */
-export function workspaceActions(workspace: Workspace, options: WorkspaceActionOptions = {}): HostAction[] {
+export function workspaceActions(workspace: Workspace, options: WorkspaceActionOptions = {}): ExecutedHostAction[] {
 	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const allow = options.allow ?? [];
 	const checks = options.checks ?? [];
 
-	const readFileAction: HostAction = {
+	const readFileAction: ExecutedHostAction = {
 		name: "read_file",
 		kind: "read",
 		inputs: { path: "string" },
@@ -252,7 +252,7 @@ export function workspaceActions(workspace: Workspace, options: WorkspaceActionO
 		},
 	};
 
-	const editFileAction: HostAction = {
+	const editFileAction: ExecutedHostAction = {
 		name: "edit_file",
 		kind: "edit",
 		inputs: { path: "string", content: "string" },
@@ -286,7 +286,7 @@ export function workspaceActions(workspace: Workspace, options: WorkspaceActionO
 		},
 	};
 
-	const runCommandAction: HostAction = {
+	const runCommandAction: ExecutedHostAction = {
 		name: "run_command",
 		kind: "command",
 		inputs: { command: "string" },
@@ -318,7 +318,7 @@ export function workspaceActions(workspace: Workspace, options: WorkspaceActionO
 		},
 	};
 
-	const runChecksAction: HostAction = {
+	const runChecksAction: ExecutedHostAction = {
 		name: "run_checks",
 		kind: "command",
 		inputs: { task_id: "string" },
@@ -351,13 +351,13 @@ export function workspaceActions(workspace: Workspace, options: WorkspaceActionO
  *   list_files   { glob } → { paths }               read  safe
  *   search_files { pattern, glob } → { matches }    read  safe
  */
-export function searchActions(workspace: Workspace): HostAction[] {
+export function searchActions(workspace: Workspace): ExecutedHostAction[] {
 	const globOf = (inputs: Readonly<Record<string, unknown>>): string => {
 		const glob = inputs["glob"];
 		return typeof glob === "string" && glob.trim() !== "" ? glob : "**/*";
 	};
 
-	const listFilesAction: HostAction = {
+	const listFilesAction: ExecutedHostAction = {
 		name: "list_files",
 		kind: "read",
 		inputs: { glob: "string" },
@@ -369,7 +369,7 @@ export function searchActions(workspace: Workspace): HostAction[] {
 		},
 	};
 
-	const searchFilesAction: HostAction = {
+	const searchFilesAction: ExecutedHostAction = {
 		name: "search_files",
 		kind: "read",
 		inputs: { pattern: "string", glob: "string" },
