@@ -13,6 +13,8 @@ export type JudgeDecision =
 	| { readonly kind: "iterate"; readonly iterations: Iteration[]; readonly carried: string }
 	/** Converged: the caller ticks, then completes the outcome with its result. */
 	| { readonly kind: "converged"; readonly iterations: Iteration[] }
+	/** Met, with checks configured: the caller moves to the gate with the checkpoint's iterations; nothing is recorded. */
+	| { readonly kind: "gate" }
 	| { readonly kind: "end"; readonly outcome: LoopOutcome<TaskOutcome>; readonly notes: string[] };
 
 export function judgeIteration(input: TaskLoopInput, iterations: readonly Iteration[], read: IterationRead): JudgeDecision {
@@ -26,8 +28,16 @@ export function judgeIteration(input: TaskLoopInput, iterations: readonly Iterat
 	// The budget is this run's: an answered escalation's run starts with its earlier iterations already recorded.
 	const thisRun = all.slice(input.earlier.length);
 
-	if (!read.ok) return { kind: "end", outcome: { status: "failed", iterations: all }, notes: [read.message] };
+	if (!read.ok && read.actionFailed !== true) return { kind: "end", outcome: { status: "failed", iterations: all }, notes: [read.message] };
+	if (!read.ok) {
+		// A failed host action (a delegate timeout, say) is an unmet iteration with `retry` feedback: it costs one iteration.
+		return outcomeStatus(thisRun, input.budget) === undefined
+			? { kind: "iterate", iterations: all, carried: read.message }
+			: { kind: "end", outcome: { status: "exhausted", iterations: all }, notes: [read.message] };
+	}
 	if (brokeContract) return { kind: "end", outcome: { status: "failed", iterations: all }, notes: [contractNote] };
+
+	if (read.met && input.checks.length > 0) return { kind: "gate" };
 
 	const status = outcomeStatus(thisRun, input.budget);
 	switch (status) {

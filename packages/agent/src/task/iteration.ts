@@ -35,6 +35,8 @@ export type IterationRead =
 			readonly evidence: Evidence[];
 			/** Why the run did not complete. */
 			readonly message: string;
+			/** Set when a host action's failure ended the run, so the loop retries it within budget. */
+			readonly actionFailed?: true;
 	  };
 
 /** The single target every verdict of the task's loop judges. */
@@ -48,8 +50,9 @@ export function readRun(result: RunResult | undefined, failure: string | undefin
 	const plan = typeof result?.variables["plan"] === "string" ? result.variables["plan"] : "";
 	const { actions, evidence } = result === undefined ? { actions: [], evidence: [] } : hostRecords(result, entries);
 	if (result === undefined || result.kind !== "completed") {
-		const message = failure ?? runFailure(result);
-		return { ok: false, plan, actions, evidence, message };
+		const failed = result === undefined ? undefined : failedActionOf(result);
+		const message = failed?.message ?? failure ?? runFailure(result);
+		return { ok: false, plan, actions, evidence, message, ...(failed !== undefined ? { actionFailed: true as const } : {}) };
 	}
 	const v = result.variables;
 	return {
@@ -62,6 +65,18 @@ export function readRun(result: RunResult | undefined, failure: string | undefin
 		nextAction: String(v["next_action"] ?? ""),
 		question: String(v["question"] ?? ""),
 	};
+}
+
+/**
+ * The failed host action that ended a run, if one did. `steps` and `actions` are
+ * separate lists, but a failed step stops the run and so does a failed action, so
+ * a failed run whose last step did not fail ended on its last action.
+ */
+export function failedActionOf(result: RunResult): { action: string; message: string } | undefined {
+	if (result.kind !== "failed" || result.steps.at(-1)?.outcome.kind === "failed") return undefined;
+	const last = result.actions.at(-1);
+	if (last === undefined || last.result.ok) return undefined;
+	return { action: last.call.action, message: last.result.message };
 }
 
 function runFailure(result: RunResult | undefined): string {

@@ -42,6 +42,14 @@ export type LoopCheckpoint =
 			readonly carried: string;
 			readonly child: TaskId;
 			readonly read: IterationRead;
+	  }
+	/** The judge said met and checks are configured: the gate runs them before the loop converges. */
+	| {
+			readonly phase: "gate";
+			readonly iterations: Iteration[];
+			readonly carried: string;
+			readonly child: TaskId;
+			readonly read: IterationRead;
 	  };
 
 /** The loop task's durable result: the ontology's outcome, and notes it has no field for. */

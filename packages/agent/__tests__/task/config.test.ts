@@ -1,13 +1,21 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BUNDLED_SCRIPTS } from "../../src/task/index.js";
 import { ConfigError, loadConfig, resolveGroupScript, resolveRunSettings, validateTaskConfig } from "../../src/task/config.js";
 import { cli, fauxModels, storedLoops, workdir } from "./cli-helpers.js";
-import { cleanTemps, temp, tinyChange, verdict } from "./helpers.js";
+import { cleanTemps, fakePnpm, temp, tinyChange, verdict } from "./helpers.js";
 
-afterEach(() => cleanTemps());
+// A met verdict with checks goes to the gate, which runs `pnpm`: a fake one that exits 0 keeps these tests offline.
+let restorePath: (() => void) | undefined;
+beforeEach(() => {
+	restorePath = fakePnpm();
+});
+afterEach(() => {
+	restorePath?.();
+	cleanTemps();
+});
 
 /** A root with `agentscript.config.json` holding `{ task }`, and `packages/agent` beneath it. */
 function configured(task: unknown) {
@@ -40,7 +48,7 @@ describe("task/headless: The repo config is found by walking up", () => {
 		const r = await cli(["run", tinyChange(), "1.1", "--db", db, "--script", script, ...env.args], env, { cwd });
 		expect(r.code, r.err).toBe(0);
 		const { inputs } = await storedLoops(db);
-		expect(inputs[0]).toMatchObject({ checks: [], allow: [], budget: { maxIterations: 3 }, escalateTo: "principal", workspace: cwd });
+		expect(inputs[0]).toMatchObject({ checks: [], allow: [], budget: { maxIterations: 8 }, escalateTo: "principal", workspace: cwd });
 	});
 
 	it("only the task object is read; other top-level keys are ignored", () => {
@@ -62,7 +70,7 @@ describe("task/headless: The task config has a fixed set of typed fields", () =>
 			delegateModel: "claude-haiku-4-5",
 			checks: [],
 			allow: [],
-			maxIterations: 3,
+			maxIterations: 8,
 			escalateTo: "principal",
 			requireCleanTree: true,
 			worktree: false,

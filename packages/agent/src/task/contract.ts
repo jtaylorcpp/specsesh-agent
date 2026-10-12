@@ -45,6 +45,12 @@ export function contractProblems(source: string): string[] {
 		if (declared === undefined) problems.push(`${name} is not declared; declare it as ${type}`);
 		else if (declared.type !== type) problems.push(`${name} is declared ${declared.type}; the contract needs ${type}`);
 	}
+	const action = declarations.get("next_action");
+	if (action?.type === "string" && typeof action.initial === "string" && !(NEXT_ACTIONS as readonly string[]).includes(action.initial)) {
+		problems.push(
+			`@variables.next_action defaults to ${JSON.stringify(action.initial)}, which is not one of ${NEXT_ACTIONS.map((a) => JSON.stringify(a)).join(", ")}`,
+		);
+	}
 	return problems;
 }
 

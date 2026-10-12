@@ -9,6 +9,7 @@ import { LoopOutcome, TaskOutcome, check, type LoopOutcome as LoopOutcomeType, t
 import { BUNDLED_SCRIPTS, TASK_LOOP, startTaskLoop, waitForTaskLoop, waitForTaskLoopResult } from "../../src/task/index.js";
 import {
 	JUDGE_ONLY,
+	JUDGE_ONLY_ASSIGNING,
 	PROPOSAL,
 	baselineCopy,
 	cleanTemps,
@@ -70,16 +71,57 @@ describe("task/agent: A harness binds the loop's actions to one workspace", () =
 	});
 });
 
+describe("task/agent: The loop constrains next_action to its contract values", () => {
+	it("Scenario: The judge step's schema lists the three values", async () => {
+		const restore = fakePnpm();
+		try {
+			const r = await runLoop([plan("p"), text("Done."), verdict(false, "x", "retry"), plan("p"), text("Done."), verdict(true)], {
+				script: { path: BUNDLED_SCRIPTS.task.pathname },
+				checks: ["pnpm test"],
+				allow: ["pnpm"],
+			});
+			const runs = await runTasks(r.storage);
+			await r.harness.close(context);
+			expect(r.outcome.status).toBe("converged");
+
+			type Offered = { name: string; parameters?: { properties?: Record<string, unknown> } };
+			const submitted = r.env.requests.flatMap((request) =>
+				(request.messages as unknown as { role: string; toolsAdded?: Offered[] }[])
+					.filter((m) => m.role === "system")
+					.flatMap((m) => m.toolsAdded ?? [])
+					.filter((t) => t.name === "submit_result" && t.parameters?.properties?.["next_action"] !== undefined),
+			);
+			expect(submitted).toHaveLength(2);
+			for (const tool of submitted) {
+				expect(tool.parameters?.properties?.["next_action"]).toEqual({
+					type: "string",
+					enum: ["retry", "amend-spec", "ask"],
+				});
+			}
+
+			// Every iteration's child carries the choices, retries included.
+			expect(runs).toHaveLength(2);
+			for (const run of runs) {
+				expect((run.input as { options: { choices: unknown } }).options.choices).toEqual({
+					next_action: ["retry", "amend-spec", "ask"],
+				});
+			}
+		} finally {
+			restore();
+		}
+	});
+});
+
 describe("task/agent: Defaults for optional options", () => {
-	it("Scenario: Budget defaults to three iterations", async () => {
+	it("Scenario: Budget defaults to eight iterations", async () => {
 		const retry = () => verdict(false, "still red", "retry");
-		const r = await runLoop([retry(), retry(), retry(), verdict(true)]);
+		const r = await runLoop([...Array.from({ length: 8 }, retry), verdict(true)]);
 		await r.harness.close(context);
 		expect(r.options.budget).toBeUndefined();
 		expect(r.outcome.status).toBe("exhausted");
-		expect(r.outcome.iterations).toHaveLength(3);
-		// A fourth iteration would have taken the met verdict.
-		expect(r.env.requests).toHaveLength(3);
+		expect(r.outcome.iterations).toHaveLength(8);
+		// A ninth iteration would have taken the met verdict.
+		expect(r.env.requests).toHaveLength(8);
 	});
 });
 
@@ -225,7 +267,7 @@ describe("task/agent: Judge maps ask and amend-spec to a blocked loop", () => {
 
 describe("task/agent: Judge fails a run that breaks the contract", () => {
 	it("Scenario: An unknown next_action fails the loop", async () => {
-		const r = await runLoop([verdict(false, "nothing", "done")]);
+		const r = await runLoop([verdict(false, "nothing", "retry")], { script: { text: JUDGE_ONLY_ASSIGNING("done") } });
 		await r.harness.close(context);
 		expect(r.outcome.status).toBe("failed");
 		expect(r.notes.join("\n")).toContain('"done"');

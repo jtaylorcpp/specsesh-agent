@@ -45,7 +45,8 @@ import {
 } from "../../src/task/group.js";
 import { groupContractProblems, readGroupVerdict, type GroupVerdict } from "../../src/task/group-judge.js";
 import { openHarness, setup } from "../durable/helpers.js";
-import { DELTA, GROUP_JUDGE, JUDGE_ONLY, PROPOSAL, cleanTemps, context, prompts, temp, tinyChange, verdict } from "./helpers.js";
+import { DELTA, GROUP_JUDGE, JUDGE_ONLY, PROPOSAL, cleanTemps, context, prompts, tinyChange, verdict } from "./helpers.js";
+import { stagedCheck } from "./staged-check.js";
 
 // Every file read, so a test can count one read per source.
 const reads = vi.hoisted(() => ({ paths: [] as string[] }));
@@ -135,7 +136,7 @@ describe("task/group: Group options are the task options with a group, a judge s
 		expect(resolved.groupScript).toEqual({ bundled: "group" });
 		expect(resolved.budget.maxReworks).toBe(DEFAULT_MAX_REWORKS);
 		expect(DEFAULT_MAX_REWORKS).toBe(2);
-		expect(resolved.budget.maxIterations).toBe(3);
+		expect(resolved.budget.maxIterations).toBe(8);
 	});
 
 	it("rejects maxReworks 0 and a group that is not a positive integer", () => {
@@ -783,16 +784,8 @@ describe("task/group: taskLoopInputFor carries the group's worktree to every chi
 type Responses = Parameters<ReturnType<typeof setup>["faux"]["setResponses"]>[0];
 
 const RUN_PASS = "node -e process.exit(0)";
-const RUN_FAIL = "node -e process.exit(1)";
-/** Fails the first time it runs in a workspace, passes after. */
-const FAIL_ONCE = [
-	'const fs = require("fs");',
-	'if (fs.existsSync("seen")) process.exit(0);',
-	'fs.writeFileSync("seen", "");',
-	'console.log("import missing");',
-	"process.exit(1);",
-	"",
-].join("\n");
+// Each child task gates on the same checks as the group, so the group check that must fail
+// is staged: the children's gate runs pass, and only the group's runs listed false fail.
 
 const judgeSays = (vars: Record<string, string>) =>
 	fauxAssistantMessage([fauxToolCall(RESULT_TOOL, { next_action: "", rework_task: "", feedback: "", question: "", ...vars })], {
@@ -869,17 +862,6 @@ describe("task/group: a group loop on a real store", () => {
 		return ((settled.state.outcome as unknown as { result?: { notes: string[] } }).result?.notes ?? []) as string[];
 	};
 	const escalationOf = (outcome: LoopOutcome<GroupOutcome>) => (outcome as unknown as { escalation: Escalation }).escalation;
-
-	/** A `pnpm` first on PATH that prints `output` and exits 1. */
-	function failingPnpm(output: string): void {
-		const bin = temp("group-bin-");
-		writeFileSync(join(bin, "pnpm"), `#!${process.execPath}\nprocess.stdout.write(${JSON.stringify(output)});\nprocess.exit(1);\n`, { mode: 0o755 });
-		const saved = process.env.PATH;
-		process.env.PATH = `${bin}:${saved ?? ""}`;
-		restores.push(() => {
-			process.env.PATH = saved;
-		});
-	}
 
 	it("Scenario: A host starts and awaits a group loop", async () => {
 		const r = await openRun([verdict(true), verdict(true)]);
@@ -967,11 +949,12 @@ describe("task/group: a group loop on a real store", () => {
 	});
 
 	it("Scenario: The judge sees the check output", async () => {
-		failingPnpm("2 failed: value.test.ts");
-		const r = await openRun([verdict(true), verdict(true), judgeSays({ next_action: "ask", question: "Which?" })], { checks: ["pnpm test"] });
+		// Gate runs of 1.1 and 1.2 pass, then the group check fails.
+		const staged = stagedCheck([true, true, false], "2 failed: value.test.ts");
+		const r = await openRun([verdict(true), verdict(true), judgeSays({ next_action: "ask", question: "Which?" })], { checks: [staged.command] });
 		await runGroup(r);
 		const seen = prompts(r.env.requests)[2] ?? "";
-		expect(seen).toContain("pnpm test");
+		expect(seen).toContain(staged.command);
 		expect(seen).toContain("exit 1");
 		expect(seen).toContain("2 failed: value.test.ts");
 	});
@@ -990,8 +973,9 @@ describe("task/group: a group loop on a real store", () => {
 	});
 
 	it("Scenario: A failed check is fixed by reworking a task", async () => {
-		const r = await openRun([verdict(true), verdict(true), rework("1.1"), verdict(true)], { checks: ["node check.js"] });
-		writeFileSync(join(r.workspace, "check.js"), FAIL_ONCE);
+		// Gate 1.1, gate 1.2, the group check fails; 1.1 reworked: its gate, then the group check.
+		const staged = stagedCheck([true, true, false, true, true], "import missing");
+		const r = await openRun([verdict(true), verdict(true), rework("1.1"), verdict(true)], { checks: [staged.command] });
 		const { outcome } = await runGroup(r);
 		expect(outcome.status).toBe("converged");
 		expect(outcome.result?.tasks.map((t) => [t.task, t.runs])).toEqual([["1.1", 2], ["1.2", 1]]);
@@ -1002,8 +986,9 @@ describe("task/group: a group loop on a real store", () => {
 	});
 
 	it("Scenario: The rework budget runs out", async () => {
+		// Gates of 1.1 and 1.2 pass, the group check fails; 1.1's rework gate passes, the group check fails again.
 		const r = await openRun([verdict(true), verdict(true), rework("1.1"), verdict(true), rework("1.1")], {
-			checks: [RUN_FAIL],
+			checks: [stagedCheck([true, true, false, true, false]).command],
 			budget: { maxReworks: 1 },
 		});
 		const { outcome } = await runGroup(r);
@@ -1012,14 +997,16 @@ describe("task/group: a group loop on a real store", () => {
 	});
 
 	it("Scenario: The judge asks the principal", async () => {
-		const r = await openRun([verdict(true), verdict(true), judgeSays({ next_action: "ask", question: "Drop scenario X?" })], { checks: [RUN_FAIL] });
+		const r = await openRun([verdict(true), verdict(true), judgeSays({ next_action: "ask", question: "Drop scenario X?" })], {
+			checks: [stagedCheck([true, true, false]).command],
+		});
 		const { outcome } = await runGroup(r);
 		expect(outcome.status).toBe("blocked");
 		expect(escalationOf(outcome)).toMatchObject({ level: "group", to: "principal", question: "Drop scenario X?" });
 	});
 
 	it("Scenario: A task outside the group is refused", async () => {
-		const r = await openRun([verdict(true), verdict(true), rework("3.1")], { checks: [RUN_FAIL] });
+		const r = await openRun([verdict(true), verdict(true), rework("3.1")], { checks: [stagedCheck([true, true, false]).command] });
 		const { id, outcome } = await runGroup(r);
 		expect(outcome.status).toBe("failed");
 		expect((await notesOf(r, id)).join("\n")).toContain("3.1");
@@ -1085,6 +1072,47 @@ describe("task/group: a group loop on a real store", () => {
 			["1.1", "Use the v2 API"],
 			["1.2", ""],
 		]);
+	});
+
+	it("Scenario: A group default outside the values is refused", async () => {
+		const groupScript = { text: GROUP_JUDGE.replace('next_action: mutable string = "rework"', 'next_action: mutable string = "retry"') };
+		const r = await openRun([], { groupScript });
+		const start = startGroupLoop(r.harness, r.options, context);
+		await expect(start).rejects.toThrow(TaskLoopStartError);
+		await expect(start).rejects.toThrow(/next_action.*"retry"/s);
+		expect(await scan(r.storage, GROUP_LOOP_NAME)).toHaveLength(0);
+		expect(r.env.requests).toHaveLength(0);
+	});
+
+	it("Scenario: The group judge's schema lists the three values", async () => {
+		const staged = stagedCheck([true, true, false], "1 failed");
+		const r = await openRun([verdict(true), verdict(true), judgeSays({ next_action: "ask", question: "Which?" })], {
+			checks: [staged.command],
+			groupScript: { path: BUNDLED_SCRIPTS.group.pathname },
+		});
+		await runGroup(r);
+
+		type Offered = { name: string; parameters?: { properties?: Record<string, unknown> } };
+		const submitted = r.env.requests.flatMap((request) =>
+			(request.messages as unknown as { role: string; toolsAdded?: Offered[] }[])
+				.filter((m) => m.role === "system")
+				.flatMap((m) => m.toolsAdded ?? [])
+				.filter((t) => t.name === "submit_result" && t.parameters?.properties?.["rework_task"] !== undefined),
+		);
+		expect(submitted).toHaveLength(1);
+		expect(submitted[0]?.parameters?.properties?.["next_action"]).toEqual({
+			type: "string",
+			enum: ["rework", "ask", "amend-spec"],
+		});
+
+		// The judge run's stored input carries the choices, so a resumed run keeps them.
+		const judgeRuns = (await scan(r.storage, "agentscript.run")).filter((t) =>
+			JSON.stringify((t.input as unknown as { options: { choices?: unknown } }).options.choices).includes('"rework"'),
+		);
+		expect(judgeRuns).toHaveLength(1);
+		expect((judgeRuns[0]?.input as unknown as { options: { choices: unknown } }).options.choices).toEqual({
+			next_action: ["rework", "ask", "amend-spec"],
+		});
 	});
 
 	it("Scenario: The bundled judge script is clean", () => {

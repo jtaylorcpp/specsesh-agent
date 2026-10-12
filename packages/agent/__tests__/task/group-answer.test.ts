@@ -20,8 +20,18 @@ afterEach(cleanTemps);
 
 const GroupLoopOutcome = LoopOutcome(GroupOutcome);
 const PASSING = "node -e process.exit(0)";
-/** Passes once `flag` exists in the workspace. */
+/**
+ * Passes its first two calls, then only once `flag` exists in the workspace. Each task loop gates on
+ * the checks, so the two tasks' gates (calls 1 and 2) pass and the group's checks are what fail.
+ */
 const FLAGGED = "node check.js";
+const FLAGGED_SCRIPT = [
+	"const fs = require('fs');",
+	"const calls = fs.existsSync('calls') ? Number(fs.readFileSync('calls', 'utf8')) : 0;",
+	"fs.writeFileSync('calls', String(calls + 1));",
+	"process.exit(calls < 2 || fs.existsSync('flag') ? 0 : 1);",
+	"",
+].join("\n");
 
 const judgeAsk = (question: string) =>
 	fauxAssistantMessage([fauxToolCall(RESULT_TOOL, { next_action: "ask", rework_task: "", feedback: "", question })], {
@@ -30,7 +40,7 @@ const judgeAsk = (question: string) =>
 
 async function groupEnv(check: string, responses: Parameters<ReturnType<typeof setup>["faux"]["setResponses"]>[0]) {
 	const workspace = temp("group-answer-ws-");
-	writeFileSync(join(workspace, "check.js"), "process.exit(require('fs').existsSync('flag') ? 0 : 1);\n");
+	writeFileSync(join(workspace, "check.js"), FLAGGED_SCRIPT);
 	const env = setup();
 	for (const extension of groupLoopExtensions({ workspace, checks: [check] })) env.registry.install(extension);
 	const storage = new MemoryStorage();

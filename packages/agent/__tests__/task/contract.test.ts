@@ -110,6 +110,21 @@ describe("task/agent: The contract is checked before anything runs", () => {
 		expect(tasks).toEqual([]);
 	});
 
+	it("Scenario: A default outside the values is refused", async () => {
+		const { error, requests, tasks } = await refused(
+			judgeOnlyWith(['    next_action: mutable string = "retry"\n', '    next_action: mutable string = "proceed"\n']),
+		);
+		expect(error?.message).toContain("next_action");
+		expect(error?.message).toContain('"proceed"');
+		expect(error?.message).toContain('"retry", "amend-spec", "ask"');
+		expect(requests).toHaveLength(0);
+		expect(tasks).toEqual([]);
+	});
+
+	it("accepts the bundled task script's default", () => {
+		expect(contractProblems(readFileSync(join(SCRIPTS, "task.agent"), "utf8"))).toEqual([]);
+	});
+
 	it("names every broken variable at once", () => {
 		const problems = contractProblems(
 			judgeOnlyWith(["    met: mutable boolean = False\n", '    met: mutable string = ""\n']).replace("    question: mutable string = \"\"\n", ""),

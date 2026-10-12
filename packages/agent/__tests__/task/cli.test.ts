@@ -1,14 +1,22 @@
 import { existsSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Harness, createRegistry } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, groupLoopOptions, main } from "../../src/bin/agentscript-task.js";
 import { startTaskLoop, taskLoopExtensions } from "../../src/task/index.js";
 import { cli, fauxModels, storedLoops, workdir } from "./cli-helpers.js";
-import { JUDGE_ONLY, baselineDir, cleanTemps, context, temp, tinyChange, verdict } from "./helpers.js";
+import { JUDGE_ONLY, JUDGE_ONLY_ASSIGNING, baselineDir, cleanTemps, context, fakePnpm, temp, tinyChange, verdict } from "./helpers.js";
 
-afterEach(() => cleanTemps());
+// A met verdict with checks goes to the gate, which runs `pnpm`: a fake one that exits 0 keeps these tests offline.
+let restorePath: (() => void) | undefined;
+beforeEach(() => {
+	restorePath = fakePnpm();
+});
+afterEach(() => {
+	restorePath?.();
+	cleanTemps();
+});
 
 describe("task/cli: run maps its flags onto the task loop options", () => {
 	it("Scenario: Repeated checks are kept in order", async () => {
@@ -338,12 +346,14 @@ describe("task/cli: The exit code says whether the task converged", () => {
 
 	it("exhausted and failed loops exit 1", async () => {
 		const { script, db } = workdir();
+		const assigning = join(dirname(script), "assigning.agent");
+		writeFileSync(assigning, JUDGE_ONLY_ASSIGNING("done"));
 		const env = fauxModels();
-		env.faux.setResponses([verdict(false, "x", "retry"), verdict(false, "x", "done")]);
+		env.faux.setResponses([verdict(false, "x", "retry"), verdict(false, "x", "retry")]);
 		const exhausted = await cli(["run", tinyChange(), "1.1", "--db", db, "--script", script, ...env.args, "--max-iterations", "1"], env);
 		expect(exhausted.out).toContain("— exhausted");
 		expect(exhausted.code).toBe(1);
-		const failed = await cli(["run", tinyChange(), "1.1", "--db", db, "--script", script, ...env.args], env);
+		const failed = await cli(["run", tinyChange(), "1.1", "--db", db, "--script", assigning, ...env.args], env);
 		expect(failed.out).toContain("— failed");
 		expect(failed.out).toContain('note: the script broke the task-script contract: next_action is "done"');
 		expect(failed.code).toBe(1);

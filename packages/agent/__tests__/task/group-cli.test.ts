@@ -9,6 +9,7 @@ import type { GroupOutcome, LoopOutcome } from "../../src/openspec/index.js";
 import { groupLoopExtensions, startGroupLoop } from "../../src/task/index.js";
 import { FAKE_CLAUDE_CONFIG, cli, fauxModels, gitRepo, spawnBin, workdir } from "./cli-helpers.js";
 import { GROUP_JUDGE, JUDGE_ONLY, cleanTemps, context, temp, tinyChange, toolCall, verdict } from "./helpers.js";
+import { stagedCheck } from "./staged-check.js";
 
 afterEach(() => cleanTemps());
 
@@ -62,7 +63,6 @@ process.stdout.write(JSON.stringify(out));
 }
 
 const PASSING = "node --version";
-const FAILING = "node -e process.exit(1)";
 
 /** The id in the first stderr line, `loop <id> — resume with: …`. */
 const idOf = (errLines: readonly string[]) => Number(/^loop (\d+) — resume with: /.exec(errLines[0] ?? "")?.[1]);
@@ -170,8 +170,10 @@ describe("task/cli: The exit code says whether the loop converged", () => {
 		const env = fauxModels();
 		// Both tasks, a failed check and a rework of 1.1, then a failed check with the one rework spent.
 		env.faux.setResponses([verdict(true), verdict(true), rework, verdict(true), rework]);
+		// Each task also gates on the check: its calls pass (1.1, 1.2, 1.1 again); the group's two fail.
+		const staged = stagedCheck([true, true, false, true, false]);
 		const r = await cli(
-			["run", tinyChange(), "1", "--db", db, "--script", script, "--group-script", groupScript, "--workspace", dir, "--check", FAILING, "--max-reworks", "1", ...env.args],
+			["run", tinyChange(), "1", "--db", db, "--script", script, "--group-script", groupScript, "--workspace", dir, "--check", staged.command, "--max-reworks", "1", ...env.args],
 			env,
 		);
 		expect(r.out).toContain("— exhausted");

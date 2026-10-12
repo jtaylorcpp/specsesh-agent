@@ -77,7 +77,7 @@ describe("task/agent: Defaults for optional options", () => {
 	it("escalateTo is the principal, checks and allow are empty, and the script is the bundled task.agent", () => {
 		const dir = tinyChange();
 		const input = prepareTaskLoop({ change: { dir }, task: "1.1", workspace: dir });
-		expect(input.budget).toEqual({ maxIterations: 3 });
+		expect(input.budget).toEqual({ maxIterations: 8 });
 		expect(input.escalateTo).toBe("principal");
 		expect(input.checks).toEqual([]);
 		expect(input.allow).toEqual([]);

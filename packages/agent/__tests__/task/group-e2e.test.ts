@@ -14,11 +14,12 @@ afterEach(cleanTemps);
 const TASKS = "## 1. Fixture group\n\n- [ ] 1.1 write `a.txt`\n- [ ] 1.2 write `b.txt`\n";
 
 // The group check, outside the workspace and with no shell. Task loops run the configured
-// checks themselves, once per iteration, so the check cannot key off the workspace alone:
-// 1.2's own loop would see b.txt next to a stale a.txt and fail too. Instead it counts its calls
-// and fails on the K-th. Calls in order: 1.1 run 1 (1), 1.2 (2), the group's first check (3,
-// K), 1.1's rework loop (4), the group's second check (5). So K = 2 task-loop runs + 1 = 3.
-const FAILING_CALL = 3;
+// checks themselves, so the check cannot key off the workspace alone: 1.2's own loop would see
+// b.txt next to a stale a.txt and fail too. Instead it counts its calls and fails on the K-th.
+// Each task loop calls it twice per iteration: the script's `run_checks` step, then the gate that
+// follows a met verdict. Calls in order: 1.1 (1, 2), 1.2 (3, 4), the group's first check (5, K),
+// 1.1's rework loop (6, 7), the group's second check (8). So K = 2 task loops * 2 calls + 1 = 5.
+const FAILING_CALL = 5;
 const CHECK = `import { existsSync, readFileSync, writeFileSync } from "node:fs";
 const file = process.argv[2];
 const calls = (existsSync(file) ? Number(readFileSync(file, "utf8")) : 0) + 1;

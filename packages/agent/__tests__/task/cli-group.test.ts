@@ -7,13 +7,15 @@ import { GROUP_JUDGE, cleanTemps, tinyChange, toolCall, verdict } from "./helper
 
 afterEach(() => cleanTemps());
 
-// The group check as the CLI runs it: `node check.mjs <counter>`. It fails its first call, then passes.
-// The tasks run only the judge script, so the group is the check's only caller.
+// The group check as the CLI runs it: `node check.mjs <counter>`. It fails its third call, then passes.
+// The tasks run only the judge script, so their gates and the group are the check's only callers:
+// 1.1's gate (1), 1.2's gate (2), the group's first check (3, fails), 1.1's rework gate (4), the
+// group's second check (5). Five calls in all.
 const CHECK = `import { existsSync, readFileSync, writeFileSync } from "node:fs";
 const file = process.argv[2];
 const calls = (existsSync(file) ? Number(readFileSync(file, "utf8")) : 0) + 1;
 writeFileSync(file, String(calls));
-if (calls === 1) {
+if (calls === 3) {
 	console.log("REGRESSION: 1.1 broke 1.2");
 	process.exit(1);
 }
@@ -76,7 +78,7 @@ describe("task/headless: A group's stream (through the CLI)", () => {
 			env,
 		);
 		expect(r.code, r.err).toBe(0);
-		expect(existsSync(counter) && readFileSync(counter, "utf8")).toBe("2");
+		expect(existsSync(counter) && readFileSync(counter, "utf8")).toBe("5");
 
 		const stream = events(r.errLines);
 		const checks = stream.filter((e) => e.event === "group-check");

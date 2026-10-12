@@ -51,7 +51,7 @@ export interface LoopWorktree {
 	readonly branch: string;
 }
 
-export const DEFAULT_MAX_ITERATIONS = 3;
+export const DEFAULT_MAX_ITERATIONS = 8;
 export const DEFAULT_ESCALATE_TO: Recipient = "principal";
 
 /** The bundled scripts, beside this module in `src/` and in `dist/` alike. */

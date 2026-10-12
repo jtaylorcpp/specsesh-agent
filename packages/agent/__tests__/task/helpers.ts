@@ -148,6 +148,10 @@ subagent judge:
 `;
 
 /** JUDGE_ONLY with a declaration removed or retyped. */
+/** JUDGE_ONLY whose script assigns `next_action` itself, not from the result, so the step's enum does not guard it. */
+export const JUDGE_ONLY_ASSIGNING = (value: string) =>
+	JUDGE_ONLY.replace("set @variables.next_action = @outputs.next_action", `set @variables.next_action = "${value}"`);
+
 export const judgeOnlyWith = (replace: [string, string]) => JUDGE_ONLY.replace(replace[0], replace[1]);
 
 const submit = (args: Record<string, string | boolean>) =>
@@ -173,6 +177,9 @@ export function prompts(requests: readonly { messages: readonly { role: string; 
 			.join("\n"),
 	);
 }
+
+/** A check that appends a line to `count.txt` in the workspace and exits 0. No spaces: commands are split on whitespace with no shell. */
+export const COUNT_CHECK = "node -e require('fs').appendFileSync('count.txt','x\\n')";
 
 /** A fake `pnpm` first on PATH: prints what it ran and exits 0. Returns the restore function. */
 export function fakePnpm(): () => void {

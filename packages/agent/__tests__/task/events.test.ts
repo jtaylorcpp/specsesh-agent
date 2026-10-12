@@ -85,11 +85,13 @@ describe("task/headless: The stream has six event kinds", () => {
 
 	it("Scenario: A check becomes an evidence event", async () => {
 		const repo = repoWithConfig({ checks: ["pnpm test"], allow: ["pnpm"] });
-		const r = await spawnBin(["run", "tiny", "1.1"], { cwd: repo, bin: fakeClaude({ pnpmExit: 1 }) });
+		// pnpm exits 0 so the gate after the met verdict passes: it adds no event of its own, so the
+		// script's `run_checks` step is the only source of check evidence.
+		const r = await spawnBin(["run", "tiny", "1.1"], { cwd: repo, bin: fakeClaude({ pnpmExit: 0 }) });
 		expect(r.code, r.stderr).toBe(0);
 		const evidence = events(lines(r.stderr)).filter((e) => e["event"] === "evidence" && e["kind"] === "check" && e["command"] === "pnpm test");
 		expect(evidence).toHaveLength(1);
-		expect(evidence[0]).toMatchObject({ iteration: 1, exitCode: 1 });
+		expect(evidence[0]).toMatchObject({ iteration: 1, exitCode: 0 });
 		expect(String(evidence[0]?.["output"])).toContain("fake pnpm test");
 	});
 });

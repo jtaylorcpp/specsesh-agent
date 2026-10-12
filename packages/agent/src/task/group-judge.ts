@@ -9,7 +9,8 @@ import { readDeclarations } from "../interpreter/compose.js";
 import type { VariableValue } from "../interpreter/index.js";
 import type { ContractType } from "./contract.js";
 import { TaskLoopStartError } from "./errors.js";
-import { formatCheckOutput, type CheckRun } from "./group.js";
+import type { CheckRun } from "./checks.js";
+import { formatCheckOutput } from "./group.js";
 
 /** Seeded before the judge runs. */
 export const GROUP_SEEDED: Readonly<Record<string, ContractType>> = {
@@ -99,6 +100,12 @@ export function groupContractProblems(source: string): string[] {
 		const declared = declarations.get(name);
 		if (declared === undefined) problems.push(`${name} is not declared; declare it as ${type}`);
 		else if (declared.type !== type) problems.push(`${name} is declared ${declared.type}; the contract needs ${type}`);
+	}
+	const action = declarations.get("next_action");
+	if (action?.type === "string" && !(GROUP_NEXT_ACTIONS as readonly string[]).includes(action.initial as string)) {
+		problems.push(
+			`next_action defaults to ${JSON.stringify(action.initial)}; the default must be one of ${GROUP_NEXT_ACTIONS.map((a) => JSON.stringify(a)).join(", ")}`,
+		);
 	}
 	return problems;
 }

@@ -21,7 +21,6 @@ import {
 	explain,
 	feedbackFor,
 	type Action,
-	type CheckEvidence,
 	type Escalation,
 	type Feedback,
 	type Finding,
@@ -31,11 +30,12 @@ import {
 	type Target,
 	type TaskOutcome,
 } from "../openspec/index.js";
-import { AgentScriptRun, DEFAULT_TIMEOUT_MS, runArgv, splitCommand, type RunInput } from "../durable/index.js";
+import { AgentScriptRun, type RunInput } from "../durable/index.js";
 import type { RunResult } from "../interpreter/index.js";
+import { checkEvidence, runGroupChecks, type CheckRun } from "./checks.js";
 import { concatDeltas } from "./deltas.js";
 import { TaskLoopStartError } from "./errors.js";
-import { readGroupVerdict, seedGroupJudge, type GroupVerdict } from "./group-judge.js";
+import { GROUP_NEXT_ACTIONS, readGroupVerdict, seedGroupJudge, type GroupVerdict } from "./group-judge.js";
 import type { TaskLoopInput, TaskLoopResult } from "./loop-input.js";
 import { TaskLoopTask, subagentsOf } from "./loop.js";
 import {
@@ -239,12 +239,6 @@ export type GroupCheckpoint = {
 	decision?: string;
 };
 
-/** One group check's result: the command as configured, its exit code and its stdout and stderr combined. */
-export type CheckRun = { command: string; exitCode: number; output: string };
-
-/** Exit code recorded for a command that could not be spawned, as a shell reports a missing command. */
-export const SPAWN_FAILED_EXIT_CODE = 127;
-
 /** The checkpoint as pi-durable stores it: JSON, narrowed per phase so each handler's task type is not `never`. */
 export type StoredGroupCheckpoint = { [P in GroupPhase]: JsonObject & { phase: P } }[GroupPhase];
 
@@ -414,11 +408,6 @@ export function finishGroup(
 	return failed;
 }
 
-/** The check evidence of one round: one entry per configured check, in check order. */
-export function checkEvidence(runs: readonly CheckRun[]): CheckEvidence[] {
-	return runs.map((r) => ({ kind: "check", command: r.command, exitCode: r.exitCode, output: r.output }));
-}
-
 /** The one target every group check round judges. */
 export const roundTarget = (groupNumber: number): Target => ({ check: `group ${groupNumber}` });
 
@@ -507,27 +496,6 @@ export function endedGroup(
 	return outcome.status === "blocked"
 		? finishGroup("blocked", cp, { input, escalation: { ...outcome.escalation, level: "group" } })
 		: finishGroup("failed", cp, { input, notes: [`task ${task} ended ${outcome.status}`] });
-}
-
-/**
- * Run every check in order over the workspace, none skipped after a failure. Each command is
- * split into an argv and spawned with no shell. One that cannot start is a failure (127, the
- * spawn error as output); one that times out is a failure too (-1). Nothing here throws.
- */
-export async function runGroupChecks(
-	commands: readonly string[],
-	workspace: string,
-	signal?: AbortSignal,
-	timeoutMs = DEFAULT_TIMEOUT_MS,
-): Promise<CheckRun[]> {
-	const runs: CheckRun[] = [];
-	for (const command of commands) {
-		const ran = await runArgv(splitCommand(command), { cwd: workspace, timeoutMs, signal });
-		if (ran.kind === "exited") runs.push({ command, exitCode: ran.code, output: ran.output });
-		else if (ran.kind === "timed-out") runs.push({ command, exitCode: -1, output: `${ran.output}\n(timed out after ${timeoutMs}ms)` });
-		else runs.push({ command, exitCode: SPAWN_FAILED_EXIT_CODE, output: ran.message });
-	}
-	return runs;
 }
 
 /** The failing checks only, each as `$ <command>`, `exit <code>`, then its output. Empty when all passed. */
@@ -722,7 +690,11 @@ export const GroupLoopTask: Task<GroupLoopInput, StoredGroupCheckpoint, GroupLoo
 				}
 				const runInput: RunInput = {
 					source: input.groupScript,
-					options: { entry: subagentsOf(input.groupScript), variables: judgeSeed(cp, input) },
+					options: {
+						entry: subagentsOf(input.groupScript),
+						variables: judgeSeed(cp, input),
+						choices: { next_action: [...GROUP_NEXT_ACTIONS] },
+					},
 					...(input.model !== undefined ? { model: input.model } : {}),
 				};
 				await runtime.commit(async (tx) => {
