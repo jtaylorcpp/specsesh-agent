@@ -29,8 +29,8 @@
 
 ## 3. Docs
 
-- [ ] 3.1 `packages/agent/README.md`: the `./cloudflare` line names `defineAgentHost`, `workersAI` and the Sandbox and Artifacts workspace. `docs/ontology/loops/action.md`: the Cloudflare workspace (one fork per task, publish to the fork) and no model inside the Sandbox. `pnpm docs:check` passes.
-- [ ] 3.2 `CLAUDE.md`: the layout notes the new `src/cloudflare/` modules, which of them are Worker-only, and that nothing here deploys
+- [x] 3.1 `packages/agent/README.md`: the `./cloudflare` line names `defineAgentHost`, `workersAI` and the Sandbox and Artifacts workspace. `docs/ontology/loops/action.md`: the Cloudflare workspace (one fork per task, publish to the fork) and no model inside the Sandbox. `pnpm docs:check` passes.
+- [x] 3.2 `CLAUDE.md`: the layout notes the new `src/cloudflare/` modules, which of them are Worker-only, and that nothing here deploys
 
 ## 4. Verify
 

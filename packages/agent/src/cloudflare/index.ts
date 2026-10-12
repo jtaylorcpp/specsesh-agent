@@ -32,6 +32,10 @@ import { handleRunRoutes } from "./routes.js";
 
 export { defineAgentHost, type AgentHost, type AgentHostClass } from "./agent-host.js";
 export { workersAI } from "./workers-ai.js";
+export { sandboxWorkspace } from "./sandbox-workspace.js";
+export type { SandboxLike } from "./sandbox-workspace.js";
+export { artifactsSandboxWorkspace } from "./artifacts.js";
+export type { ArtifactsLike } from "./artifacts.js";
 
 export interface AgentScriptEnv {
 	AI?: Ai;

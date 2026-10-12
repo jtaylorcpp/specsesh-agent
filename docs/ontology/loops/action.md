@@ -28,6 +28,11 @@ spec:
   - "durable/run-task: A durable host action runs as a child task"
   - "task/headless: The repo config may name more models"
   - "task/headless: An agent grant's script is a bundled name or a path"
+  - "actions/workspace: A workspace may publish"
+  - "cloudflare/sandbox-workspace: An Artifacts fork per task, reused after a restart"
+  - "cloudflare/sandbox-workspace: publish commits and pushes to the checkout's remote"
+  - "cloudflare/sandbox-workspace: The fork token never leaks"
+  - "cloudflare/agent-host: A Cloudflare host has no process runner"
 related: [iteration, diff-evidence, check-evidence, evidence]
 status: implemented
 ---
@@ -56,6 +61,8 @@ Action { kind: "edit" | "command" | "delegate", summary: string, refs: string[] 
 - An action records *what was done*, never its result. Diffs and command results are [evidence](../evidence/evidence.md): [DiffEvidence](../evidence/diff-evidence.md) and [CheckEvidence](../evidence/check-evidence.md).
 - **Two actors.** An agent acts either *itself*, calling the workspace built-ins `read_file`, `edit_file`, `run_command` and `run_checks` (`task.agent`), or through a *delegate*, a script action targeting `mcpTool://delegate/<name>` (`task-delegate.agent`, which still runs `run_checks` itself). `read_file` changes nothing and records no action.
 - **One loop, one workspace.** The built-ins, every delegate, the task loop's gate and the group loop's check all go through the one `Workspace` the loop was built with (`root`, `read`, `write`, optional `exec`, optional `snapshot`). Locally that is `localWorkspace(dir)` from `@specsesh/agent/node`, over a checkout or a worktree. Without `exec`, built-ins and checks answer `this workspace cannot run commands` and delegates `this workspace cannot run processes`; checks never pass without it.
+- **Cloudflare workspace.** On Cloudflare a task gets one Artifacts fork, which plays the part a worktree plays locally. `artifactsSandboxWorkspace(artifacts, sandbox, { repo, fork, dir })` from `@specsesh/agent/cloudflare` gets or creates the fork, so it is reused after the object restarts, and clones it into the Sandbox's `dir`, unless `dir` already holds it. The agent publishes only to its fork, through the optional `Workspace.publish(message)` (commit, push to `origin`); merging the fork back is the principal's call. `localWorkspace` has no `publish`, because the local runner never commits.
+- **No model inside the Sandbox.** Models run in the Durable Object, on `AI.run`; the Sandbox only holds files and runs commands. The only credential that enters it is the fork's write token, which is replaced with `***` in every output, record, event and error. The host's only runner is `agent`, so a `claude-code` grant is refused.
 - **Delegation is granted by the user.** Nothing is built in or granted by default (`delegate_claude_code`, `delegateModel` and `delegateContext` are retired), and only `delegationActions` may register a `delegate/` name. A grant names a `runner`, `claude-code` or `agent` (see [Delegation](#delegation)), and fixes the delegate's terms. The `claude-code` runner's terms are `model`, `tools`, `allow` (default `[]`), `permissionMode` (`"dontAsk"` only), `context` (default `[]`), `timeoutMs` (default `900000`) and `maxCalls` (default `5`). The task CLI reads grants from `delegates` in `agentscript.config.json`; `--no-delegates` withdraws them for one run.
 - **An ungranted delegate never starts.** A script targeting `mcpTool://delegate/<name>` with no such grant is refused at start with `ActionBindingError`, which lists the granted names or says `no delegates are granted`.
 - **A delegate's interface is fixed.** Inputs `{ instructions }`, outputs `{ ok, summary, files_changed }`, whatever the runner. Its terms come only from the grant; a `claude-code` delegate has them restated on stdin, after the instructions.
@@ -184,3 +191,8 @@ An iteration of `task-delegate.agent` that hands the same task to the granted `c
 - `durable/run-task: A durable host action runs as a child task`
 - `task/headless: The repo config may name more models`
 - `task/headless: An agent grant's script is a bundled name or a path`
+- `actions/workspace: A workspace may publish`
+- `cloudflare/sandbox-workspace: An Artifacts fork per task, reused after a restart`
+- `cloudflare/sandbox-workspace: publish commits and pushes to the checkout's remote`
+- `cloudflare/sandbox-workspace: The fork token never leaks`
+- `cloudflare/agent-host: A Cloudflare host has no process runner`

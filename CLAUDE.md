@@ -18,12 +18,40 @@ nine exports, in this order: `./authoring`, `./interpreter`, `./pi`, `./claude-c
 | `src/authoring`, `src/interpreter` → `./authoring`, `./interpreter` | The core: authoring + interpreter. No model client, ever. |
 | `src/pi` → `./pi` | A `ReasoningPort` on `@earendil-works/pi-ai`, so any pi provider can run a script. Default testing model: `anthropic/claude-haiku-4-5`. |
 | `src/claude-code` → `./claude-code` | The claude-code port and pi provider (Node only). |
-| `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). Runtime-neutral: never imports `node:` or `src/claude-code`, so `./cloudflare` can import it. Holds `workspace.ts` (`Workspace`, `workspaceActions`, `runChecks`, `diffSnapshots`), `delegation.ts` (grants, `delegationActions`), `agent-runner.ts` (`agentRunner()`, the `agent` runner: checks a grant against the harness's models and registry, runs it as a durable host action whose child ID commits with the `act` checkpoint, answers `{ ok, summary, files_changed }`; also in node `defaultRunners`), `delegate-scripts.ts` (`READ_AGENT`, `EDIT_AGENT` as source strings, no file system, so they work in Workers; the delegate contract: `instructions` seeded, `ok` and `summary` read back) and `agent-config.ts` (`AgentConfig`, `createAgentHarness`). |
+| `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). Runtime-neutral: never imports `node:` or `src/claude-code`, so `./cloudflare` can import it. Holds `workspace.ts` (`Workspace`, whose `publish` is optional and which `localWorkspace` never has; `memoryWorkspace`, `workspaceActions`, `runChecks`, `diffSnapshots`), `delegation.ts` (grants, `delegationActions`), `agent-runner.ts` (`agentRunner()`, the `agent` runner: checks a grant against the harness's models and registry, runs it as a durable host action whose child ID commits with the `act` checkpoint, answers `{ ok, summary, files_changed }`; also in node `defaultRunners`), `delegate-scripts.ts` (`READ_AGENT`, `EDIT_AGENT` as source strings, no file system, so they work in Workers; the delegate contract: `instructions` seeded, `ok` and `summary` read back) and `agent-config.ts` (`AgentConfig`, `createAgentHarness`). |
 | `src/node` → `./node` | The Node side of `./durable`: `localWorkspace(dir)`, `builtinActions` (moved from `src/durable/builtins.ts`), `claudeCodeRunner({ binary? })` and `defaultRunners`. Adds `src/durable` and `src/claude-code`. |
-| `src/cloudflare` → `./cloudflare` | `AgentScriptHost`, the Durable Object class (via Cloudflare's `PiHarness`, `agents` 0.28.0), Workers AI by default. |
+| `src/cloudflare` → `./cloudflare` | `AgentScriptHost`, the Durable Object class (via Cloudflare's `PiHarness`, `agents` 0.28.0), Workers AI by default; `defineAgentHost`, `workersAI` and the Sandbox/Artifacts workspaces (see below). |
 | `src/openspec` → `./openspec` | The OpenSpec ontology (`openspec/{model,process,loops,evidence}`): TypeBox schemas (each a JSON Schema) with `Static` types and refinements, plus pure rules. Imports only `typebox`; no parser, no loop runner. |
 | `src/task` → `./task` | The task loop (`agentscript.task-loop`): an Agent Script run once per iteration as an `agentscript.run` child until the task converges, blocks, exhausts or fails; ticks tasks.md. Bundled scripts in `src/task/scripts/` (copied into `dist/` by the build). Adds `src/node`. |
 | `src/bin` | The `agentscript-pi`, `agentscript-durable` and `agentscript-task` bins. |
+
+`src/cloudflare`, module by module:
+
+- `index.ts`: `AgentScriptHost`, unchanged. The entry re-exports the modules below. **Worker-only**
+  (imports `agents` and `cloudflare:workers`).
+- `agent-host.ts`: `defineAgentHost<Env>(config)` returns a Durable Object class whose harness is
+  `createAgentHarness` inside `PiHarness`. Runners default to `{ agent: agentRunner() }`
+  (`runners.ts`): no process runner, so a `claude-code` grant is refused. Same routes as
+  `AgentScriptHost` (`routes.ts`), plus an optional `model` in the POST body: `400` for an unknown
+  model, `422` for a refused start. **Worker-only** (imports `agents` and `cloudflare:workers`).
+- `workers-ai.ts`: `workersAI(binding, modelId)`, a `ModelFactory` over the `AI` binding through
+  `createAI({ binding })`. Worker-side, but it imports only `agents/models/pi-ai`, not
+  `cloudflare:workers`, so it loads in plain Node; it needs only an `AI` binding.
+- `sandbox-workspace.ts`: `SandboxLike` and `sandboxWorkspace(sandbox, { dir, secrets? })`. Confined
+  read/write with a `realpath -m` check, quoted `timeout -s KILL` exec, git snapshot/list/search,
+  `publish`, and every secret redacted as `***`. **Runtime-neutral**: plain Node tests drive it
+  through the local-exec fake sandbox.
+- `artifacts.ts`: `ArtifactsLike` and `artifactsSandboxWorkspace(artifacts, sandbox, { repo, fork,
+  dir })`. Reuses or creates one fork per task, issues a fork-scoped write token (always redacted),
+  and clones unless `dir` already holds that checkout. **Runtime-neutral**; tested against a fake
+  Artifacts binding backed by local bare repos.
+
+`sandbox-workspace.ts` and `artifacts.ts` never import `agents` or `cloudflare:workers`: the real
+Sandbox SDK and Artifacts bindings are adapted to `SandboxLike`/`ArtifactsLike` at the host.
+
+Nothing here deploys. No code or script in this package runs `wrangler deploy`; tests use fakes
+and `examples/cloudflare-worker` on `wrangler dev --local` (routes covered by `test/routes.sh`).
+The real binding shapes are checked at the first deploy, outside `add-cloudflare-workspace`.
 
 pi-ai, pi-durable, chord and `agents` are optional peers (dev dependencies here); only the four
 `@sf-agentscript/*` packages and `typebox` (exact `1.3.27`, the version pi-ai pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
