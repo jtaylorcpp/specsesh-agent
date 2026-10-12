@@ -29,8 +29,9 @@
  * it with the bundled task-delegate script, since that provider serves no
  * model-callable tools.
  *
- * The harness comes from `createAgentHarness`: the loop's model, its workspace,
- * checks and allowlist, and the config's `delegates` (none under `--no-delegates`).
+ * The harness comes from `createAgentHarness`: the loop's model as `default` and
+ * the config's named `models`, its workspace, checks and allowlist, and the
+ * config's `delegates` (none under `--no-delegates`).
  */
 
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
@@ -42,7 +43,7 @@ import type { Models, Provider } from "@earendil-works/pi-ai";
 import type { Cursor, Harness, ModelRef, Storage, TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { AgentHarness } from "../durable/agent-config.js";
-import type { DelegateGrants } from "../durable/delegation.js";
+import { DelegateGrantError, type DelegateGrants } from "../durable/delegation.js";
 import { createAgentHarness } from "../durable/harness.js";
 import { defaultRunners, localWorkspace } from "../node/index.js";
 import type { Escalation, GroupOutcome, LoopOutcome, Recipient, TaskOutcome } from "../openspec/index.js";
@@ -69,9 +70,11 @@ import {
 	loadConfig,
 	resolveDb,
 	resolveGroupScript,
+	resolveNamedModels,
 	resolveRunSettings,
 	type DbPath,
 	type LoadedConfig,
+	type ResolvedModel,
 	type ResolvedScript,
 	type RunSettings,
 } from "../task/config.js";
@@ -147,7 +150,7 @@ const isRecipient = (value: string | undefined): value is Recipient => value ===
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** Errors that refuse the run before a loop exists: exit 2, the message on stderr. */
-const REFUSALS = [ConfigError, ChangeNotFoundError, WorktreeRefusedError, DatabaseLockedError];
+const REFUSALS = [ConfigError, DelegateGrantError, ChangeNotFoundError, WorktreeRefusedError, DatabaseLockedError];
 const isRefusal = (error: unknown) => REFUSALS.some((kind) => error instanceof kind);
 
 export async function main(argv: readonly string[], deps: CliDeps = {}): Promise<number> {
@@ -302,6 +305,7 @@ async function run(
 		return 2;
 	}
 	const model: ModelRef = { provider: settings.provider, modelId: settings.model };
+	const named = resolveNamedModels(config.models, models);
 
 	// Warnings found before the loop exists go out after the resume hint, which stays the first stderr line.
 	const warnings: string[] = [];
@@ -351,7 +355,7 @@ async function run(
 	try {
 		const storage = await openNodeSqliteStorage(db.path);
 		// After the worktree exists, so the actions, the gate and the delegates all work in it.
-		const built = await buildHarness(storage, { provider, model }, { workspace, checks: settings.checks, allow: settings.allow, delegates });
+		const built = await buildHarness(storage, { provider, model }, { workspace, checks: settings.checks, allow: settings.allow, delegates }, named);
 		const harness = built.harness;
 		const options: Omit<TaskLoopOptions, "task"> = {
 			change: { dir: changeDir },
@@ -411,18 +415,21 @@ export interface LoopHarnessTerms {
 }
 
 /**
- * The CLI's harness: `createAgentHarness` with `models.default` the loop's model,
- * `localWorkspace` over its workspace, its checks, allowlist and grants on
- * `defaultRunners`, and `TaskLoop` and `GroupLoop` installed.
+ * The CLI's harness: `createAgentHarness` with `models.default` the loop's model
+ * beside the config's `named` models, `localWorkspace` over its workspace, its
+ * checks, allowlist and grants on `defaultRunners`, and `TaskLoop` and
+ * `GroupLoop` installed.
  */
 export async function buildHarness(
 	storage: Storage,
 	model: { readonly provider: Provider; readonly model: ModelRef },
 	terms: LoopHarnessTerms,
+	named: Readonly<Record<string, ResolvedModel>> = {},
 ): Promise<AgentHarness> {
+	const others = Object.fromEntries(Object.entries(named).map(([name, entry]) => [name, () => ({ provider: entry.provider, model: entry.model })]));
 	return await createAgentHarness<Record<string, never>>(
 		{
-			models: { default: () => ({ provider: model.provider, model: model.model }) },
+			models: { default: () => ({ provider: model.provider, model: model.model }), ...others },
 			workspace: () => localWorkspace(terms.workspace),
 			checks: terms.checks,
 			allow: terms.allow,
@@ -593,6 +600,8 @@ async function continueLoop(
 		return 2;
 	}
 	const models = await (deps.models ?? builtin)();
+	// The config's named models as they are now: a loop stores its grants, not the models they name.
+	const named = resolveNamedModels(config.models, models);
 	const warnings: string[] = [];
 	const lock: DbLock = lockDatabase(db.path);
 	if (lock.staleFrom !== undefined) warnings.push(`took over a stale lock on ${db.label} left by process ${lock.staleFrom}, which is no longer running`);
@@ -613,7 +622,7 @@ async function continueLoop(
 			return 2;
 		}
 		// The loop's own terms, so a resumed loop delegates and checks as it started.
-		const { harness } = await buildHarness(storage, { provider, model }, stored);
+		const { harness } = await buildHarness(storage, { provider, model }, stored, named);
 		try {
 			const record = await harness.getTask(id, BACKGROUND_CONTEXT);
 			if (record === undefined) {

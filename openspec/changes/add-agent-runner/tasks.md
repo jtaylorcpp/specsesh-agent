@@ -31,10 +31,10 @@
 
 ## 4. Config and CLI
 
-- [ ] 4.1 `packages/agent/src/task/config.ts` + `src/bin/agentscript-task.ts`:
+- [x] 4.1 `packages/agent/src/task/config.ts` + `src/bin/agentscript-task.ts`:
   - the top-level `models` map, each becoming a model factory through the CLI's provider resolution; `default`, an unknown provider or an unknown key exits `2` naming it;
   - an agent grant's `script` is `read`, `edit`, or a path resolved against the config's directory (missing exits `2`).
-- [ ] 4.2 `packages/agent/__tests__/task/config-models.test.ts`: `task/headless` "A named model reaches the harness", "Redefining default is refused" and "A bundled delegate script by name" (3)
+- [x] 4.2 `packages/agent/__tests__/task/config-models.test.ts`: `task/headless` "A named model reaches the harness", "Redefining default is refused" and "A bundled delegate script by name" (3)
 
 ## 5. Docs
 

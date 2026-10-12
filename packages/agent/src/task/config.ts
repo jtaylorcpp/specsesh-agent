@@ -1,6 +1,6 @@
 /**
  * The repo config: `agentscript.config.json`, found by walking up from the
- * current directory, of which only the `task` and `delegates` objects are read.
+ * current directory, of which only the `task`, `delegates` and `models` objects are read.
  *
  * Every field is optional and typed. An unknown key or a wrongly typed value
  * refuses the run, naming the key and the file: a typo must never fall back
@@ -8,12 +8,17 @@
  * environment (`AGENTSCRIPT_PROVIDER`, `AGENTSCRIPT_MODEL`), then config, then
  * default; paths from the config are relative to the config's directory.
  * `delegates` maps grant names to `DelegateGrant`s, checked whole against
- * `defaultRunners`; without it, nothing is granted.
+ * `defaultRunners`; without it, nothing is granted. An agent grant's `script`
+ * (`read`, `edit` or a path) is read here, once. `models` names more models
+ * beside the run's own, `default`.
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Models, Provider } from "@earendil-works/pi-ai";
+import type { ModelRef } from "@earendil-works/pi-durable";
+import { EDIT_AGENT, READ_AGENT } from "../durable/delegate-scripts.js";
 import { DelegateGrantError, validateGrants, type DelegateGrant, type DelegateGrants } from "../durable/delegation.js";
 import { defaultRunners } from "../node/index.js";
 import { DEFAULT_MAX_REWORKS } from "./group.js";
@@ -81,9 +86,19 @@ export interface LoadedConfig {
 	/** The directory config paths are relative to: the file's, or the current directory without one. */
 	readonly dir: string;
 	readonly task: TaskConfig;
-	/** The granted delegates, each `context` entry absolute; `{}` grants nothing. */
+	/** The granted delegates, each `context` entry absolute and each agent `script` its source; `{}` grants nothing. */
 	readonly delegates: DelegateGrants;
+	/** The named models beside `default`; `{}` names none. */
+	readonly models: NamedModels;
 }
+
+/** One entry of the `models` object. */
+export interface NamedModel {
+	readonly provider: string;
+	readonly model: string;
+}
+
+export type NamedModels = Readonly<Record<string, NamedModel>>;
 
 /** A config the CLI refuses to run with. Exit 2. */
 export class ConfigError extends Error {
@@ -158,15 +173,84 @@ export function validateDelegates(value: unknown, path: string, dir: string): De
 			const copy: Record<string, unknown> = structuredClone(grant);
 			const context = copy["context"];
 			if (Array.isArray(context)) copy["context"] = context.map((entry: string) => resolve(dir, entry));
+			const script = copy["script"];
+			if (copy["runner"] === "agent" && typeof script === "string") copy["script"] = agentScript(script, name, path, dir);
 			return [name, copy as DelegateGrant];
 		}),
 	);
 }
 
-/** The nearest config's `task` and `delegates` objects, or empty ones when there is no config. */
+/** The bundled delegate scripts by name. */
+export const BUNDLED_DELEGATE_SCRIPTS: Readonly<Record<string, string>> = { read: READ_AGENT, edit: EDIT_AGENT };
+
+/** An agent grant's script source: `read` or `edit`, else the file at a path relative to `dir`. */
+function agentScript(value: string, grant: string, path: string, dir: string): string {
+	const bundled = Object.hasOwn(BUNDLED_DELEGATE_SCRIPTS, value) ? BUNDLED_DELEGATE_SCRIPTS[value] : undefined;
+	if (bundled !== undefined) return bundled;
+	const file = resolve(dir, value);
+	try {
+		return readFileSync(file, "utf8");
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		const problem = code === "ENOENT" ? "does not exist" : `cannot be read (${error instanceof Error ? error.message : String(error)})`;
+		throw new ConfigError(`${path}: delegate grant "${grant}": script ${value} ${problem} (looked for ${file})`);
+	}
+}
+
+const MODEL_KEYS = ["provider", "model"] as const;
+
+/** Validate a parsed config file's `models` object: names other than `default`, each exactly `{ provider, model }`. */
+export function validateModels(value: unknown, path: string): NamedModels {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		throw new ConfigError(`${path}: "models" must be an object`);
+	}
+	for (const [name, entry] of Object.entries(value)) {
+		if (name === "default") {
+			throw new ConfigError(`${path}: "models.default" cannot be redefined: default is the run's own provider and model`);
+		}
+		if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+			throw new ConfigError(`${path}: "models.${name}" must be an object with provider and model`);
+		}
+		for (const key of Object.keys(entry)) {
+			if (!(MODEL_KEYS as readonly string[]).includes(key)) {
+				throw new ConfigError(`${path}: unknown key "models.${name}.${key}" (known: ${MODEL_KEYS.join(", ")})`);
+			}
+		}
+		for (const key of MODEL_KEYS) {
+			const field = (entry as Record<string, unknown>)[key];
+			if (typeof field !== "string") throw new ConfigError(`${path}: "models.${name}.${key}" must be a string, got ${JSON.stringify(field)}`);
+		}
+	}
+	return value as NamedModels;
+}
+
+/** A named model as the harness takes it: the provider that serves it, and its ref. */
+export interface ResolvedModel {
+	readonly provider: Provider;
+	readonly model: ModelRef;
+}
+
+/**
+ * Each named model through `models`, as the run's own provider and model are
+ * resolved. An unknown provider or model refuses the run, naming it.
+ */
+export function resolveNamedModels(named: NamedModels, models: Pick<Models, "getProvider" | "getModel">): Record<string, ResolvedModel> {
+	return Object.fromEntries(
+		Object.entries(named).map(([name, entry]): [string, ResolvedModel] => {
+			const provider = models.getProvider(entry.provider);
+			if (provider === undefined) throw new ConfigError(`models.${name}: no provider "${entry.provider}"`);
+			if (models.getModel(entry.provider, entry.model) === undefined) {
+				throw new ConfigError(`models.${name}: no model "${entry.model}" on provider "${entry.provider}"`);
+			}
+			return [name, { provider, model: { provider: entry.provider, modelId: entry.model } }];
+		}),
+	);
+}
+
+/** The nearest config's `task`, `delegates` and `models` objects, or empty ones when there is no config. */
 export function loadConfig(cwd: string): LoadedConfig {
 	const path = findConfig(cwd);
-	if (path === undefined) return { dir: resolve(cwd), task: {}, delegates: {} };
+	if (path === undefined) return { dir: resolve(cwd), task: {}, delegates: {}, models: {} };
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(readFileSync(path, "utf8"));
@@ -179,11 +263,13 @@ export function loadConfig(cwd: string): LoadedConfig {
 	const dir = dirname(path);
 	const task = (parsed as Record<string, unknown>)["task"];
 	const delegates = (parsed as Record<string, unknown>)["delegates"];
+	const models = (parsed as Record<string, unknown>)["models"];
 	return {
 		path,
 		dir,
 		task: task === undefined ? {} : validateTaskConfig(task, path),
 		delegates: delegates === undefined ? {} : validateDelegates(delegates, path, dir),
+		models: models === undefined ? {} : validateModels(models, path),
 	};
 }
 

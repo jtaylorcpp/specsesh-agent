@@ -44,7 +44,7 @@ describe("task/headless: The repo config is found by walking up", () => {
 		const env = fauxModels();
 		env.faux.setResponses([verdict(true)]);
 		const cwd = temp("task-cwd-");
-		expect(loadConfig(cwd)).toEqual({ dir: cwd, task: {}, delegates: {} });
+		expect(loadConfig(cwd)).toEqual({ dir: cwd, task: {}, delegates: {}, models: {} });
 		const r = await cli(["run", tinyChange(), "1.1", "--db", db, "--script", script, ...env.args], env, { cwd });
 		expect(r.code, r.err).toBe(0);
 		const { inputs } = await storedLoops(db);

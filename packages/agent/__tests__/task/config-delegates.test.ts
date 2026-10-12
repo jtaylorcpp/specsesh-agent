@@ -4,10 +4,13 @@
 import { chmodSync, cpSync, existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterEach, describe, expect, it } from "vitest";
-import { findConfig, loadConfig } from "../../src/task/config.js";
+import { buildHarness } from "../../src/bin/agentscript-task.js";
+import { EDIT_AGENT, READ_AGENT } from "../../src/durable/delegate-scripts.js";
+import { findConfig, loadConfig, resolveNamedModels } from "../../src/task/config.js";
 import { cli, cliActions, fauxModels, gitRepo, spawnBin, storedLoops, write } from "./cli-helpers.js";
-import { cleanTemps, plan, temp, text, tinyChange, verdict } from "./helpers.js";
+import { cleanTemps, context, plan, temp, text, tinyChange, verdict } from "./helpers.js";
 
 afterEach(() => cleanTemps());
 
@@ -187,6 +190,76 @@ describe("task/cli: --no-delegates withdraws every grant for one run", () => {
 		const { inputs } = await storedLoops(join(root, "loops.sqlite"));
 		expect(inputs).toHaveLength(1);
 		expect(Object.keys(inputs[0]?.delegates ?? {})).toEqual([]);
+	});
+});
+
+describe("task/headless: the config's named models and agent grant scripts", () => {
+	it("a named model is a harness model beside default", async () => {
+		const env = fauxModels();
+		const faux = env.faux.getModel();
+		const { root } = configured({ models: { reviewer: { provider: faux.provider, model: faux.id } } });
+		const named = resolveNamedModels(loadConfig(root).models, env.models);
+		const built = await buildHarness(
+			new MemoryStorage(),
+			{ provider: env.faux.provider, model: { provider: faux.provider, modelId: faux.id } },
+			{ workspace: root, checks: [], allow: [] },
+			named,
+		);
+		await built.harness.close(context);
+		expect(Object.keys(built.models)).toEqual(["default", "reviewer"]);
+		expect(built.models["reviewer"]).toEqual({ provider: faux.provider, modelId: faux.id });
+	});
+
+	it("refuses a models entry named default, an unknown key or an unknown provider, naming it", async () => {
+		const cases: [unknown, string][] = [
+			[{ default: { provider: "anthropic", model: "x" } }, "models.default"],
+			[{ reviewer: { provider: "anthropic", model: "x", temperature: 0 } }, "models.reviewer.temperature"],
+			[{ reviewer: { provider: "nope", model: "x" } }, '"nope"'],
+		];
+		for (const [models, needle] of cases) {
+			const { sub, root } = configured({ task: { db: "loops.sqlite" }, models });
+			const env = fauxModels();
+			const r = await cli(["run", "fixture-live-task", "1.1", ...env.args], env, { cwd: sub });
+			expect(r.code, needle).toBe(2);
+			expect(r.err, needle).toContain(needle);
+			expect(existsSync(join(root, "loops.sqlite")), needle).toBe(false);
+			expect(env.faux.state.callCount).toBe(0);
+		}
+	});
+
+	it("an agent grant's script read or edit is the bundled source", () => {
+		const { root } = configured({
+			delegates: {
+				reader: { runner: "agent", model: "default", script: "read" },
+				editor: { runner: "agent", model: "default", script: "edit" },
+			},
+		});
+		const { delegates } = loadConfig(root);
+		expect(delegates["reader"]?.["script"]).toBe(READ_AGENT);
+		expect(delegates["editor"]?.["script"]).toBe(EDIT_AGENT);
+	});
+
+	it("an agent grant's script path is read relative to the config file", () => {
+		const { root, sub } = configured({ delegates: { mine: { runner: "agent", model: "default", script: "agents/mine.agent" } } });
+		write(root, { "agents/mine.agent": READ_AGENT });
+		expect(loadConfig(sub).delegates["mine"]?.["script"]).toBe(READ_AGENT);
+	});
+
+	it("a missing agent script path exits 2 naming it", async () => {
+		const { sub, root } = configured({ task: { db: "loops.sqlite" }, delegates: { mine: { runner: "agent", model: "default", script: "agents/gone.agent" } } });
+		const r = await cli(["run", "fixture-live-task", "1.1"], fauxModels(), { cwd: sub });
+		expect(r.code).toBe(2);
+		expect(r.err).toContain(join(root, "agents", "gone.agent"));
+	});
+
+	it("an agent grant the harness refuses exits 2 naming the grant", async () => {
+		const { sub } = configured({ task: { db: "loops.sqlite" }, delegates: { reviewer: { runner: "agent", model: "haiku", script: "read" } } });
+		const env = fauxModels();
+		const r = await cli(["run", "fixture-live-task", "1.1", ...env.args], env, { cwd: sub });
+		expect(r.code).toBe(2);
+		expect(r.err).toContain('delegate grant "reviewer"');
+		expect(r.err).toContain("haiku");
+		expect(env.faux.state.callCount).toBe(0);
 	});
 });
 
