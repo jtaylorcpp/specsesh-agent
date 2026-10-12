@@ -9,8 +9,8 @@
 ## 2. Choices through the durable run
 
 - [x] 2.1 `packages/agent/src/durable/result.ts`: `checkResult` adds `"<field>" must be one of "a", "b", got "x"` for a property with `enum`, joined into the one refusal message
-- [ ] 2.2 `packages/agent/src/durable/extension.ts` (the run task) and `src/durable/host.ts` (`startScript`): `RunInput.options` and `StartScriptOptions` carry `choices` through to `start`, so a resumed run keeps them
-- [ ] 2.3 `packages/agent/__tests__/durable/choices.test.ts`: one test per new or modified `durable/run-task` and `durable/host` scenario about choices (4), faux provider only
+- [x] 2.2 `packages/agent/src/durable/extension.ts` (the run task) and `src/durable/host.ts` (`startScript`): `RunInput.options` and `StartScriptOptions` carry `choices` through to `start`, so a resumed run keeps them
+- [x] 2.3 `packages/agent/__tests__/durable/choices.test.ts`: one test per new or modified `durable/run-task` and `durable/host` scenario about choices (4), faux provider only
 
 ## 3. The task loop: gate and contract choices
 
