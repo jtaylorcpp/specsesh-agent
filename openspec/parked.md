@@ -62,3 +62,12 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 - **`spec` could check for `openspec` on `PATH` up front.** Without it the specs and tasks gates report one `ERROR` per draft until the loop exhausts.
 - **Task order is not checked.** The plan script is told to order tasks so each leaves the code working; no gate rule can see that.
 - **"No command prints usage" is tested twice** (`__tests__/task/status.test.ts` and `resolve.test.ts`). `add-spec-cli` 2.1 names one; the other must follow.
+
+## Draft and build (from add-draft-loop, add-draft-cli, add-build-loop, add-build-cli)
+
+- **`build --worktree`.** One worktree for a whole change, on `task/<change-id>`. `build` refuses the flag for now.
+- **`changeChecks` in `agentscript.config.json`.** Only `--change-check` sets it; the config has `checks` alone.
+- **JSON Lines events for draft and change loops.** Their child spec, group and task loops are not watched either, so `build --json` and `draft --json` print only the outcome.
+- **A change judge.** A failing change check ends the build `failed`. The ontology's change loop may rework a group or add a task for an unclaimed scenario; nothing does yet.
+- **The plan stage still writes `pnpm spec:archive <change>` as a task.** A build runs it like any task, before its change check. The plan stage's rules should forbid archive tasks, since `build` prints the archive command instead.
+- **A crash between `answerSpecLoop` (or `answerGroupEscalation`) and the parent's commit** leaves a child run no parent awaits; the answer has to be given again.

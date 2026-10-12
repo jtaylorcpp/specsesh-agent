@@ -391,6 +391,18 @@ Each lands in order:
      checks: ["pnpm test"],
    }) {}
    ```
+4. **The spec agent, then draft and build** (16 small changes, from
+   [`reorder-design-before-specs`](../../openspec/changes/reorder-design-before-specs) to
+   [`add-build-cli`](../../openspec/changes/add-build-cli)). An agent drafts a change in four
+   stages (proposal, design with an HTML mock and example code, specs, tasks). Rules check each
+   draft, and you approve or revise it. Then the change loop builds it group by group, each
+   group with its own task loops and judge:
+
+   ```bash
+   pnpm task draft add-plan-export --intent "Export a plan as JSON so CI can read it"
+   pnpm task answer 12 --by principal --decision approve     # once per stage, or say what to change
+   pnpm task build add-plan-export                           # stops only when an agent needs a decision
+   ```
 
 ## `@specsesh/agent/openspec`
 
