@@ -104,14 +104,14 @@ Your terms for this delegation (set by the user; you cannot change them):
 type ModelFactory<Env> = (env: Env) => { provider: Provider; model: ModelRef };
 interface AgentConfig<Env> {
   models: { default: ModelFactory<Env> } & Readonly<Record<string, ModelFactory<Env>>>;
-  workspace: (env: Env) => Workspace;
+  workspace: (env: Env) => Workspace | Promise<Workspace>;   // async: e.g. forking a repo
   allow?: string[]; checks?: string[]; timeoutMs?: number;          // for the built-ins
   actions?: (env: Env, workspace: Workspace) => HostAction[];       // the host's own, beside the built-ins
   delegates?: DelegateGrants;
   runners?: Runners;
 }
 
-// ./node
+// ./durable — runtime-neutral, so the Cloudflare host builds on it too
 function createAgentHarness<Env>(config: AgentConfig<Env>, options: {
   storage: Storage; env: Env; extensions?: readonly Extension[]; context: Context;
 }): Promise<{ harness: Harness; models: Readonly<Record<string, ModelRef>>; actions: ActionRegistry; workspace: Workspace }>;
@@ -120,6 +120,7 @@ function createAgentHarness<Env>(config: AgentConfig<Env>, options: {
 - **Every model closure is called exactly once**, in key order, before the harness opens, as `AgentScriptHost.createModel()` does today. Each distinct provider is registered once. Two factories returning different provider objects under the same name is an error naming both models.
 - **The registry** is `workspaceActions(workspace)`, then the host's `actions`, then `delegationActions(delegates, { workspace, runners })`.
 - **The run and step extensions are installed over that registry**, then `extensions` in order. The task CLI passes `[TaskLoop, GroupLoop]`.
+- **Grant keys are the runner's.** Every grant has `runner` and `maxCalls`; each runner declares the rest (`claude-code`: `model`, `tools`, `allow`, `permissionMode`, `context`, `timeoutMs`), so later runners bring their own keys.
 - **`./node` exports `defaultRunners`** = `{ "claude-code": claudeCodeRunner() }`. `agentscript-task` uses it for JSON grants.
 
 ## The task loop

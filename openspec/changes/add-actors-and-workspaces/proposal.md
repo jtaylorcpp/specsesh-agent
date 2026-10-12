@@ -40,7 +40,7 @@ Running `add-group-loop` and `iterate-by-default` on our own agent also showed t
   - `workspace`: a factory;
   - `actions`, `delegates` and `runners`.
 
-  `createAgentHarness(config, { storage, env, extensions })` in `./node` calls every model closure once, registers each provider, and installs the run and step extensions over the workspace's actions plus the granted delegates. `agentscript-task` builds its harness this way.
+  `createAgentHarness(config, { storage, env, extensions })`, also in `./durable` so a Cloudflare host can build on it, calls every model closure once, registers each provider, and installs the run and step extensions over the workspace's actions plus the granted delegates. `agentscript-task` builds its harness this way.
 - **The module split.** `./durable` imports no `node:` module and not `src/claude-code/`, so `./cloudflare` no longer drags Node-only code into a Worker. `./node` is the ninth entry.
 - **The bundled scripts:**
   - `task.agent` stays self-acting and delegate-free.

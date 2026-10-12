@@ -4,14 +4,14 @@ One typed config builds an agent host: named model closures over the runtime's e
 ## ADDED Requirements
 
 ### Requirement: The durable entry exports the config types
-`@specsesh/agent/durable` SHALL export the types `ModelFactory<Env>`, `(env: Env) => { provider: Provider, model: ModelRef }`, and `AgentConfig<Env>`, `{ models: { default: ModelFactory<Env> } & Record<string, ModelFactory<Env>>, workspace: (env: Env) => Workspace, allow?, checks?, timeoutMs?, actions?: (env, workspace) => HostAction[], delegates?: DelegateGrants, runners?: Runners }`.
+`@specsesh/agent/durable` SHALL export the types `ModelFactory<Env>`, `(env: Env) => { provider: Provider, model: ModelRef }`, and `AgentConfig<Env>`, `{ models: { default: ModelFactory<Env> } & Record<string, ModelFactory<Env>>, workspace: (env: Env) => Workspace | Promise<Workspace>, allow?, checks?, timeoutMs?, actions?: (env, workspace) => HostAction[], delegates?: DelegateGrants, runners?: Runners }`.
 
 #### Scenario: A config without a default model does not type-check
 - **WHEN** a TypeScript file declares an `AgentConfig<{}>` whose `models` lacks `default`
 - **THEN** `tsc --noEmit` SHALL report an error on it
 
 ### Requirement: createAgentHarness builds a harness from a config
-`@specsesh/agent/node` SHALL export `createAgentHarness(config, { storage, env, extensions?, context })`, resolving `{ harness, models, actions, workspace }`: `workspace` from `config.workspace(env)`; `actions` the registry of `workspaceActions(workspace, …)`, then `config.actions`, then `delegationActions(config.delegates, { workspace, runners })`; `harness` with the run and step extensions over `actions`, then `extensions` in order.
+`@specsesh/agent/durable` SHALL export `createAgentHarness(config, { storage, env, extensions?, context })`, runtime-neutral, resolving `{ harness, models, actions, workspace }`: `workspace` from awaiting `config.workspace(env)`; `actions` the registry of `workspaceActions(workspace, …)`, then `config.actions`, then `delegationActions(config.delegates, { workspace, runners })`; `harness` with the run and step extensions over `actions`, then `extensions` in order.
 
 #### Scenario: A script runs on the config's default model in its workspace
 - **GIVEN** a config whose `default` model is a faux provider answering an `edit_file` call, and `workspace: () => localWorkspace(dir)`
@@ -45,7 +45,7 @@ One typed config builds an agent host: named model closures over the runtime's e
 - **THEN** the factory SHALL have received that same `fakeBinding`
 
 ### Requirement: The task CLI builds its harness from a config
-`agentscript-task` SHALL build its harness with `createAgentHarness`: `models.default` from the resolved provider and model, `workspace: () => localWorkspace(<the run's workspace>)`, the resolved `checks` and `allow`, the config's `delegates` (none under `--no-delegates`), `runners: defaultRunners`, and `extensions: [TaskLoop, GroupLoop]`.
+`agentscript-task` SHALL build its harness with `createAgentHarness`: `models.default` from the resolved provider and model, `workspace: () => localWorkspace(<the run's workspace>)`, the resolved `checks` and `allow`, the config's `delegates` (none under `--no-delegates`), `runners: defaultRunners` from `@specsesh/agent/node`, and `extensions: [TaskLoop, GroupLoop]`.
 
 #### Scenario: A granted delegate reaches the CLI's registry
 - **GIVEN** a repo config granting `claude_code`

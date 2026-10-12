@@ -44,14 +44,14 @@ When a script's action targets `mcpTool://delegate/<name>` and no grant named `<
 - **THEN** it SHALL start
 
 ### Requirement: A grant has typed fields and defaults
-`DelegateGrant` SHALL be `{ runner: string, model?: string, tools?: string[], allow?: string[], permissionMode?: "dontAsk", context?: string[], timeoutMs?: number, maxCalls?: number }`. Its `DelegateTerms` fill defaults: `tools` `["Read","Edit","Write","Glob","Grep","Bash"]`, `allow` `[]`, `permissionMode` `"dontAsk"`, `context` `[]`, `timeoutMs` `900000`, `maxCalls` `5`. A grant name SHALL match `[a-z][a-z0-9_]*`.
+Every `DelegateGrant` SHALL have `runner` (string) and optional `maxCalls` (default `5`); its runner declares the other keys it accepts, their types and defaults. The `claude-code` runner accepts `model`, `tools` (default the six Claude Code tools), `allow` (`[]`), `permissionMode` (`"dontAsk"` only), `context` (`[]`) and `timeoutMs` (`900000`). A grant name SHALL match `[a-z][a-z0-9_]*`.
 
 #### Scenario: A minimal grant takes the defaults
 - **WHEN** `delegationActions({ claude_code: { runner: "claude-code" } }, { workspace, runners })` builds its action
 - **THEN** the terms its runner receives SHALL be the six default tools, no shell allowlist, `dontAsk`, no context, a 900000 ms limit and 5 calls
 
 ### Requirement: An invalid grant is refused whole
-`delegationActions` SHALL throw `DelegateGrantError`, naming the grant and the key, for an unknown key, a wrong type, a `runner` not in `runners`, a `permissionMode` other than `"dontAsk"`, a `timeoutMs` or `maxCalls` that is not a positive integer, or a name outside `[a-z][a-z0-9_]*`. It SHALL build no action when any grant is invalid.
+`delegationActions` SHALL throw `DelegateGrantError`, naming the grant and the key, for a key its runner does not accept, a wrong type, a `runner` not in `runners`, a `permissionMode` other than `"dontAsk"`, a `timeoutMs` or `maxCalls` that is not a positive integer, or a name outside `[a-z][a-z0-9_]*`. It SHALL build no action when any grant is invalid.
 
 #### Scenario: Another permission mode is refused
 - **WHEN** a grant `claude_code` has `permissionMode` `"bypassPermissions"`
@@ -128,7 +128,7 @@ A completed call SHALL answer `{ ok, summary, files_changed }` from the runner's
 
 #### Scenario: The default runners hold claude-code
 - **WHEN** `defaultRunners` is read
-- **THEN** its keys SHALL be exactly `["claude-code"]`, and its runner's `kind` SHALL be `"process"`
+- **THEN** it SHALL hold `claude-code`, whose `kind` SHALL be `"process"`
 
 ### Requirement: The claude-code runner keeps the hard lines
 `claudeCodeRunner` SHALL run `claude -p --safe-mode` with `--output-format json`, `--no-session-persistence`, `--tools` the terms' tools, `--permission-mode dontAsk`, and `--model` when set; never `--bare` or `--tools ""`. Its `env` SHALL be the process environment minus `ANTHROPIC_API_KEY` and `CLAUDECODE`, and it SHALL never read, copy or forward Claude Code's OAuth token.
