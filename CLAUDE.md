@@ -8,18 +8,21 @@ flow does **not** apply here.
 
 ## Layout (pnpm workspace)
 
-One npm package, `@specsesh/agent` (`packages/agent`, Apache-2.0), with an entry point per layer.
-The layer boundaries are directories, enforced by `__tests__/package/layers.test.ts`.
+One npm package, `@specsesh/agent` (`packages/agent`, Apache-2.0), with an entry point per layer:
+nine exports, in this order: `./authoring`, `./interpreter`, `./pi`, `./claude-code`, `./durable`,
+`./node`, `./cloudflare`, `./openspec`, `./task`. The layer boundaries are directories, enforced by
+`__tests__/package/layers.test.ts`.
 
 | Directory → entry | What it is |
 |---|---|
 | `src/authoring`, `src/interpreter` → `./authoring`, `./interpreter` | The core: authoring + interpreter. No model client, ever. |
 | `src/pi` → `./pi` | A `ReasoningPort` on `@earendil-works/pi-ai`, so any pi provider can run a script. Default testing model: `anthropic/claude-haiku-4-5`. |
 | `src/claude-code` → `./claude-code` | The claude-code port and pi provider (Node only). |
-| `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). |
+| `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). Runtime-neutral: never imports `node:` or `src/claude-code`, so `./cloudflare` can import it. Holds `workspace.ts` (`Workspace`, `workspaceActions`, `runChecks`, `diffSnapshots`), `delegation.ts` (grants, `delegationActions`) and `agent-config.ts` (`AgentConfig`, `createAgentHarness`). |
+| `src/node` → `./node` | The Node side of `./durable`: `localWorkspace(dir)`, `builtinActions` (moved from `src/durable/builtins.ts`), `claudeCodeRunner({ binary? })` and `defaultRunners`. Adds `src/durable` and `src/claude-code`. |
 | `src/cloudflare` → `./cloudflare` | `AgentScriptHost`, the Durable Object class (via Cloudflare's `PiHarness`, `agents` 0.28.0), Workers AI by default. |
 | `src/openspec` → `./openspec` | The OpenSpec ontology (`openspec/{model,process,loops,evidence}`): TypeBox schemas (each a JSON Schema) with `Static` types and refinements, plus pure rules. Imports only `typebox`; no parser, no loop runner. |
-| `src/task` → `./task` | The task loop (`agentscript.task-loop`): an Agent Script run once per iteration as an `agentscript.run` child until the task converges, blocks, exhausts or fails; ticks tasks.md. Bundled scripts in `src/task/scripts/` (copied into `dist/` by the build). Adds `src/durable`. |
+| `src/task` → `./task` | The task loop (`agentscript.task-loop`): an Agent Script run once per iteration as an `agentscript.run` child until the task converges, blocks, exhausts or fails; ticks tasks.md. Bundled scripts in `src/task/scripts/` (copied into `dist/` by the build). Adds `src/node`. |
 | `src/bin` | The `agentscript-pi`, `agentscript-durable` and `agentscript-task` bins. |
 
 pi-ai, pi-durable, chord and `agents` are optional peers (dev dependencies here); only the four
@@ -44,6 +47,8 @@ package through `workspace:*` and its public entries only.
   withdrew exactly that in `simplify-specsketch-workbench`), and a test pins its absence.
   `--safe-mode` is required: without it your global CLAUDE.md leaks into every step. Never `--bare`
   (it forces API-key auth). First live run: 2026-10-10, triage example, Haiku 4.5, completed.
+  (This is the reasoning port, which offers no tools; a delegate's `claudeCodeRunner` is different,
+  see Hard lines.)
 
 - **Step machine** (`start` / `next` / `apply` in `run.ts`): the run's state is plain JSON (`RunState`),
   `next` is pure, and `run()` is a loop over the three. A failed step rolls back only its own logic
@@ -101,10 +106,10 @@ nothing needs `tsx`.
 ## Running a task
 
 `agentscript.config.json` holds the task runner's defaults for this repo: the claude-code provider
-(your subscription) running the bundled `task-delegate` script on Opus (`model` and `delegateModel`
-are `opus`), `maxIterations` 8, checks `pnpm check` and `pnpm test`, allowlist `pnpm` and `node`,
-`CLAUDE.md` as the delegate's context, and the database `.agentscript/task-loops.sqlite`
-(gitignored). Build first (`pnpm build`); flags override any config value.
+(your subscription) running the bundled `task-delegate` script on Opus (`model` is `opus`),
+`maxIterations` 8, checks `pnpm check` and `pnpm test`, allowlist `pnpm` and `node`, the
+`claude_code` delegate grant (below), and the database `.agentscript/task-loops.sqlite`
+(gitignored). Build first (`pnpm build`); flags override any `task` value, never a grant.
 
 ```bash
 pnpm task <change-id> <task-id>        # work one task of openspec/changes/<change-id>, unattended
@@ -131,6 +136,21 @@ pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop pr
   them sets no variable and fails the step. A script whose default `next_action` is outside them is
   refused at start. The bundled judges retry by default: `amend-spec` only when the deltas
   contradict themselves or the code, and `ask` only for a decision no passing check could settle.
+- **Delegates are granted, never defaulted.** Delegation is opt-in: nothing is granted unless the
+  top-level `delegates` object of `agentscript.config.json` (reviewed with the repo) grants it. Each
+  name maps to `{ runner, model?, tools?, allow?, permissionMode: "dontAsk", context?, timeoutMs?,
+  maxCalls? }`; defaults are the six Claude Code tools (`Read`, `Edit`, `Write`, `Glob`, `Grep`,
+  `Bash`), `allow []`, `context []`, `timeoutMs` 900000 and `maxCalls` 5. `context` paths resolve
+  against the config file. This repo grants `claude_code` (runner `claude-code`, model `opus`, allow
+  `["pnpm","node"]`, context `["CLAUDE.md"]`), which `task-delegate` calls as
+  `mcpTool://delegate/claude_code`. `run --no-delegates` withdraws every grant for one run: a
+  delegating script then exits 2 naming `delegate/claude_code`, while `--script task` still runs.
+  The retired `task.delegateModel` and `task.delegateContext` keys are refused with
+  `grant a delegate under "delegates" instead`; an invalid grant exits 2, naming the grant and the
+  key. No CLI flag can grant or reconfigure a delegate.
+- **Delegations act through the workspace.** A delegate acts only in the loop's workspace, and each
+  delegation records `files_changed` (the number of files it changed, or -1 when the workspace can't
+  snapshot).
 - **Headless.** It never prompts. Progress is JSON Lines on stderr after the resume hint; the outcome
   is on stdout. Exit `0` converged, `1` blocked/exhausted/failed, `2` refused.
 - **Clean tree.** `run` refuses uncommitted changes (listing them) so every edit after it is the
@@ -190,5 +210,14 @@ behaviour only; internals go in a change's `design.md`. Stock `spec-driven` sche
 - No model client, SDK or credential in the core (`src/authoring`, `src/interpreter`). Provider code lives in `src/pi` and `src/claude-code`. Model turns go through the injected `ReasoningPort`.
 - Upstream deps are exact-pinned. Bumping one means running `pnpm conformance` and treating a failure as a decision about the subset.
 - The supported subset is declared once, in `src/interpreter/subset.ts`; the README block is generated from it.
+- `claudeCodeRunner` (`src/node/claude-code-runner.ts`), the only way a delegate reaches Claude Code,
+  keeps these lines (the retired `delegate_claude_code` action is gone):
+  - `claude -p --safe-mode`, never `--bare` (it forces API-key auth) and never `--tools ""`;
+  - `--permission-mode dontAsk` only;
+  - `--allowedTools` is the file tools plus `Bash(<word>:*)` per `allow` entry, so anything else is
+    denied, never prompted;
+  - `ANTHROPIC_API_KEY` and `CLAUDECODE` are stripped from the child's environment;
+  - Claude Code's OAuth token is never read, copied or forwarded: subscription auth only;
+  - the instructions go only on stdin, followed by the terms block.
 
 `packages/agent/__tests__/core/{import-boundary,no-compiler}.test.ts` and `__tests__/package/layers.test.ts` enforce the first two.

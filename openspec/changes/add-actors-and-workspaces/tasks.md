@@ -72,8 +72,8 @@
 
 ## 5. Docs
 
-- [ ] 5.1 `docs/ontology/loops/action.md`: actors (self or delegate), the loop's one workspace, and a `delegate` action as a user-granted `mcpTool://delegate/<name>` recorded with `DiffEvidence` and `CheckEvidence`; `pnpm docs:check` passes
-- [ ] 5.2 `CLAUDE.md`: the layout gains `src/node/` and the `./node` entry (`./durable` is runtime-neutral). "Running a task" explains grants (`delegates` in the config, `--no-delegates`, nothing granted by default) and drops `delegateModel`/`delegateContext`. The hard lines are stated for `claudeCodeRunner`.
+- [x] 5.1 `docs/ontology/loops/action.md`: actors (self or delegate), the loop's one workspace, and a `delegate` action as a user-granted `mcpTool://delegate/<name>` recorded with `DiffEvidence` and `CheckEvidence`; `pnpm docs:check` passes
+- [x] 5.2 `CLAUDE.md`: the layout gains `src/node/` and the `./node` entry (`./durable` is runtime-neutral). "Running a task" explains grants (`delegates` in the config, `--no-delegates`, nothing granted by default) and drops `delegateModel`/`delegateContext`. The hard lines are stated for `claudeCodeRunner`.
 
 ## 6. Verify
 
