@@ -138,6 +138,70 @@ SECONDS=0
 req $ZERO_PORT POST "/runs/pace?wait=1" "$(start_body "$(jq -nc --arg t "$LONG" '[{"result":{"severity":"high"}},{"text":$t}]')")"
 check "An invalid pace is ignored (0)" bash -c "[ '$STATUS' = 200 ] && [ $SECONDS -lt 15 ] && printf '%s' '$BODY' | jq -e '.result.kind==\"completed\"' >/dev/null"
 
+echo "== defineAgentHost (cloudflare/agent-host), under /agent"
+EDIT_SOURCE='config:
+    agent_name: "edit-notes"
+
+variables:
+    edited: mutable boolean = False
+
+subagent act:
+    description: "Edit notes.txt"
+
+    actions:
+        edit_file:
+            description: "Replace a file'"'"'s content in the workspace"
+            inputs:
+                path: string
+                content: string
+            outputs:
+                ok: boolean
+            target: "mcpTool://edit_file"
+
+    reasoning:
+        instructions: ->
+            | Rewrite notes.txt.
+        actions:
+            edit: @actions.edit_file
+                with path = "notes.txt"
+                with content = ...
+                set @variables.edited = @outputs.ok
+'
+agent_body() { jq -n --arg s "$EDIT_SOURCE" "{source:\$s}${1:+ + $1}"; }
+answers() { status_is "$1" && jqt "$2"; }  # status, then a jq test on BODY (BODY is never re-quoted)
+
+req $F GET /agent/workspace/edits/notes.txt
+check "A run edits the host's workspace (seeded)" answers 200 '.content=="old"'
+req $F POST "/agent/runs/edits?wait=1" "$(agent_body)"
+check "A run edits the host's workspace (run)" answers 200 '(.task|type=="number") and .result.kind=="completed" and .result.variables.edited==true'
+req $F GET /agent/workspace/edits/notes.txt
+check "A run edits the host's workspace" answers 200 '.content=="new"'
+
+req $F POST "/agent/runs/named?wait=1" "$(agent_body '{model:"reviewer"}')"
+check "A named model runs the steps" answers 200 '.result.kind=="completed" and (.result.steps|last|.outcome.text)=="done by reviewer"'
+req $F POST "/agent/runs/named?wait=1" "$(agent_body)"
+check "A named model runs the steps (default when absent)" answers 200 '(.result.steps|last|.outcome.text)=="done by default"'
+
+req $F POST /agent/runs/unknown "$(agent_body '{model:"nope"}')"
+check "An unknown model name is 400" answers 400 '.error|contains("nope") and contains("default") and contains("reviewer")'
+req $F GET /agent/runs/unknown/1
+check "An unknown model name is 400 (no task created)" is_error 404 'no task 1'
+
+req $F POST /agent/runs/later "$(agent_body)"
+check "A run is started and acknowledged (agent host)" answers 202 '.task|type=="number"'
+LATER=$(printf '%s' "$BODY" | jq -r .task)
+for _ in $(seq 1 30); do req $F GET "/agent/runs/later/$LATER"; jqt '.status=="terminal"' && break; sleep 1; done
+check "A finished run reports its outcome (agent host)" answers 200 '.status=="terminal" and .outcome.status=="completed"'
+
+req $F GET /agent/runs/h/999
+check "An unknown task is 404" is_error 404 'no task 999'
+
+req $F POST /agent/runs/refused "$(jq -n --arg s "$BAD_SOURCE" '{source:$s}')"
+check "A refused script is 422 (agent host)" answers 422 '.error|contains("unsupported by this runtime")'
+
+req $F GET /agent/other/x
+check "A path outside /agent/runs and /agent/workspace is refused" is_error 404 'use /agent/runs/<host> or /agent/workspace/<host>/<path>'
+
 echo "== The example's object class"
 # Bound as HOST, defined in src/index.ts as a subclass of the published host, imported from its public entry.
 subclass_ok() {
@@ -151,6 +215,10 @@ echo "== wrangler.jsonc"
 check "The object uses SQLite storage" node -e '
 const c=JSON.parse(require("fs").readFileSync("wrangler.jsonc","utf8").replace(/^\s*\/\/.*$/gm,""));
 const ok=c.name==="agentscript-cloudflare"&&c.main==="src/index.ts"&&c.compatibility_date==="2026-10-01"&&c.compatibility_flags.includes("nodejs_compat")&&c.ai.binding==="AI"&&c.durable_objects.bindings.some(b=>b.name==="HOST"&&b.class_name==="FauxAgentScriptHost")&&c.migrations.some(m=>m.tag==="v1"&&m.new_sqlite_classes.includes("FauxAgentScriptHost"));
+process.exit(ok?0:1)'
+check "The defineAgentHost object is bound with SQLite storage" node -e '
+const c=JSON.parse(require("fs").readFileSync("wrangler.jsonc","utf8").replace(/^\s*\/\/.*$/gm,""));
+const ok=c.durable_objects.bindings.some(b=>b.name==="AGENT_HOST"&&b.class_name==="FauxAgentHost")&&c.migrations.some(m=>m.tag==="v2"&&m.new_sqlite_classes.includes("FauxAgentHost"));
 process.exit(ok?0:1)'
 
 echo "== Workers AI default / AGENTSCRIPT_MODEL"

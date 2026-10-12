@@ -13,14 +13,25 @@
  * responses to queue. AGENTSCRIPT_FAUX_TPS paces faux output, so a test can kill the
  * process mid-step. AGENTSCRIPT_FAUX_SEED (JSON) queues responses at construction,
  * before pi resumes any work, so a restarted object has its answers ready.
+ *
+ * `/agent/runs/...` and `/agent/workspace/...` go to `FauxAgentHost` (`./agent-host.ts`),
+ * built with `defineAgentHost` over faux models `default` and `reviewer`:
+ *
+ *   POST /agent/runs/<host>[?wait=1]     { source, entry?, variables?, model? }
+ *   GET  /agent/runs/<host>/<task>
+ *   GET  /agent/workspace/<host>/<path>  a file of that object's in-memory workspace
  */
 
 import { AgentScriptHost, type AgentScriptEnv, type ModelChoice } from "@specsesh/agent/cloudflare";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall, type AssistantMessage } from "@earendil-works/pi-ai";
 import type { Harness } from "@earendil-works/pi-durable";
+import type { FauxAgentHost } from "./agent-host.js";
+
+export { FauxAgentHost } from "./agent-host.js";
 
 export interface Env extends AgentScriptEnv {
 	HOST: DurableObjectNamespace<FauxAgentScriptHost>;
+	AGENT_HOST: DurableObjectNamespace<FauxAgentHost>;
 	AGENTSCRIPT_FAUX?: string;
 	AGENTSCRIPT_FAUX_TPS?: string;
 	AGENTSCRIPT_FAUX_SEED?: string;
@@ -82,7 +93,17 @@ function json(body: unknown, status = 200): Response {
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const [, root, host] = new URL(request.url).pathname.split("/");
+		const url = new URL(request.url);
+		const [, root, host] = url.pathname.split("/");
+		if (root === "agent") {
+			// `/agent/<rest>` reaches the object as `/<rest>`, the path its routes expect.
+			const [, , route, name] = url.pathname.split("/");
+			if ((route !== "runs" && route !== "workspace") || name === undefined || name === "") {
+				return json({ error: "use /agent/runs/<host> or /agent/workspace/<host>/<path>" }, 404);
+			}
+			url.pathname = url.pathname.slice("/agent".length);
+			return env.AGENT_HOST.getByName(name).fetch(new Request(url, request));
+		}
 		if (root !== "runs" || host === undefined || host === "") return json({ error: "use /runs/<host>" }, 404);
 		return env.HOST.getByName(host).fetch(request);
 	},

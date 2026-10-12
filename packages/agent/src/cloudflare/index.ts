@@ -16,17 +16,22 @@
  * Models: Workers AI through `createAI` (AGENTSCRIPT_MODEL picks one). A subclass
  * replaces the provider and model with `createModel()`, and answers requests
  * before the routes above with `beforeRoutes()`.
+ *
+ * `defineAgentHost(config)` builds a host from an `AgentConfig` instead, on the same
+ * routes (`./routes.ts`), where a start request may also name a config `model`.
  */
 
-import type { RunResult, StartOptions } from "../interpreter/index.js";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels, type Provider } from "@earendil-works/pi-ai";
-import { createRegistry, Harness, type ModelRef, type TaskId } from "@earendil-works/pi-durable";
+import { createRegistry, Harness, type ModelRef } from "@earendil-works/pi-durable";
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { createAI } from "agents/models/pi-ai";
 import { DurableObject } from "cloudflare:workers";
-import { AgentScript, AgentScriptStepExtension, startScript, waitForScript } from "../durable/index.js";
+import { AgentScript, AgentScriptStepExtension } from "../durable/index.js";
+import { handleRunRoutes } from "./routes.js";
+
+export { defineAgentHost, type AgentHost, type AgentHostClass } from "./agent-host.js";
+export { workersAI } from "./workers-ai.js";
 
 export interface AgentScriptEnv {
 	AI?: Ai;
@@ -86,52 +91,10 @@ export class AgentScriptHost<E extends AgentScriptEnv = AgentScriptEnv> extends 
 	}
 
 	async onRequest(request: Request): Promise<Response> {
-		const url = new URL(request.url);
-		const [, , , task] = url.pathname.split("/");
 		const pi = await this.harness.pi();
-		const context = BACKGROUND_CONTEXT;
-
 		const early = await this.beforeRoutes(request, pi);
 		if (early !== undefined) return early;
-
-		if (request.method === "POST" && task === undefined) {
-			const body = (await request.json()) as StartOptions & { source: string };
-			let id: TaskId<RunResult>;
-			try {
-				id = await startScript(
-					pi,
-					body.source,
-					{
-						model: this.#choice.model,
-						...(body.entry !== undefined ? { entry: body.entry } : {}),
-						...(body.variables !== undefined ? { variables: body.variables } : {}),
-					},
-					context,
-				);
-			} catch (error) {
-				// The script was refused before anything ran: unsupported, unparsable, bad entry.
-				return json({ error: error instanceof Error ? error.message : String(error) }, 422);
-			}
-			pi.resume();
-			if (url.searchParams.get("wait") !== "1") return json({ task: id }, 202);
-			return json({ task: id, result: await waitForScript(pi, id, context) });
-		}
-
-		if (request.method === "GET" && task !== undefined) {
-			const record = await pi.getTask(Number(task) as TaskId<RunResult>, context);
-			if (record === undefined) return json({ error: `no task ${task}` }, 404);
-			const state = record.state;
-			if (state.status !== "terminal") {
-				const checkpoint = (state as { checkpoint?: { phase?: string; step?: number } }).checkpoint;
-				return json({ task: Number(task), status: state.status, phase: checkpoint?.phase, step: checkpoint?.step });
-			}
-			return json({ task: Number(task), status: "terminal", outcome: state.outcome });
-		}
-
-		return json({ error: "not found" }, 404);
+		// Every step runs on the one model `createModel()` chose; a body's `model` is ignored.
+		return handleRunRoutes(request, { pi, model: () => this.#choice.model });
 	}
-}
-
-function json(body: unknown, status = 200): Response {
-	return new Response(JSON.stringify(body, null, 2), { status, headers: { "content-type": "application/json" } });
 }

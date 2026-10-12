@@ -8,8 +8,9 @@ The full walkthrough is the guide [Agents on Cloudflare](../../guides/05-cloudfl
 
 | File | What it is |
 |---|---|
-| `src/index.ts` | The Worker. `FauxAgentScriptHost` subclasses the published `AgentScriptHost` and adds faux mode through `createModel()` and `beforeRoutes()`; `fetch` forwards `/runs/<host>` to the object named `<host>`. |
-| `wrangler.jsonc` | Worker `agentscript-cloudflare`: `nodejs_compat`, the `AI` binding, the Durable Object binding `HOST`, and a `v1` migration declaring the class SQLite-backed. |
+| `src/index.ts` | The Worker. `FauxAgentScriptHost` subclasses the published `AgentScriptHost` and adds faux mode through `createModel()` and `beforeRoutes()`; `fetch` forwards `/runs/<host>` to the object named `<host>`, and `/agent/...` to `FauxAgentHost`. |
+| `src/agent-host.ts` | `FauxAgentHost`, built with `defineAgentHost` from an `AgentConfig`: faux models `default` and `reviewer`, an in-memory workspace. See [A host built from a config](#a-host-built-from-a-config). |
+| `wrangler.jsonc` | Worker `agentscript-cloudflare`: `nodejs_compat`, the `AI` binding, the Durable Object bindings `HOST` and `AGENT_HOST`, and migrations `v1` and `v2` declaring both classes SQLite-backed. |
 | `test/routes.sh` | Checks every route and status code on `wrangler dev --local`. |
 | `test/crash-resume.sh` | Kills the process mid-step and checks the run finishes after a restart. |
 
@@ -48,6 +49,28 @@ Also: `422` with an `error` when the script is refused before it runs; `400` whe
 
 Faux settings, all `--var NAME:VALUE`: `AGENTSCRIPT_FAUX` (`1` turns it on), `AGENTSCRIPT_FAUX_TPS` (tokens per second, to make a step slow enough to interrupt), `AGENTSCRIPT_FAUX_SEED` (a JSON array of responses queued when the object starts, so a restarted object can finish a resumed step).
 
+## A host built from a config
+
+`FauxAgentHost` (`src/agent-host.ts`) is the other way to host scripts: `defineAgentHost<Env>(config)` builds the Durable Object class from the same `AgentConfig` a Node host uses, so a run gets the config's workspace actions (`read_file`, `edit_file`, …) and any granted `agent` delegates. It needs no `AGENTSCRIPT_FAUX`: its models are always faux.
+
+- **Models.** `default` and `reviewer`, two models of one faux provider. In each step the model first calls the step's tool with `{ content: "new" }`, then answers `done by <model>`, so a result's steps show which model ran.
+- **Workspace.** `memoryWorkspace({ "notes.txt": "old" })`, one per object.
+- **Delegates.** None, so the runners are the default `{ agent }`.
+
+For real models, swap the factories for Workers AI:
+
+```ts
+models: { default: (env) => workersAI(env.AI!, "@cf/meta/llama-4-scout") },
+```
+
+Its routes are the ones above under `/agent`, without `faux`, plus `model` and a workspace read:
+
+| Request | Answer |
+|---|---|
+| `POST /agent/runs/<host>[?wait=1]` with `{ source, entry?, variables?, model? }` | as `POST /runs/<host>`; `model` is `default` or `reviewer` (`default` when absent), anything else `400` naming it and listing the models |
+| `GET /agent/runs/<host>/<task>` | as `GET /runs/<host>/<task>` |
+| `GET /agent/workspace/<host>/<path>` | `200` `{ path, content }` from that object's workspace; `404` if there is no such file (a test hook of this example, not part of `defineAgentHost`) |
+
 ## Test it
 
 ```bash
@@ -59,4 +82,4 @@ bash examples/cloudflare-worker/test/routes.sh   # the routes only
 
 ## Limits
 
-A Cloudflare host runs scripts without actions: it has no workspace yet. See the [roadmap](../../packages/agent/README.md#roadmap).
+`AgentScriptHost` runs scripts without actions: it has no workspace. `FauxAgentHost` has one, but only in memory, so it is lost when the object is evicted. See the [roadmap](../../packages/agent/README.md#roadmap).

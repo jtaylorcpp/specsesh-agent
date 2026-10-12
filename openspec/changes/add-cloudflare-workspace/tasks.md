@@ -15,17 +15,17 @@
 
 ## 2. defineAgentHost
 
-- [ ] 2.1 `packages/agent/src/cloudflare/workers-ai.ts` (new): `workersAI(binding, modelId)` as a `ModelFactory`-compatible value over `createAI({ binding })`; exported from `src/cloudflare/index.ts`
-- [ ] 2.2 `packages/agent/src/cloudflare/agent-host.ts` (new) + `src/cloudflare/index.ts`:
+- [x] 2.1 `packages/agent/src/cloudflare/workers-ai.ts` (new): `workersAI(binding, modelId)` as a `ModelFactory`-compatible value over `createAI({ binding })`; exported from `src/cloudflare/index.ts`
+- [x] 2.2 `packages/agent/src/cloudflare/agent-host.ts` (new) + `src/cloudflare/index.ts`:
   - `defineAgentHost<Env>(config)` returns a Durable Object class whose `PiHarness` factory calls `createAgentHarness(config, { storage, env, context })`, with runners defaulting to `{ agent: agentRunner() }`, and model factories run in the constructor;
   - routes shared with `AgentScriptHost` by factoring its handlers into one function;
   - `POST`'s optional `model` name: unknown → `400` naming it and listing models;
   - `AgentScriptHost` unchanged in behaviour.
-- [ ] 2.3 `examples/cloudflare-worker`:
+- [x] 2.3 `examples/cloudflare-worker`:
   - a second Durable Object, `FauxAgentHost`, built with `defineAgentHost` over faux models `default` and `reviewer` and `memoryWorkspace()`;
   - its binding and migration in `wrangler.jsonc`;
   - `test/routes.sh` gains PASS/FAIL checks for `cloudflare/agent-host` "A run edits the host's workspace", "An unknown model name is 400", "A named model runs the steps" and "An unknown task is 404".
-- [ ] 2.4 `packages/agent/__tests__/cloudflare/agent-host.test.ts`: "A host class is built from a config" (a `tsc --noEmit` fixture against the package's declarations) and "A claude-code grant is refused on Cloudflare" (through `createAgentHarness` with the host's default runners) (2). Also check that `__tests__/package/examples.test.ts` still lists exactly the two examples.
+- [x] 2.4 `packages/agent/__tests__/cloudflare/agent-host.test.ts`: "A host class is built from a config" (a `tsc --noEmit` fixture against the package's declarations) and "A claude-code grant is refused on Cloudflare" (through `createAgentHarness` with the host's default runners) (2). Also check that `__tests__/package/examples.test.ts` still lists exactly the two examples.
 
 ## 3. Docs
 

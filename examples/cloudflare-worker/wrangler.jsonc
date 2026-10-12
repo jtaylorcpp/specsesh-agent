@@ -6,7 +6,13 @@
   "compatibility_flags": ["nodejs_compat"],
   "ai": { "binding": "AI" },
   "durable_objects": {
-    "bindings": [{ "name": "HOST", "class_name": "FauxAgentScriptHost" }]
+    "bindings": [
+      { "name": "HOST", "class_name": "FauxAgentScriptHost" },
+      { "name": "AGENT_HOST", "class_name": "FauxAgentHost" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FauxAgentScriptHost"] }]
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["FauxAgentScriptHost"] },
+    { "tag": "v2", "new_sqlite_classes": ["FauxAgentHost"] }
+  ]
 }

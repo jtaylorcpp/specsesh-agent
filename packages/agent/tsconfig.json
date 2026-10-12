@@ -14,5 +14,5 @@
     "noEmit": true
   },
   "include": ["src", "__tests__", "vitest.config.ts", "vitest.pack.config.ts", "vitest.live.config.ts", "vitest.setup.ts"],
-  "exclude": ["__tests__/**/fixtures/agent-config-types"]
+  "exclude": ["__tests__/**/fixtures/agent-config-types", "__tests__/**/fixtures/agent-host"]
 }
