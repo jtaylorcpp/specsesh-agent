@@ -9,6 +9,7 @@
  */
 
 import { declaredActions, type ActionResult, type VariableValue } from "../interpreter/index.js";
+import { isGrantedDelegate } from "./delegate-brand.js";
 
 /** The scalar types an action's inputs and outputs carry, like a script variable's. */
 export type ActionParameterType = "string" | "number" | "boolean";
@@ -18,6 +19,12 @@ export interface ActionContext {
 	/** The directory the action is confined to. */
 	readonly workspace: string;
 	readonly signal?: AbortSignal;
+	/**
+	 * How many calls of the named action the run has already reported: its `run`
+	 * calls and its steps' tool calls. Read from the run's durable state, so a
+	 * resumed run counts the same. Absent outside a run: none.
+	 */
+	readonly priorCalls?: (name: string) => number;
 }
 
 export interface HostAction {
@@ -36,10 +43,18 @@ export interface HostAction {
 
 export type ActionRegistry = ReadonlyMap<string, HostAction>;
 
-/** A registry keyed by name. Two actions with one name are refused, naming it. */
+const DELEGATE_PREFIX = "delegate/";
+
+/**
+ * A registry keyed by name. Two actions with one name are refused, naming it, and
+ * so is a `delegate/` name that `delegationActions` did not make.
+ */
 export function createActionRegistry(actions: readonly HostAction[]): ActionRegistry {
 	const registry = new Map<string, HostAction>();
 	for (const action of actions) {
+		if (action.name.startsWith(DELEGATE_PREFIX) && !isGrantedDelegate(action)) {
+			throw new Error(`action ${action.name}: the ${DELEGATE_PREFIX} namespace is reserved for granted delegates (delegationActions)`);
+		}
 		if (registry.has(action.name)) {
 			throw new Error(`two host actions are named "${action.name}"; an action registry holds one per name`);
 		}
@@ -74,7 +89,9 @@ export class ActionBindingError extends Error {
 /**
  * Check every action the script defines against the registry: its tool
  * registered, its input and output names exactly the registered ones, and each
- * type equal. Throws `ActionBindingError` naming every mismatch.
+ * type equal. Throws `ActionBindingError` naming every mismatch. An
+ * unregistered `delegate/<name>` also lists the granted delegates; a grant the
+ * script never targets is never a problem.
  */
 export function checkBindings(source: string, registry: ActionRegistry): void {
 	const problems: ActionBindingProblem[] = [];
@@ -82,7 +99,7 @@ export function checkBindings(source: string, registry: ActionRegistry): void {
 		const host = registry.get(declared.tool);
 		const mismatches: string[] = [];
 		if (host === undefined) {
-			mismatches.push(`mcpTool://${declared.tool} is not registered on this host`);
+			mismatches.push(`mcpTool://${declared.tool} is not registered on this host${grantsNote(declared.tool, registry)}`);
 		} else {
 			mismatches.push(
 				...compareParameters("input", declared.inputs, host.inputs),
@@ -92,6 +109,13 @@ export function checkBindings(source: string, registry: ActionRegistry): void {
 		if (mismatches.length > 0) problems.push({ subagent: declared.subagent, action: declared.action, mismatches });
 	}
 	if (problems.length > 0) throw new ActionBindingError(problems);
+}
+
+/** For an unregistered `delegate/<name>`: the granted names, or that there are none. Empty for any other tool. */
+function grantsNote(tool: string, registry: ActionRegistry): string {
+	if (!tool.startsWith(DELEGATE_PREFIX)) return "";
+	const granted = [...registry.keys()].filter((name) => name.startsWith(DELEGATE_PREFIX)).map((name) => name.slice(DELEGATE_PREFIX.length));
+	return granted.length > 0 ? `; granted delegates: ${granted.join(", ")}` : "; no delegates are granted";
 }
 
 function compareParameters(

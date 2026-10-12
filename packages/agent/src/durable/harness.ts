@@ -9,6 +9,7 @@ import { createModels, type Provider } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, type ModelRef } from "@earendil-works/pi-durable";
 import { createActionRegistry } from "./actions.js";
 import type { AgentConfig, AgentHarness, AgentHarnessOptions } from "./agent-config.js";
+import { delegationActions } from "./delegation.js";
 import { agentScriptExtensions } from "./extension.js";
 import { workspaceActions } from "./workspace.js";
 
@@ -28,12 +29,6 @@ export async function createAgentHarness<Env>(config: AgentConfig<Env>, options:
 	const registered = createModels();
 	for (const { provider } of providers.values()) registered.setProvider(provider);
 
-	// Until delegation lands (group 2), a config grants nothing.
-	const granted = Object.keys(config.delegates ?? {});
-	if (granted.length > 0) {
-		throw new Error(`delegates are not supported yet (granted: ${granted.join(", ")}); remove them from the config`);
-	}
-
 	const workspace = await config.workspace(options.env);
 	const actions = createActionRegistry([
 		...workspaceActions(workspace, {
@@ -42,6 +37,7 @@ export async function createAgentHarness<Env>(config: AgentConfig<Env>, options:
 			...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
 		}),
 		...(config.actions?.(options.env, workspace) ?? []),
+		...delegationActions(config.delegates ?? {}, { workspace, runners: config.runners ?? {} }),
 	]);
 
 	const installed = agentScriptExtensions({ actions, workspace: workspace.root });

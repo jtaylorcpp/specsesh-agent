@@ -59,8 +59,8 @@ export class WorkspaceError extends Error {
 
 export const NO_EXEC = "this workspace cannot run commands";
 const DEFAULT_TIMEOUT_MS = 600_000;
-/** Exit code recorded for a command that could not be spawned, as a shell reports a missing command. */
-const SPAWN_FAILED_EXIT_CODE = 127;
+/** Exit code recorded for a command that could not be spawned, as a shell reports a missing command. Module-internal. */
+export const SPAWN_FAILED_EXIT_CODE = 127;
 
 /** A git snapshot value: the two-letter porcelain code, `:`, then the content hash (`-` for no file). */
 const PORCELAIN = /^([ MTADRCU?!]{2}):/;
@@ -126,12 +126,12 @@ export async function runChecks(
 	};
 }
 
-/** Build a record, checking each part against the ontology before it leaves. */
-function actionRecord(action: Action, evidence: readonly Evidence[]): { action: Action; evidence: readonly Evidence[] } {
+/** Build a record, checking each part against the ontology before it leaves. Module-internal: not in `./index.ts`. */
+export function actionRecord(action: Action, evidence: readonly Evidence[]): { action: Action; evidence: readonly Evidence[] } {
 	const parts: [typeof Action | typeof Evidence, unknown][] = [[Action, action], ...evidence.map((e) => [Evidence, e] as [typeof Evidence, unknown])];
 	for (const [schema, value] of parts) {
 		if (!check(schema, value)) {
-			throw new Error(`a built-in action built a record the ontology refuses: ${explain(schema, value).join("; ")}`);
+			throw new Error(`a host action built a record the ontology refuses: ${explain(schema, value).join("; ")}`);
 		}
 	}
 	return { action, evidence };

@@ -17,7 +17,7 @@
 
 ## 2. The delegation mechanism (additive: `delegate_claude_code` stays registered until group 3)
 
-- [ ] 2.1 `packages/agent/src/durable/delegation.ts` (new) + `src/durable/index.ts`:
+- [x] 2.1 `packages/agent/src/durable/delegation.ts` (new) + `src/durable/index.ts`:
   - `DelegateGrant`, `DelegateGrants`, `DelegateTerms`, `ProcessRunner`, `Runners`, `DelegateGrantError`;
   - grant validation, all or nothing: `runner` and `maxCalls` common, every other key declared by its runner (a `ProcessRunner` carries its accepted keys, types and defaults); defaults;
   - `delegationActions(grants, { workspace, runners })`. One call: the `maxCalls` check, snapshot, `prepare`, `workspace.exec`, snapshot, `read`, record. Cases:
@@ -25,11 +25,11 @@
     - `timed-out` or `spawn-error` → `{ ok: false }`;
     - no snapshot → `files_changed` `-1` and no `DiffEvidence`.
   - The terms block appended to stdin.
-- [ ] 2.2 `packages/agent/src/durable/extension.ts` + `src/durable/actions.ts`: `maxCalls` counted from the run's own reports (its `run` action reports and its steps' tool calls for that action); `createActionRegistry` refuses a `delegate/` name `delegationActions` didn't make (a module-private brand); for an unregistered `mcpTool://delegate/<name>`, `ActionBindingError` adds the granted names, or `no delegates are granted`
-- [ ] 2.3 `packages/agent/src/node/claude-code-runner.ts` (new) + `src/node/index.ts`: `claudeCodeRunner({ binary? })` and `defaultRunners`. The argv, env stripping and result reading are adapted from `delegateArgs`, `claudeCodeEnv` and `readDelegateResult` in `src/durable/builtins.ts`, which keeps its copies until 3.6. Context files resolved; a missing one is a `prepare` error. Wire `delegationActions` into `createAgentHarness` (1.4).
-- [ ] 2.4 `packages/agent/__tests__/durable/delegation-grants.test.ts`: `actions/delegation` "One action per grant", "An extra output is refused at start", "A hand-made delegate action is refused", "No grants", "A different grant", "An unused grant is fine", "Another permission mode is refused" and "An unknown runner is refused" (8)
-- [ ] 2.5 `packages/agent/__tests__/node/claude-code-runner.test.ts` (fake `claude` only): "A minimal grant takes the defaults", "Instructions cannot add a flag", "The terms follow the instructions", "The default runners hold claude-code", "The argv and environment keep the hard lines", "The allowlist becomes Bash patterns", "An empty allowlist allows no shell" and "A missing context file fails the call" (8)
-- [ ] 2.6 `packages/agent/__tests__/durable/delegation-records.test.ts` (fake `claude` and in-memory workspaces only): "A workspace that cannot run processes", "The call past the limit fails", "A delegate that never finishes is killed", "A change is recorded with its diff", "A delegate that changed nothing says so" and "Without snapshots the count is unknown" (6)
+- [x] 2.2 `packages/agent/src/durable/extension.ts` + `src/durable/actions.ts`: `maxCalls` counted from the run's own reports (its `run` action reports and its steps' tool calls for that action); `createActionRegistry` refuses a `delegate/` name `delegationActions` didn't make (a module-private brand); for an unregistered `mcpTool://delegate/<name>`, `ActionBindingError` adds the granted names, or `no delegates are granted`
+- [x] 2.3 `packages/agent/src/node/claude-code-runner.ts` (new) + `src/node/index.ts`: `claudeCodeRunner({ binary? })` and `defaultRunners`. The argv, env stripping and result reading are adapted from `delegateArgs`, `claudeCodeEnv` and `readDelegateResult` in `src/durable/builtins.ts`, which keeps its copies until 3.6. Context files resolved; a missing one is a `prepare` error. Wire `delegationActions` into `createAgentHarness` (1.4).
+- [x] 2.4 `packages/agent/__tests__/durable/delegation-grants.test.ts`: `actions/delegation` "One action per grant", "An extra output is refused at start", "A hand-made delegate action is refused", "No grants", "A different grant", "An unused grant is fine", "Another permission mode is refused" and "An unknown runner is refused" (8)
+- [x] 2.5 `packages/agent/__tests__/node/claude-code-runner.test.ts` (fake `claude` only): "A minimal grant takes the defaults", "Instructions cannot add a flag", "The terms follow the instructions", "The default runners hold claude-code", "The argv and environment keep the hard lines", "The allowlist becomes Bash patterns", "An empty allowlist allows no shell" and "A missing context file fails the call" (8)
+- [x] 2.6 `packages/agent/__tests__/durable/delegation-records.test.ts` (fake `claude` and in-memory workspaces only): "A workspace that cannot run processes", "The call past the limit fails", "A delegate that never finishes is killed", "A change is recorded with its diff", "A delegate that changed nothing says so" and "Without snapshots the count is unknown" (6)
 
 ## 3. The switch (one group, so group 4's run starts on grants and workspaces: the agent runs on this code)
 

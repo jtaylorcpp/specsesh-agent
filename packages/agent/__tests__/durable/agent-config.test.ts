@@ -9,6 +9,7 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@ear
 import { MemoryStorage, type ModelRef } from "@earendil-works/pi-durable";
 import {
 	createAgentHarness,
+	DelegateGrantError,
 	runScript,
 	type HostAction,
 	type ModelFactory,
@@ -164,19 +165,20 @@ describe("host/agent-config: every model closure is called once and its provider
 	});
 });
 
-describe("createAgentHarness before delegation lands", () => {
-	it("refuses a config that grants a delegate", async () => {
+describe("createAgentHarness validates its delegate grants", () => {
+	it("refuses a grant whose runner it was not given", async () => {
 		const faux = fauxProvider();
-		await expect(
-			createAgentHarness(
-				{
-					models: { default: () => ({ provider: faux.provider, model: refOf(faux) }) },
-					workspace: () => localWorkspace(gitDir()),
-					delegates: { claude_code: { runner: "claude-code" } },
-				},
-				{ storage: new MemoryStorage(), env: {}, context },
-			),
-		).rejects.toThrow("delegates are not supported yet (granted: claude_code)");
+		const built = createAgentHarness(
+			{
+				models: { default: () => ({ provider: faux.provider, model: refOf(faux) }) },
+				workspace: () => localWorkspace(gitDir()),
+				delegates: { claude_code: { runner: "claude-code" } },
+			},
+			{ storage: new MemoryStorage(), env: {}, context },
+		);
+
+		await expect(built).rejects.toBeInstanceOf(DelegateGrantError);
+		await expect(built).rejects.toThrow('"claude-code" is not a known runner');
 	});
 });
 

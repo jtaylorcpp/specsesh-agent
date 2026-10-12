@@ -36,7 +36,16 @@ export {
 	type WorkspaceActionOptions,
 	type WorkspaceSnapshot,
 } from "./workspace.js";
-export type { AgentConfig, AgentHarness, AgentHarnessOptions, DelegateGrants, ModelFactory, Runners } from "./agent-config.js";
+export {
+	DelegateGrantError,
+	delegationActions,
+	type DelegateGrant,
+	type DelegateGrants,
+	type DelegateTerms,
+	type ProcessRunner,
+	type Runners,
+} from "./delegation.js";
+export type { AgentConfig, AgentHarness, AgentHarnessOptions, ModelFactory } from "./agent-config.js";
 export { createAgentHarness } from "./harness.js";
 export { runScript, startScript, waitForScript, type StartScriptOptions } from "./host.js";
 export { checkResult } from "./result.js";

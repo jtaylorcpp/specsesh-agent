@@ -120,7 +120,8 @@ function createAgentHarness<Env>(config: AgentConfig<Env>, options: {
 - **Every model closure is called exactly once**, in key order, before the harness opens, as `AgentScriptHost.createModel()` does today. Each distinct provider is registered once. Two factories returning different provider objects under the same name is an error naming both models.
 - **The registry** is `workspaceActions(workspace)`, then the host's `actions`, then `delegationActions(delegates, { workspace, runners })`.
 - **The run and step extensions are installed over that registry**, then `extensions` in order. The task CLI passes `[TaskLoop, GroupLoop]`.
-- **Grant keys are the runner's.** Every grant has `runner` and `maxCalls`; each runner declares the rest (`claude-code`: `model`, `tools`, `allow`, `permissionMode`, `context`, `timeoutMs`), so later runners bring their own keys.
+- **Grant keys are the runner's.** Every grant has `runner` and `maxCalls`; each runner declares the rest (`claude-code`: `model`, `tools`, `allow`, `permissionMode`, `context`), so later runners bring their own keys.
+- **`timeoutMs` is common, not a runner key.** The mechanism checks it (a positive integer, default `900000`) because it bounds `workspace.exec`, which the mechanism calls, not the runner. The spec delta lists it among the keys the `claude-code` runner accepts; a `claude-code` grant takes it with the same type and default either way, so the spec is left as it is.
 - **`./node` exports `defaultRunners`** = `{ "claude-code": claudeCodeRunner() }`. `agentscript-task` uses it for JSON grants.
 
 ## The task loop

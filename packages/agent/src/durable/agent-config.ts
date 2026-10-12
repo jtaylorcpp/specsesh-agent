@@ -11,19 +11,11 @@ import type { Context } from "@earendil-works/chord";
 import type { Provider } from "@earendil-works/pi-ai";
 import type { Extension, Harness, ModelRef, Storage } from "@earendil-works/pi-durable";
 import type { ActionRegistry, HostAction } from "./actions.js";
+import type { DelegateGrants, Runners } from "./delegation.js";
 import type { Workspace } from "./workspace.js";
 
 /** A model and the provider that serves it, built from the runtime's environment. */
 export type ModelFactory<Env> = (env: Env) => { provider: Provider; model: ModelRef };
-
-/**
- * Granted delegates, by name. A placeholder until `delegation.ts` (group 2)
- * defines the grant; until then a config must grant none.
- */
-export type DelegateGrants = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
-
-/** The runners grants name, by name. A placeholder until `delegation.ts` (group 2). */
-export type Runners = Readonly<Record<string, unknown>>;
 
 export interface AgentConfig<Env> {
 	/** `default` is required; every other key names another model a host may use. */

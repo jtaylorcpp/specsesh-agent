@@ -95,6 +95,8 @@ export interface StepActionsDoc extends JsonObject {
 	offers: JsonObject[];
 	/** By call ID: the merged inputs, the host's outputs and its record. */
 	calls: JsonObject;
+	/** By offered action: the calls the run had reported when the step was dispatched. */
+	prior: { [action: string]: number };
 }
 
 export const AgentScriptStepActions = defineDoc<StepActionsDoc>({
@@ -103,7 +105,7 @@ export const AgentScriptStepActions = defineDoc<StepActionsDoc>({
 	scope: "conversation",
 	history: "latest",
 	fork: "initial",
-	initial: () => ({ offers: [], calls: {} }),
+	initial: () => ({ offers: [], calls: {}, prior: {} }),
 });
 
 export interface RunInput {
@@ -306,7 +308,7 @@ function createExtensions(registry: ActionRegistry, workspace: string): AgentScr
 				const tools = register(request);
 				await runtime.commit(async (tx) => {
 					const child = await tx.createConversation({ ownership: { kind: "task", taskId: runtime.taskId } });
-					await configureStep(tx, child.id, request, tools, task.input.model);
+					await configureStep(tx, child.id, request, tools, task.input.model, state);
 					return { status: "running", checkpoint: { phase: "await", state, step, conversationId: child.id } };
 				}, context);
 			},
@@ -325,6 +327,7 @@ function createExtensions(registry: ActionRegistry, workspace: string): AgentScr
 				if (awaiting === undefined || !("call" in awaiting)) throw new Error("act reached with no action awaiting");
 				const { call } = awaiting as AwaitingAction;
 				const action = registry.get(call.tool);
+				const priorCalls = (name: string) => reportedCalls(state, name);
 				let result: ActionResult;
 				if (action === undefined) {
 					result = { ok: false, message: `mcpTool://${call.tool} is not registered on this host` };
@@ -334,9 +337,9 @@ function createExtensions(registry: ActionRegistry, workspace: string): AgentScr
 						() => ({ status: "running", checkpoint: { phase: "act", state, intent: { replay: action.replay } } }),
 						context,
 					);
-					result = await execute(action, call.inputs, workspace, runtime.signal);
+					result = await execute(action, call.inputs, workspace, runtime.signal, priorCalls);
 				} else if (intent.replay === "safe") {
-					result = await execute(action, call.inputs, workspace, runtime.signal);
+					result = await execute(action, call.inputs, workspace, runtime.signal, priorCalls);
 				} else {
 					result = { ok: false, message: `${call.action} was interrupted and not re-run` };
 				}
@@ -359,12 +362,38 @@ async function execute(
 	inputs: Readonly<Record<string, VariableValue>>,
 	workspace: string,
 	signal: AbortSignal | undefined,
+	priorCalls: (name: string) => number,
 ): Promise<ActionResult> {
 	try {
-		return await action.execute(inputs, { workspace, ...(signal !== undefined ? { signal } : {}) });
+		return await action.execute(inputs, { workspace, priorCalls, ...(signal !== undefined ? { signal } : {}) });
 	} catch (error) {
 		return { ok: false, message: error instanceof Error ? error.message : String(error) };
 	}
+}
+
+/**
+ * The calls of host action `name` the run has reported: its `run` calls, and its
+ * steps' tool calls whose offer targets `name`. Read from the run state alone.
+ */
+function reportedCalls(state: RunState, name: string): number {
+	let count = state.actions.filter((report) => report.call.tool === name).length;
+	for (const step of state.steps) {
+		if (step.outcome.kind !== "answered") continue;
+		const offers = step.request.tools ?? [];
+		for (const call of step.outcome.toolCalls ?? []) {
+			if (offers.find((offer) => offer.name === call.name)?.action === name) count += 1;
+		}
+	}
+	return count;
+}
+
+/** The calls of host action `name` reported before this step, plus the step's own recorded so far. */
+function stepPriorCalls(doc: StepActionsDoc | undefined, name: string): number {
+	const offers = (doc?.offers ?? []) as unknown as ToolOffer[];
+	const own = Object.values(doc?.calls ?? {}).filter(
+		(call) => offers.find((offer) => offer.name === (call as { name?: unknown }).name)?.action === name,
+	).length;
+	return (doc?.prior?.[name] ?? 0) + own;
 }
 
 /**
@@ -390,7 +419,7 @@ function offerTool(offer: ToolOffer, registry: ActionRegistry, workspace: string
 			const result: ActionResult =
 				host === undefined
 					? { ok: false, message: `mcpTool://${live.action} is not registered on this host` }
-					: await execute(host, inputs, workspace, context.abortSignal);
+					: await execute(host, inputs, workspace, context.abortSignal, (name) => stepPriorCalls(doc, name));
 			const outputs = result.ok ? { ...result.outputs } : {};
 			await api.commit(async (tx) => {
 				const step = await tx.doc(AgentScriptStepActions, api.conversationId);
@@ -431,6 +460,7 @@ async function configureStep(
 	request: ReasoningRequest,
 	tools: readonly ToolRegistration[],
 	model: ModelRef | undefined,
+	state: RunState,
 ): Promise<void> {
 	await configure(tx, conversationId, {
 		...(model !== undefined ? { model } : {}),
@@ -444,6 +474,8 @@ async function configureStep(
 	if (request.tools !== undefined) {
 		const actions = await tx.doc(AgentScriptStepActions, conversationId);
 		actions.offers = request.tools.map((offer) => ({ ...offer }) as unknown as JsonObject);
+		// The run's count per offered action, durable with the step, so a call in it counts the same after a resume.
+		actions.prior = Object.fromEntries(request.tools.map((offer) => [offer.action, reportedCalls(state, offer.action)]));
 	}
 }
 
