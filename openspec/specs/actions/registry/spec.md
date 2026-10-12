@@ -13,11 +13,15 @@ The host side of Agent Script actions: named host actions with typed inputs and 
 - **THEN** it SHALL have `kind` `"command"`, `inputs` `{ task_id: "string" }`, `outputs` `{ passed: "boolean", output: "string" }` and `replay` `"unsafe"`
 
 ### Requirement: An action registry maps names to host actions
-`createActionRegistry(actions)` SHALL return an `ActionRegistry` keyed by `name`, and SHALL throw naming the duplicate when two actions share a name. `builtinActions({ workspace, allow, checks, timeoutMs })` SHALL return the five built-ins, `read_file`, `edit_file`, `run_command`, `run_checks` and `delegate_claude_code`, bound to that workspace; a host MAY add its own actions beside them.
+`createActionRegistry(actions)` SHALL return an `ActionRegistry` keyed by `name`, and SHALL throw naming the duplicate when two actions share a name. The four built-ins, `read_file`, `edit_file`, `run_command` and `run_checks`, SHALL come from `workspaceActions(workspace, …)` (`actions/workspace`); `@specsesh/agent/node`'s `builtinActions({ workspace: dir, allow, checks, timeoutMs })` SHALL equal them over `localWorkspace(dir)`. A host MAY add its own actions and granted delegates.
 
 #### Scenario: A duplicate name is refused
 - **WHEN** `createActionRegistry` is given two actions named `run_checks`
 - **THEN** it SHALL throw naming `run_checks`
+
+#### Scenario: No delegate is built in
+- **WHEN** `builtinActions` or `workspaceActions` is called
+- **THEN** it SHALL return exactly `read_file`, `edit_file`, `run_command` and `run_checks`, and no action named `delegate_claude_code` or starting with `delegate/`
 
 ### Requirement: A host installs the extensions with its registry
 `agentScriptExtensions({ actions, workspace })` SHALL return the run and step extensions bound to that registry and workspace. The plain `AgentScript` and `AgentScriptStepExtension` exports SHALL behave as an empty registry, so a script that defines any action is refused by the binding check when run through them.
@@ -88,16 +92,8 @@ When a run is created, every action the script defines SHALL be checked against 
 - **WHEN** `run_checks` runs
 - **THEN** it SHALL answer `{ ok: false }` with `no checks configured`
 
-### Requirement: delegate_claude_code runs headless Claude Code inside this project's hard lines
-`delegate_claude_code` SHALL be `{ instructions } → { ok, summary }`, kind `"delegate"`, replay `"unsafe"`. It SHALL run `claude -p --safe-mode` with file and shell tools and no prompts (see "The delegate never prompts"), in the workspace, never with `--bare`, with `ANTHROPIC_API_KEY` and `CLAUDECODE` removed from its environment, and SHALL never read, copy or forward Claude Code's OAuth token. `summary` is Claude Code's result text.
-
-#### Scenario: The delegate's argv and environment keep the hard lines
-- **WHEN** `delegate_claude_code` builds its process
-- **THEN** argv SHALL contain `-p` and `--safe-mode` and SHALL NOT contain `--bare` or `--tools ""`
-- **AND** the child environment SHALL contain neither `ANTHROPIC_API_KEY` nor `CLAUDECODE`, and its cwd SHALL be the workspace
-
 ### Requirement: Every execution that changes the workspace records an Action and its Evidence
-Each execution SHALL put an ontology record in its result's `record`: `edit_file` an `Action` of kind `"edit"` (refs the path) with `DiffEvidence`; `run_command` and `run_checks` an `Action` of kind `"command"` (refs the command lines) with one `CheckEvidence` per command; `delegate_claude_code` an `Action` of kind `"delegate"` with `CheckEvidence` for the Claude Code process. `read_file` changes nothing and records no `Action`.
+Each execution SHALL put an ontology record in its result's `record`: `edit_file` an `Action` of kind `"edit"` (refs the path) with `DiffEvidence`; `run_command` and `run_checks` an `Action` of kind `"command"` (refs the command lines) with one `CheckEvidence` per command; a delegate action the record `actions/delegation` requires. `read_file` changes nothing and records no `Action`.
 
 #### Scenario: An edit records its diff
 - **WHEN** `edit_file` creates `src/new.ts`
@@ -106,30 +102,3 @@ Each execution SHALL put an ontology record in its result's `record`: `edit_file
 #### Scenario: A read records nothing
 - **WHEN** `read_file` reads a file
 - **THEN** its `record` SHALL hold no `Action` and no `Evidence`
-
-### Requirement: The delegate never prompts
-`delegate_claude_code` SHALL pass `--tools Read,Edit,Write,Glob,Grep,Bash`, `--permission-mode dontAsk`, `--output-format json` and `--no-session-persistence`, and `--allowedTools` listing `Read`, `Edit`, `Write`, `Glob`, `Grep` and one `Bash(<word>:*)` per `allow` entry, in order. A tool use outside that list is denied by Claude Code, never prompted.
-
-#### Scenario: The allowlist becomes Bash patterns
-- **GIVEN** the allowlist `["pnpm", "node"]`
-- **WHEN** `delegate_claude_code` builds its argv
-- **THEN** `--allowedTools` SHALL be followed by `Read`, `Edit`, `Write`, `Glob`, `Grep`, `Bash(pnpm:*)`, `Bash(node:*)`
-- **AND** argv SHALL contain `--permission-mode` followed by `dontAsk`
-
-#### Scenario: An empty allowlist allows no shell
-- **GIVEN** the allowlist `[]`
-- **WHEN** `delegate_claude_code` builds its argv
-- **THEN** `--allowedTools` SHALL list only the five file tools
-
-### Requirement: The delegate's model and context are configurable
-`builtinActions` SHALL take `delegateModel` and `delegateContext`. `delegate_claude_code` SHALL pass `--model <delegateModel>` when it is set, and one `--append-system-prompt-file <path>` per `delegateContext` entry, in order, each resolved against the workspace. A context file that does not exist SHALL make the action answer `{ ok: false }` naming it, without starting Claude Code.
-
-#### Scenario: Context files reach the delegate
-- **GIVEN** `delegateContext` `["CLAUDE.md"]` and `delegateModel` `"sonnet"`
-- **WHEN** `delegate_claude_code` builds its argv
-- **THEN** argv SHALL contain `--model` followed by `sonnet` and `--append-system-prompt-file` followed by the workspace's `CLAUDE.md`
-
-#### Scenario: A missing context file fails the action
-- **GIVEN** `delegateContext` `["MISSING.md"]`
-- **WHEN** `delegate_claude_code` runs
-- **THEN** it SHALL answer `{ ok: false }` naming `MISSING.md`, and no `claude` process SHALL start
