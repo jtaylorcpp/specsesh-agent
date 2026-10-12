@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spec Agent Walkthrough</title>
+<style>
+:root {
+	--bg: #f6f5f1; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a64; --line: #dedcd3;
+	--term-bg: #16171a; --term-ink: #e6e4dc; --term-dim: #8d8b84;
+	--accent: #2f6fd6; --ok: #2e8b57; --warn: #b7791f; --err: #c0392b;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--bg: #121314; --panel: #1b1c1e; --ink: #ecebe6; --muted: #9a988f; --line: #2c2d30;
+		--term-bg: #0b0c0d; --accent: #6ea0ff; --ok: #5cc48a; --warn: #e0a84a; --err: #ef6b5b;
+	}
+}
+:root[data-theme="dark"] {
+	--bg: #121314; --panel: #1b1c1e; --ink: #ecebe6; --muted: #9a988f; --line: #2c2d30;
+	--term-bg: #0b0c0d; --accent: #6ea0ff; --ok: #5cc48a; --warn: #e0a84a; --err: #ef6b5b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 20px; }
+.fake { display: inline-block; font-size: 12px; padding: 2px 8px; border: 1px solid var(--warn); color: var(--warn); border-radius: 999px; margin-left: 8px; vertical-align: middle; }
+.stages { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
+.stage { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.stage b { display: block; font-size: 14px; }
+.stage span { font-size: 12px; color: var(--muted); }
+.stage[data-state="active"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.stage[data-state="approved"] b::after { content: " ✓"; color: var(--ok); }
+.grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; }
+@media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .stages { grid-template-columns: repeat(2, 1fr); } }
+.term { background: var(--term-bg); color: var(--term-ink); border-radius: 10px; padding: 14px 16px; min-height: 340px; overflow-x: auto;
+	font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; }
+.term .p { color: var(--accent); } .term .d { color: var(--term-dim); } .term .w { color: var(--warn); } .term .e { color: var(--err); } .term .o { color: var(--ok); }
+.note { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.note h2 { font-size: 15px; margin: 0 0 6px; }
+.note p { margin: 0 0 10px; color: var(--muted); }
+.note code { font-size: 13px; }
+.files { margin: 0; padding-left: 18px; font: 13px/1.6 ui-monospace, Menlo, Consolas, monospace; }
+.controls { display: flex; gap: 8px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
+button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: .45; cursor: default; }
+.count { color: var(--muted); font-size: 13px; margin-left: auto; }
+</style>
+</head>
+<body>
+<main>
+	<h1>Spec agent walkthrough <span class="fake">illustrative: fake change, fake output</span></h1>
+	<p class="sub">From an intent to a change <code>pnpm task</code> can execute: four stages, each drafted by the agent, checked by rules, and approved or revised by you.</p>
+
+	<div class="stages" id="stages">
+		<div class="stage" data-stage="proposal"><b>1. Proposal</b><span>proposal.md · slices.md</span></div>
+		<div class="stage" data-stage="design"><b>2. Design</b><span>design.md · mock · examples</span></div>
+		<div class="stage" data-stage="specs"><b>3. Specs</b><span>specs/**/spec.md</span></div>
+		<div class="stage" data-stage="tasks"><b>4. Tasks</b><span>tasks.md</span></div>
+	</div>
+
+	<div class="grid">
+		<div class="term" id="term" aria-live="polite"></div>
+		<div class="note">
+			<h2 id="note-title"></h2>
+			<p id="note-body"></p>
+			<ul class="files" id="note-files"></ul>
+		</div>
+	</div>
+
+	<div class="controls">
+		<button id="prev">Back</button>
+		<button id="next" class="primary">Next step</button>
+		<span class="count" id="count"></span>
+	</div>
+</main>
+
+<script>
+const P = (s) => `<span class="p">$</span> ${s}`;
+const steps = [
+	{
+		stage: "proposal", approved: [],
+		title: "Start with your words",
+		body: "A new change needs an intent. It is written to intent.md verbatim and seeded into every stage.",
+		files: ["intent.md"],
+		term: [P('pnpm task spec add-plan-export --intent "Export a plan as JSON, publish its schema, and fail CI on an invalid plan"'), '<span class="d">{"event":"stage-started","loop":12,"stage":"proposal"}</span>'],
+	},
+	{
+		stage: "proposal", approved: [],
+		title: "Too big: the gate sends it back",
+		body: "Draft 1 touches three capabilities, over the budget of two. The issue is carried into draft 2, which slices the intent into three small changes and proposes only the first.",
+		files: ["proposal.md", "slices.md"],
+		term: ['# spec loop 12 — blocked (review)', '## proposal draft 1: 1 issue', '<span class="w">   WARNING proposal.md: touches 3 capabilities, over the budget of 2.</span>', '<span class="w">   Write slices.md: one line per small change, this one first</span>', '## proposal draft 2: <span class="o">clean</span>', '', 'Review openspec/changes/add-plan-export/proposal.md, slices.md, then:', '  approve:  pnpm task answer 12 --by principal --decision approve', '  revise:   pnpm task answer 12 --by principal --decision "&lt;what to change&gt;"'],
+	},
+	{
+		stage: "proposal", approved: [],
+		title: "Revise in your own words",
+		body: "Anything but \"approve\" is a revision. It reaches the next draft as \"The principal asked for: …\". You can also edit the file by hand first; the next draft starts from your edits.",
+		files: ["proposal.md"],
+		term: [P('pnpm task answer 12 --by principal --decision "JSON only; no CSV"'), '# spec loop 13 — blocked (review)', '## proposal draft 3: <span class="o">clean</span>', '', '  approve:  pnpm task answer 13 --by principal --decision approve'],
+	},
+	{
+		stage: "proposal", approved: ["proposal"],
+		title: "Approve, and the next stage opens",
+		body: "approvals.json records who approved and a hash of each file. The other slices are printed, ready to start when you choose.",
+		files: ["approvals.json"],
+		term: [P('pnpm task answer 13 --by principal --decision approve'), '# spec loop 14 — <span class="o">converged (approved)</span>', 'proposal approved by jesse.', 'Next: pnpm task spec add-plan-export', '', 'Sliced into 3 changes. Start the others when you\'re ready:', '  pnpm task spec add-plan-export-schema --intent "Publish the JSON Schema of the export. Follows add-plan-export."', '  pnpm task spec add-plan-export-ci --intent "Fail a PR whose plan export is invalid. Follows add-plan-export-schema."'],
+	},
+	{
+		stage: "design", approved: ["proposal"],
+		title: "Design: a mock and example code",
+		body: "The design gate needs at least two sections, one self-contained HTML mock and one example. Every design/ path design.md names must exist.",
+		files: ["design.md", "design/mock.html", "design/examples/export.sh", "design/examples/read-plan.ts"],
+		term: [P('pnpm task spec add-plan-export'), '# spec loop 15 — blocked (review)', '## design draft 1: 1 issue', '<span class="e">   ERROR design/mock.html: loads https://cdn.example.com/x.js from the network</span>', '## design draft 2: <span class="o">clean</span>', '', '  approve:  pnpm task answer 15 --by principal --decision approve'],
+	},
+	{
+		stage: "specs", approved: ["proposal", "design"],
+		title: "Specs: derived from the approved design",
+		body: "openspec validate --strict runs on every draft, along with the budget: six requirements and sixteen scenarios.",
+		files: ["specs/plan/export/spec.md"],
+		term: [P('pnpm task answer 15 --by principal --decision approve'), P('pnpm task spec add-plan-export'), '# spec loop 17 — blocked (review)', '## specs draft 1: 2 issues', '<span class="e">   ERROR specs/plan/export/spec.md: Requirement must have at least one scenario</span>', '<span class="w">   WARNING specs: 17 scenarios, over the budget of 16</span>', '## specs draft 2: <span class="o">clean</span>'],
+	},
+	{
+		stage: "tasks", approved: ["proposal", "design", "specs"],
+		title: "Tasks: one action, one file",
+		body: "Each task names one file on one line of 240 characters or less, and a test task names at most four scenarios. Every scenario must be named by some task.",
+		files: ["tasks.md"],
+		term: [P('pnpm task answer 17 --by principal --decision approve'), P('pnpm task spec add-plan-export'), '# spec loop 19 — blocked (review)', '## tasks draft 1: 2 issues', '<span class="w">   WARNING tasks.md#1.2: names 2 files (src/export.ts, src/cli.ts); a task changes one file</span>', '<span class="e">   ERROR tasks.md: no task names "An invalid plan fails the export"</span>', '## tasks draft 2: <span class="o">clean</span>'],
+	},
+	{
+		stage: "tasks", approved: ["proposal", "design", "specs", "tasks"],
+		title: "Ready to execute",
+		body: "Every stage is approved. The task and group loops take it from here, until the checks pass.",
+		files: [],
+		term: [P('pnpm task answer 19 --by principal --decision approve'), '# spec loop 20 — <span class="o">converged (approved)</span>', 'tasks approved by jesse.', 'Every stage of add-plan-export is approved. Execute it: pnpm task add-plan-export --next-group'],
+	},
+];
+
+let at = 0;
+const $ = (id) => document.getElementById(id);
+function render() {
+	const step = steps[at];
+	for (const el of document.querySelectorAll(".stage")) {
+		const name = el.dataset.stage;
+		el.dataset.state = step.approved.includes(name) ? "approved" : name === step.stage ? "active" : "";
+	}
+	$("term").innerHTML = step.term.join("\n");
+	$("note-title").textContent = step.title;
+	$("note-body").textContent = step.body;
+	$("note-files").innerHTML = step.files.map((f) => `<li>${f}</li>`).join("");
+	$("prev").disabled = at === 0;
+	$("next").disabled = at === steps.length - 1;
+	$("count").textContent = `Step ${at + 1} of ${steps.length}`;
+}
+$("prev").addEventListener("click", () => { if (at > 0) { at--; render(); } });
+$("next").addEventListener("click", () => { if (at < steps.length - 1) { at++; render(); } });
+document.addEventListener("keydown", (e) => {
+	if (e.key === "ArrowRight") $("next").click();
+	if (e.key === "ArrowLeft") $("prev").click();
+});
+render();
+</script>
+</body>
+</html>

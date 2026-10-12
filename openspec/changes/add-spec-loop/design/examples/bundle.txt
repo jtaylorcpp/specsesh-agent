@@ -1,0 +1,11 @@
+Here are the files.
+=== proposal.md
+## Why
+
+Plans can't be read by CI.
+
+## What Changes
+
+- `specplan export --json`
+=== tasks.md
+## 1. This line is never written: the proposal stage does not own tasks.md

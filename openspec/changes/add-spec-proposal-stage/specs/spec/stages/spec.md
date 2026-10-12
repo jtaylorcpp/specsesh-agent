@@ -1,0 +1,48 @@
+## Purpose
+The stages of the spec loop (proposal, design, specs and tasks): for each, the files it owns, the stages it follows, what it is seeded with, and the rules its gate checks.
+
+## ADDED Requirements
+
+### Requirement: The proposal stage drafts proposal.md from the intent
+The task entry SHALL export `proposalStage`, named `proposal`, owning `proposal.md`, following no stage, with the bundled `spec-proposal.agent` as its script. Its seed SHALL set `base` to one line per capability in `openspec/specs/`: `<area>/<name>: <purpose>`, in path order.
+
+#### Scenario: The proposal stage is seeded with every capability
+- **GIVEN** a workspace whose `openspec/specs/` holds `core/subset` and `task/cli`
+- **WHEN** the proposal stage's seed runs
+- **THEN** `base` SHALL be two lines, `core/subset: …` then `task/cli: …`, each with that spec's purpose
+
+### Requirement: A proposal has five sections in order
+The proposal gate SHALL report an `ERROR` for each of `## Why`, `## What Changes`, `## Out of scope`, `## Capabilities` and `## Impact` that is missing, and one for sections present out of that order.
+
+#### Scenario: A missing Out of scope section
+- **WHEN** a draft without `## Out of scope` is gated
+- **THEN** there SHALL be one `ERROR` naming `## Out of scope`
+
+### Requirement: The Capabilities section names real paths
+The gate SHALL read backticked `<area>/<name>` paths after `**New:**` and `**Modified:**`, on the label's line and its nested bullets. It SHALL report an `ERROR` when none is named, when a modified path has no spec in `openspec/specs/`, and when a new path already has one.
+
+#### Scenario: Capabilities in nested bullets
+- **WHEN** `**Modified:**` is followed by the nested bullets `` `task/cli` `` and `` `task/headless` ``
+- **THEN** both SHALL be read as modified paths
+
+#### Scenario: A modified path that does not exist
+- **WHEN** a draft modifies `task/clii`
+- **THEN** there SHALL be an `ERROR` naming `task/clii`
+
+#### Scenario: A new path that already exists
+- **WHEN** a draft lists `core/subset` as new
+- **THEN** there SHALL be an `ERROR` saying `core/subset` already exists and belongs under Modified
+
+### Requirement: A proposal over the capability budget is sent back
+The gate SHALL include `proposalSizeIssues` for the capabilities read, so a draft naming more than the budget's capabilities has a `WARNING` and is drafted again.
+
+#### Scenario: A proposal touching three capabilities is sent back
+- **WHEN** a draft names one new and two modified capabilities
+- **THEN** the gate SHALL report the size `WARNING` listing all three, and the loop SHALL iterate
+
+### Requirement: The bundled proposal script keeps the stage contract
+`spec-proposal.agent` SHALL lint with no error, keep the stage contract with `next_action` defaulting to `review`, and declare one subagent that sets `files`, `summary`, `next_action` and `question` from its outputs.
+
+#### Scenario: The bundled proposal script fits the contract
+- **WHEN** the bundled `spec-proposal.agent` is checked
+- **THEN** it SHALL lint clean, pass the stage contract and declare exactly one subagent

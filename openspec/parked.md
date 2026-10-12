@@ -54,3 +54,11 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 - **`worktreeSetup` commands have no timeout**, and their output is shown only when one fails.
 - **`pnpm task` runs from the repository root** (pnpm's working directory), so a relative `--db` is relative to the root wherever you type it.
 - **`pnpm test:live` asks `claude auth status` whether you are logged in.** Not yet checked against the installed `claude` (its flags were not exercised here); `AGENTSCRIPT_LIVE_FORCE=1` bypasses the question.
+
+## Spec agent (from the add-spec-* changes)
+
+- **A live run through all four stages.** `add-spec-cli-events` proves a real model drafts a clean proposal; designs, deltas and task lists are larger strings through `--json-schema`, and nothing live covers them yet.
+- **Type-checking design examples.** The design gate checks that `design/examples/` holds a file, not that it compiles. A per-repo `designChecks` config (commands with a `{change}` placeholder) would close it.
+- **`spec` could check for `openspec` on `PATH` up front.** Without it the specs and tasks gates report one `ERROR` per draft until the loop exhausts.
+- **Task order is not checked.** The plan script is told to order tasks so each leaves the code working; no gate rule can see that.
+- **"No command prints usage" is tested twice** (`__tests__/task/status.test.ts` and `resolve.test.ts`). `add-spec-cli` 2.1 names one; the other must follow.

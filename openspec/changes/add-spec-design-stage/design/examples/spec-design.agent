@@ -1,0 +1,60 @@
+config:
+    agent_name: "spec-design"
+    description: "Drafts design.md, an HTML mock and example code for one OpenSpec change"
+
+system:
+    instructions: |
+        You draft the design of one OpenSpec change from its approved proposal. The design is what
+        the principal approves before any requirement is written, so make it concrete: show how the
+        feature looks and how it is called. Never add scope the proposal does not have.
+
+variables:
+    change_id: mutable string = ""
+        description: "the change's id"
+    stage: mutable string = ""
+        description: "always design"
+    intent: mutable string = ""
+        description: "the principal's words"
+    approved: mutable string = ""
+        description: "the approved proposal.md, as a === bundle"
+    current: mutable string = ""
+        description: "design.md and design/ as they are now, as a === bundle"
+    base: mutable string = ""
+        description: "the current spec of each capability the proposal modifies"
+    iteration: mutable number = 1
+        description: "which draft this is"
+    carried: mutable string = ""
+        description: "the gate's issues, or what the principal asked for"
+    files: mutable string = ""
+        description: "the drafted files, each opened by a line === <path>"
+    summary: mutable string = ""
+        description: "what this draft changed"
+    next_action: mutable string = "review"
+        description: "review or ask"
+    question: mutable string = ""
+        description: "the question when next_action is ask"
+
+subagent draft:
+    description: "Draft design.md, the mock and the examples"
+
+    reasoning:
+        instructions: ->
+            | Change {!@variables.change_id}. The principal's words: {!@variables.intent}
+            | The approved proposal:
+            | {!@variables.approved}
+            | Current specs it modifies:
+            | {!@variables.base}
+            if @variables.iteration > 1:
+                | The design as it is now:
+                | {!@variables.current}
+                | Fix every one of these before anything else:
+                | {!@variables.carried}
+            | Write design.md with ## Context, then how the feature is used with the example code inline, then ## Decisions and ## Risks.
+            | Write design/mock.html: one complete HTML document, CSS and script inline, nothing loaded from the network. For a UI, show every state the proposal names, with fake data labelled as fake. For a CLI or library, show a rendered session or flow.
+            | Write at least one file under design/examples/: the code a user would write. Name every design/ file in design.md.
+            | Return files as === sections: design.md, design/mock.html, then each example.
+            | Answer next_action with exactly one word: review, or ask when only the principal can choose. Put the question in question.
+            set @variables.files = @outputs.files
+            set @variables.summary = @outputs.summary
+            set @variables.next_action = @outputs.next_action
+            set @variables.question = @outputs.question

@@ -1,0 +1,60 @@
+config:
+    agent_name: "spec-plan"
+    description: "Writes tasks.md for one OpenSpec change: small, single-action tasks"
+
+system:
+    instructions: |
+        You write the task list of one OpenSpec change from its approved proposal, design and
+        deltas. Every task is one action on one file, on one line, and a check can confirm it.
+        Tests are their own tasks, each naming at most four scenarios by their exact names in
+        double quotes. Every scenario in the deltas is named by some task. Order tasks so each
+        leaves the code working.
+
+variables:
+    change_id: mutable string = ""
+        description: "the change's id"
+    stage: mutable string = ""
+        description: "always tasks"
+    intent: mutable string = ""
+        description: "the principal's words"
+    approved: mutable string = ""
+        description: "the approved proposal, design and deltas, as a === bundle"
+    current: mutable string = ""
+        description: "tasks.md as it is now"
+    base: mutable string = ""
+        description: "the repository's tracked files, one path per line"
+    iteration: mutable number = 1
+        description: "which draft this is"
+    carried: mutable string = ""
+        description: "the gate's issues, or what the principal asked for"
+    files: mutable string = ""
+        description: "one section: === tasks.md, then the file"
+    summary: mutable string = ""
+        description: "what this draft changed"
+    next_action: mutable string = "review"
+        description: "review or ask"
+    question: mutable string = ""
+        description: "the question when next_action is ask"
+
+subagent draft:
+    description: "Draft tasks.md"
+
+    reasoning:
+        instructions: ->
+            | Change {!@variables.change_id}. The approved proposal, design and deltas:
+            | {!@variables.approved}
+            | Files in the repository:
+            | {!@variables.base}
+            if @variables.iteration > 1:
+                | tasks.md as it is now:
+                | {!@variables.current}
+                | Fix every one of these before anything else:
+                | {!@variables.carried}
+            | Write tasks.md as numbered groups (## 1. Title) of unticked tasks (- [ ] 1.1 ...). At most four groups and twelve tasks.
+            | Each task names one file in backticks, by its repository path, and says the one thing to do to it, on one line of at most 240 characters.
+            | Name every scenario of the deltas, in double quotes, in exactly one test task; at most four per task.
+            | Answer next_action with exactly one word: review, or ask when only the principal can choose. Put the question in question.
+            set @variables.files = @outputs.files
+            set @variables.summary = @outputs.summary
+            set @variables.next_action = @outputs.next_action
+            set @variables.question = @outputs.question

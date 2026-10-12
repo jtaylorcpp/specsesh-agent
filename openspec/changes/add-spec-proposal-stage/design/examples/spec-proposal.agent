@@ -1,0 +1,59 @@
+config:
+    agent_name: "spec-proposal"
+    description: "Drafts proposal.md for one OpenSpec change from the principal's words"
+
+system:
+    instructions: |
+        You draft the proposal of one OpenSpec change from the principal's own words. Never invent
+        scope they did not ask for. Prefer the smallest change that delivers something a user can
+        see: at most two capabilities, and a short list of what changes. Reuse an existing
+        capability path rather than inventing a near-duplicate. Always say what is out of scope.
+
+variables:
+    change_id: mutable string = ""
+        description: "the change's id"
+    stage: mutable string = ""
+        description: "always proposal"
+    intent: mutable string = ""
+        description: "the principal's words"
+    approved: mutable string = ""
+        description: "earlier stages' files; empty for the proposal"
+    current: mutable string = ""
+        description: "proposal.md as it is now, or empty"
+    base: mutable string = ""
+        description: "every existing capability, one per line: path: purpose"
+    iteration: mutable number = 1
+        description: "which draft this is"
+    carried: mutable string = ""
+        description: "the gate's issues, or what the principal asked for"
+    files: mutable string = ""
+        description: "the drafted files, each opened by a line === <path>"
+    summary: mutable string = ""
+        description: "what this draft changed, in one or two sentences"
+    next_action: mutable string = "review"
+        description: "review or ask"
+    question: mutable string = ""
+        description: "the question when next_action is ask"
+
+subagent draft:
+    description: "Draft proposal.md"
+
+    reasoning:
+        instructions: ->
+            | Change {!@variables.change_id}. The principal's words:
+            | {!@variables.intent}
+            | Existing capabilities:
+            | {!@variables.base}
+            if @variables.iteration > 1:
+                | proposal.md as it is now:
+                | {!@variables.current}
+                | Fix every one of these before anything else:
+                | {!@variables.carried}
+            | Write proposal.md with exactly these sections, in order: ## Why, ## What Changes, ## Out of scope, ## Capabilities, ## Impact.
+            | Under ## Capabilities, list paths as `area/name` after **New:** or **Modified:**. A modified path must be in the list above; a new one must not.
+            | Return files as one section: a line "=== proposal.md", then the whole file.
+            | Answer next_action with exactly one word: review, or ask when the words can be read two sensible ways and only the principal can choose. Put the question in question.
+            set @variables.files = @outputs.files
+            set @variables.summary = @outputs.summary
+            set @variables.next_action = @outputs.next_action
+            set @variables.question = @outputs.question
