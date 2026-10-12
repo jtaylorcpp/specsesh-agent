@@ -9,7 +9,7 @@ import type { RunResult } from "../../src/interpreter/index.js";
 import type { TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { RESULT_TOOL, waitForScript } from "../../src/durable/index.js";
-import { context, openHarness, setup } from "./helpers.js";
+import { context, ENTRIES, openHarness, PIPELINE, setup } from "./helpers.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // Plain Node runs the TypeScript fixtures; this hook maps their `.js` imports to `.ts`.
@@ -87,5 +87,31 @@ describe("a run that survives its process dying", () => {
 		expect(result.kind).toBe("completed");
 		expect(result.variables).toEqual({ report: "it crashes", severity: "low", urgent: false });
 		expect(env.requests).toHaveLength(2);
+	}, 90_000);
+
+	it("Scenario: The script travels inside the task", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "agentscript-crash-"));
+		dirs.push(dir);
+		const dbPath = join(dir, "run.sqlite");
+
+		// The child started the run from a string, never a file, and died on step 2's request.
+		const child = crashChild(dbPath);
+		expect(child.status).toBe(137);
+		const id = Number(/TASK (\d+)/.exec(child.out)?.[1]) as TaskId<RunResult>;
+
+		// A fresh process given only the database.
+		const env = setup();
+		env.faux.setResponses([fauxAssistantMessage([fauxText("Escalated.")])]);
+		const harness = await openHarness(await openNodeSqliteStorage(dbPath), env);
+		const input = (await harness.getTask(id, context))?.input as Record<string, unknown>;
+		harness.resume();
+		const result = await waitForScript(harness, id, context);
+		await harness.close(context);
+
+		expect(input.source).toBe(PIPELINE);
+		expect(input.options).toEqual({ entry: ENTRIES });
+		expect(input.model).toEqual(env.model);
+		expect(result.kind).toBe("completed");
+		expect(result.steps.map((s) => s.subagent)).toEqual(["classify", "respond"]);
 	}, 90_000);
 });

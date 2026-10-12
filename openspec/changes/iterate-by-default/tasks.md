@@ -37,5 +37,5 @@
 
 ## 6. Verify
 
-- [ ] 6.1 `pnpm -r check`, `pnpm -r test` (twice, stable), `pnpm pack:check`, `pnpm spec:check`, `pnpm docs:check` pass
+- [x] 6.1 `pnpm -r check`, `pnpm -r test` (twice, stable), `pnpm pack:check`, `pnpm spec:check`, `pnpm docs:check` pass
 - [ ] 6.2 `pnpm test:live` (the orchestrator runs it), then `pnpm spec:archive iterate-by-default`
