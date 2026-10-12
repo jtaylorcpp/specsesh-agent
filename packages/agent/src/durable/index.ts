@@ -56,6 +56,15 @@ export {
 	type ProcessRunner,
 	type Runners,
 } from "./delegation.js";
+export {
+	agentRunner,
+	delegateContractProblems,
+	isAgentDelegate,
+	type AgentGrant,
+	type AgentRunner,
+	type AgentRunnerContext,
+} from "./agent-runner.js";
+export { EDIT_AGENT, READ_AGENT } from "./delegate-scripts.js";
 export type { AgentConfig, AgentHarness, AgentHarnessOptions, ModelFactory } from "./agent-config.js";
 export { createAgentHarness } from "./harness.js";
 export { runScript, startScript, waitForScript, type StartScriptOptions } from "./host.js";

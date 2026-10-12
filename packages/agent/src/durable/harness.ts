@@ -9,7 +9,7 @@ import { createModels, type Provider } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, type ModelRef } from "@earendil-works/pi-durable";
 import { createActionRegistry } from "./actions.js";
 import type { AgentConfig, AgentHarness, AgentHarnessOptions } from "./agent-config.js";
-import { delegationActions } from "./delegation.js";
+import { delegationActions, validateGrants } from "./delegation.js";
 import { agentScriptExtensions } from "./extension.js";
 import { searchActions, workspaceActions } from "./workspace.js";
 
@@ -32,6 +32,9 @@ export async function createAgentHarness<Env>(config: AgentConfig<Env>, options:
 	const workspace = await config.workspace(options.env);
 	// Search actions only when the workspace can both list and search.
 	const canSearch = typeof workspace.list === "function" && typeof workspace.search === "function";
+	const runners = config.runners ?? {};
+	const grants = config.delegates ?? {};
+	// First pass: everything but agent delegates. Every grant is validated here.
 	const firstPass = [
 		...workspaceActions(workspace, {
 			...(config.allow !== undefined ? { allow: config.allow } : {}),
@@ -40,9 +43,15 @@ export async function createAgentHarness<Env>(config: AgentConfig<Env>, options:
 		}),
 		...(canSearch ? searchActions(workspace) : []),
 		...(config.actions?.(options.env, workspace) ?? []),
-		...delegationActions(config.delegates ?? {}, { workspace, runners: config.runners ?? {} }),
+		...delegationActions(grants, { workspace, runners }),
 	];
-	const actions = createActionRegistry(firstPass);
+	// Second pass: each agent grant, checked against the first pass and the models.
+	const base = createActionRegistry(firstPass);
+	const agents = validateGrants(grants, runners).flatMap((terms) => {
+		const runner = runners[terms.runner];
+		return runner?.kind === "agent" ? [runner.action(terms, { models, actions: base })] : [];
+	});
+	const actions = agents.length > 0 ? createActionRegistry([...firstPass, ...agents]) : base;
 
 	const installed = agentScriptExtensions({
 		actions,

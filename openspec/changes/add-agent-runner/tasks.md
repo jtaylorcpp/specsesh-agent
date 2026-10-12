@@ -13,21 +13,21 @@
 
 ## 3. The agent runner
 
-- [ ] 3.1 `packages/agent/src/durable/agent-runner.ts` (new) + `src/durable/index.ts`:
+- [x] 3.1 `packages/agent/src/durable/agent-runner.ts` (new) + `src/durable/index.ts`:
   - `agentRunner()`, kind `"agent"`, accepting `model`, `script`, `tools` (default `read_file`, `list_files`, `search_files`) and `maxSteps` (default `20`);
   - a durable host action whose `start` builds the child `RunInput` (`entry` every subagent, `variables: { instructions }`, the grant's model, `scope`, `maxSteps`), honouring `maxCalls`;
   - `finish` answers `{ ok, summary, files_changed }`; a child not `completed`, or completing with `ok` false, answers `{ ok: false }`;
   - the record refs `delegate/<name>` and `run:<childId>`, with `DiffEvidence`.
-- [ ] 3.2 `packages/agent/src/durable/delegate-scripts.ts` (new): `READ_AGENT` and `EDIT_AGENT` as source strings (the delegate contract: `instructions`; `ok`, `summary`), lint clean; the delegate-contract checker beside the task contract's
-- [ ] 3.3 `packages/agent/src/durable/harness.ts`: the two-pass registry, with agent grants validated against the first pass and `models`:
+- [x] 3.2 `packages/agent/src/durable/delegate-scripts.ts` (new): `READ_AGENT` and `EDIT_AGENT` as source strings (the delegate contract: `instructions`; `ok`, `summary`), lint clean; the delegate-contract checker beside the task contract's
+- [x] 3.3 `packages/agent/src/durable/harness.ts`: the two-pass registry, with agent grants validated against the first pass and `models`:
   - unknown model, listing the models;
   - an unknown or `delegate/` tool;
   - a script diagnostic, unsupported construct, out-of-tools action or contract problem.
 
   The binding check refuses an agent delegate under `reasoning.actions` with `call it with run`.
-- [ ] 3.4 `packages/agent/src/node/claude-code-runner.ts` (where `defaultRunners` lives): `defaultRunners` gains `agent: agentRunner()`
-- [ ] 3.5 `packages/agent/__tests__/durable/agent-runner-grants.test.ts`: `actions/agent-runner` "The node defaults hold both runners", "A minimal agent grant takes the defaults", "An unknown model is refused, listing the models", "A delegate cannot be given a delegate", "A script that uses a tool it was not granted is refused", "A script without summary is refused", "A reasoning-offered agent delegate is refused" and "The bundled delegate scripts are clean" (8)
-- [ ] 3.6 `packages/agent/__tests__/durable/agent-runner-calls.test.ts` (faux provider, real SQLite for the crash case): "A reviewer on another model answers", "An editing delegate's changes are counted", "A child past its step limit fails the call" and "Resume waits for the same child" (4, the last with a crash fixture beside `__tests__/durable/fixtures/`)
+- [x] 3.4 `packages/agent/src/node/claude-code-runner.ts` (where `defaultRunners` lives): `defaultRunners` gains `agent: agentRunner()`
+- [x] 3.5 `packages/agent/__tests__/durable/agent-runner-grants.test.ts`: `actions/agent-runner` "The node defaults hold both runners", "A minimal agent grant takes the defaults", "An unknown model is refused, listing the models", "A delegate cannot be given a delegate", "A script that uses a tool it was not granted is refused", "A script without summary is refused", "A reasoning-offered agent delegate is refused" and "The bundled delegate scripts are clean" (8)
+- [x] 3.6 `packages/agent/__tests__/durable/agent-runner-calls.test.ts` (faux provider, real SQLite for the crash case): "A reviewer on another model answers", "An editing delegate's changes are counted", "A child past its step limit fails the call" and "Resume waits for the same child" (4, the last with a crash fixture beside `__tests__/durable/fixtures/`)
 
 ## 4. Config and CLI
 

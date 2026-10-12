@@ -20,7 +20,7 @@
 
 import { analyze } from "../authoring/document.js";
 import { type Node, type Range, documentRoot, formatPosition, isNode } from "./ast.js";
-import { actionReference, readActionDefinitions, runClauses, toolName } from "./actions.js";
+import { actionReference, readActionDefinitions, readReasoningActions, runClauses, toolName } from "./actions.js";
 import {
 	type DeclaredVariable,
 	type PendingAssignment,
@@ -700,6 +700,8 @@ export interface DeclaredAction {
 	/** Each declared input's type as written (`string`, `number`, `boolean`). */
 	readonly inputs: Readonly<Record<string, string>>;
 	readonly outputs: Readonly<Record<string, string>>;
+	/** Whether its subagent's `reasoning.actions` offers it to the model. */
+	readonly offered: boolean;
 }
 
 /**
@@ -710,6 +712,7 @@ export function declaredActions(source: string): readonly DeclaredAction[] {
 	const { subagents } = load(source);
 	const declared: DeclaredAction[] = [];
 	for (const [subagent, block] of subagents) {
+		const offered = new Set(readReasoningActions(block).map((entry) => actionReference(entry.reference)));
 		for (const definition of readActionDefinitions(block)) {
 			const types = (parameters: typeof definition.inputs) =>
 				Object.fromEntries(parameters.map((p) => [p.name, p.type ?? "(unknown)"]));
@@ -719,6 +722,7 @@ export function declaredActions(source: string): readonly DeclaredAction[] {
 				tool: toolName(definition) ?? definition.name,
 				inputs: types(definition.inputs),
 				outputs: types(definition.outputs),
+				offered: offered.has(definition.name),
 			});
 		}
 	}

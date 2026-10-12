@@ -12,6 +12,7 @@
 
 import type { Action, CheckEvidence, Evidence } from "../openspec/index.js";
 import type { HostAction } from "./actions.js";
+import type { AgentRunner } from "./agent-runner.js";
 import { brandDelegate } from "./delegate-brand.js";
 import { SPAWN_FAILED_EXIT_CODE, actionRecord, diffSnapshots, type ExecResult, type Workspace } from "./workspace.js";
 
@@ -57,7 +58,7 @@ export interface ProcessRunner {
 	read(exited: Extract<ExecResult, { kind: "exited" }>): { readonly ok: boolean; readonly summary: string };
 }
 
-export type Runners = Readonly<Record<string, ProcessRunner>>;
+export type Runners = Readonly<Record<string, ProcessRunner | AgentRunner>>;
 
 /** A grant `delegationActions` refuses. Nothing was built. */
 export class DelegateGrantError extends Error {
@@ -150,14 +151,19 @@ export interface DelegationOptions {
 	readonly runners?: Runners;
 }
 
-/** One `delegate/<name>` per grant. Throws `DelegateGrantError`, building nothing, if any grant is invalid. */
+/**
+ * One `delegate/<name>` per process grant. Throws `DelegateGrantError`, building
+ * nothing, if any grant is invalid. Agent grants are validated here but built by
+ * their runner's `action`, against the harness's models and registry.
+ */
 export function delegationActions(grants: DelegateGrants = {}, options: DelegationOptions): HostAction[] {
 	const { workspace } = options;
 	const runners = options.runners ?? {};
-	return validateGrants(grants, runners).map((terms) => {
-		const runner = runners[terms.runner] as ProcessRunner;
+	return validateGrants(grants, runners).flatMap((terms) => {
+		const runner = runners[terms.runner];
+		if (runner?.kind !== "process") return [];
 		const name = `delegate/${terms.name}`;
-		return brandDelegate<HostAction>({
+		return [brandDelegate<HostAction>({
 			name,
 			kind: "delegate",
 			inputs: { instructions: "string" },
@@ -213,6 +219,6 @@ export function delegationActions(grants: DelegateGrants = {}, options: Delegati
 					record: actionRecord(recorded, evidence),
 				};
 			},
-		});
+		})];
 	});
 }

@@ -139,7 +139,8 @@ export class ActionBindingError extends Error {
  * unregistered `delegate/<name>` also lists the granted delegates; a grant the
  * script never targets is never a problem. With `scope`, a tool outside it is
  * refused before the registry is consulted; without it, every registered tool
- * is in scope.
+ * is in scope. A durable action offered under `reasoning.actions` is refused:
+ * it runs only as a `run` call.
  */
 export function checkBindings(source: string, registry: ActionRegistry, scope?: readonly string[]): void {
 	const problems: ActionBindingProblem[] = [];
@@ -150,6 +151,8 @@ export function checkBindings(source: string, registry: ActionRegistry, scope?: 
 			mismatches.push(`mcpTool://${declared.tool} is outside this run's scope (${scope.join(", ") || "empty"})`);
 		} else if (host === undefined) {
 			mismatches.push(`mcpTool://${declared.tool} is not registered on this host${grantsNote(declared.tool, registry)}`);
+		} else if (declared.offered && isDurable(host)) {
+			mismatches.push(`${declared.tool} runs as a child task and cannot be offered under reasoning.actions: call it with run`);
 		} else {
 			mismatches.push(
 				...compareParameters("input", declared.inputs, host.inputs),
