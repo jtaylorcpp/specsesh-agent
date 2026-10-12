@@ -43,6 +43,83 @@ export interface Workspace {
 	exec?(argv: readonly string[], options: ExecOptions): Promise<ExecResult>;
 	/** `undefined`: no history to diff against. */
 	snapshot?(): Promise<WorkspaceSnapshot | undefined>;
+	/** The workspace's file paths matching `glob` (see `matchGlob`), relative and sorted. */
+	list?(glob: string): Promise<string[]>;
+	/**
+	 * Each line matching the regular expression `pattern` in the files matching
+	 * `glob`, in path then line order, at most `limit` (default 200).
+	 */
+	search?(pattern: string, options?: SearchOptions): Promise<SearchMatch[]>;
+}
+
+export interface SearchOptions {
+	readonly glob?: string;
+	/** Default `DEFAULT_SEARCH_LIMIT`. */
+	readonly limit?: number;
+}
+
+/** One matching line; `line` counts from 1. */
+export interface SearchMatch {
+	readonly path: string;
+	readonly line: number;
+	readonly text: string;
+}
+
+export const DEFAULT_SEARCH_LIMIT = 200;
+export const NO_LIST = "this workspace cannot list files";
+export const NO_SEARCH = "this workspace cannot search files";
+
+/** Expand `{a,b}` (nested allowed) into its alternatives. An unclosed `{` is literal. */
+function expandBraces(glob: string): string[] {
+	const open = glob.indexOf("{");
+	if (open === -1) return [glob];
+	let depth = 0;
+	const commas: number[] = [];
+	for (let i = open; i < glob.length; i++) {
+		const c = glob[i];
+		if (c === "{") depth++;
+		else if (c === "}" && --depth === 0) {
+			const head = glob.slice(0, open);
+			const tail = expandBraces(glob.slice(i + 1));
+			const bounds = [open, ...commas, i];
+			const parts = bounds.slice(1).flatMap((end, k) => expandBraces(glob.slice(bounds[k]! + 1, end)));
+			return parts.flatMap((part) => tail.map((rest) => head + part + rest));
+		} else if (c === "," && depth === 1) commas.push(i);
+	}
+	return expandBraces(glob.slice(open + 1)).map((rest) => glob.slice(0, open + 1) + rest);
+}
+
+function globBody(glob: string): string {
+	let out = "";
+	for (let i = 0; i < glob.length; i++) {
+		const c = glob[i]!;
+		if (c === "*" && glob[i + 1] === "*") {
+			const atStart = i === 0 || glob[i - 1] === "/";
+			if (atStart && glob[i + 2] === "/") {
+				out += "(?:.*/)?";
+				i += 2;
+			} else {
+				out += ".*";
+				i += 1;
+			}
+		} else if (c === "*") out += "[^/]*";
+		else if (c === "?") out += "[^/]";
+		else out += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+	}
+	return out;
+}
+
+/**
+ * A glob as an anchored regular expression over `/`-separated relative paths:
+ * `*` and `?` stay within a segment, `**` crosses them (`**\/` also matches no
+ * directory), and `{a,b}` is either alternative.
+ */
+export function globToRegExp(glob: string): RegExp {
+	return new RegExp(`^(?:${expandBraces(glob).map(globBody).join("|")})$`);
+}
+
+export function matchGlob(glob: string, path: string): boolean {
+	return globToRegExp(glob).test(path);
 }
 
 export class WorkspaceError extends Error {
@@ -265,4 +342,51 @@ export function workspaceActions(workspace: Workspace, options: WorkspaceActionO
 	};
 
 	return [readFileAction, editFileAction, runCommandAction, runChecksAction];
+}
+
+/**
+ * `list_files` and `search_files`, over `workspace.list` and `workspace.search`.
+ * Both only read, so they record no Action. An absent or empty `glob` is `**\/*`.
+ *
+ *   list_files   { glob } → { paths }               read  safe
+ *   search_files { pattern, glob } → { matches }    read  safe
+ */
+export function searchActions(workspace: Workspace): HostAction[] {
+	const globOf = (inputs: Readonly<Record<string, unknown>>): string => {
+		const glob = inputs["glob"];
+		return typeof glob === "string" && glob.trim() !== "" ? glob : "**/*";
+	};
+
+	const listFilesAction: HostAction = {
+		name: "list_files",
+		kind: "read",
+		inputs: { glob: "string" },
+		outputs: { paths: "string" },
+		replay: "safe",
+		async execute(inputs) {
+			if (workspace.list === undefined) return { ok: false, message: NO_LIST };
+			return { ok: true, outputs: { paths: (await workspace.list(globOf(inputs))).join("\n") } };
+		},
+	};
+
+	const searchFilesAction: HostAction = {
+		name: "search_files",
+		kind: "read",
+		inputs: { pattern: "string", glob: "string" },
+		outputs: { matches: "string" },
+		replay: "safe",
+		async execute(inputs) {
+			if (workspace.search === undefined) return { ok: false, message: NO_SEARCH };
+			const pattern = String(inputs["pattern"] ?? "");
+			try {
+				new RegExp(pattern);
+			} catch (error) {
+				return { ok: false, message: `${pattern} is not a regular expression: ${(error as Error).message}` };
+			}
+			const matches = await workspace.search(pattern, { glob: globOf(inputs) });
+			return { ok: true, outputs: { matches: matches.map((m) => `${m.path}:${m.line}: ${m.text}`).join("\n") } };
+		},
+	};
+
+	return [listFilesAction, searchFilesAction];
 }

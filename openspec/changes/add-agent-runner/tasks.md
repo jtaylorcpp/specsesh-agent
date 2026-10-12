@@ -1,9 +1,9 @@
 ## 1. Workspaces list and search
 
-- [ ] 1.1 `packages/agent/src/durable/workspace.ts`: optional `list(glob)` and `search(pattern, { glob, limit })` on `Workspace`; a small glob matcher (`*`, `**`, `?`, `{a,b}`) with no new dependency; `searchActions(workspace)` returning `list_files` and `search_files` (kind `"read"`, replay `"safe"`, no `Action` recorded, `cannot list files` / `cannot search files` without support); exported from `src/durable/index.ts`
-- [ ] 1.2 `packages/agent/src/node/local-workspace.ts`: `list` (`git ls-files -co --exclude-standard -z` in git, a walk without `.git/` outside) and `search` (UTF-8 in JavaScript, NUL-byte files skipped, `limit` default 200)
-- [ ] 1.3 `packages/agent/src/durable/harness.ts`: `createAgentHarness` adds `searchActions(workspace)` after the built-ins when the workspace has `list` and `search`
-- [ ] 1.4 `packages/agent/__tests__/durable/workspace-search.test.ts`: `actions/workspace` "A search finds lines in matching files", "An ignored file is not listed", "search_files formats matches" and "Search needs a searchable workspace"; `host/agent-config` "A local workspace gets list_files and search_files" and "A workspace that cannot search gets neither" (6), each named `Scenario: <exact scenario name>`
+- [x] 1.1 `packages/agent/src/durable/workspace.ts`: optional `list(glob)` and `search(pattern, { glob, limit })` on `Workspace`; a small glob matcher (`*`, `**`, `?`, `{a,b}`) with no new dependency; `searchActions(workspace)` returning `list_files` and `search_files` (kind `"read"`, replay `"safe"`, no `Action` recorded, `cannot list files` / `cannot search files` without support); exported from `src/durable/index.ts`
+- [x] 1.2 `packages/agent/src/node/local-workspace.ts`: `list` (`git ls-files -co --exclude-standard -z` in git, a walk without `.git/` outside) and `search` (UTF-8 in JavaScript, NUL-byte files skipped, `limit` default 200)
+- [x] 1.3 `packages/agent/src/durable/harness.ts`: `createAgentHarness` adds `searchActions(workspace)` after the built-ins when the workspace has `list` and `search`
+- [x] 1.4 `packages/agent/__tests__/durable/workspace-search.test.ts`: `actions/workspace` "A search finds lines in matching files", "An ignored file is not listed", "search_files formats matches" and "Search needs a searchable workspace"; `host/agent-config` "A local workspace gets list_files and search_files" and "A workspace that cannot search gets neither" (6), each named `Scenario: <exact scenario name>`
 
 ## 2. Scope, step limits and durable host actions
 

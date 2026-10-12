@@ -11,7 +11,7 @@ import { createActionRegistry } from "./actions.js";
 import type { AgentConfig, AgentHarness, AgentHarnessOptions } from "./agent-config.js";
 import { delegationActions } from "./delegation.js";
 import { agentScriptExtensions } from "./extension.js";
-import { workspaceActions } from "./workspace.js";
+import { searchActions, workspaceActions } from "./workspace.js";
 
 export async function createAgentHarness<Env>(config: AgentConfig<Env>, options: AgentHarnessOptions<Env>): Promise<AgentHarness> {
 	// Each factory once, in key order; each distinct provider once, keyed by id as pi keys it.
@@ -30,15 +30,19 @@ export async function createAgentHarness<Env>(config: AgentConfig<Env>, options:
 	for (const { provider } of providers.values()) registered.setProvider(provider);
 
 	const workspace = await config.workspace(options.env);
-	const actions = createActionRegistry([
+	// Search actions only when the workspace can both list and search.
+	const canSearch = typeof workspace.list === "function" && typeof workspace.search === "function";
+	const firstPass = [
 		...workspaceActions(workspace, {
 			...(config.allow !== undefined ? { allow: config.allow } : {}),
 			...(config.checks !== undefined ? { checks: config.checks } : {}),
 			...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
 		}),
+		...(canSearch ? searchActions(workspace) : []),
 		...(config.actions?.(options.env, workspace) ?? []),
 		...delegationActions(config.delegates ?? {}, { workspace, runners: config.runners ?? {} }),
-	]);
+	];
+	const actions = createActionRegistry(firstPass);
 
 	const installed = agentScriptExtensions({ actions, workspace: workspace.root });
 	const registry = createRegistry();

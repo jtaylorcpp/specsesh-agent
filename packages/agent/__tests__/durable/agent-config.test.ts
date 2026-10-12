@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -111,6 +111,52 @@ describe("host/agent-config: createAgentHarness builds a harness from a config",
 			{
 				models: { default: () => ({ provider: faux.provider, model: refOf(faux) }) },
 				workspace: () => localWorkspace(gitDir()),
+				actions: () => [lookup],
+			},
+			{ storage: new MemoryStorage(), env: {}, context },
+		);
+		await harness.close(context);
+
+		expect([...actions.keys()]).toEqual(["read_file", "edit_file", "run_command", "run_checks", "list_files", "search_files", "lookup"]);
+	});
+});
+
+describe("host/agent-config: the harness registers search actions when its workspace can search", () => {
+	it("Scenario: A local workspace gets list_files and search_files", async () => {
+		const dir = gitDir();
+		writeFileSync(join(dir, "README.md"), "hello\n");
+		const faux = fauxProvider();
+		const { harness, actions } = await createAgentHarness(
+			{
+				models: { default: () => ({ provider: faux.provider, model: refOf(faux) }) },
+				workspace: () => localWorkspace(dir),
+				actions: () => [lookup],
+			},
+			{ storage: new MemoryStorage(), env: {}, context },
+		);
+		await harness.close(context);
+
+		const names = [...actions.keys()];
+		expect(names).toContain("list_files");
+		expect(names).toContain("search_files");
+		expect(names.indexOf("list_files")).toBe(names.indexOf("run_checks") + 1);
+		expect(names.indexOf("search_files")).toBe(names.indexOf("list_files") + 1);
+		expect(names.indexOf("search_files")).toBeLessThan(names.indexOf("lookup"));
+	});
+
+	it("Scenario: A workspace that cannot search gets neither", async () => {
+		const stub: Workspace = {
+			root: "stub",
+			read: async () => "",
+			write: async () => undefined,
+			exec: async () => ({ kind: "exited", code: 0, stdout: "", stderr: "" }),
+			snapshot: async () => undefined,
+		};
+		const faux = fauxProvider();
+		const { harness, actions } = await createAgentHarness(
+			{
+				models: { default: () => ({ provider: faux.provider, model: refOf(faux) }) },
+				workspace: () => stub,
 				actions: () => [lookup],
 			},
 			{ storage: new MemoryStorage(), env: {}, context },

@@ -3,14 +3,24 @@
  * absolute path, a `..` escape, or a symlink whose real location leaves it is
  * refused. `exec` spawns with no shell, cwd the directory, and kills past the
  * time limit. `snapshot` is git porcelain status with a content hash per path,
- * or `undefined` outside a git repository.
+ * or `undefined` outside a git repository. `list` is the files git does not
+ * ignore (`git ls-files -co --exclude-standard`), or every file but `.git/`
+ * outside git; `search` reads those as UTF-8 here, skipping any with a NUL byte.
  */
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { WorkspaceError, type ExecOptions, type ExecResult, type Workspace } from "../durable/workspace.js";
+import { lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+	DEFAULT_SEARCH_LIMIT,
+	WorkspaceError,
+	matchGlob,
+	type ExecOptions,
+	type ExecResult,
+	type SearchMatch,
+	type Workspace,
+} from "../durable/workspace.js";
 import { gitSnapshot } from "./snapshot.js";
 
 export function localWorkspace(dir: string): Workspace {
@@ -33,6 +43,10 @@ export function localWorkspace(dir: string): Workspace {
 		return target;
 	}
 
+	async function list(glob: string): Promise<string[]> {
+		return (await listAll(root)).filter((path) => matchGlob(glob, path));
+	}
+
 	return {
 		root: dir,
 		async read(path) {
@@ -51,7 +65,79 @@ export function localWorkspace(dir: string): Workspace {
 		},
 		exec: (argv, options) => exec(root, argv, options),
 		snapshot: () => gitSnapshot(root),
+		list,
+		async search(pattern, options = {}) {
+			// No `g` flag: `test` keeps no state from one line to the next. An invalid pattern rejects here.
+			const regex = new RegExp(pattern);
+			const limit = options.limit ?? DEFAULT_SEARCH_LIMIT;
+			const matches: SearchMatch[] = [];
+			if (limit <= 0) return matches;
+			const paths = options.glob === undefined ? await listAll(root) : await list(options.glob);
+			for (const path of paths) {
+				let content: Buffer;
+				try {
+					content = await readFile(join(root, path));
+				} catch (error) {
+					const code = (error as NodeJS.ErrnoException).code;
+					if (code === "ENOENT" || code === "EISDIR") continue;
+					throw error;
+				}
+				if (content.includes(0)) continue;
+				const lines = content.toString("utf8").split("\n");
+				for (let i = 0; i < lines.length; i++) {
+					const text = lines[i]!.endsWith("\r") ? lines[i]!.slice(0, -1) : lines[i]!;
+					if (!regex.test(text)) continue;
+					matches.push({ path, line: i + 1, text });
+					if (matches.length >= limit) return matches;
+				}
+			}
+			return matches;
+		},
 	};
+}
+
+/** Every file under `root`, relative with `/`, sorted by code unit: git's view of it when it is in a work tree. */
+async function listAll(root: string): Promise<string[]> {
+	const listed = await gitListFiles(root);
+	const paths = listed === undefined ? await walk(root, "") : await regularFiles(root, listed);
+	return paths.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/** `git ls-files -co --exclude-standard`, relative to `root`; `undefined` when git fails there (not a work tree, or no git). */
+function gitListFiles(root: string): Promise<string[] | undefined> {
+	return new Promise((resolvePromise) => {
+		execFile(
+			"git",
+			["ls-files", "-co", "--exclude-standard", "-z"],
+			{ cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 },
+			(error, stdout) => resolvePromise(error === null ? stdout.split("\0").filter((path) => path !== "") : undefined),
+		);
+	});
+}
+
+/** The listed paths that are regular files on disk: no deleted tracked file, no submodule. */
+async function regularFiles(root: string, paths: readonly string[]): Promise<string[]> {
+	const kept: string[] = [];
+	for (const path of paths) {
+		try {
+			if ((await lstat(join(root, path))).isFile()) kept.push(path);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		}
+	}
+	return kept;
+}
+
+/** Regular files under `root/prefix`, skipping `.git` and never following a symlink. */
+async function walk(root: string, prefix: string): Promise<string[]> {
+	const files: string[] = [];
+	for (const entry of await readdir(join(root, prefix), { withFileTypes: true })) {
+		const path = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+		if (entry.isDirectory()) {
+			if (entry.name !== ".git") files.push(...(await walk(root, path)));
+		} else if (entry.isFile()) files.push(path);
+	}
+	return files;
 }
 
 function inside(root: string, candidate: string): boolean {
