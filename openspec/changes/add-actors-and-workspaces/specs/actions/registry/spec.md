@@ -1,14 +1,14 @@
 ## MODIFIED Requirements
 
 ### Requirement: An action registry maps names to host actions
-`createActionRegistry(actions)` SHALL return an `ActionRegistry` keyed by `name`, and SHALL throw naming the duplicate when two actions share a name. `builtinActions({ workspace, allow, checks, timeoutMs })` SHALL return the four built-ins, `read_file`, `edit_file`, `run_command` and `run_checks`, bound to that workspace; a host MAY add its own actions and its grants' delegate actions (`actions/delegation`) beside them.
+`createActionRegistry(actions)` SHALL return an `ActionRegistry` keyed by `name`, and SHALL throw naming the duplicate when two actions share a name. The four built-ins, `read_file`, `edit_file`, `run_command` and `run_checks`, SHALL come from `workspaceActions(workspace, …)` (`actions/workspace`); `@specsesh/agent/node`'s `builtinActions({ workspace: dir, allow, checks, timeoutMs })` SHALL equal them over `localWorkspace(dir)`. A host MAY add its own actions and granted delegates.
 
 #### Scenario: A duplicate name is refused
 - **WHEN** `createActionRegistry` is given two actions named `run_checks`
 - **THEN** it SHALL throw naming `run_checks`
 
 #### Scenario: No delegate is built in
-- **WHEN** `builtinActions` is called
+- **WHEN** `builtinActions` or `workspaceActions` is called
 - **THEN** it SHALL return exactly `read_file`, `edit_file`, `run_command` and `run_checks`, and no action named `delegate_claude_code` or starting with `delegate/`
 
 ### Requirement: Every execution that changes the workspace records an Action and its Evidence

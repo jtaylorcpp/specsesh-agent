@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A harness binds the loop's actions to one workspace
-`taskLoopExtensions({ workspace, checks, allow, delegates })` SHALL return `TaskLoop` and the two extensions `agentScriptExtensions` builds over the built-ins plus `delegationActions(delegates)` for that configuration. A task-loop harness installs all three. `startTaskLoop` SHALL check the script's actions against that same registry for the options, and store `delegates` and `worktree` in its input.
+`taskLoopExtensions({ workspace, checks, allow, delegates, runners })` SHALL return `TaskLoop` and the run and step extensions over `workspaceActions` plus `delegationActions(delegates, { workspace, runners })`; `workspace` is a directory (made `localWorkspace`) or a `Workspace`, `runners` defaults to `defaultRunners`. `startTaskLoop` SHALL check scripts against that registry, and store `delegates` and `worktree` in its input.
 
 #### Scenario: The extensions run the loop's actions in its workspace
 - **GIVEN** a harness with `taskLoopExtensions({ workspace, checks: ["pnpm test"], allow: ["pnpm"] })` installed
