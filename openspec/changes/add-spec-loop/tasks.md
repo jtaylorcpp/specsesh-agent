@@ -1,10 +1,10 @@
 ## 1. The loop
 
-- [ ] 1.1 `packages/agent/src/task/spec-stage.ts` (new): `SpecStage`, `StageContext`, `StageIssue`, `owns(stage, path)`, and the stage contract with its checker
-- [ ] 1.2 `packages/agent/src/task/spec-bundle.ts` (new): `readBundle(text, stage)` returning the owned files and the write issues
-- [ ] 1.3 `packages/agent/src/task/spec-loop.ts` (new): the `agentscript.spec-loop` task, its four phases and its `Iteration` records
-- [ ] 1.4 `packages/agent/src/task/spec-api.ts` (new): `startSpecLoop`, `waitForSpecLoop` and `specLoopExtensions`
-- [ ] 1.5 `packages/agent/src/task/index.ts`: export the four spec modules' public names
+- [x] 1.1 `packages/agent/src/task/spec-stage.ts` (new): `SpecStage`, `StageContext`, `StageIssue`, `owns(stage, path)`, and the stage contract with its checker
+- [x] 1.2 `packages/agent/src/task/spec-bundle.ts` (new): `readBundle(text, stage)` returning the owned files and the write issues
+- [x] 1.3 `packages/agent/src/task/spec-loop.ts` (new): the `agentscript.spec-loop` task, its four phases and its `Iteration` records
+- [x] 1.4 `packages/agent/src/task/spec-api.ts` (new): `startSpecLoop`, `waitForSpecLoop` and `specLoopExtensions`
+- [x] 1.5 `packages/agent/src/task/index.ts`: export the four spec modules' public names
 
 ## 2. Tests
 

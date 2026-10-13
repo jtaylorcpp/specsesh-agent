@@ -38,3 +38,25 @@ export {
 export { answerGroupEscalation } from "./group-answer.js";
 export { prepareTaskLoop, startTaskLoop } from "./start.js";
 export { answerEscalation, waitForTaskLoop, waitForTaskLoopResult } from "./answer.js";
+export { SPEC_NEXT_ACTIONS, SPEC_STAGE_CONTRACT, owns, stageContractProblems, type SpecStage, type StageContext, type StageIssue } from "./spec-stage.js";
+export { readBundle, type BundleRead } from "./spec-bundle.js";
+export {
+	SPEC_LOOP,
+	SpecLoop,
+	SpecLoopTask,
+	registerSpecStage,
+	specLoopTask,
+	type SpecLoopCheckpoint,
+	type SpecLoopInput,
+	type SpecLoopResult,
+	type StageOutcome,
+	type StageResolver,
+} from "./spec-loop.js";
+export {
+	prepareSpecLoop,
+	specLoopExtensions,
+	startSpecLoop,
+	waitForSpecLoop,
+	type SpecLoopExtensionOptions,
+	type SpecLoopOptions,
+} from "./spec-api.js";
