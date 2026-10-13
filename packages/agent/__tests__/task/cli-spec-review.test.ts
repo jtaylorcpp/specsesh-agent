@@ -19,8 +19,19 @@ const PROPOSAL = ["Why", "What Changes", "Out of scope", "Capabilities", "Impact
 	.map((heading) => `## ${heading}\n\n${heading === "Capabilities" ? "- **New:** `plan/export`." : `- ${heading} text.`}\n`)
 	.join("\n");
 
+/** Two sections, a self-contained mock and an example, each named in design.md. */
+const DESIGN = [
+	"=== design.md",
+	"## Context\n\nThe mock is `design/mock.html`.\n",
+	"## Decisions\n\nSee `design/examples/export.ts`.\n",
+	"=== design/mock.html",
+	"<!doctype html>\n<html><body>Export</body></html>\n",
+	"=== design/examples/export.ts",
+	"export const plan = {};\n",
+].join("\n");
+
 /** A clean draft per stage in `SPEC_STAGES`; a stage added there needs one here. */
-const DRAFTS: Record<string, string> = { proposal: `=== proposal.md\n${PROPOSAL}` };
+const DRAFTS: Record<string, string> = { proposal: `=== proposal.md\n${PROPOSAL}`, design: DESIGN };
 
 const INTENT = "Export a plan as JSON so CI can read it";
 

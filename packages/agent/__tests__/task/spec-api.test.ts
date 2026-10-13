@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterEach, describe, expect, it } from "vitest";
 import * as task from "../../src/task/index.js";
+import { designStage } from "../../src/task/stages/design.js";
 import { openHarness, setup } from "../durable/helpers.js";
 import { cleanTemps, context } from "./helpers.js";
 import { draft, proposalStage, specWorkspace } from "./spec-helpers.js";
@@ -25,7 +26,7 @@ describe("spec loop entry points", () => {
 	});
 
 	it("the task entry exports SPEC_STAGES, starting at the proposal, each stage after only earlier ones", () => {
-		expect(task.SPEC_STAGES).toEqual([task.proposalStage]);
+		expect(task.SPEC_STAGES).toEqual([task.proposalStage, designStage]);
 		expect(Object.isFrozen(task.SPEC_STAGES)).toBe(true);
 		task.SPEC_STAGES.forEach((stage, index) => {
 			const earlier = task.SPEC_STAGES.slice(0, index).map((s) => s.name);

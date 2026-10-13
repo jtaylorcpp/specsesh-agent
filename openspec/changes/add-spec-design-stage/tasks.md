@@ -1,11 +1,11 @@
 ## 1. The stage
 
-- [ ] 1.1 `packages/agent/src/task/stages/design-gate.ts` (new): the section, mock, example and reference rules
-- [ ] 1.2 `packages/agent/src/task/scripts/spec-design.agent` (new): the script from the design's example
-- [ ] 1.3 `packages/agent/src/task/options.ts`: `BUNDLED_SCRIPTS.specDesign`
-- [ ] 1.4 `packages/agent/src/task/stages/design.ts` (new): `designStage` with its seed and gate
-- [ ] 1.5 `packages/agent/src/task/spec-stages.ts`: `SPEC_STAGES` = `[proposalStage, designStage]`
-- [ ] 1.6 `packages/agent/src/task/index.ts`: export `designStage`
+- [x] 1.1 `packages/agent/src/task/stages/design-gate.ts` (new): the section, mock, example and reference rules
+- [x] 1.2 `packages/agent/src/task/scripts/spec-design.agent` (new): the script from the design's example
+- [x] 1.3 `packages/agent/src/task/options.ts`: `BUNDLED_SCRIPTS.specDesign`
+- [x] 1.4 `packages/agent/src/task/stages/design.ts` (new): `designStage` with its seed and gate
+- [x] 1.5 `packages/agent/src/task/spec-stages.ts`: `SPEC_STAGES` = `[proposalStage, designStage]`
+- [x] 1.6 `packages/agent/src/task/index.ts`: export `designStage`
 
 ## 2. Tests
 
