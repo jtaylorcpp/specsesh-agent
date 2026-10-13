@@ -80,7 +80,14 @@ describe("task/agent: A harness binds the loop's actions to one workspace", () =
 			{ change: { dir: tinyChange() }, task: "1.1", script: { path: DELEGATE_SCRIPT }, workspace, model: env.model },
 			context,
 		);
-		await expect(started).rejects.toThrow(/delegate\/claude_code[\s\S]*no delegates are granted/);
+		const error = await started.then(
+			() => undefined,
+			(e: unknown) => e,
+		);
+		expect(error).toBeInstanceOf(Error);
+		const message = (error as Error).message;
+		expect(message).toMatch(/delegate\/claude_code[\s\S]*no delegates are granted/);
+		expect(message).not.toContain("delete_file");
 		const page = await storage.scanTasks({ kind: "agentscript.task-loop" }, 10, undefined, context);
 		expect(page.items).toHaveLength(0);
 		await harness.close(context);

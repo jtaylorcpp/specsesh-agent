@@ -52,6 +52,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models, Provider } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, type Cursor, type ModelRef, type Storage, type TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteDatabase, openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { deleteActions } from "../durable/actions.js";
 import type { AgentHarness } from "../durable/agent-config.js";
 import { DelegateGrantError, type DelegateGrants } from "../durable/delegation.js";
 import { createAgentHarness } from "../durable/harness.js";
@@ -375,7 +376,9 @@ async function run(
 	const storage = loops.storage;
 	try {
 		// After the worktree exists, so the actions, the gate and the delegates all work in it.
-		const built = await buildHarness(storage, { provider, model }, { workspace, checks: settings.checks, allow: settings.allow, delegates }, named);
+		// From the config or its default only; resume and answer read it back from the loop.
+		const deleteFiles = settings.deleteFiles;
+		const built = await buildHarness(storage, { provider, model }, { workspace, checks: settings.checks, allow: settings.allow, delegates, deleteFiles }, named);
 		const harness = built.harness;
 		const options: Omit<TaskLoopOptions, "task"> = {
 			change: { dir: changeDir },
@@ -389,6 +392,7 @@ async function run(
 			// Nothing granted stores nothing, so the loop records no `delegates`.
 			...(Object.keys(delegates).length > 0 ? { delegates } : {}),
 			...(worktree !== undefined ? { worktree } : {}),
+			deleteFiles,
 		};
 		try {
 			if (group !== undefined && groupScript !== undefined) {
@@ -434,13 +438,15 @@ export interface LoopHarnessTerms {
 	readonly checks: readonly string[];
 	readonly allow: readonly string[];
 	readonly delegates?: DelegateGrants;
+	/** Binds `delete_file` only when `true`, so a loop stored before the grant existed binds none. */
+	readonly deleteFiles?: boolean;
 }
 
 /**
  * The CLI's harness: `createAgentHarness` with `models.default` the loop's model
  * beside the config's `named` models, `localWorkspace` over its workspace, its
- * checks, allowlist and grants on `defaultRunners`, and `TaskLoop` and
- * `GroupLoop` installed.
+ * checks, allowlist and grants on `defaultRunners`, `delete_file` when granted,
+ * and `TaskLoop` and `GroupLoop` installed.
  */
 export async function buildHarness(
 	storage: Storage,
@@ -457,6 +463,7 @@ export async function buildHarness(
 			allow: terms.allow,
 			delegates: terms.delegates ?? {},
 			runners: defaultRunners,
+			actions: (_env, workspace) => (terms.deleteFiles === true ? deleteActions(workspace) : []),
 		},
 		{ storage, env: {}, extensions: [TaskLoop, GroupLoop], context: BACKGROUND_CONTEXT },
 	);
@@ -784,7 +791,7 @@ async function continueStored(
 		for (const warning of warnings) io.emit({ event: "warning", loop: Number(id), message: warning });
 		return await continueSpec(storage, models, id as unknown as SpecId, input, answer, deps.stages ?? SPEC_STAGES, io, db);
 	}
-	// The loop's own terms, so a resumed loop delegates and checks as it started.
+	// The loop's own terms, so a resumed loop delegates, checks and deletes as it started, whatever the config says now.
 	const { harness } = await buildHarness(storage, { provider, model }, stored as TaskLoopInput | GroupLoopInput, named);
 	try {
 		const record = await harness.getTask(id, BACKGROUND_CONTEXT);

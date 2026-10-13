@@ -1,12 +1,15 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { LoopOutcome, TaskOutcome, check, type LoopOutcome as LoopOutcomeType, type TaskOutcome as TaskOutcomeType } from "../../src/openspec/index.js";
-import { BUNDLED_SCRIPTS, TASK_LOOP, startTaskLoop, waitForTaskLoop, waitForTaskLoopResult } from "../../src/task/index.js";
+import { runScript } from "../../src/durable/index.js";
+import { BUNDLED_SCRIPTS, DELETE_NOT_GRANTED, TASK_LOOP, startTaskLoop, waitForTaskLoop, waitForTaskLoopResult } from "../../src/task/index.js";
+import { readRun } from "../../src/task/iteration.js";
+import { taskLoopRegistry } from "../../src/task/loop.js";
 import {
 	JUDGE_ONLY,
 	JUDGE_ONLY_ASSIGNING,
@@ -58,18 +61,84 @@ describe("task/agent: A harness binds the loop's actions to one workspace", () =
 		const restore = fakePnpm();
 		try {
 			const workspace = temp("task-ws-");
+			mkdirSync(join(workspace, "src"));
+			writeFileSync(join(workspace, "src/a.ts"), "export const a = 1;\n");
+			const change = tinyChange();
+			const inCwd = existsSync(join(process.cwd(), "src/a.ts"));
 			const r = await runLoop(
 				[plan("write a.ts"), toolCall("edit", { path: "src/a.ts", content: "export {};" }), text("Done."), verdict(true)],
-				{ script: { path: BUNDLED_SCRIPTS.task.pathname }, workspace, checks: ["pnpm test"], allow: ["pnpm"] },
+				{ change: { dir: change }, script: { path: BUNDLED_SCRIPTS.task.pathname }, workspace, checks: ["pnpm test"], allow: ["pnpm"] },
 			);
 			await r.harness.close(context);
 			expect(r.outcome.status).toBe("converged");
 			expect(readFileSync(join(workspace, "src/a.ts"), "utf8")).toBe("export {};");
+			expect(existsSync(join(process.cwd(), "src/a.ts"))).toBe(inCwd);
+			expect(existsSync(join(change, "src"))).toBe(false);
+
+			expect(taskLoopRegistry({ workspace, checks: ["pnpm test"], allow: ["pnpm"] }).has("delete_file")).toBe(false);
 		} finally {
 			restore();
 		}
 	});
+
+	it("deleteFiles true binds delete_file, which deletes in the workspace and is recorded as an edit", async () => {
+		const { env, workspace } = loopEnv({ deleteFiles: true });
+		mkdirSync(join(workspace, "src"));
+		writeFileSync(join(workspace, "src/old.ts"), "export {};");
+		const harness = await loopHarness(env);
+		const result = await runScript(harness, DELETES_OLD, { model: env.model }, context);
+		await harness.close(context);
+
+		expect(taskLoopRegistry({ workspace, deleteFiles: true }).has("delete_file")).toBe(true);
+		expect(result.kind).toBe("completed");
+		expect(result.variables["deleted"]).toBe(true);
+		expect(existsSync(join(workspace, "src/old.ts"))).toBe(false);
+		expect(readRun(result, undefined, ["retire"]).actions).toEqual([
+			{ kind: "edit", summary: "delete_file src/old.ts", refs: ["src/old.ts"] },
+		]);
+	});
+
+	it("deleteFiles unset or false binds no delete_file, whose call answers that it is not granted", async () => {
+		const workspace = temp("task-ws-");
+		expect(taskLoopRegistry({ workspace }).has("delete_file")).toBe(false);
+		expect(taskLoopRegistry({ workspace, deleteFiles: false }).has("delete_file")).toBe(false);
+
+		mkdirSync(join(workspace, "src"));
+		writeFileSync(join(workspace, "src/old.ts"), "export {};");
+		const { env } = loopEnv({ workspace });
+		const harness = await loopHarness(env);
+		const result = await runScript(harness, DELETES_OLD, { model: env.model }, context);
+		await harness.close(context);
+		expect(result.actions[0]?.result).toEqual({ ok: false, message: DELETE_NOT_GRANTED });
+		expect(existsSync(join(workspace, "src/old.ts"))).toBe(true);
+	});
 });
+
+/** Deletes `src/old.ts` with one deterministic `delete_file` call. */
+const DELETES_OLD = `config:
+    agent_name: "deletes-old"
+
+variables:
+    deleted: mutable boolean = False
+
+subagent retire:
+    description: "Retire the old file"
+
+    actions:
+        delete_file:
+            description: "Delete one file in the workspace"
+            inputs:
+                path: string
+            outputs:
+                ok: boolean
+            target: "mcpTool://delete_file"
+
+    reasoning:
+        instructions: ->
+            run @actions.delete_file
+                with path = "src/old.ts"
+                set @variables.deleted = @outputs.ok
+`;
 
 describe("task/agent: The loop constrains next_action to its contract values", () => {
 	it("Scenario: The judge step's schema lists the three values", async () => {

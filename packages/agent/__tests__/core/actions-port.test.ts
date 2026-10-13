@@ -44,7 +44,7 @@ describe("core/reasoning-port: A request has exactly three fields", () => {
 		const { port, requests } = recordingPort(answered("done"));
 		await run(taskAgentFile("task.agent"), { port, entry: "act" });
 		expect(requests).toHaveLength(1);
-		expect(requests[0]?.tools?.map((t) => t.name)).toEqual(["read", "edit", "shell"]);
+		expect(requests[0]?.tools?.map((t) => t.name)).toEqual(["read", "edit", "shell", "delete"]);
 		expect("outputSchema" in (requests[0] ?? {})).toBe(false);
 	});
 });

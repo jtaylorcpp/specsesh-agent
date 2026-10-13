@@ -52,7 +52,7 @@ Both bundled scripts SHALL declare `delete_granted: mutable boolean = False`. `t
 - **THEN** its prompt SHALL NOT contain `delete_file`
 
 ### Requirement: task-delegate.agent's outer step deletes what the delegate retires
-When `delete_granted` is true, `task-delegate.agent`'s delegate prompt SHALL contain `You cannot delete files.` and ask for one line `RETIRE: <path>` per retired file; a model step `retire` SHALL set `retire_path` to the first such path, or `""`; a non-empty `retire_path` SHALL be passed to a deterministic `delete_file`, recorded in the iteration as an `edit` action. When false, neither happens. The judge prompt SHALL contain `Files deleted: ` then `retire_path`, or `none`.
+When `delete_granted` is true, `task-delegate.agent`'s orient prompt SHALL tell the planner to end the plan it hands the delegate with `You cannot delete files.` and a request for one line `RETIRE: <path>` per retired file (delegation takes only `instructions`, and a script cannot join strings, so the planner carries it); a model step `retire` SHALL set `retire_path` to the first such path, or `""`; a non-empty `retire_path` SHALL be passed to a deterministic `delete_file`, recorded in the iteration as an `edit` action. When false, neither happens. The judge prompt SHALL contain `Files deleted: ` then `retire_path`, or `none`.
 
 #### Scenario: The delegate's retired file is deleted
 - **GIVEN** `deleteFiles` `true` and a fake `claude` whose reply ends `RETIRE: packages/agent/src/old-workspace.ts`
@@ -67,4 +67,4 @@ When `delete_granted` is true, `task-delegate.agent`'s delegate prompt SHALL con
 #### Scenario: Not granted, the delegate is not asked to retire
 - **GIVEN** a harness without `deleteFiles` and a `claude_code` grant
 - **WHEN** an iteration of `task-delegate.agent` runs
-- **THEN** the start SHALL NOT be refused, the delegate prompt SHALL NOT contain `RETIRE:`, no `retire` step or `delete_file` call SHALL run, and the judge prompt SHALL contain `Files deleted: none`
+- **THEN** the start SHALL NOT be refused, the orient prompt SHALL NOT contain `RETIRE:`, no `retire` step or `delete_file` call SHALL run, and the judge prompt SHALL contain `Files deleted: none`

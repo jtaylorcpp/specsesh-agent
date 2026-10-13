@@ -7,7 +7,7 @@
 
 import { createModels, type Provider } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, type ModelRef } from "@earendil-works/pi-durable";
-import { createActionRegistry } from "./actions.js";
+import { createActionRegistry, OPTIONAL_TARGETS } from "./actions.js";
 import type { AgentConfig, AgentHarness, AgentHarnessOptions } from "./agent-config.js";
 import { delegationActions, validateGrants } from "./delegation.js";
 import { agentScriptExtensions } from "./extension.js";
@@ -56,6 +56,7 @@ export async function createAgentHarness<Env>(config: AgentConfig<Env>, options:
 	const installed = agentScriptExtensions({
 		actions,
 		workspace: workspace.root,
+		optional: OPTIONAL_TARGETS,
 		...(workspace.snapshot !== undefined ? { snapshot: () => workspace.snapshot!() } : {}),
 	});
 	const registry = createRegistry();

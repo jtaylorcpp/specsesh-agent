@@ -48,6 +48,7 @@ const FIELDS = {
 	worktree: "boolean",
 	worktreeDir: "string",
 	worktreeSetup: "strings",
+	deleteFiles: "boolean",
 } as const satisfies Record<string, FieldKind>;
 
 /** `task` keys that moved to `delegates`: refused with directions rather than as unknown. */
@@ -58,7 +59,7 @@ const DESCRIBE: Record<FieldKind, string> = {
 	strings: "an array of strings",
 	"positive-integer": "a positive integer",
 	recipient: '"principal" or "agent"',
-	boolean: "true or false",
+	boolean: "a boolean",
 };
 
 /** The `task` object, as validated. */
@@ -78,6 +79,8 @@ export interface TaskConfig {
 	readonly worktree?: boolean;
 	readonly worktreeDir?: string;
 	readonly worktreeSetup?: readonly string[];
+	/** Grants the task loop `delete_file`. Unset: `false`. */
+	readonly deleteFiles?: boolean;
 }
 
 export interface LoadedConfig {
@@ -146,7 +149,7 @@ export function validateTaskConfig(value: unknown, path: string): TaskConfig {
 			throw new ConfigError(`${path}: unknown key "task.${key}" (known: ${Object.keys(FIELDS).join(", ")})`);
 		}
 		if (!matches(kind, field)) {
-			throw new ConfigError(`${path}: "task.${key}" must be ${DESCRIBE[kind]}, got ${JSON.stringify(field)}`);
+			throw new ConfigError(`${path}: task.${key} must be ${DESCRIBE[kind]}, got ${JSON.stringify(field)}`);
 		}
 	}
 	return value as TaskConfig;
@@ -408,6 +411,8 @@ export interface RunSettings {
 	/** Absolute; undefined means the default beside the repository. */
 	readonly worktreeDir?: string;
 	readonly worktreeSetup: readonly string[];
+	/** Config only: no flag or environment variable sets it. */
+	readonly deleteFiles: boolean;
 }
 
 /**
@@ -450,6 +455,7 @@ export function resolveRunSettings(
 		worktree,
 		...(task.worktreeDir !== undefined ? { worktreeDir: fromConfig(task.worktreeDir) } : {}),
 		worktreeSetup: task.worktreeSetup ?? [],
+		deleteFiles: task.deleteFiles ?? false,
 	};
 }
 

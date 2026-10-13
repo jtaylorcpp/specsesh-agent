@@ -140,15 +140,23 @@ export class ActionBindingError extends Error {
  * script never targets is never a problem. With `scope`, a tool outside it is
  * refused before the registry is consulted; without it, every registered tool
  * is in scope. A durable action offered under `reasoning.actions` is refused:
- * it runs only as a `run` call.
+ * it runs only as a `run` call. A tool in `optional` that is not registered is
+ * no problem: the run hides it from model steps and answers its calls refused.
  */
-export function checkBindings(source: string, registry: ActionRegistry, scope?: readonly string[]): void {
+export function checkBindings(
+	source: string,
+	registry: ActionRegistry,
+	scope?: readonly string[],
+	optional?: ReadonlySet<string>,
+): void {
 	const problems: ActionBindingProblem[] = [];
 	for (const declared of declaredActions(source)) {
 		const host = registry.get(declared.tool);
 		const mismatches: string[] = [];
 		if (scope !== undefined && !scope.includes(declared.tool)) {
 			mismatches.push(`mcpTool://${declared.tool} is outside this run's scope (${scope.join(", ") || "empty"})`);
+		} else if (host === undefined && optional?.has(declared.tool) === true) {
+			continue;
 		} else if (host === undefined) {
 			mismatches.push(`mcpTool://${declared.tool} is not registered on this host${grantsNote(declared.tool, registry)}`);
 		} else if (declared.offered && isDurable(host)) {
@@ -190,6 +198,12 @@ function compareParameters(
 
 export const NO_REMOVE = "this workspace cannot delete files";
 
+/** What a call of an ungranted `delete_file` answers. */
+export const DELETE_NOT_GRANTED = 'delete_file is not granted: set "deleteFiles": true under "task" in agentscript.config.json';
+
+/** The targets a task script may name without the harness binding them, each with what a call answers. */
+export const OPTIONAL_TARGETS: Readonly<Record<string, string>> = { delete_file: DELETE_NOT_GRANTED };
+
 /**
  * `delete_file`, over `workspace.remove`. Never in `workspaceActions` or
  * `builtinActions`: a host grants it by adding this to its registry. A second
@@ -216,7 +230,7 @@ export function deleteActions(workspace: Workspace): ExecutedHostAction[] {
 			return {
 				ok: true,
 				outputs: { ok: true },
-				record: actionRecord({ kind: "edit", summary: `delete ${path}`, refs: [path] }, [
+				record: actionRecord({ kind: "edit", summary: `delete_file ${path}`, refs: [path] }, [
 					{ kind: "diff", files: [{ path, change: "deleted" }] },
 				]),
 			};

@@ -40,6 +40,8 @@ export interface TaskLoopOptions {
 	readonly model?: ModelRef;
 	/** The delegates the loop's scripts may call, as `mcpTool://delegate/<name>`. Unset: none. */
 	readonly delegates?: DelegateGrants;
+	/** Grants `delete_file`; the harness must bind it too (`taskLoopExtensions({ deleteFiles })`). Unset: `false`. */
+	readonly deleteFiles?: boolean;
 	/** The git worktree a host created for this loop, recorded so a resume or a status can name it. */
 	readonly worktree?: LoopWorktree;
 }

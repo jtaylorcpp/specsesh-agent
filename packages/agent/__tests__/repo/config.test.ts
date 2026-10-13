@@ -24,6 +24,7 @@ describe("task/headless: This repo ships a config for its own tasks", () => {
 			escalateTo: "principal",
 			requireCleanTree: true,
 			worktreeSetup: ["pnpm install --frozen-lockfile --prefer-offline"],
+			deleteFiles: true,
 		});
 		const raw = JSON.parse(readFileSync(join(REPO, "agentscript.config.json"), "utf8")) as { delegates: unknown };
 		expect(raw.delegates).toEqual({ claude_code: { runner: "claude-code", model: "opus", allow: ["pnpm", "node"], context: ["CLAUDE.md"] } });

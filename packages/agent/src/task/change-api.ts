@@ -29,7 +29,7 @@ import { EscalationAnswerError, TaskLoopStartError } from "./errors.js";
 import { answerGroupEscalation } from "./group-answer.js";
 import { groupLoopExtensions, readResult } from "./group-api.js";
 import { checkGroupContract } from "./group-judge.js";
-import { boundWorkspace, subagentsOf, taskLoopRegistry, type TaskLoopActionOptions } from "./loop.js";
+import { OPTIONAL_TARGETS, boundWorkspace, subagentsOf, taskLoopRegistry, type TaskLoopActionOptions } from "./loop.js";
 import type { StageContext } from "./spec-stage.js";
 
 export type { ChangeLoopOptions };
@@ -83,6 +83,8 @@ export async function prepareChangeLoop(options: ChangeLoopOptions): Promise<Cha
 			allow: [...input.allow],
 			...(input.delegates !== undefined ? { delegates: input.delegates } : {}),
 		}),
+		undefined,
+		new Set(Object.keys(OPTIONAL_TARGETS)),
 	);
 	return input;
 }

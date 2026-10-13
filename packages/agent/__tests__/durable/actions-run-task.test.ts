@@ -12,6 +12,7 @@ import {
 	agentScriptExtensions,
 	createActionRegistry,
 	delegationActions,
+	OPTIONAL_TARGETS,
 	runScript,
 	startScript,
 	waitForScript,
@@ -72,10 +73,10 @@ function runTaskLabels(commits: readonly StorageWrite[][]): { label: string; che
 	return out;
 }
 
-/** A faux-model environment with Agent Script installed over the given host actions. */
+/** A faux-model environment with Agent Script installed over the given host actions, `delete_file` optional. */
 function withActions(actions: HostAction[], workspace = temp("agentscript-ws-")) {
 	const env = setup();
-	const installed = agentScriptExtensions({ actions: createActionRegistry(actions), workspace });
+	const installed = agentScriptExtensions({ actions: createActionRegistry(actions), workspace, optional: OPTIONAL_TARGETS });
 	env.registry.install(installed.run);
 	env.registry.install(installed.step);
 	return { env, workspace };

@@ -24,6 +24,10 @@ variables:
         description: "which iteration of the task loop this is"
     carried: mutable string = ""
         description: "feedback carried from earlier iterations or an escalation answer"
+    delete_granted: mutable boolean = False
+        description: "whether delete_file is granted to this loop"
+    retire_path: mutable string = ""
+        description: "the file the delegate asked to retire this iteration, or empty"
     plan: mutable string = ""
         description: "this iteration's plan"
     act_ok: mutable boolean = False
@@ -65,6 +69,8 @@ subagent orient:
                 | This is iteration {!@variables.iteration}. Still unmet from before: {!@variables.carried}
                 | If the carried feedback names a check that already failed before, the last approach did not work; choose a different one rather than repeating it.
             | Write a short, concrete plan for this iteration: which files, which changes, which scenarios it satisfies.
+            if @variables.delete_granted:
+                | The plan goes to an agent that cannot delete files. End the plan with this paragraph, word for word: You cannot delete files. If the task retires a file, leave it in place and end your reply with one line `RETIRE: <path>` per file.
             set @variables.plan = @outputs.plan
 
 subagent act:
@@ -88,6 +94,36 @@ subagent act:
                 set @variables.act_ok = @outputs.ok
                 set @variables.act_summary = @outputs.summary
                 set @variables.act_files = @outputs.files_changed
+
+subagent retire:
+    description: "Read which file the delegate asked to retire"
+
+    reasoning:
+        instructions: ->
+            set @variables.retire_path = ""
+            if @variables.delete_granted:
+                | The delegate's reply is below, and it changed {!@variables.act_files} files.
+                | {!@variables.act_summary}
+                | Set retire_path to the path on the first line starting `RETIRE: `, exactly as written, or to "" if there is no such line. Ignore every later RETIRE line.
+                set @variables.retire_path = @outputs.retire_path
+
+subagent delete:
+    description: "Delete the retired file, without the model"
+
+    actions:
+        delete_file:
+            description: "Delete a file the task retires from the workspace"
+            inputs:
+                path: string
+            outputs:
+                ok: boolean
+            target: "mcpTool://delete_file"
+
+    reasoning:
+        instructions: ->
+            if @variables.delete_granted and @variables.retire_path != "":
+                run @actions.delete_file
+                    with path = @variables.retire_path
 
 subagent check:
     description: "Run the task's checks, without the model"
@@ -119,6 +155,10 @@ subagent judge:
             | What the delegated agent reports: {!@variables.act_summary}
             | Files the delegate changed: {!@variables.act_files}
             | 0 means the delegate changed nothing; -1 means the count is unknown.
+            if @variables.retire_path != "":
+                | Files deleted: {!@variables.retire_path}
+            else:
+                | Files deleted: none
             | Checks passed: {!@variables.checks_passed}
             | Check output:
             | {!@variables.check_output}

@@ -18,7 +18,7 @@
 
 import type { RunResult, VariableValue } from "../interpreter/index.js";
 import { analyze } from "../authoring/index.js";
-import { readSubagents } from "../interpreter/compose.js";
+import { readDeclarations, readSubagents } from "../interpreter/compose.js";
 import {
 	defineExtension,
 	defineTask,
@@ -31,7 +31,10 @@ import {
 	AgentScriptRun,
 	agentScriptExtensions,
 	createActionRegistry,
+	DELETE_NOT_GRANTED,
+	deleteActions,
 	delegationActions,
+	OPTIONAL_TARGETS,
 	workspaceActions,
 	type DelegateGrants,
 	type RunInput,
@@ -51,7 +54,12 @@ export const TASK_LOOP = "agentscript.task-loop";
 
 const TaskLoopOutcome = LoopOutcome(TaskOutcome);
 
-/** The contract's seeded variables for iteration `n`. */
+export { DELETE_NOT_GRANTED, OPTIONAL_TARGETS };
+
+/** Seeded, as whether `delete_file` is granted, only into a script that declares it. */
+export const DELETE_GRANTED = "delete_granted";
+
+/** The contract's seeded variables for iteration `n`, and `delete_granted` when the script declares it. */
 export function seededVariables(input: TaskLoopInput, n: number, carried: string): Record<string, VariableValue> {
 	return {
 		task_id: input.task,
@@ -61,6 +69,7 @@ export function seededVariables(input: TaskLoopInput, n: number, carried: string
 		deltas: input.deltas,
 		iteration: n,
 		carried,
+		...(readDeclarations(analyze(input.script).parsed).has(DELETE_GRANTED) ? { [DELETE_GRANTED]: input.deleteFiles === true } : {}),
 	};
 }
 
@@ -245,6 +254,8 @@ export interface TaskLoopActionOptions {
 	readonly delegates?: DelegateGrants;
 	/** The runners grants name. Defaults to `defaultRunners`. */
 	readonly runners?: Runners;
+	/** Grants `delete_file` (`deleteActions(workspace)`). Unset or `false`: not bound. */
+	readonly deleteFiles?: boolean;
 }
 
 function workspaceOf(workspace: string | Workspace): Workspace {
@@ -264,13 +275,15 @@ function registryOver(workspace: Workspace, options: TaskLoopActionOptions) {
 			...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
 		}),
 		...delegationActions(options.delegates ?? {}, { workspace, runners: options.runners ?? defaultRunners }),
+		...(options.deleteFiles === true ? deleteActions(workspace) : []),
 	]);
 }
 
 /**
  * The registry `startTaskLoop` checks a script against, the same the extensions run:
- * the workspace actions for the loop's workspace, checks and allowlist, and one
- * `delegate/<name>` per grant. Throws `DelegateGrantError` for an invalid grant.
+ * the workspace actions for the loop's workspace, checks and allowlist, one
+ * `delegate/<name>` per grant, and `delete_file` when `deleteFiles` is `true`.
+ * Throws `DelegateGrantError` for an invalid grant.
  */
 export function taskLoopRegistry(options: TaskLoopActionOptions) {
 	return registryOver(workspaceOf(options.workspace), options);
@@ -283,7 +296,11 @@ export function taskLoopRegistry(options: TaskLoopActionOptions) {
  */
 export function taskLoopExtensions(options: TaskLoopActionOptions): readonly [Extension, Extension, Extension] {
 	const workspace = workspaceOf(options.workspace);
-	const { run, step } = agentScriptExtensions({ actions: registryOver(workspace, options), workspace: workspace.root });
+	const { run, step } = agentScriptExtensions({
+		actions: registryOver(workspace, options),
+		workspace: workspace.root,
+		optional: OPTIONAL_TARGETS,
+	});
 	const bound = boundWorkspace(options);
 	const loop = bound === undefined ? TaskLoop : defineExtension({ name: TASK_LOOP, tasks: [boundTaskLoopTask(bound)] });
 	return [loop, run, step];

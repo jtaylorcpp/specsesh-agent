@@ -10,7 +10,8 @@
     "maxIterations": 8,
     "escalateTo": "principal",
     "requireCleanTree": true,
-    "worktreeSetup": ["pnpm install --frozen-lockfile --prefer-offline"]
+    "worktreeSetup": ["pnpm install --frozen-lockfile --prefer-offline"],
+    "deleteFiles": true
   },
   "delegates": {
     "claude_code": { "runner": "claude-code", "model": "opus", "allow": ["pnpm", "node"], "context": ["CLAUDE.md"] }

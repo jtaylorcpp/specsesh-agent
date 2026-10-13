@@ -87,6 +87,7 @@ describe("task/headless: The task config has a fixed set of typed fields", () =>
 			requireCleanTree: true,
 			worktree: false,
 			worktreeSetup: [],
+			deleteFiles: false,
 			changesDir: join(config.dir, "openspec", "changes"),
 			workspace: sub,
 		});
@@ -111,8 +112,20 @@ describe("task/headless: The task config has a fixed set of typed fields", () =>
 			worktree: true,
 			worktreeDir: "w",
 			worktreeSetup: ["x"],
+			deleteFiles: true,
 		};
 		expect(validateTaskConfig(all, "f")).toEqual(all);
+	});
+
+	it("deleteFiles is read from the config, false when absent", () => {
+		for (const value of [true, false]) {
+			const { sub } = configured({ deleteFiles: value });
+			const config = loadConfig(sub);
+			expect(config.task.deleteFiles).toBe(value);
+			expect(resolveRunSettings({}, {}, config, sub).deleteFiles).toBe(value);
+		}
+		const { sub } = configured({});
+		expect(loadConfig(sub).task.deleteFiles).toBeUndefined();
 	});
 });
 
@@ -135,12 +148,25 @@ describe("task/headless: An unknown or mistyped config value refuses the run", (
 		expect(existsSync(join(sub, "x.sqlite"))).toBe(false);
 	});
 
+	it("Scenario: A mistyped grant is refused", async () => {
+		for (const value of ["yes", 1]) {
+			const { sub, path, root } = configured({ deleteFiles: value, db: "loops.sqlite" });
+			const r = await cli(["run", tinyChange(), "1.1"], fauxModels(), { cwd: sub });
+			expect(r.code).toBe(2);
+			expect(r.err).toContain(path);
+			expect(r.err).toContain("task.deleteFiles must be a boolean");
+			expect(existsSync(join(root, "loops.sqlite"))).toBe(false);
+		}
+	});
+
 	it("refuses each mistyped field and bad JSON, naming them", () => {
 		const cases: [string, unknown][] = [
 			["maxIterations", 0],
 			["maxIterations", 1.5],
 			["escalateTo", "nobody"],
 			["requireCleanTree", "yes"],
+			["deleteFiles", "yes"],
+			["deleteFiles", 1],
 			["worktreeSetup", [1]],
 			["model", 4],
 		];

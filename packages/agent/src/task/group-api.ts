@@ -18,7 +18,7 @@ import {
 	type GroupLoopResult,
 } from "./group.js";
 import { checkGroupContract } from "./group-judge.js";
-import { boundWorkspace, subagentsOf, taskLoopExtensions, taskLoopRegistry, type TaskLoopActionOptions } from "./loop.js";
+import { OPTIONAL_TARGETS, boundWorkspace, subagentsOf, taskLoopExtensions, taskLoopRegistry, type TaskLoopActionOptions } from "./loop.js";
 
 export { GroupLoop };
 
@@ -55,6 +55,8 @@ export async function startGroupLoop(
 			allow: [...input.allow],
 			...(input.delegates !== undefined ? { delegates: input.delegates } : {}),
 		}),
+		undefined,
+		new Set(Object.keys(OPTIONAL_TARGETS)),
 	);
 
 	const owner = await harness.root(context);

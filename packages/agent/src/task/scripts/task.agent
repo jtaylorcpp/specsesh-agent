@@ -24,6 +24,8 @@ variables:
         description: "which iteration of the task loop this is"
     carried: mutable string = ""
         description: "feedback carried from earlier iterations or an escalation answer"
+    delete_granted: mutable boolean = False
+        description: "whether delete_file is granted to this loop"
     plan: mutable string = ""
         description: "this iteration's plan"
     checks_passed: mutable boolean = False
@@ -57,6 +59,8 @@ subagent orient:
             | {!@variables.deltas}
             if @variables.iteration > 1:
                 | This is iteration {!@variables.iteration}. Still unmet from before: {!@variables.carried}
+            if @variables.delete_granted:
+                | If the task retires a file, delete it with delete_file; do not empty it.
             | Write a short, concrete plan for this iteration: which files, which changes, which scenarios it satisfies.
             set @variables.plan = @outputs.plan
 
@@ -87,6 +91,13 @@ subagent act:
                 exit_code: number
                 output: string
             target: "mcpTool://run_command"
+        delete_file:
+            description: "Delete a file the task retires from the workspace"
+            inputs:
+                path: string
+            outputs:
+                ok: boolean
+            target: "mcpTool://delete_file"
 
     reasoning:
         instructions: ->
@@ -100,6 +111,8 @@ subagent act:
                 with content = ...
             shell: @actions.run_command
                 with command = ...
+            delete: @actions.delete_file
+                with path = ...
 
 subagent check:
     description: "Run the task's checks, without the model"

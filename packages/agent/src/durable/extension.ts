@@ -236,6 +236,12 @@ export interface AgentScriptExtensionOptions {
 	readonly workspace: string;
 	/** The workspace's snapshot, taken around a durable action's child; absent, `before` and `after` are too. */
 	readonly snapshot?: () => Promise<WorkspaceSnapshot | undefined>;
+	/**
+	 * Tools a script may target though `actions` lacks them, each with the message a call answers.
+	 * Unregistered, such a tool passes the binding check, is left out of a model step's tools,
+	 * and a `run` call of it fails with that message.
+	 */
+	readonly optional?: Readonly<Record<string, string>>;
 }
 
 /** The two extensions a host installs, bound to one registry and workspace. */
@@ -252,14 +258,22 @@ export interface AgentScriptExtensions {
  * workspace. Install both in place of the plain exports.
  */
 export function agentScriptExtensions(options: AgentScriptExtensionOptions): AgentScriptExtensions {
-	return createExtensions(options.actions, options.workspace, options.snapshot);
+	return createExtensions(options.actions, options.workspace, options.snapshot, options.optional);
 }
 
 function createExtensions(
 	registry: ActionRegistry,
 	workspace: string,
 	snapshot?: () => Promise<WorkspaceSnapshot | undefined>,
+	optional: Readonly<Record<string, string>> = {},
 ): AgentScriptExtensions {
+	const optionalTools = new Set(Object.keys(optional).filter((name) => !registry.has(name)));
+	/** The request as the step is offered it: without the offers of optional tools this host lacks. */
+	const offered = (request: ReasoningRequest): ReasoningRequest =>
+		request.tools === undefined || optionalTools.size === 0
+			? request
+			: { ...request, tools: request.tools.filter((offer) => !optionalTools.has(offer.action)) };
+
 	/**
 	 * The offered action tools, by name. pi-durable resolves a conversation's
 	 * tools by name against the selected extensions at each use, and offer names
@@ -306,7 +320,7 @@ function createExtensions(
 			}
 			const state = start(input.source, input.options);
 			// Checked whole, when the run is created: nothing has executed yet.
-			checkBindings(input.source, registry, input.scope);
+			checkBindings(input.source, registry, input.scope, optionalTools);
 			return { phase: "next", state };
 		},
 		phases: {
@@ -333,8 +347,9 @@ function createExtensions(
 			},
 			dispatch: async (task, runtime, context) => {
 				const { state, step } = task.state.checkpoint;
-				const request = awaitingRequest(state);
-				if (request === undefined) throw new Error("dispatch reached with no step awaiting");
+				const awaited = awaitingRequest(state);
+				if (awaited === undefined) throw new Error("dispatch reached with no step awaiting");
+				const request = offered(awaited);
 				const tools = register(request);
 				await runtime.commit(async (tx) => {
 					const child = await tx.createConversation({ ownership: { kind: "task", taskId: runtime.taskId } });
@@ -344,8 +359,9 @@ function createExtensions(
 			},
 			await: async (task, runtime, context) => {
 				const { state, step, conversationId } = task.state.checkpoint;
-				const request = awaitingRequest(state);
-				if (request === undefined) throw new Error("await reached with no step awaiting");
+				const awaited = awaitingRequest(state);
+				if (awaited === undefined) throw new Error("await reached with no step awaiting");
+				const request = offered(awaited);
 				register(request);
 				const outcome = await answerStep(runtime, conversationId, request, step, context);
 				const after = apply(task.input.source, state, outcome);
@@ -410,7 +426,10 @@ function createExtensions(
 						}),
 					);
 				} else if (action === undefined) {
-					result = { ok: false, message: `mcpTool://${call.tool} is not registered on this host` };
+					result = {
+						ok: false,
+						message: optionalTools.has(call.tool) ? (optional[call.tool] as string) : `mcpTool://${call.tool} is not registered on this host`,
+					};
 				} else if (intent === null) {
 					// The intent lands before anything runs, so a crash mid-call is seen on resume.
 					await runtime.commit(

@@ -23,6 +23,8 @@ export interface TaskLoopInput {
 	readonly model?: ModelRef;
 	/** The grants the loop started with; a resumed loop rebuilds its registry from them. */
 	readonly delegates?: DelegateGrants;
+	/** Whether `delete_file` was granted; a resumed loop rebuilds its registry from it. Absent (older loops): `false`. */
+	readonly deleteFiles?: boolean;
 	readonly worktree?: LoopWorktree;
 	/** What the first iteration of this run is seeded with: `""`, or an answered escalation's decision. */
 	readonly carried: string;
