@@ -58,96 +58,7 @@ async function host(body: (h: {
 	}
 }
 
-async function blockedOnProposal(harness: Harness, env: ReturnType<typeof setup>, options: task.DraftLoopOptions) {
-	env.faux.setResponses([draft("=== proposal.md\n## Why\n\nCSV and JSON.\n")]);
-	const id = await task.startDraftLoop(harness, options, context);
-	harness.resume();
-	const outcome = await task.waitForDraftLoop(harness, id, context);
-	expect(outcome.status).toBe("blocked");
-	return id;
-}
-
 describe("task/draft-api", () => {
-	it("Scenario: A host starts and awaits a draft loop", async () => {
-		await host(async ({ harness, env, options }) => {
-			env.faux.setResponses([draft("=== proposal.md\n## Why\n\nDrafted.\n")]);
-			const id = await task.startDraftLoop(harness, options, context);
-			harness.resume();
-			const outcome = await task.waitForDraftLoop(harness, id, context);
-
-			expect(outcome).toMatchObject({
-				status: "blocked",
-				escalation: { reason: "review", to: "principal" },
-				result: { change: "add-thing", stages: [{ stage: "proposal", approved: false, runs: 1 }] },
-			});
-			expect(questionOf(outcome)).toContain("proposal.md");
-		});
-	});
-
-	it("Scenario: Approving the proposal drafts the design", async () => {
-		await host(async ({ harness, env, changeDir, options }) => {
-			const first = await blockedOnProposal(harness, env, options);
-			env.faux.setResponses([draft("=== design.md\n## Context\n\nDrafted.\n")]);
-			const next = await task.answerDraftLoop(harness, first, principal("approve"), context);
-			const outcome = await task.waitForDraftLoop(harness, next, context);
-
-			const approvals = JSON.parse(readFileSync(join(changeDir, "approvals.json"), "utf8"));
-			expect(approvals.approvals.map((a: { stage: string }) => a.stage)).toEqual(["proposal"]);
-			expect(approvals.approvals[0].files).toEqual({ "proposal.md": sha256(join(changeDir, "proposal.md")) });
-			expect(outcome).toMatchObject({
-				status: "blocked",
-				escalation: { reason: "review" },
-				result: {
-					stages: [
-						{ stage: "proposal", approved: true, runs: 2 },
-						{ stage: "design", approved: false, runs: 1 },
-					],
-				},
-			});
-			expect(questionOf(outcome)).toContain("design.md");
-		});
-	});
-
-	it("Scenario: A revision redrafts the same stage", async () => {
-		await host(async ({ harness, env, options }) => {
-			const first = await blockedOnProposal(harness, env, options);
-			const before = env.requests.length;
-			env.faux.setResponses([draft("=== proposal.md\n## Why\n\nJSON.\n")]);
-			const next = await task.answerDraftLoop(harness, first, principal("JSON only"), context);
-			const outcome = await task.waitForDraftLoop(harness, next, context);
-
-			const prompts = env.requests.slice(before).map((request) => JSON.stringify(request.messages));
-			expect(prompts).toHaveLength(1);
-			expect(prompts[0]).toContain("The principal asked for: JSON only");
-			expect(prompts[0]).toContain("Stage proposal of add-thing");
-			expect(outcome).toMatchObject({
-				status: "blocked",
-				escalation: { reason: "review" },
-				result: { stages: [{ stage: "proposal", approved: false, runs: 2 }] },
-			});
-		});
-	});
-
-	it("Scenario: An agent cannot approve through the draft", async () => {
-		const file = `${JSON.stringify({ approvals: [approval("other", {})] })}\n`;
-		await host(
-			async ({ harness, env, changeDir, options, count }) => {
-				const first = await blockedOnProposal(harness, env, options);
-				const drafts = await count(DRAFT_LOOP_TASK);
-				const loops = await count(SPEC_LOOP);
-
-				const error = await refusal(task.answerDraftLoop(harness, first, { by: "agent", principal: "bot", decision: "approve" }, context));
-
-				expect(error).toBeInstanceOf(task.EscalationAnswerError);
-				expect((error as Error).message).toContain("only the principal answers the review of the proposal stage");
-				expect(await count(DRAFT_LOOP_TASK)).toBe(drafts);
-				expect(await count(SPEC_LOOP)).toBe(loops);
-				expect(readFileSync(join(changeDir, "approvals.json"), "utf8")).toBe(file);
-			},
-			(changeDir) => writeFileSync(join(changeDir, "approvals.json"), file),
-		);
-	});
-
 	it("Scenario: answerDraftLoop on a converged or failed draft is refused", async () => {
 		// Converged: every stage approved and unchanged.
 		await host(
@@ -214,42 +125,6 @@ describe("task/draft-api", () => {
 				writeFileSync(
 					join(changeDir, "approvals.json"),
 					JSON.stringify({ approvals: [approval("proposal", { "proposal.md": sha256(join(changeDir, "proposal.md")) })] }),
-				);
-			},
-		);
-	});
-
-	it("Scenario: A fully approved change converges at once", async () => {
-		await host(
-			async ({ harness, env, options, count }) => {
-				const id = await task.startDraftLoop(harness, options, context);
-				harness.resume();
-				const outcome = await task.waitForDraftLoop(harness, id, context);
-
-				expect(outcome).toEqual({
-					status: "converged",
-					iterations: [],
-					result: {
-						change: "add-thing",
-						stages: [
-							{ stage: "proposal", approved: true, runs: 0 },
-							{ stage: "design", approved: true, runs: 0 },
-						],
-					},
-				});
-				expect(await count(SPEC_LOOP)).toBe(0);
-				expect(env.requests).toHaveLength(0);
-			},
-			(changeDir) => {
-				for (const name of ["proposal.md", "design.md"]) writeFileSync(join(changeDir, name), `# ${name}\n`);
-				writeFileSync(
-					join(changeDir, "approvals.json"),
-					JSON.stringify({
-						approvals: [
-							approval("proposal", { "proposal.md": sha256(join(changeDir, "proposal.md")) }),
-							approval("design", { "design.md": sha256(join(changeDir, "design.md")) }),
-						],
-					}),
 				);
 			},
 		);

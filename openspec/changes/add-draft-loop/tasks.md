@@ -7,9 +7,9 @@
 
 ## 2. Tests
 
-- [ ] 2.1 `packages/agent/__tests__/task/draft-loop.test.ts`: "A host starts and awaits a draft loop", "A fully approved change converges at once" and "An edited approved file reopens its stage" (3)
-- [ ] 2.2 `packages/agent/__tests__/task/draft-stage.test.ts`: "A review blocks the draft", "An exhausted stage fails the draft", "Killed while a stage drafts" and "An already approved proposal is entered with runs 0" (4)
-- [ ] 2.3 `packages/agent/__tests__/task/draft-answer.test.ts`: "Approving the proposal drafts the design", "A revision redrafts the same stage" and "An agent cannot approve through the draft" (3)
+- [x] 2.1 `packages/agent/__tests__/task/draft-loop.test.ts`: "A host starts and awaits a draft loop", "A fully approved change converges at once" and "An edited approved file reopens its stage" (3)
+- [x] 2.2 `packages/agent/__tests__/task/draft-stage.test.ts`: "A review blocks the draft", "An exhausted stage fails the draft", "Killed while a stage drafts" and "An already approved proposal is entered with runs 0" (4)
+- [x] 2.3 `packages/agent/__tests__/task/draft-answer.test.ts`: "Approving the proposal drafts the design", "A revision redrafts the same stage" and "An agent cannot approve through the draft" (3)
 
 ## 3. Docs
 
