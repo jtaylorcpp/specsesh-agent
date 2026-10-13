@@ -60,3 +60,4 @@ export {
 	type SpecLoopExtensionOptions,
 	type SpecLoopOptions,
 } from "./spec-api.js";
+export { answerSpecLoop, type SpecLoopAnswer } from "./spec-answer.js";

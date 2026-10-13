@@ -13,6 +13,12 @@
  *            for the principal's review, else the issues carry into the next
  *            iteration or the budget is exhausted
  *
+ * A run started with `approve: true` has one phase instead, and drafts nothing:
+ *
+ *   approve  record the principal's approval in `approvals.json` (hash the owned
+ *            files, replace the stage's entry, drop every later stage's), then end
+ *            converged with `approved: true`; rerunning it writes the same entry
+ *
  * A stage's `seed` and `gate` are functions, which no checkpoint can hold: the
  * durable input keeps the stage's name and owned paths, and the task resolves
  * the rest by name (`specLoopTask(resolve)`, or the stages `registerSpecStage`
@@ -48,7 +54,9 @@ import {
 } from "../openspec/index.js";
 import { closed } from "../openspec/schema.js";
 import { CHECK_TIMEOUT_MS, SPAWN_FAILED_EXIT_CODE, type CheckRun } from "./checks.js";
+import { ApprovalsFileError } from "./errors.js";
 import { subagentsOf } from "./loop.js";
+import { recordApproval, type ApprovalStage } from "./spec-approvals.js";
 import { readBundle } from "./spec-bundle.js";
 import { SPEC_NEXT_ACTIONS, type SpecStage, type StageContext, type StageIssue } from "./spec-stage.js";
 
@@ -64,7 +72,7 @@ export interface StageOutcome {
 
 /**
  * The ontology has no `StageOutcome` schema, so the outcome is checked with its result left
- * out (optional in every status this loop ends in): the iterations and the escalation.
+ * out (an empty one when converged, the one status that needs it): the iterations and the escalation.
  */
 const SpecLoopShape = LoopOutcome(closed({}));
 
@@ -83,6 +91,23 @@ export interface SpecLoopInput {
 	/** Who a stage's question goes to. A review always goes to the principal. */
 	readonly escalateTo: Recipient;
 	readonly model?: ModelRef;
+	/** Record the principal's approval of the stage and end, drafting nothing. Needs `principal`. */
+	readonly approve?: boolean;
+	/** Who approved: the principal's name, recorded in `approvals.json`. */
+	readonly principal?: string;
+	/** The principal's notes on the approval. Defaults to none. */
+	readonly notes?: string;
+	/**
+	 * Every stage of the change as far as approvals need it, so approving drops the later
+	 * stages' entries. Defaults to the stages `registerSpecStage` registered in this process.
+	 */
+	readonly stages?: readonly { readonly name: string; readonly owns: readonly string[]; readonly after?: readonly string[] }[];
+	/** Carried into the first iteration: an answer to the run this one answers. Defaults to none. */
+	readonly carried?: string;
+	/** The iterations of the run this one answers, kept and numbered on from. Defaults to none. */
+	readonly earlier?: readonly Iteration[];
+	/** The ID of the blocked run this one answers. */
+	readonly answers?: number;
 }
 
 /** What `await` reads from a settled child run, small enough for a checkpoint. */
@@ -91,6 +116,7 @@ export type StageRead =
 	| { readonly ok: false; readonly message: string };
 
 export type SpecLoopCheckpoint =
+	| { readonly phase: "approve" }
 	| { readonly phase: "iterate"; readonly iterations: Iteration[]; readonly carried: string }
 	| { readonly phase: "await"; readonly iterations: Iteration[]; readonly carried: string; readonly child: TaskId }
 	| { readonly phase: "write"; readonly iterations: Iteration[]; readonly carried: string; readonly child: TaskId; readonly read: StageRead }
@@ -220,7 +246,8 @@ export function recordStageRound(n: number, stage: string, plan: string, written
 }
 
 function result(outcome: SpecLoopResult["outcome"]): SpecLoopResult {
-	const { result: _result, ...shape } = outcome;
+	const { result: _result, ...rest } = outcome;
+	const shape = rest.status === "converged" ? { ...rest, result: {} } : rest;
 	if (!check(SpecLoopShape, shape)) {
 		throw new Error(`the spec loop built an outcome the ontology refuses: ${explain(SpecLoopShape, shape).join("; ")}`);
 	}
@@ -232,6 +259,30 @@ type SpecPhases = TaskDefinition<SpecLoopInput, SpecLoopCheckpoint, SpecLoopResu
 function phases(resolve: StageResolver, bound?: Workspace): SpecPhases {
 	const workspaceFor = (input: SpecLoopInput) => bound ?? localWorkspace(input.workspace);
 	return {
+		// Rerunnable: the same files record the same entry, only `at` newer.
+		approve: async (task, runtime, context) => {
+			const input = task.input;
+			const fail = (message: string) =>
+				runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { message } } }), context);
+			if (input.principal === undefined || input.principal === "") {
+				await fail(`the ${input.stage.name} stage of ${input.change} can be approved only by a named principal; the run has no principal`);
+				return;
+			}
+			const stages: readonly ApprovalStage[] = input.stages ?? [...registered.values()];
+			const after = stages.find((stage) => stage.name === input.stage.name)?.after;
+			const stage: ApprovalStage = { ...input.stage, ...(after !== undefined ? { after } : {}) };
+			let files: string[];
+			try {
+				const approval = { principal: input.principal, notes: input.notes ?? "", at: new Date().toISOString() };
+				files = Object.keys(recordApproval(changeDirOf(input), stage, approval, stages).files);
+			} catch (error) {
+				if (!(error instanceof ApprovalsFileError)) throw error;
+				await fail(error.message);
+				return;
+			}
+			const done = result({ status: "converged", iterations: [], result: { ...stageResult(input, files), approved: true } } as SpecLoopResult["outcome"]);
+			await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
+		},
 		iterate: async (task, runtime, context) => {
 			const { iterations, carried } = task.state.checkpoint;
 			const input = task.input;
@@ -351,7 +402,8 @@ export function specLoopTask(
 	return defineTask<SpecLoopInput, SpecLoopCheckpoint, SpecLoopResult>({
 		name: SPEC_LOOP,
 		version: 1,
-		initial: () => ({ phase: "iterate", iterations: [], carried: "" }),
+		initial: (input) =>
+			input.approve === true ? { phase: "approve" } : { phase: "iterate", iterations: [...(input.earlier ?? [])], carried: input.carried ?? "" },
 		phases: phases(resolve, bound),
 		abort: async (_task, runtime, context) => {
 			await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted", reason: "aborted" } }), context);

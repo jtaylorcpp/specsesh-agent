@@ -1,0 +1,187 @@
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { ApprovalsFileError } from "../../src/task/errors.js";
+import { hashOwnedFiles, readApprovals, recordApproval, staleApprovals } from "../../src/task/spec-approvals.js";
+
+const proposal = { name: "proposal", owns: ["proposal.md"] };
+const design = { name: "design", owns: ["design.md", "design/"], after: ["proposal"] };
+const tasks = { name: "tasks", owns: ["tasks.md"], after: ["design"] };
+const stages = [proposal, design, tasks];
+const by = { principal: "jesse", notes: "", at: "2026-10-12T17:04:11.000Z" };
+
+const dirs: string[] = [];
+afterEach(() => {
+	for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+function changeDir(files: Record<string, string | Buffer> = {}): string {
+	const root = mkdtempSync(join(tmpdir(), "spec-approvals-"));
+	dirs.push(root);
+	const dir = join(root, "add-plan-export");
+	mkdirSync(dir);
+	for (const [path, text] of Object.entries(files)) write(dir, path, text);
+	return dir;
+}
+
+function write(dir: string, path: string, text: string | Buffer): void {
+	mkdirSync(dirname(join(dir, path)), { recursive: true });
+	writeFileSync(join(dir, path), text);
+}
+
+const sha256 = (text: string | Buffer) => createHash("sha256").update(text).digest("hex");
+
+describe("task/spec-approvals: readApprovals", () => {
+	it("reads a missing approvals.json as no approvals", () => {
+		expect(readApprovals(changeDir())).toEqual({ approvals: [] });
+	});
+
+	it("refuses an entry by an agent, naming approvals.json and the field", () => {
+		const dir = changeDir({
+			"approvals.json": JSON.stringify({
+				approvals: [{ stage: "proposal", approved: true, by: "agent", principal: "bot", notes: "", at: by.at, files: {} }],
+			}),
+		});
+		expect(() => readApprovals(dir)).toThrow(ApprovalsFileError);
+		expect(() => readApprovals(dir)).toThrow(/^approvals\.json is not valid: \/approvals\/0\/by: /);
+	});
+
+	it("refuses a file that is not JSON, a bad hash, a bad date and an unknown key", () => {
+		const entry = { stage: "proposal", approved: true, by: "principal", principal: "jesse", notes: "", at: by.at, files: {} };
+		for (const text of [
+			"{",
+			JSON.stringify({ approvals: [{ ...entry, files: { "proposal.md": "abc" } }] }),
+			JSON.stringify({ approvals: [{ ...entry, at: "yesterday" }] }),
+			JSON.stringify({ approvals: [{ ...entry, extra: 1 }] }),
+			JSON.stringify({ approvals: [{ ...entry, principal: "" }] }),
+		]) {
+			expect(() => readApprovals(changeDir({ "approvals.json": text }))).toThrow(/^approvals\.json /);
+		}
+		expect(readApprovals(changeDir({ "approvals.json": JSON.stringify({ approvals: [entry] }) }))).toEqual({ approvals: [entry] });
+	});
+});
+
+describe("task/spec-approvals: hashOwnedFiles", () => {
+	it("hashes an owned file and every file under an owned directory, in path order", () => {
+		const image = Buffer.from([0xff, 0xfe, 0x00, 0x80]);
+		const dir = changeDir({
+			"design.md": "## Context\n",
+			"design/examples/b.ts": "b\n",
+			"design/a.png": image,
+			"tasks.md": "- [ ] 1.1 x\n",
+		});
+		const hashes = hashOwnedFiles(design, dir);
+		expect(Object.keys(hashes)).toEqual(["design.md", "design/a.png", "design/examples/b.ts"]);
+		expect(hashes["design.md"]).toBe(sha256("## Context\n"));
+		expect(hashes["design/a.png"]).toBe(sha256(image));
+	});
+
+	it("leaves out owned files that do not exist", () => {
+		expect(hashOwnedFiles(design, changeDir({ "design.md": "x" }))).toEqual({ "design.md": sha256("x") });
+		expect(hashOwnedFiles(proposal, changeDir())).toEqual({});
+	});
+});
+
+describe("task/spec-approvals: recordApproval", () => {
+	it("records the principal's approval with the sha256 of each owned file", () => {
+		const dir = changeDir({ "proposal.md": "## Why\n" });
+		const entry = recordApproval(dir, proposal, by, stages);
+		expect(entry).toEqual({
+			stage: "proposal",
+			approved: true,
+			by: "principal",
+			principal: "jesse",
+			notes: "",
+			at: by.at,
+			files: { "proposal.md": sha256("## Why\n") },
+		});
+		expect(readApprovals(dir)).toEqual({ approvals: [entry] });
+	});
+
+	it("replaces the stage's entry in place and drops every stage that follows it, transitively", () => {
+		const dir = changeDir({ "proposal.md": "v1\n", "design.md": "d\n", "tasks.md": "t\n" });
+		recordApproval(dir, proposal, by, stages);
+		recordApproval(dir, design, by, stages);
+		recordApproval(dir, tasks, by, stages);
+		expect(readApprovals(dir).approvals.map((entry) => entry.stage)).toEqual(["proposal", "design", "tasks"]);
+
+		write(dir, "proposal.md", "v2\n");
+		recordApproval(dir, proposal, { ...by, at: "2026-10-12T18:00:00.000Z" }, stages);
+		const { approvals } = readApprovals(dir);
+		expect(approvals).toHaveLength(1);
+		expect(approvals[0]).toMatchObject({ stage: "proposal", at: "2026-10-12T18:00:00.000Z", files: { "proposal.md": sha256("v2\n") } });
+	});
+
+	it("keeps entries for stages that do not follow it, and its own place in the file", () => {
+		const other = { name: "other", owns: ["other.md"] };
+		const dir = changeDir({ "proposal.md": "p\n", "other.md": "o\n", "design.md": "d\n" });
+		recordApproval(dir, proposal, by, [...stages, other]);
+		recordApproval(dir, other, by, [...stages, other]);
+		recordApproval(dir, design, by, [...stages, other]);
+		recordApproval(dir, proposal, by, [...stages, other]);
+		expect(readApprovals(dir).approvals.map((entry) => entry.stage)).toEqual(["proposal", "other"]);
+	});
+
+	it("ends on a cycle in after", () => {
+		const a = { name: "a", owns: ["a.md"], after: ["b"] };
+		const b = { name: "b", owns: ["b.md"], after: ["a"] };
+		const dir = changeDir({ "a.md": "a\n", "b.md": "b\n" });
+		recordApproval(dir, b, by, [a, b]);
+		recordApproval(dir, a, by, [a, b]);
+		expect(readApprovals(dir).approvals.map((entry) => entry.stage)).toEqual(["a"]);
+	});
+
+	it("writes the same bytes when run twice with the same inputs", () => {
+		const dir = changeDir({ "proposal.md": "## Why\n" });
+		recordApproval(dir, proposal, by, stages);
+		const first = readFileSync(join(dir, "approvals.json"));
+		recordApproval(dir, proposal, by, stages);
+		expect(readFileSync(join(dir, "approvals.json")).equals(first)).toBe(true);
+		expect(first.toString("utf8").endsWith("}\n")).toBe(true);
+	});
+
+	it("refuses to write over a malformed approvals.json", () => {
+		const dir = changeDir({ "proposal.md": "p\n", "approvals.json": "not json" });
+		expect(() => recordApproval(dir, proposal, by, stages)).toThrow(ApprovalsFileError);
+		expect(readFileSync(join(dir, "approvals.json"), "utf8")).toBe("not json");
+	});
+});
+
+describe("task/spec-approvals: staleApprovals", () => {
+	it("names a stage in after that has no approval", () => {
+		expect(staleApprovals(design, changeDir())).toEqual([
+			{ stage: "proposal", message: "the proposal stage of add-plan-export is not approved; run it and approve it first" },
+		]);
+	});
+
+	it("names a file edited since its stage was approved", () => {
+		const dir = changeDir({ "proposal.md": "## Why\n" });
+		recordApproval(dir, proposal, by, stages);
+		write(dir, "proposal.md", "## Why\nEdited.\n");
+		expect(staleApprovals(design, dir)).toEqual([
+			{ stage: "proposal", file: "proposal.md", message: "proposal.md changed since the proposal stage was approved; review it again" },
+		]);
+	});
+
+	it("names a file deleted since its stage was approved", () => {
+		const dir = changeDir({ "design.md": "d\n", "design/a.ts": "a\n" });
+		recordApproval(dir, design, by, stages);
+		rmSync(join(dir, "design/a.ts"));
+		expect(staleApprovals(tasks, dir)).toEqual([
+			{ stage: "design", file: "design/a.ts", message: "design/a.ts changed since the design stage was approved; review it again" },
+		]);
+	});
+
+	it("is empty when every stage in after is approved and unchanged, or there are none", () => {
+		const dir = changeDir({ "proposal.md": "## Why\n" });
+		recordApproval(dir, proposal, by, stages);
+		expect(staleApprovals(design, dir)).toEqual([]);
+		expect(staleApprovals(proposal, changeDir())).toEqual([]);
+	});
+
+	it("throws on a malformed approvals.json", () => {
+		expect(() => staleApprovals(design, changeDir({ "approvals.json": "{}" }))).toThrow(/^approvals\.json is not valid: /);
+	});
+});

@@ -35,6 +35,11 @@ export interface SpecStage {
 	/** Paths relative to the change directory; a trailing "/" owns every file under it. */
 	readonly owns: readonly string[];
 	readonly script: Source;
+	/**
+	 * The stages that must be approved, their files unchanged since, before this one starts.
+	 * Approving one of them drops this stage's approval, and every stage after it.
+	 */
+	readonly after?: readonly string[];
 	readonly seed?: (context: StageContext) => { base?: string } | Promise<{ base?: string }>;
 	gate(context: StageContext): Promise<StageIssue[]> | StageIssue[];
 }

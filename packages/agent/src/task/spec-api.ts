@@ -7,7 +7,7 @@
  * `specLoopExtensions({ stages })` both register it.
  */
 
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { defineExtension, type Extension, type Harness, type ModelRef, type TaskId } from "@earendil-works/pi-durable";
 import { start } from "../interpreter/index.js";
@@ -15,10 +15,11 @@ import { agentScriptExtensions, checkBindings, createActionRegistry, type Worksp
 import { localWorkspace } from "../node/index.js";
 import { LoopOutcome, check, explain, type Recipient } from "../openspec/index.js";
 import { closed } from "../openspec/schema.js";
-import { TaskLoopStartError } from "./errors.js";
+import { ApprovalsFileError, TaskLoopStartError } from "./errors.js";
 import { subagentsOf } from "./loop.js";
 import { DEFAULT_ESCALATE_TO, DEFAULT_MAX_ITERATIONS } from "./options.js";
 import { readSource } from "./sources.js";
+import { staleApprovals } from "./spec-approvals.js";
 import {
 	SPEC_LOOP,
 	SpecLoop,
@@ -73,6 +74,7 @@ export function prepareSpecLoop(options: SpecLoopOptions): SpecLoopInput {
 	if (!Number.isInteger(maxIterations) || maxIterations < 1) {
 		throw new TaskLoopStartError(`budget.maxIterations must be a positive integer, got ${maxIterations}`);
 	}
+	assertAfterApproved(options);
 	const script = readSource(options.stage.script);
 	const problems = stageContractProblems(script);
 	if (problems.length > 0) {
@@ -98,8 +100,29 @@ export function prepareSpecLoop(options: SpecLoopOptions): SpecLoopInput {
 }
 
 /**
- * Durably create the spec loop and return its ID. Every refusal (budget, script source,
- * stage contract, the script itself) comes first and creates nothing.
+ * Refuses a stage when a stage in its `after` is unapproved, or a file recorded at its approval
+ * changed or is gone. An `approvals.json` that is not valid refuses too, naming the file.
+ */
+function assertAfterApproved(options: SpecLoopOptions): void {
+	if ((options.stage.after ?? []).length === 0) return;
+	const changeDir = join(resolve(options.workspace), "openspec", "changes", options.change);
+	let stale;
+	try {
+		stale = staleApprovals(options.stage, changeDir);
+	} catch (error) {
+		if (error instanceof ApprovalsFileError) throw new TaskLoopStartError(`${error.message}; the loop was not started`);
+		throw error;
+	}
+	if (stale.length > 0) {
+		throw new TaskLoopStartError(
+			`the ${options.stage.name} stage cannot start yet, so the loop was not started:\n${stale.map((s) => `  - ${s.message}`).join("\n")}`,
+		);
+	}
+}
+
+/**
+ * Durably create the spec loop and return its ID. Every refusal (budget, approvals of the
+ * stages it follows, script source, stage contract, the script itself) comes first and creates nothing.
  */
 export async function startSpecLoop(
 	harness: Harness,
@@ -143,8 +166,15 @@ export async function waitForSpecLoop(
 		const why = outcome.status === "failed" ? outcome.error.message : (outcome.reason ?? "");
 		throw new Error(`spec loop ${String(id)} ended ${outcome.status}: ${why}`);
 	}
-	const value = (outcome.result as Partial<SpecLoopResult> | undefined)?.outcome;
-	const { result, ...shape } = (value ?? {}) as Partial<SpecLoopResult["outcome"]>;
+	return readSpecOutcome(outcome.result, id);
+}
+
+/** A completed spec loop's durable result as its `LoopOutcome<StageOutcome>`, checked against the ontology. */
+export function readSpecOutcome(durable: unknown, id: unknown): LoopOutcome<StageOutcome> {
+	const value = (durable as Partial<SpecLoopResult> | undefined)?.outcome;
+	const { result, ...rest } = (value ?? {}) as Partial<SpecLoopResult["outcome"]>;
+	// Converged is the one status whose shape needs a result: an empty one stands in, as in the loop.
+	const shape = rest.status === "converged" && result !== undefined ? { ...rest, result: {} } : rest;
 	const problems = check(SpecLoopShape, shape) ? stageOutcomeProblems(result) : explain(SpecLoopShape, shape);
 	if (problems.length > 0) {
 		throw new Error(`spec loop ${String(id)} holds an outcome the ontology refuses: ${problems.join("; ")}`);

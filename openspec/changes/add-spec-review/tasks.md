@@ -1,11 +1,11 @@
 ## 1. Approvals and answers
 
-- [ ] 1.1 `packages/agent/src/task/spec-approvals.ts` (new): the `approvals.json` schema, `readApprovals`, `recordApproval` (replace, then drop dependants) and `staleApprovals(stage, changeDir)`
-- [ ] 1.2 `packages/agent/src/task/spec-stage.ts`: `SpecStage.after`
-- [ ] 1.3 `packages/agent/src/task/spec-loop.ts`: the `approve` phase for a run started with `approve: true`
-- [ ] 1.4 `packages/agent/src/task/spec-answer.ts` (new): `answerSpecLoop`, routing approve, revise and question answers
-- [ ] 1.5 `packages/agent/src/task/spec-api.ts`: refuse a start whose `after` stages are unapproved or stale
-- [ ] 1.6 `packages/agent/src/task/index.ts`: export `answerSpecLoop`
+- [x] 1.1 `packages/agent/src/task/spec-approvals.ts` (new): the `approvals.json` schema, `readApprovals`, `recordApproval` (replace, then drop dependants) and `staleApprovals(stage, changeDir)`
+- [x] 1.2 `packages/agent/src/task/spec-stage.ts`: `SpecStage.after`
+- [x] 1.3 `packages/agent/src/task/spec-loop.ts`: the `approve` phase for a run started with `approve: true`
+- [x] 1.4 `packages/agent/src/task/spec-answer.ts` (new): `answerSpecLoop`, routing approve, revise and question answers
+- [x] 1.5 `packages/agent/src/task/spec-api.ts`: refuse a start whose `after` stages are unapproved or stale
+- [x] 1.6 `packages/agent/src/task/index.ts`: export `answerSpecLoop`
 
 ## 2. Tests
 

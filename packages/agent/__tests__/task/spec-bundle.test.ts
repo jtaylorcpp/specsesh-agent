@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { readBundle } from "../../src/task/spec-bundle.js";
-import { owns } from "../../src/task/spec-stage.js";
+import { owns, type SpecStage } from "../../src/task/spec-stage.js";
 
-const design = { name: "design", owns: ["design.md", "design/"] };
+const design: Pick<SpecStage, "name" | "owns" | "after"> = { name: "design", after: ["proposal"], owns: ["design.md", "design/"] };
 const proposal = { name: "proposal", owns: ["proposal.md"] };
 
 describe("task/spec-bundle: scenarios", () => {
