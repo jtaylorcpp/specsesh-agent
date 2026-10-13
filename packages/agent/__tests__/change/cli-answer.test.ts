@@ -1,0 +1,207 @@
+/**
+ * change/cli: `build` answers a waiting build, shows its question, and ends with the next
+ * command. `agentscript-change` in process, on a faux model, in a temp git repository holding
+ * `add-plan-export` (groups 1, 2 and 3, every stage approved), with the test judges as
+ * scripts and `true` as both checks. The guard validates the change with the repo's pinned
+ * `openspec`, so it goes first on PATH.
+ *
+ * "A built change points at the next step" names a scenario of both the draft and the build
+ * output requirements, so the tests are grouped by requirement.
+ */
+
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { RESULT_TOOL } from "../../src/durable/index.js";
+import { CHANGE_LOOP_TASK } from "../../src/task/change-input.js";
+import { readChangeResult } from "../../src/task/change-api.js";
+import { GROUP_LOOP_NAME } from "../../src/task/group.js";
+import { TASK_LOOP } from "../../src/task/index.js";
+import { recordApproval } from "../../src/task/spec-approvals.js";
+import { SPEC_STAGES } from "../../src/task/spec-stages.js";
+import { commitAll, gitIn, write } from "../task/cli-helpers.js";
+import { GROUP_JUDGE, JUDGE_ONLY, cleanTemps, context, temp, verdict } from "../task/helpers.js";
+import { stagedCheck } from "../task/staged-check.js";
+import { CHANGE, change } from "./helpers.js";
+
+/** The repo's pinned `openspec` (1.14.1): the guard validates the change with it. */
+const OPENSPEC_BIN = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "node_modules", ".bin");
+
+let savedPath: string | undefined;
+beforeEach(() => {
+	savedPath = process.env.PATH;
+	process.env.PATH = `${OPENSPEC_BIN}:${savedPath ?? ""}`;
+});
+afterEach(() => {
+	process.env.PATH = savedPath;
+	cleanTemps();
+});
+
+const PROPOSAL = "## Why\nPlans have to leave the tool, for a reason long enough to pass.\n\n## What Changes\n- Exports a plan.\n";
+const scenario = (name: string) => `#### Scenario: ${name}\n- **WHEN** it runs\n- **THEN** it SHALL work\n`;
+const REQUIREMENTS = [
+	["Plans export", "A plan SHALL export as JSON.", "A plan exports"],
+	["Exports are complete", "An export SHALL hold every step.", "An export holds every step"],
+	["Exports are named", "An export SHALL be named after its plan.", "An export is named"],
+	["Exports use the API", "An export SHALL go through the plan API.", "An export calls the API"],
+	["Exports are listed", "Every export SHALL be listed.", "An export is listed"],
+];
+const SPEC = ["## ADDED Requirements", "", ...REQUIREMENTS.flatMap(([name, text, title]) => [`### Requirement: ${name}`, text!, "", scenario(title!)])].join("\n");
+const TASKS = [
+	"## 1. Export",
+	"",
+	'- [ ] 1.1 `src/export.ts`: "A plan exports"',
+	'- [ ] 1.2 `src/export.ts`: "An export holds every step"',
+	"",
+	"## 2. API",
+	"",
+	'- [ ] 2.1 `src/api.ts`: "An export calls the API"',
+	'- [ ] 2.2 `src/name.ts`: "An export is named"',
+	"",
+	"## 3. Listing",
+	"",
+	'- [ ] 3.1 `src/list.ts`: "An export is listed"',
+	"",
+].join("\n");
+
+/**
+ * A git repository with one commit holding the config and `add-plan-export`, every stage
+ * approved; the judges and the database live outside it, so they never dirty the tree.
+ * `check` is the task and group check (default `true`).
+ */
+function repo(check = "true") {
+	const dir = temp("change-answer-repo-");
+	const changeDir = join(dir, "openspec", "changes", CHANGE);
+	write(dir, {
+		"agentscript.config.json": JSON.stringify({ task: { changesDir: "openspec/changes" } }),
+		"README.md": "# plans\n",
+		[join("openspec", "changes", CHANGE, "proposal.md")]: PROPOSAL,
+		[join("openspec", "changes", CHANGE, "design.md")]: "## Context\nA design.\n",
+		[join("openspec", "changes", CHANGE, "specs", "plan", "export", "spec.md")]: SPEC,
+		[join("openspec", "changes", CHANGE, "tasks.md")]: TASKS,
+	});
+	mkdirSync(join(dir, "openspec", "specs"), { recursive: true });
+	writeFileSync(join(dir, "openspec", "specs", ".gitkeep"), "");
+	for (const stage of SPEC_STAGES) recordApproval(changeDir, stage, { principal: "jesse", notes: "", at: "2026-10-13T00:00:00.000Z" }, SPEC_STAGES);
+	gitIn(dir, "init", "-q", "-b", "main");
+	commitAll(dir, "init");
+
+	const outside = temp("change-answer-");
+	const script = join(outside, "judge.agent");
+	const groupScript = join(outside, "group.agent");
+	writeFileSync(script, JUDGE_ONLY);
+	writeFileSync(groupScript, GROUP_JUDGE);
+	const db = join(outside, "loops.sqlite");
+	const args = ["--db", db, "--script", script, "--group-script", groupScript, "--check", check, "--change-check", "true"];
+	return { dir, changeDir, db, args };
+}
+
+/** Every loop in the database (change, group and task loops) and every `agentscript.run`. */
+async function tasksIn(db: string) {
+	const storage = await openNodeSqliteStorage(db);
+	try {
+		const scan = async (kind: string) => (await storage.scanTasks({ kind }, 100, undefined, context)).items;
+		return {
+			changes: await scan(CHANGE_LOOP_TASK),
+			groups: await scan(GROUP_LOOP_NAME),
+			tasks: await scan(TASK_LOOP),
+			runs: await scan("agentscript.run"),
+		};
+	} finally {
+		await storage.close(context);
+	}
+}
+
+const judgeRework = (task: string) =>
+	fauxAssistantMessage([fauxToolCall(RESULT_TOOL, { next_action: "rework", rework_task: task, feedback: "try again", question: "" })], {
+		stopReason: "toolUse",
+	});
+
+/** Group 1's tasks converge, then 2.1 asks the principal `question`; `build` ends blocked, exit 1. */
+async function blockInGroup2(question: string) {
+	const fixture = repo();
+	const blocked = await change(["build", CHANGE, ...fixture.args], fixture.dir, [verdict(true), verdict(true), verdict(false, "two APIs", "ask", question)]);
+	expect(blocked.code).toBe(1);
+	return { ...fixture, blocked };
+}
+
+const lastLines = (out: string, n: number) => out.trim().split("\n").slice(-n);
+
+describe.skipIf(process.platform === "win32")("change/cli build answers", () => {
+	describe("build with an answer continues a waiting build", () => {
+		it("Scenario: Answering a waiting build continues it", async () => {
+			const { dir, db, args } = await blockInGroup2("Which API?");
+			const before = await tasksIn(db);
+			expect(before.changes).toHaveLength(1);
+			const [first] = before.changes;
+			const record = first!.state as unknown as { status: string; outcome: { result: unknown } };
+			const { outcome } = readChangeResult(record.outcome.result as never, Number(first!.id) as never);
+			expect(outcome.status).toBe("blocked");
+			expect((outcome as { escalation: { to: string; question: string } }).escalation).toMatchObject({ to: "principal", question: "Which API?" });
+
+			// 2.1 again with the decision, then 2.2 and 3.1; passing group checks ask no judge.
+			const run = await change(["build", CHANGE, "Use the v2 API", ...args], dir, [verdict(true), verdict(true), verdict(true)]);
+			expect(run.code).toBe(0);
+			const one = run.out.indexOf("## group 1: converged");
+			const two = run.out.indexOf("## group 2: converged");
+			const three = run.out.indexOf("## group 3: converged");
+			expect(one).toBeGreaterThan(-1);
+			expect(two).toBeGreaterThan(one);
+			expect(three).toBeGreaterThan(two);
+
+			// A new run of the same change loop, answering the blocked one; the decision reached group 2's rerun.
+			const after = await tasksIn(db);
+			expect(after.changes).toHaveLength(2);
+			const next = after.changes.find((task) => task.id !== first!.id)!;
+			expect((next.input as unknown as { change: unknown; resume?: { answers: number } }).resume?.answers).toBe(Number(first!.id));
+			expect((next.input as unknown as { change: unknown }).change).toEqual((first!.input as unknown as { change: unknown }).change);
+			const groupTwos = after.groups.filter((task) => (task.input as unknown as { group: number }).group === 2);
+			expect(groupTwos).toHaveLength(2);
+			expect(groupTwos.some((task) => JSON.stringify(task.input).includes("Use the v2 API"))).toBe(true);
+		}, 120_000);
+
+		it("Scenario: build alone shows the question", async () => {
+			const { dir, db, args } = await blockInGroup2("Which API?");
+			const before = await tasksIn(db);
+
+			const run = await change(["build", CHANGE, ...args], dir, [verdict(true), verdict(true), verdict(true)]);
+			expect(run.out).toContain("Which API?");
+			expect(run.code).toBe(1);
+			expect(run.calls).toBe(0);
+			const after = await tasksIn(db);
+			for (const kind of ["changes", "groups", "tasks", "runs"] as const) {
+				expect(after[kind].map((task) => task.id)).toEqual(before[kind].map((task) => task.id));
+			}
+		}, 120_000);
+	});
+
+	describe("Build output ends with the next command", () => {
+		it("Scenario: A blocked build ends with the answer command", async () => {
+			const { blocked } = await blockInGroup2("Which API?");
+			expect(blocked.out.split("\n")[0]).toBe(`# ${CHANGE} — waiting for an answer`);
+			const one = blocked.out.search(/## group 1: converged \(2 tasks, 0 reworks\)/);
+			const two = blocked.out.indexOf("## group 2: blocked");
+			expect(one).toBeGreaterThan(-1);
+			expect(two).toBeGreaterThan(one);
+			const [question, command] = lastLines(blocked.out, 2);
+			expect(question).toMatch(/Which API\?$/);
+			expect(command).toContain(`pnpm change build ${CHANGE} "<answer>"`);
+		}, 120_000);
+
+		it("Scenario: A built change points at the next step", async () => {
+			// Gates of 1.1 and 1.2 pass, group 1's check fails once, the judge reopens 1.1, and everything after passes.
+			const staged = stagedCheck([true, true, false, true]);
+			const { dir, args } = repo(staged.command);
+
+			const run = await change(["build", CHANGE, ...args], dir, [verdict(true), verdict(true), judgeRework("1.1"), verdict(true), verdict(true), verdict(true), verdict(true)]);
+			expect(run.out.split("\n")[0]).toBe(`# ${CHANGE} — built`);
+			expect(run.out).toMatch(/## group 1: converged \(\d+ tasks?, 1 rework\)/);
+			expect(run.out).toContain("## change check: passed");
+			expect(run.out.trim()).toMatch(new RegExp(`pnpm spec:archive ${CHANGE}$`));
+			expect(run.code).toBe(0);
+		}, 120_000);
+	});
+});

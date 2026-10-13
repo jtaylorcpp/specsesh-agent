@@ -116,5 +116,6 @@ describe("change/cli draft output", () => {
 		expect(run.code).toBe(0);
 		expect(run.out.split("\n")[0]).toContain("drafted");
 		expect(tail(run.out, 1)[0]).toContain(`pnpm change build ${CHANGE}`);
+		expect(run.out).not.toContain("--next-group");
 	});
 });
