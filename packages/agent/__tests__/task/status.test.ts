@@ -2,9 +2,12 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { main } from "../../src/bin/agentscript-task.js";
+import { SPEC_LOOP } from "../../src/task/spec-loop.js";
 import { formatLoop, summarize } from "../../src/task/status.js";
 import { cli, fauxModels, workdir } from "./cli-helpers.js";
-import { cleanTemps, context, tinyChange, verdict } from "./helpers.js";
+import { cleanTemps, context, temp, tinyChange, verdict } from "./helpers.js";
+import { draft, proposalStage } from "./spec-helpers.js";
 
 afterEach(() => cleanTemps());
 
@@ -76,7 +79,7 @@ describe("task/headless: status lists the loops in the database", () => {
 	});
 });
 
-describe("task/cli: The CLI has four commands and prints usage otherwise", () => {
+describe("task/cli: The CLI has five commands and prints usage otherwise", () => {
 	it("Scenario: An unknown command prints usage", async () => {
 		const r = await cli(["frobnicate"]);
 		expect(r.err).toContain("usage:");
@@ -106,5 +109,34 @@ describe("task/cli: The CLI has four commands and prints usage otherwise", () =>
 		expect(r.code).toBe(2);
 		expect(r.err).toContain("--frob");
 		expect(r.err).toContain("usage:");
+	});
+});
+
+describe("task/cli: The exit code says whether the loop converged", () => {
+	it("Scenario: A spec loop waiting for review exits 0", async () => {
+		const dir = temp("task-cli-spec-");
+		const db = join(dir, ".agentscript", "spec.sqlite");
+		const { faux, models } = fauxModels();
+		faux.setResponses([draft("=== proposal.md\n# A proposal\n")]);
+		const model = faux.getModel();
+		const out: string[] = [];
+		const err: string[] = [];
+		const code = await main(["spec", "add-plan-export", "--intent", "Export a plan", "--db", db], {
+			models: () => models,
+			out: (line) => out.push(line),
+			err: (line) => err.push(line),
+			cwd: dir,
+			env: { AGENTSCRIPT_PROVIDER: model.provider, AGENTSCRIPT_MODEL: model.id },
+			stages: [proposalStage()],
+		});
+		expect(code, err.join("\n")).toBe(0);
+		expect(out.join("\n")).toMatch(/^# spec loop \d+ — blocked \(review\)/);
+		const storage = await openNodeSqliteStorage(db);
+		const page = await storage.scanTasks({ kind: SPEC_LOOP }, 10, undefined, context);
+		await storage.close(context);
+		expect(page.items).toHaveLength(1);
+		const state = page.items[0]?.state as { outcome?: { result?: { outcome: { status: string; escalation?: { reason: string } } } } };
+		const outcome = state.outcome?.result?.outcome;
+		expect([outcome?.status, outcome?.escalation?.reason]).toEqual(["blocked", "review"]);
 	});
 });

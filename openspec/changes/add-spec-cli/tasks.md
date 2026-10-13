@@ -9,9 +9,9 @@
 
 ## 2. Tests
 
-- [ ] 2.1 `packages/agent/__tests__/task/status.test.ts`: update "No command prints usage" and add "A spec loop waiting for review exits 0" (2)
-- [ ] 2.2 `packages/agent/__tests__/task/cli-spec.test.ts`: "A new change starts at the proposal", "A new change without an intent is refused" and "A dirty tree does not refuse spec" (3), faux provider
-- [ ] 2.3 `packages/agent/__tests__/task/cli-spec-review.test.ts`: "status shows the stage", "answer approves with the git name", "A review prints both commands" and "The last approval points at execution" (4)
+- [x] 2.1 `packages/agent/__tests__/task/status.test.ts`: update "No command prints usage" and add "A spec loop waiting for review exits 0" (2)
+- [x] 2.2 `packages/agent/__tests__/task/cli-spec.test.ts`: "A new change starts at the proposal", "A new change without an intent is refused" and "A dirty tree does not refuse spec" (3), faux provider
+- [x] 2.3 `packages/agent/__tests__/task/cli-spec-review.test.ts`: "status shows the stage", "answer approves with the git name", "A review prints both commands" and "The last approval points at execution" (4)
 
 ## 3. Docs
 
