@@ -15,6 +15,7 @@ The whole journey, stage by stage, is mocked in the [`add-spec-loop` walkthrough
 ```
 agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
 agentscript-change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
+agentscript-change close <change> [--db <path>]
 ```
 
 **Start** a change with `pnpm change draft <change> --intent "<words>"`, or `--intent-file <path>`. This creates `openspec/changes/<change>/intent.md` holding your words verbatim, and starts a draft loop over `SPEC_STAGES`, beginning with the proposal. A new change with neither flag exits 2, naming `--intent`, and creates nothing. On an existing change both flags are refused, so what you asked for never changes without you seeing it: edit `intent.md` instead.
@@ -86,7 +87,7 @@ $ pnpm change build add-plan-export "Use the v2 API"
 ## change check: passed
 
 Changed: packages/plan/src/export.ts, packages/plan/src/cli.ts, …
-Archive it: pnpm spec:archive add-plan-export
+pnpm change close add-plan-export
 ```
 
 - **Flags.** `build` takes the group run's flags (`--check`, `--allow`, `--max-iterations`, `--escalate-to`, `--provider`, `--model`, …) plus `--change-check <command>`, which can be repeated and defaults to the resolved checks.
@@ -97,7 +98,20 @@ Archive it: pnpm spec:archive add-plan-export
 - **Reworks** are extra task runs: each one is the group's judge reopening a task.
 - **Exit codes:** 0 built; 1 waiting for an answer, exhausted or failed; 2 usage or a refusal.
 
-`pnpm spec:archive <change>` is the last step until `add-change-close`. [Building a whole change](07-task-loop.md#building-a-whole-change) in 07 covers the rest: the refusals, the output and the change loop.
+[Building a whole change](07-task-loop.md#building-a-whole-change) in 07 covers the rest of `build`: the refusals, the output and the change loop.
+
+**Close it.** `pnpm change close <change>` folds the finished change's deltas into `openspec/specs/` and archives it:
+
+```console
+$ pnpm change close add-plan-export
+# add-plan-export — closed
+Folded into plan/export (new) and plan/cli (2 modified).
+Moved to openspec/changes/archive/2026-10-14-add-plan-export/
+
+Commit it: git add -A openspec && git commit
+```
+
+`close` exits 2 and changes nothing when a task in `tasks.md` is unticked (it lists them), when the change's newest change loop didn't converge (a blocked build is waiting for an answer), or when `openspec validate <change> --strict` fails. It then folds the change into a temporary copy of `openspec/` and validates the merged specs; only if that passes does it archive for real, with `OPENSPEC_TELEMETRY=0` throughout. It never commits: run the command it prints.
 
 ### Where a change stands
 

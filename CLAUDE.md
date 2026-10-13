@@ -197,7 +197,8 @@ pnpm --filter hello-world-example start [name]                                  
 pnpm --filter cloudflare-worker-example dev    # wrangler dev; add --var AGENTSCRIPT_FAUX:1 without an account
 pnpm test:cloudflare            # opt-in, not in `pnpm test`: crash/resume (kill -9 mid-step) + route scripts, local DO storage
 pnpm spec:check                 # openspec validate --all --strict
-pnpm spec:archive <change-id>   # archive, only if the change and a trial fold both validate --strict
+pnpm change close <change-id>   # end a built change: guard, trial fold, archive (see "Specs")
+pnpm spec:archive <change-id>   # this repo's own script: validate, trial fold, archive; no database
 pnpm docs:check                 # docs/ concept pages: front matter, ids, README index, spec refs, links
 ```
 
@@ -308,8 +309,19 @@ behaviour only; internals go in a change's `design.md`. Stock `spec-driven` sche
 - One test per scenario, named `Scenario: <exact scenario name>`.
 - A task names at most about 8 scenarios. Split a capability's tests across tasks rather than
   writing one task for all of them.
+- **A built change ends with `pnpm change close <change>`.** It refuses an unfinished change (a task
+  unticked, the change's newest change loop not converged, or `openspec validate <change> --strict`
+  failing) and changes nothing. Otherwise it folds the change into a temp copy of `openspec/`,
+  validates that with `--specs --strict`, and only then runs `openspec archive <change> --yes`, with
+  `OPENSPEC_TELEMETRY=0` throughout. It prints the capabilities folded into, the archive directory
+  and `git add -A openspec && git commit`, but never commits: that stays with the principal. There
+  is no `--force`: finish the change with `pnpm change build`, or tick a task you did by hand.
 - **Never `openspec archive` directly.** 1.14.1 archives invalid changes with exit 0 and drops
-  requirements; `pnpm spec:archive` refuses unless the change validates and a trial fold into a temp copy of `openspec/` validates too.
+  requirements. `pnpm spec:archive <change>` (`scripts/spec-archive.mjs`) stays as this repo's own
+  script: the same three steps (validate, trial fold, archive), no database. Other repos don't use
+  it, and it isn't the step a built change points at.
+- **Plans written before `close`** may end with a `pnpm spec:archive <change>` task. Run
+  `pnpm change close <change>` instead, and don't write new archive tasks.
 - A delta that creates a capability should carry `## Purpose`: it is only read at creation, and
   archive otherwise writes a placeholder that `spec:check` rejects.
 - Requirement text (before its scenarios) must stay under 500 characters, or strict fails.

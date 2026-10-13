@@ -14,8 +14,8 @@
 
 ## 3. Docs
 
-- [ ] 3.1 `guides/09-spec-agent.md`: end the walkthrough with `pnpm change close`
-- [ ] 3.2 `CLAUDE.md`: closing a change is `pnpm change close <id>`; `pnpm spec:archive` stays for this repo's own use
+- [x] 3.1 `guides/09-spec-agent.md`: end the walkthrough with `pnpm change close`
+- [x] 3.2 `CLAUDE.md`: closing a change is `pnpm change close <id>`; `pnpm spec:archive` stays for this repo's own use
 
 ## 4. Verify
 
