@@ -1,5 +1,6 @@
 // A host that opts a config into delete_file.
 // delete_file is never in builtinActions/workspaceActions; it is added only when granted.
+// pnpm task's own wiring of this factory is the follow-up change add-delete-file-grant.
 import { createActionRegistry, deleteActions, agentScriptExtensions } from "@specsesh/agent/durable";
 import { builtinActions, localWorkspace } from "@specsesh/agent/node";
 

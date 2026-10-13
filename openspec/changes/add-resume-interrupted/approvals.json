@@ -10,6 +10,20 @@
       "files": {
         "proposal.md": "8574a86fd73a13951607ce399fd69302a9974b3059d9c23a08d952d44ea9d240"
       }
+    },
+    {
+      "stage": "design",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-13T18:40:15.475Z",
+      "files": {
+        "design.md": "051566557f8681d0d803e5b8101c25932e7d8ffec9288cb7b3e261cc6b6b994f",
+        "design/examples/loop-liveness.ts": "76191f491141ca6acccb86cb7c52fc181ab2e35ae514f75cfffceee6d5fec67c",
+        "design/examples/resume-all.sh": "0994d61790dab0ea03c71d18e5ffbfca98b258c8f0dbab3fa91074707a465f9b",
+        "design/mock.html": "0fe031cd699ba6cb0602019129ce2a35e044599a86a76fe3d9b94ddbda5e5196"
+      }
     }
   ]
 }

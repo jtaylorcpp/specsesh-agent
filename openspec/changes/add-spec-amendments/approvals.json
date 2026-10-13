@@ -11,6 +11,21 @@
         "proposal.md": "fbd30a112576a94863359d6f06baabd97c909e3711a83bad5ee0b9b32dc75a05",
         "slices.md": "221b07e28fe20f11b4ae9e37a4df033e0ed3407dfa8cb7a2695078a0b640db61"
       }
+    },
+    {
+      "stage": "design",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-13T18:42:35.710Z",
+      "files": {
+        "design.md": "46edcb47d9d7dd0d0b3627c6044dad3b282a72135c0632472401d7d539bff796",
+        "design/examples/answer-amendment.ts": "3015feaebd6406a36d208fd7e36673fcec72ed5cc4f82fbf0a655f0422a7bc65",
+        "design/examples/blocked-outcome.json": "4a571320470b7d29352400f2999bfd1eb0e77fa54b28c9c838c34cb61eba48c1",
+        "design/examples/task-contract.agent": "25c2a300ef518c3525b335ab24d15d263f30b9c7e54e1f46273a61c927eaf24a",
+        "design/mock.html": "254a807b3d885b548045de91a6bbe6c81c5f8bd74094008d97d5efe9f0afccfa"
+      }
     }
   ]
 }
