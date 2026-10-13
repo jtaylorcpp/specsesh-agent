@@ -21,6 +21,7 @@ describe("change/cli usage", () => {
 		expect(run.code).toBe(2);
 		expect(run.err.startsWith("usage:")).toBe(true);
 		expect(run.err).toContain("agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]");
+		expect(run.err).toContain("agentscript-change approve <change> [--principal <name>] [--db <path>]");
 	});
 
 	it("Scenario: An unknown command prints usage", async () => {

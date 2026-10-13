@@ -7,9 +7,9 @@
 
 ## 2. Tests
 
-- [ ] 2.1 `packages/agent/__tests__/change/cli-usage.test.ts`: update "No command prints usage" (1)
-- [ ] 2.2 `packages/agent/__tests__/change/cli-approve.test.ts`: "Approving the proposal drafts the design", "A question cannot be approved", "Nothing to approve is refused" and "approve is not feedback" (4)
-- [ ] 2.3 `packages/agent/__tests__/change/cli-output.test.ts`: update "A review ends with both commands" and add "Approving a sliced proposal lists draft commands" (2)
+- [x] 2.1 `packages/agent/__tests__/change/cli-usage.test.ts`: update "No command prints usage" (1)
+- [x] 2.2 `packages/agent/__tests__/change/cli-approve.test.ts`: "Approving the proposal drafts the design", "A question cannot be approved", "Nothing to approve is refused" and "approve is not feedback" (4)
+- [x] 2.3 `packages/agent/__tests__/change/cli-output.test.ts`: update "A review ends with both commands" and add "Approving a sliced proposal lists draft commands" (2)
 
 ## 3. Docs
 

@@ -61,10 +61,39 @@ describe("change/cli draft output", () => {
 
 		expect(run.code).toBe(0);
 		expect(run.out.split("\n")[0]).toMatch(new RegExp(`^# ${CHANGE} — `));
-		expect(run.out).toContain("proposal.md");
 		const [revise, approve] = tail(run.out, 2);
 		expect(revise).toContain(`pnpm change draft ${CHANGE} "<what to change>"`);
 		expect(approve).toContain(`pnpm change approve ${CHANGE}`);
+		expect(run.out.indexOf("proposal.md")).toBeGreaterThan(-1);
+		expect(run.out.indexOf("proposal.md")).toBeLessThan(run.out.indexOf(`pnpm change draft ${CHANGE} "<what to change>"`));
+		expect(run.out).not.toContain("pnpm task answer");
+		expect(run.out).not.toContain("--decision approve");
+	});
+
+	it("Scenario: Approving a sliced proposal lists draft commands", async () => {
+		const { dir } = workspace();
+		const slices = [
+			`1. \`${CHANGE}\`: Export a plan as JSON.`,
+			"2. `add-plan-export-schema`: Publish the JSON Schema of the export. Follows add-plan-export.",
+			"3. `add-plan-export-ci`: Fail a PR whose plan export is invalid. Follows add-plan-export-schema.",
+		].join("\n");
+		const drafted = await change(
+			["draft", CHANGE, "--intent", "Export a plan"],
+			dir,
+			[draft(`=== proposal.md\n## Why\n\nPlans export.\n=== slices.md\n${slices}\n`)],
+			stages,
+		);
+		expect(drafted.code).toBe(0);
+
+		const run = await change(["approve", CHANGE, "--principal", "jesse"], dir, [draft("=== design.md\n## Context\n\nDrafted.\n")], stages);
+		expect(run.code).not.toBe(2);
+		expect([0, 1]).toContain(run.code);
+		expect(run.out).toContain("Sliced into 3 changes.");
+		const schema = run.out.indexOf('pnpm change draft add-plan-export-schema --intent "Publish the JSON Schema of the export. Follows add-plan-export."');
+		const ci = run.out.indexOf('pnpm change draft add-plan-export-ci --intent "Fail a PR whose plan export is invalid. Follows add-plan-export-schema."');
+		expect(schema).toBeGreaterThan(-1);
+		expect(ci).toBeGreaterThan(schema);
+		expect(run.out).not.toContain(`pnpm change draft ${CHANGE} --intent`);
 	});
 
 	it("Scenario: A question exits 1", async () => {
