@@ -14,7 +14,7 @@
 
 ## 3. Docs
 
-- [ ] 3.1 `CLAUDE.md`: a "Spec loop" paragraph under Layout naming the four modules and the stage contract
+- [x] 3.1 `CLAUDE.md`: a "Spec loop" paragraph under Layout naming the four modules and the stage contract
 
 ## 4. Verify
 

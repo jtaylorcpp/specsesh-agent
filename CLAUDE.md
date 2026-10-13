@@ -22,8 +22,30 @@ nine exports, in this order: `./authoring`, `./interpreter`, `./pi`, `./claude-c
 | `src/node` → `./node` | The Node side of `./durable`: `localWorkspace(dir)`, `builtinActions` (moved from `src/durable/builtins.ts`), `claudeCodeRunner({ binary? })` and `defaultRunners`. Adds `src/durable` and `src/claude-code`. |
 | `src/cloudflare` → `./cloudflare` | `AgentScriptHost`, the Durable Object class (via Cloudflare's `PiHarness`, `agents` 0.28.0), Workers AI by default; `defineAgentHost`, `workersAI` and the Sandbox/Artifacts workspaces (see below). |
 | `src/openspec` → `./openspec` | The OpenSpec ontology (`openspec/{model,process,loops,evidence}`): TypeBox schemas (each a JSON Schema) with `Static` types and refinements, plus pure rules. Imports only `typebox`; no parser, no loop runner. |
-| `src/task` → `./task` | The task loop (`agentscript.task-loop`): an Agent Script run once per iteration as an `agentscript.run` child until the task converges, blocks, exhausts or fails; ticks tasks.md. Bundled scripts in `src/task/scripts/` (copied into `dist/` by the build). Adds `src/node`. |
+| `src/task` → `./task` | The task loop (`agentscript.task-loop`): an Agent Script run once per iteration as an `agentscript.run` child until the task converges, blocks, exhausts or fails; ticks tasks.md. Also the spec loop (see below). Bundled scripts in `src/task/scripts/` (copied into `dist/` by the build). Adds `src/node`. |
 | `src/bin` | The `agentscript-pi`, `agentscript-durable` and `agentscript-task` bins. |
+
+The spec loop (`agentscript.spec-loop`, version 1) is a durable task in which an agent drafts one
+stage of an OpenSpec change (proposal, design, specs or tasks), a gate with no model checks it, and
+the loop iterates until the gate is clean, then blocks for the principal's review. Module by module
+in `src/task`:
+
+- `spec-stage.ts`: `SpecStage { name, owns, script, seed?, gate }`, `StageContext`, `StageIssue`.
+  `owns` paths are relative to the change directory; a trailing `/` owns everything under it.
+- `spec-bundle.ts`: parses `files` as `=== <path>` sections; text before the first header is
+  ignored. An absolute, `..` or unowned path is not written and becomes an ERROR issue, and so
+  does an empty bundle.
+- `spec-loop.ts`: phases `iterate` → `await` → `write` → `gate`. `current` is re-read from disk
+  every iteration. Blocking issues carry into the next one as `<level> <path>: <message>` lines,
+  up to `maxIterations` (default 8), then the loop ends `exhausted`.
+- `spec-api.ts`: `startSpecLoop`, `waitForSpecLoop` and `specLoopExtensions`, exported from `./task`.
+
+The stage contract: seeded strings `change_id`, `stage`, `intent`, `approved`, `current`, `base`,
+`carried` and the number `iteration`; read back `files`, `summary`, `next_action` (`review` or
+`ask`) and `question`. `startSpecLoop` refuses a script that breaks it and starts nothing. A clean
+gate (no ERROR or WARNING) ends `blocked`, reason `review`, escalated to the principal at level
+`change`, with result `{ change, stage, files, approved: false }`. `ask` ends `blocked`, reason
+`question`, to `escalateTo`, skipping the gate. Approving or revising is `add-spec-review`'s job.
 
 `src/cloudflare`, module by module:
 
