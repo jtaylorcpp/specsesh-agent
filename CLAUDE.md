@@ -72,6 +72,33 @@ hash no longer matches its file (naming the file and the stage to review again),
 `approvals.json` fails the schema (naming the file). The CLI (`pnpm task answer` for spec loops)
 is `add-spec-cli`'s job.
 
+`proposalStage` (`src/task/stages/proposal.ts`, exported from `./task`) is the first stage: named
+`proposal`, it owns `proposal.md`, follows no stage, and runs the bundled
+`src/task/scripts/spec-proposal.agent`, one structured subagent that sets `files`, `summary`,
+`next_action` (default `review`) and `question`. Its seed sets `base` to one line per capability in
+`openspec/specs/`, `<area>/<name>: <purpose>`, in path order. Its gate checks shape and facts, not
+quality, and includes `proposalSizeIssues` (`openspec/size`): more than two capabilities is a
+`WARNING`, so the draft goes back to narrow itself.
+
+The proposal format, as the gate enforces it (an `ERROR` for each break):
+
+- Exactly five sections, in this order: `## Why`, `## What Changes`, `## Out of scope`,
+  `## Capabilities`, `## Impact`.
+- `## Capabilities` names at least one backticked `<area>/<name>` path after `**New:**` or
+  `**Modified:**`, on the label's line or in nested bullets below it.
+- A `Modified` path must already have a spec in `openspec/specs/`; a `New` path must not.
+- Parsing is `readProposalCapabilities` in `src/task/stages/proposal-md.ts`, beside `tasks-md.ts`:
+  the ontology has no Markdown parser.
+
+```markdown
+## Capabilities
+
+- **New:** `spec/stages`.
+- **Modified:**
+  - `task/cli`;
+  - `task/headless`.
+```
+
 `src/cloudflare`, module by module:
 
 - `index.ts`: `AgentScriptHost`, unchanged. The entry re-exports the modules below. **Worker-only**

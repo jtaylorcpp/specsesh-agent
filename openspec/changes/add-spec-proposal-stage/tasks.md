@@ -14,7 +14,7 @@
 
 ## 3. Docs
 
-- [ ] 3.1 `CLAUDE.md`: the spec loop paragraph names `proposalStage` and the proposal format
+- [x] 3.1 `CLAUDE.md`: the spec loop paragraph names `proposalStage` and the proposal format
 
 ## 4. Verify
 
