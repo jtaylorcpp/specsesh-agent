@@ -99,6 +99,12 @@ first iteration.
 
 ### How long things take
 
+**14.1 hours of group-loop time took the repo from
+[`b630e03`](https://github.com/jtaylorcpp/specsesh-agent/commit/b630e03) (21 changes specified,
+none built) to [`31c39dd`](https://github.com/jtaylorcpp/specsesh-agent/commit/31c39dd) (all 21
+built, verified and archived), on a 16 GB RAM Ubuntu machine.** The wall clock between the two
+commits was 17.5 hours; the rest was verify runs, escalations and a reboot.
+
 Times are from the stored loops' `startedAt` and `endedAt` in `.agentscript/task-loops.sqlite`, on
 Opus through the claude-code provider. Verify and archive times are from the queue log.
 
