@@ -20,13 +20,14 @@ describe("change/cli usage", () => {
 		const run = await change([], dir);
 		expect(run.code).toBe(2);
 		expect(run.err.startsWith("usage:")).toBe(true);
-		// One line per command: each usage string is a whole line of stderr.
-		const lines = run.err.split("\n").map((line) => line.trim());
-		expect(lines).toContain("agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]");
-		expect(lines).toContain("agentscript-change approve <change> [--principal <name>] [--db <path>]");
-		expect(lines).toContain(
+		// One line per command, word for word from the scenario.
+		const usageLines = [
+			"agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]",
+			"agentscript-change approve <change> [--principal <name>] [--db <path>]",
 			"agentscript-change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]",
-		);
+			"agentscript-change close <change> [--db <path>]",
+		];
+		for (const line of usageLines) expect(run.err).toContain(line);
 	});
 
 	it("Scenario: An unknown command prints usage", async () => {

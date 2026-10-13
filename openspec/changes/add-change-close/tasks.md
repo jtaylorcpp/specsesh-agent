@@ -7,10 +7,10 @@
 
 ## 2. Tests
 
-- [ ] 2.1 `packages/agent/__tests__/change/cli-usage.test.ts`: update "No command prints usage" (1)
-- [ ] 2.2 `packages/agent/__tests__/change/cli-close.test.ts`: "An unticked task refuses close", "A waiting build refuses close", "A finished change is folded" and "A fold that breaks the specs is refused" (4)
-- [ ] 2.3 `packages/agent/__tests__/change/cli-answer.test.ts`: update "A built change points at the next step" to expect `pnpm change close add-plan-export` (1)
-- [ ] 2.4 `packages/agent/__tests__/package/manifest.test.ts`: update "Every entry is documented" for four bins (1)
+- [x] 2.1 `packages/agent/__tests__/change/cli-usage.test.ts`: update "No command prints usage" (1)
+- [x] 2.2 `packages/agent/__tests__/change/cli-close.test.ts`: "An unticked task refuses close", "A waiting build refuses close", "A finished change is folded" and "A fold that breaks the specs is refused" (4)
+- [x] 2.3 `packages/agent/__tests__/change/cli-answer.test.ts`: update "A built change points at the next step" to expect `pnpm change close add-plan-export` (1)
+- [x] 2.4 `packages/agent/__tests__/package/manifest.test.ts`: update "Every entry is documented" for four bins (1)
 
 ## 3. Docs
 

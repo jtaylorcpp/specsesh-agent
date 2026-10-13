@@ -170,6 +170,7 @@ describe("The readme lists the entry points", () => {
 		expect(readme).toContain("agentscript-pi");
 		expect(readme).toContain("agentscript-durable");
 		expect(readme).toContain("agentscript-task");
+		expect(readme).toContain("agentscript-change");
 	});
 });
 
