@@ -1,10 +1,10 @@
 ## 1. Slicing
 
-- [ ] 1.1 `packages/agent/src/task/stages/slices-md.ts` (new): `readSlices(markdown)` and `sliceIssues(slices, changeId, existing)`
-- [ ] 1.2 `packages/agent/src/task/stages/capabilities.ts`: `existingChanges(workspace)`, the ids in `openspec/changes/` and its archive
-- [ ] 1.3 `packages/agent/src/task/stages/proposal.ts`: own `slices.md`, and gate on it as the design shows
-- [ ] 1.4 `packages/agent/src/task/scripts/spec-proposal.agent`: instructions to slice by capability, then by visible value, in dependency order, this change first
-- [ ] 1.5 `packages/agent/src/task/spec-cli.ts`: after an approved proposal with `slices.md`, list each later slice's `spec` command
+- [x] 1.1 `packages/agent/src/task/stages/slices-md.ts` (new): `readSlices(markdown)` and `sliceIssues(slices, changeId, existing)`
+- [x] 1.2 `packages/agent/src/task/stages/capabilities.ts`: `existingChanges(workspace)`, the ids in `openspec/changes/` and its archive
+- [x] 1.3 `packages/agent/src/task/stages/proposal.ts`: own `slices.md`, and gate on it as the design shows
+- [x] 1.4 `packages/agent/src/task/scripts/spec-proposal.agent`: instructions to slice by capability, then by visible value, in dependency order, this change first
+- [x] 1.5 `packages/agent/src/task/spec-cli.ts`: after an approved proposal with `slices.md`, list each later slice's `spec` command
 
 ## 2. Tests
 

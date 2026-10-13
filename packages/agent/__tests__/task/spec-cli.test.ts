@@ -3,13 +3,13 @@
  * process on a faux model over a stage defined in the tests.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { LoopOutcome } from "../../src/openspec/index.js";
 import type { LoadedConfig } from "../../src/task/config.js";
 import { recordApproval } from "../../src/task/spec-approvals.js";
-import { formatSpecOutcome, runSpec, specExitCode } from "../../src/task/spec-cli.js";
+import { after, formatSpecOutcome, runSpec, specExitCode } from "../../src/task/spec-cli.js";
 import type { StageOutcome } from "../../src/task/spec-loop.js";
 import { fauxModels, gitIn, gitRepo } from "./cli-helpers.js";
 import { temp } from "./helpers.js";
@@ -164,6 +164,66 @@ describe("formatSpecOutcome and specExitCode", () => {
 		expect(formatSpecOutcome(approved, { ...context, principal: "jesse" }).at(-1)).toBe(
 			"Every stage of add-plan-export is approved. Execute it: pnpm task add-plan-export --next-group",
 		);
+	});
+
+	const SLICES_MD = [
+		"1. `add-plan-export`: Export a plan as JSON with `specplan export --json`.",
+		"2. `add-plan-export-schema`: Publish the JSON Schema of the export. Follows add-plan-export.",
+		"3. `add-plan-export-ci`: A GitHub Action that fails a PR whose plan export is invalid. Follows add-plan-export-schema.",
+		"",
+	].join("\n");
+
+	/** A change directory whose proposal is approved by jesse, with `slices.md` when given. */
+	function approvedChange(slices?: string) {
+		const changeDir = join(temp("spec-cli-"), "openspec", "changes", "add-plan-export");
+		mkdirSync(changeDir, { recursive: true });
+		writeFileSync(join(changeDir, "proposal.md"), "# A proposal\n");
+		if (slices !== undefined) writeFileSync(join(changeDir, "slices.md"), slices);
+		recordApproval(changeDir, stage, { principal: "jesse", notes: "", at: new Date().toISOString() }, [stage]);
+		return changeDir;
+	}
+
+	it("lists the other slices after approving a sliced proposal", () => {
+		const changeDir = approvedChange(SLICES_MD);
+		const lines = formatSpecOutcome(approved, { ...context, loop: 14, ...after(approved, [stage, { ...stage, name: "design" }], changeDir) });
+		expect(lines).toEqual([
+			"# spec loop 14 — converged (approved)",
+			"proposal approved by jesse.",
+			"Next: pnpm task spec add-plan-export",
+			"",
+			"Sliced into 3 changes. Start the others when you're ready:",
+			'  pnpm task spec add-plan-export-schema --intent "Publish the JSON Schema of the export. Follows add-plan-export."',
+			'  pnpm task spec add-plan-export-ci --intent "A GitHub Action that fails a PR whose plan export is invalid. Follows add-plan-export-schema."',
+		]);
+		expect(lines.some((line) => line.startsWith("  pnpm task spec add-plan-export --intent"))).toBe(false);
+	});
+
+	it("escapes quotes, backslashes, dollars and backticks in a slice's intent", () => {
+		const slices = [
+			{ id: "add-plan-export", intent: "First." },
+			{ id: "add-plan-export-schema", intent: 'Say "hi" to $HOME, `pwd` and \\n.' },
+		];
+		expect(formatSpecOutcome(approved, { ...context, nextStage: "design", slices }).at(-1)).toBe(
+			'  pnpm task spec add-plan-export-schema --intent "Say \\"hi\\" to \\$HOME, \\`pwd\\` and \\\\n."',
+		);
+	});
+
+	it("prints nothing extra without slices.md, or with a malformed one", () => {
+		const expected = ["# spec loop 12 — converged (approved)", "proposal approved by jesse.", "Next: pnpm task spec add-plan-export"];
+		const stages = [stage, { ...stage, name: "design" }];
+		const plain = approvedChange();
+		expect(formatSpecOutcome(approved, { ...context, ...after(approved, stages, plain) })).toEqual(expected);
+		const malformed = approvedChange(`# Slices\n${SLICES_MD}`);
+		expect(formatSpecOutcome(approved, { ...context, ...after(approved, stages, malformed) })).toEqual(expected);
+	});
+
+	it("lists no slices after approving a stage other than the proposal", () => {
+		const slices = [
+			{ id: "add-plan-export", intent: "First." },
+			{ id: "add-plan-export-schema", intent: "Second." },
+		];
+		const design = { ...approved, result: { ...approved.result, stage: "design" } };
+		expect(formatSpecOutcome(design, { ...context, nextStage: "specs", slices }).at(-1)).toBe("Next: pnpm task spec add-plan-export");
 	});
 
 	it("Scenario: A spec loop waiting for review exits 0", () => {

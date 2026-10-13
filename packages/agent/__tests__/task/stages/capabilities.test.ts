@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { capabilityLines, existingCapabilities, readPurpose } from "../../../src/task/stages/capabilities.js";
+import {
+	capabilityLines,
+	existingCapabilities,
+	existingChanges,
+	readPurpose,
+} from "../../../src/task/stages/capabilities.js";
 
 const roots: string[] = [];
 
@@ -64,6 +69,28 @@ describe("task/stages/capabilities: capabilityLines", () => {
 	it("keeps the path of a spec with no Purpose", async () => {
 		const root = workspace({ "openspec/specs/core/subset/spec.md": "# core/subset\n\n## Requirements\n" });
 		expect(await capabilityLines(root)).toBe("core/subset:");
+	});
+});
+
+describe("task/stages/capabilities: existingChanges", () => {
+	it("lists active and archived change ids, dropping the archive's date prefix and stray files", async () => {
+		const root = workspace({
+			"openspec/changes/add-spec-loop/proposal.md": "# x\n",
+			"openspec/changes/archive/2026-09-01-add-spec-cli-events/proposal.md": "# x\n",
+			"openspec/changes/archive/undated-change/proposal.md": "# x\n",
+			"openspec/changes/archive/README.md": "# Archive\n",
+			"openspec/changes/.gitkeep": "",
+		});
+		expect(await existingChanges(root)).toEqual(new Set(["add-spec-loop", "add-spec-cli-events", "undated-change"]));
+	});
+
+	it("is empty when openspec/changes/ is missing", async () => {
+		expect(await existingChanges(workspace({}))).toEqual(new Set());
+	});
+
+	it("lists only the active ids when there is no archive/", async () => {
+		const root = workspace({ "openspec/changes/add-spec-loop/proposal.md": "# x\n" });
+		expect(await existingChanges(root)).toEqual(new Set(["add-spec-loop"]));
 	});
 });
 

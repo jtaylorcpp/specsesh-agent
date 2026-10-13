@@ -1,18 +1,20 @@
 /**
  * The proposal stage: drafts `proposal.md` from the intent, seeded with every
  * capability the repo has. Its gate checks shape and facts, not quality: the
- * five sections in order, capability paths that exist (or don't, for new ones)
- * and the capability budget.
+ * five sections in order, capability paths that exist (or don't, for new ones),
+ * `slices.md` when the draft slices the intent, and the capability budget.
  */
 
 import { fileURLToPath } from "node:url";
 import { type Proposal, proposalSizeIssues } from "../../openspec/index.js";
 import { BUNDLED_SCRIPTS } from "../options.js";
 import type { SpecStage, StageIssue } from "../spec-stage.js";
-import { capabilityLines, existingCapabilities } from "./capabilities.js";
+import { capabilityLines, existingCapabilities, existingChanges } from "./capabilities.js";
 import { PROPOSAL_SECTIONS, proposalSections, readProposalCapabilities } from "./proposal-md.js";
+import { readSlices, sliceIssues } from "./slices-md.js";
 
 const PROPOSAL = "proposal.md";
+const SLICES = "slices.md";
 
 const error = (message: string): StageIssue => ({ level: "ERROR", path: PROPOSAL, message });
 
@@ -65,17 +67,26 @@ export function asProposal(markdown: string): Proposal {
 	};
 }
 
+/** The issue with `hint` appended to its message, its level kept. */
+const withHint =
+	(hint: string) =>
+	(issue: StageIssue): StageIssue => ({ ...issue, message: `${issue.message} ${hint}` });
+
 export const proposalStage: SpecStage = {
 	name: "proposal",
-	owns: [PROPOSAL],
+	owns: [PROPOSAL, SLICES],
 	script: { path: fileURLToPath(BUNDLED_SCRIPTS.specProposal) },
 	seed: async ({ workspace }) => ({ base: await capabilityLines(workspace) }),
-	gate: async ({ workspace, files }) => {
+	gate: async ({ workspace, changeId, files }) => {
 		const markdown = files[PROPOSAL] ?? "";
+		const size = proposalSizeIssues(asProposal(markdown));
+		const slices = files[SLICES];
 		return [
 			...sectionIssues(markdown),
 			...capabilityIssues(readProposalCapabilities(markdown), await existingCapabilities(workspace)),
-			...proposalSizeIssues(asProposal(markdown)),
+			...(slices === undefined
+				? size.map(withHint("Write slices.md: one line per small change, this one first"))
+				: [...sliceIssues(readSlices(slices), changeId, await existingChanges(workspace)), ...size]),
 		];
 	},
 };

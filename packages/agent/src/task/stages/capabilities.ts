@@ -1,7 +1,8 @@
 /**
  * The capabilities a repo already has: every `openspec/specs/<area>/<name>/spec.md`,
  * by path, and each one's `## Purpose` paragraph. The proposal stage seeds `base`
- * with these lines and its gate checks named paths against them.
+ * with these lines and its gate checks named paths against them. Also the change ids
+ * already used under `openspec/changes/`, active or archived.
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -22,6 +23,28 @@ export async function existingCapabilities(workspace: string): Promise<string[]>
 		.flatMap((area) => directories(join(specs, area)).map((name) => `${area}/${name}`))
 		.filter((path) => existsSync(join(specs, path, "spec.md")))
 		.sort();
+}
+
+const ARCHIVE_DATE = /^\d{4}-\d{2}-\d{2}-/;
+
+/** The names of the directories in `dir`; `[]` when it is missing. */
+function subdirectories(dir: string): string[] {
+	try {
+		return readdirSync(dir, { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => entry.name);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+		throw error;
+	}
+}
+
+/** Every change id already used under `<workspace>/openspec/changes/`, active or archived (its `YYYY-MM-DD-` prefix removed). */
+export async function existingChanges(workspace: string): Promise<Set<string>> {
+	const changes = join(workspace, "openspec", "changes");
+	const ids = new Set(subdirectories(changes).filter((name) => name !== "archive"));
+	for (const name of subdirectories(join(changes, "archive"))) ids.add(name.replace(ARCHIVE_DATE, ""));
+	return ids;
 }
 
 /** One `<area>/<name>: <purpose>` line per existing capability, joined by `\n`; a spec with no Purpose keeps its path. */

@@ -36,7 +36,7 @@ variables:
         description: "the question when next_action is ask"
 
 subagent draft:
-    description: "Draft proposal.md"
+    description: "Draft proposal.md, and slices.md for an oversized intent"
 
     reasoning:
         instructions: ->
@@ -45,13 +45,31 @@ subagent draft:
             | Existing capabilities:
             | {!@variables.base}
             if @variables.iteration > 1:
-                | proposal.md as it is now:
+                | proposal.md, and slices.md if there is one, as they are now:
                 | {!@variables.current}
                 | Fix every one of these before anything else:
                 | {!@variables.carried}
+                | If slices.md is shown above, keep it: fix only what the issues name, and never start the slicing over.
+            | Write proposal.md, and slices.md when the intent is too big for one change.
             | Write proposal.md with exactly these sections, in order: ## Why, ## What Changes, ## Out of scope, ## Capabilities, ## Impact.
             | Under ## Capabilities, list paths as `area/name` after **New:** or **Modified:**. A modified path must be in the list above; a new one must not.
-            | Return files as one section: a line "=== proposal.md", then the whole file.
+            | Slicing an oversized intent. Slice when the intent needs more than two capabilities, or when an issue above is a size WARNING saying to write slices.md:
+            | - Slice by capability first: each slice names at most two capabilities. This is the hard rule.
+            | - Then slice by visible value: within that limit, each slice leaves something a user can try or see delivered.
+            | - Order by dependency: a slice comes after every slice it builds on.
+            | - This change is slice 1, and its id is {!@variables.change_id}.
+            | slices.md holds one line per change, <n>. `<change-id>`: <intent>, and nothing else: no heading, no notes.
+            | - Number the lines 1, 2, 3 with no gaps, and write at least two of them.
+            | - Every id is kebab-case (words of lowercase letters and digits joined by single hyphens), appears once, and is new: not a change in openspec/changes/ and not one archived in openspec/changes/archive/. You cannot list those directories, so build each later id from {!@variables.change_id} plus a word for what the slice adds; the gate checks both directories and sends a taken id back.
+            | - When a later slice builds on an earlier one, end its intent with "Follows <previous-id>." The principal starts that slice with this intent, word for word.
+            | For change add-plan-export, slices.md would be:
+            | 1. `add-plan-export`: Export a plan as JSON with `specplan export --json`.
+            | 2. `add-plan-export-schema`: Publish the JSON Schema of the export. Follows add-plan-export.
+            | 3. `add-plan-export-ci`: A GitHub Action that fails a PR whose plan export is invalid. Follows add-plan-export-schema.
+            | Once you write slices.md, proposal.md covers only slice 1: its Why, What Changes, Capabilities and Impact describe that slice alone, within two capabilities. ## Out of scope may point to slices.md for the rest.
+            | The later slices are only lines in slices.md. Never create a folder or a stub proposal for them: a change with no deltas fails openspec validate --strict.
+            | Never drop the part of the intent that goes over the limit: slice it. Never write slices.md when the intent fits in one change: a file with one entry is an error.
+            | Return files as sections, each a line "=== <path>" followed by the whole file: "=== proposal.md" always, and "=== slices.md" when you write or change slices.md.
             | Answer next_action with exactly one word: review, or ask when the words can be read two sensible ways and only the principal can choose. Put the question in question.
             set @variables.files = @outputs.files
             set @variables.summary = @outputs.summary

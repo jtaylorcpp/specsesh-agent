@@ -35,8 +35,10 @@ import { specLoopExtensions, startSpecLoop, waitForSpecLoop } from "./spec-api.j
 import type { StageOutcome } from "./spec-loop.js";
 import type { SpecStage } from "./spec-stage.js";
 import { SPEC_STAGES } from "./spec-stages.js";
+import { readSlices, type Slice } from "./stages/slices-md.js";
 
 export const INTENT_FILE = "intent.md";
+const SLICES_FILE = "slices.md";
 
 export interface SpecIo {
 	readonly out: (line: string) => void;
@@ -75,7 +77,12 @@ export interface SpecOutcomeContext {
 	readonly principal?: string;
 	/** The next stage without a current approval, after an approval; none when every stage is approved. */
 	readonly nextStage?: string;
+	/** Every entry of `slices.md`, this change first, after an approved proposal that sliced its intent. */
+	readonly slices?: readonly Pick<Slice, "id" | "intent">[];
 }
+
+/** `s` in double quotes, with `"`, `\`, `$` and `` ` `` escaped, so the printed command pastes safely. */
+const shellQuote = (s: string) => `"${s.replace(/["\\$`]/g, "\\$&")}"`;
 
 /** The last line once every stage is approved. */
 export const allApproved = (change: string) => `Every stage of ${change} is approved. Execute it: pnpm task ${change} --next-group`;
@@ -108,6 +115,11 @@ export function formatSpecOutcome(outcome: LoopOutcome<StageOutcome>, context: S
 	} else if (outcome.status === "converged" && outcome.result.approved) {
 		lines.push(`${outcome.result.stage} approved${context.principal !== undefined ? ` by ${context.principal}` : ""}.`);
 		lines.push(context.nextStage !== undefined ? `Next: pnpm task spec ${change}` : allApproved(change));
+		const later = outcome.result.stage === "proposal" ? (context.slices ?? []).slice(1) : [];
+		if (later.length > 0) {
+			lines.push("", `Sliced into ${context.slices?.length} changes. Start the others when you're ready:`);
+			for (const slice of later) lines.push(`  pnpm task spec ${slice.id} --intent ${shellQuote(slice.intent)}`);
+		}
 	}
 	return lines;
 }
@@ -275,11 +287,24 @@ export async function runSpec(args: readonly string[], config: LoadedConfig, io:
 	}
 }
 
-/** After an approval: who approved, read from `approvals.json`, and the next stage still to run. */
-export function after(outcome: LoopOutcome<StageOutcome>, stages: readonly SpecStage[], changeDir: string): Pick<SpecOutcomeContext, "principal" | "nextStage"> {
+/**
+ * After an approval: who approved, read from `approvals.json`, the next stage still to run and,
+ * for a proposal, the entries of `slices.md`. A `slices.md` with any malformed line lists none.
+ */
+export function after(
+	outcome: LoopOutcome<StageOutcome>,
+	stages: readonly SpecStage[],
+	changeDir: string,
+): Pick<SpecOutcomeContext, "principal" | "nextStage" | "slices"> {
 	if (outcome.status !== "converged" || !outcome.result.approved) return {};
 	const { approvals } = readApprovals(changeDir);
 	const principal = approvals.find((entry) => entry.stage === outcome.result.stage)?.principal;
 	const nextStage = stages.find((stage) => currentApproval(approvals, stage, changeDir) === undefined)?.name;
-	return { ...(principal !== undefined ? { principal } : {}), ...(nextStage !== undefined ? { nextStage } : {}) };
+	const slicesPath = join(changeDir, SLICES_FILE);
+	const slices = outcome.result.stage === "proposal" && existsSync(slicesPath) ? readSlices(readFileSync(slicesPath, "utf8")) : undefined;
+	return {
+		...(principal !== undefined ? { principal } : {}),
+		...(nextStage !== undefined ? { nextStage } : {}),
+		...(slices !== undefined && slices.malformed.length === 0 ? { slices: slices.entries } : {}),
+	};
 }
