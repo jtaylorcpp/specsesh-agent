@@ -9,8 +9,8 @@
 
 ## 2. Tests
 
-- [ ] 2.1 `packages/agent/__tests__/task/stages/tasks-gate.test.ts`: "A ticked task is sent back", "A task naming two files is sent back", "An unclaimed scenario is sent back" and "Thirteen tasks are sent back" (4)
-- [ ] 2.2 `packages/agent/__tests__/task/stages/tasks-stage.test.ts`: "The tasks stage is seeded with the repository's files", "The bundled plan script fits the contract" and "The design follows the proposal" (3)
+- [x] 2.1 `packages/agent/__tests__/task/stages/tasks-gate.test.ts`: "A ticked task is sent back", "A task naming two files is sent back", "An unclaimed scenario is sent back" and "Thirteen tasks are sent back" (4)
+- [x] 2.2 `packages/agent/__tests__/task/stages/tasks-stage.test.ts`: "The tasks stage is seeded with the repository's files", "The bundled plan script fits the contract" and "The design follows the proposal" (3)
 
 ## 3. Docs
 
