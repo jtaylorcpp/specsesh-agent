@@ -24,6 +24,29 @@
         "design/examples/grant-delete-file.ts": "571c84723ae36dbc377301a8e6d2b872ec67690a261463e477ea52084a209c78",
         "design/mock.html": "90ae5bf2983e87acc0c0659c7eef53cccd64bd855072d7208012ef90d0f2ce92"
       }
+    },
+    {
+      "stage": "specs",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-13T19:02:26.784Z",
+      "files": {
+        "specs/actions/registry/spec.md": "907f29e0c8f68b8aa54bc012d04816f7ea360c10aed54469fef84dd75a05100f",
+        "specs/actions/workspace/spec.md": "9832826feac4b6c0a23d9ca207a32bf457c1017b9e27870a81843e64b40687f8"
+      }
+    },
+    {
+      "stage": "tasks",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-13T19:06:07.819Z",
+      "files": {
+        "tasks.md": "ef9f09283ccc101b91f9c8cd439b84299d6fda7e65a4c58bac5d32c6e7b0ee87"
+      }
     }
   ]
 }

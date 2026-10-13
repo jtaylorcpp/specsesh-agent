@@ -10,6 +10,44 @@
       "files": {
         "proposal.md": "734490d3921dbaa969bd29aa2970b05e8e2e5155ccda8554a28032c93dd44072"
       }
+    },
+    {
+      "stage": "design",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-13T19:03:21.469Z",
+      "files": {
+        "design.md": "b19f7e5fb70cb5a40c224e0a091b8bc2546fce1fbd66273416c4e5c2d585c234",
+        "design/examples/agentscript.config.json": "015d8022989c9ebfeb361cd6879d03d04877ef7463ce09a2bc63c0517ff3a933",
+        "design/examples/harness.ts": "ef9990785988c9ab42965c9fb717848bbc0f6f5f1d8150d2ccdcb7d02bb2c310",
+        "design/examples/task-delegate.agent": "9018717ae652270c4224451535b0b7f12e52e0b0b578c085168fa836236d14fc",
+        "design/mock.html": "eddf259c93626af8d748314e96eeb070774dda46230cacdd1d0416863a05c3f5"
+      }
+    },
+    {
+      "stage": "specs",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-13T19:06:59.355Z",
+      "files": {
+        "specs/task/agent/spec.md": "6bea6632dc33375323fb772507f1b6cb394a17586c2c0e8b9f63006295cfa491",
+        "specs/task/headless/spec.md": "2cb13961bf74bf233347b2149252cff5ac1693b88ef0ffd06bc6929d434a7a2e"
+      }
+    },
+    {
+      "stage": "tasks",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-13T19:10:45.026Z",
+      "files": {
+        "tasks.md": "a4e9f69c53249ec20f3b866b05263f0650d1ed231af306ff490f06ec6043b516"
+      }
     }
   ]
 }
