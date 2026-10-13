@@ -2,8 +2,9 @@
 
 The source of **[`@specsesh/agent`](packages/agent)**: write an agent as an Agent Script file, run it
 once, crash-safe on Node, on your own Claude subscription, or in a Cloudflare Durable Object, and
-let it do real work through actions confined to a workspace. On top sits an OpenSpec task loop,
-which this repository uses to build itself.
+let it do real work through actions confined to a workspace. On top sits an OpenSpec change flow
+(`pnpm change draft → approve → build → close`), which this repository used to build itself; see
+[How we built the spec agent with itself](#how-we-built-the-spec-agent-with-itself).
 
 **Start with the package README:** [`packages/agent/README.md`](packages/agent/README.md). It has
 runnable examples for Node and Cloudflare, the entry points, the CLIs, and the supported subset.
@@ -24,6 +25,12 @@ pnpm --filter hello-world-example start Ada
 
 # work task 2.1 of an OpenSpec change with our own agent, until its checks pass
 pnpm task <change-id> 2.1
+
+# or the whole change, from intent to archive
+pnpm change draft   <id> --intent "…"   # proposal → design → specs → tasks, one stage at a time
+pnpm change approve <id>                # once per stage
+pnpm change build   <id>                # every task group, each with task loops and a judge
+pnpm change close   <id>                # trial-fold into the specs, then archive
 ```
 
 ## Layout
@@ -38,6 +45,7 @@ pnpm task <change-id> 2.1
 | [`docs/`](docs) | The taxonomy and ontology for executing an OpenSpec change, one concept per page ([index](docs/README.md)) |
 | [`agentscript.config.json`](agentscript.config.json) | How this repo runs its own tasks: provider, model, checks, allowlist |
 | [`CLAUDE.md`](CLAUDE.md) | Working rules for agents (and people) in this repo |
+| [`gaps.md`](gaps.md) | What we still did by hand while the repo built itself; each row is a candidate tool |
 
 ## Commands
 
@@ -52,15 +60,59 @@ pnpm task <change-id> 2.1
 | `pnpm spec:check` | Validates every spec and change (`openspec validate --all --strict`) |
 | `pnpm spec:archive <id>` | Trial-folds a finished change into the specs, validates, then archives it |
 | `pnpm docs:check` | Keeps `docs/` honest: front matter, index, spec references, links |
-| `pnpm task …` | The task runner (`agentscript-task`): `<change> <task>`, `<change> <group>`, `--next`, `status`, `resume`, `answer` |
+| `pnpm task …` | The task runner (`agentscript-task`): `<change> <task>`, `<change> <group>`, `--next`, `spec`, `status`, `resume`, `answer` |
+| `pnpm change …` | The change flow (`agentscript-change`): `draft <id> --intent "…"` (or `"<feedback>"`), `approve <id>`, `build <id> ["<answer>"]`, `close <id>` |
 
 ## How work happens here
 
 Every behaviour is a requirement in `openspec/specs/`, with one test per scenario. A change starts as
-a proposal, design, spec deltas and tasks in `openspec/changes/<id>/`. It is then executed task by
-task, increasingly by `pnpm task` itself, and archived with `pnpm spec:archive` once every check
-passes. The changes in flight are the roadmap; see the package README's
-[Roadmap](packages/agent/README.md#roadmap).
+a proposal, design, spec deltas and tasks in `openspec/changes/<id>/`. It is drafted and approved
+stage by stage (`pnpm change draft` / `approve`), executed group by group by our own agents
+(`pnpm change build`), and folded into the specs once every check passes (`pnpm change close`).
+The package README's [Roadmap](packages/agent/README.md#roadmap) says what comes next.
+
+## How we built the spec agent with itself
+
+The spec agent and the `pnpm change` flow were written as 21 OpenSpec changes, then executed in
+order (2026-10-12 to 2026-10-13) by this repo's own tools, on a Claude subscription through the
+claude-code provider:
+
+1. **Specs by hand.** Three foundation changes (actors and workspaces, the agent runner, the
+   Cloudflare workspace), thirteen spec-agent changes (the spec loop, its proposal, design, specify
+   and plan stages, review, slicing, size rules, the spec CLI and its events, the draft loop), and
+   five for the change flow (the build loop, then `pnpm change draft`, `approve`, `build` and
+   `close`). Each change kept to the size budget:
+   at most 6 requirements, 16 scenarios and 12 tasks.
+2. **Groups by `pnpm task <change> <group>`.** Each task ran in its own task loop: an agent works
+   the task with actions confined to the repo, then `pnpm check` and `pnpm test` decide whether it
+   converged. A judge agent reviewed each group. A small shell driver ran the groups in order,
+   rebuilt `dist/` before each one (the runner was changing its own source), and committed each
+   converged group so the next started on a clean tree.
+3. **Verify, then archive.** After the last group: `pnpm -r check`, `pnpm -r test` twice,
+   `pack:check`, `spec:check`, `docs:check` and the live acceptance run (`pnpm test:live`). Then
+   `pnpm spec:archive`, a commit and a push. The last change, `add-change-close`, archived itself
+   with `pnpm change close`.
+
+**What it took.** About 12.5 hours of group-loop time across the 21 changes, 9 to 146 minutes
+each (the first foundation change was the longest). The test suite grew from 1162 to 1649
+tests, all passing at every verify. Nearly every task converged on its first iteration.
+
+**Where a person stepped in: five times.**
+
+- One task needed to delete files, and no action can delete one. After the files were removed by
+  hand, the stored loop's script still named an action the group had just retired, so that group
+  was restarted.
+- Four were defects in the hand-written specs, which agents caught and escalated with
+  `amend-spec` instead of guessing: a git command the runner may not run, a design line the loop
+  could not honour, a bins requirement left to a later change, and migration lines naming
+  requirements that did not exist. Each was fixed in the delta and answered with
+  `pnpm task answer`.
+
+**What we still did by hand** is in [`gaps.md`](gaps.md): 13 entries. `pnpm change build` closed
+"run the groups in order" and `pnpm change close` closed most of "archive"; the rest are open.
+The most useful next tools are a `delete_file` action, applying an agent's spec amendment, showing
+why a loop failed, duration stats per change and group, and restarting stored loops after a
+reboot.
 
 ## License
 
