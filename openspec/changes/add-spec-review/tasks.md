@@ -9,8 +9,8 @@
 
 ## 2. Tests
 
-- [ ] 2.1 `packages/agent/__tests__/task/spec-review.test.ts`: "Approving the proposal", "Re-approving the proposal drops the design's approval", "A revision reaches the next draft" and "An answered question is carried, even \"approve\"" (4)
-- [ ] 2.2 `packages/agent/__tests__/task/spec-order.test.ts`: "An agent cannot approve a stage", "Designing before the proposal is approved is refused", "An edited approved file is refused" and "A malformed approvals file refuses the start" (4)
+- [x] 2.1 `packages/agent/__tests__/task/spec-review.test.ts`: "Approving the proposal", "Re-approving the proposal drops the design's approval", "A revision reaches the next draft" and "An answered question is carried, even \"approve\"" (4)
+- [x] 2.2 `packages/agent/__tests__/task/spec-order.test.ts`: "An agent cannot approve a stage", "Designing before the proposal is approved is refused", "An edited approved file is refused" and "A malformed approvals file refuses the start" (4)
 
 ## 3. Docs
 
