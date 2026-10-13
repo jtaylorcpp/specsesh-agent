@@ -365,12 +365,87 @@ The task runs in `<worktreeDir>/<change-id>-<task-id>` (default `../<repo>-workt
 ```bash
 agentscript-task status                      # every loop in the database, newest first
 agentscript-task resume 7                    # finish a loop whose process died
+agentscript-task resume --all                # finish every interrupted loop in the database
 agentscript-task answer 7 --by principal --decision "Yes, upper-case the name too."
 ```
 
 `status` reads storage and runs nothing, so it works while another process holds the database. Its lines look like `loop 98  add-shout-flag  1.2  converged  1 iteration`; a group is listed as `group 1`, its iterations are check rounds, and a worktree loop adds its branch. `resume` re-attaches to a loop from the database alone (workspace, checks, allowlist and worktree are stored with it), so a crash mid-iteration resumes the same run rather than starting another. `answer` works on a loop that ended `blocked`, from the escalation's recipient (`--by` must match, or it exits 2 with `the escalation of task loop 7 goes to the principal, not the agent`).
 
 An answer never reopens the blocked loop: it starts a *new* run of the same task, seeded with your decision as its carried feedback. For a task loop the iteration numbers carry on from the blocked run and the budget is fresh. For a group loop the blocked task is rerun first, then the rest of the group, then the check. Because the run stores what it read at start, **an answer does not pick up edits to the spec or `tasks.md`**. After an `amend-spec` block, fix the spec, commit, and start a new `run`.
+
+#### What `status` shows
+
+A loop's status is one of six: `running`, `interrupted`, `converged`, `blocked`, `exhausted` or `failed`. `interrupted` means the loop has no outcome yet but no live process is working it: its driver died, the session ended, or the machine rebooted. Here two drivers were working when the machine rebooted:
+
+```console
+$ pnpm task status
+loop 14  add-plan-export  1.3  interrupted  2 iterations
+loop 13  add-plan-export  group 1  interrupted  1 iteration
+loop 12  add-plan-schema  2.1  blocked  3 iterations
+loop 11  add-resume-hint  group 2  interrupted  0 iterations
+loop 10  add-resume-hint  2.2  interrupted  1 iteration
+loop 9  add-resume-hint  2.1  converged  2 iterations
+```
+
+Task loop `14` runs inside group loop `13`, and task loop `10` inside group loop `11`. Loop `12` is waiting for an answer, so it stays `blocked`. Loop `9` has ended, so it stays `converged`.
+
+How a loop is told apart from a running one:
+
+- **Every loop records its owner.** `run`, `resume`, `answer` and `resume --all` write a `loop_owner` row (`loop_id`, `pid`, `boot_at`) in the same database for each loop they start or resume. `boot_at` is the machine's boot time, rounded to the second. A nested loop gets its parent's owner.
+- **The owner must be the live lock holder.** A loop with no outcome that is not blocked is `interrupted` unless `<db>.lock` names its owner's pid, that pid is alive, and the owner's `boot_at` is within 2 s of the current boot time. The boot time catches a reboot even when the pid has been reused.
+- **Older loops are judged by the lock alone.** A loop started before owners were recorded has no `loop_owner` row. It is `interrupted` only when no live process holds the lock; otherwise it shows as `running`.
+- **Blocked and ended loops keep their status.** `blocked`, `converged`, `exhausted` and `failed` are never shown as `interrupted`.
+
+`status` decides this without taking the lock, so it still works while another process runs.
+
+#### Resuming every interrupted loop: `resume --all`
+
+```
+agentscript-task resume <loop-id>|--all [--db <path>] [--json]
+```
+
+`resume --all` takes `<db>.lock` once, then resumes every `interrupted` loop in the database:
+
+- **Through its root.** An interrupted loop is resumed through its root: the outermost loop above it that is still running (task → group → change), or the loop itself if its parent has ended. Each root resumes exactly once, and its nested loops carry on inside it rather than on their own.
+- **In start order.** Roots run one at a time, ordered by when they started, with the loop id as tie-break. Loop-id order is not used. A root takes ownership only when its turn comes, so `status` from another shell shows the roots still waiting as `interrupted`.
+- **As `resume <loop-id>` would.** Each root uses its recorded worktree, and its progress goes to stderr as JSON Lines events, the same as `resume <loop-id>`.
+
+Stdout gets one line per root: `loop <id> <change> <task|group n|spec stage>[ (via <ids>)] — <status>`. `(via …)` names the nested interrupted loops the root carried on. A `blocked` line ends with `: ` and the `answer` command to run; a `refused` line ends with `: ` and the reason. `converged`, `exhausted` and `failed` stand alone. For the listing above:
+
+```console
+$ pnpm task resume --all
+loop 11 add-resume-hint group 2 (via 10) — converged
+loop 13 add-plan-export group 1 (via 14) — blocked: agentscript-task answer 13 --db .agentscript/task-loops.sqlite --by principal --decision "…"
+$ echo $?
+1
+```
+
+Group loop `11` resumes before `13` because it started first. Loops `10` and `14` get no line of their own.
+
+A refused root does not stop the batch. If loop `11`'s worktree had been removed, its line would read `loop 11 add-resume-hint group 2 (via 10) — refused: worktree <path> does not exist`, and loop `13` would still be resumed.
+
+With nothing to resume:
+
+```console
+$ pnpm task resume --all
+no interrupted loops in .agentscript/task-loops.sqlite
+$ echo $?
+0
+```
+
+| Exit | Meaning |
+|---|---|
+| `0` | Every root converged or is a spec loop blocked for review, or there was nothing to resume |
+| `1` | Some root ended blocked (other than a spec loop waiting for review), exhausted or failed, or was refused |
+| `2` | Refused before any loop resumed: see below |
+
+Each refusal exits `2` and resumes nothing:
+
+- **A loop id with `--all`** (`resume 12 --all`) prints usage.
+- **`--all --json`** prints `--json is not supported with --all`, then usage. `--json` applies to `resume <loop-id>` only.
+- **Another live process holds `<db>.lock`.** You get the usual lock message, naming its pid: `the database is in use by process <pid> (<db>.lock); wait for it to finish, or use another --db`.
+
+> **One database per call.** `--all` covers only the database given by `--db`, else the config's `db`. Worktree-mode runs each have their own `--db`, so run `pnpm task resume --all --db <path>` once for each database. Nothing searches for databases across directories or restarts loops on its own: no daemon, scheduler or watcher. If you want that, build it in the repository that integrates the loop.
 
 ### Output and exit codes
 

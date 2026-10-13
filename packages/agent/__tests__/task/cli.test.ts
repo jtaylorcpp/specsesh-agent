@@ -2,7 +2,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Harness, createRegistry } from "@earendil-works/pi-durable";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { openNodeSqliteDatabase, openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, groupLoopOptions, main } from "../../src/bin/agentscript-task.js";
 import { startTaskLoop, taskLoopExtensions, type SpecStage } from "../../src/task/index.js";
 import { cli, fauxModels, storedLoops, workdir } from "./cli-helpers.js";
@@ -256,30 +256,88 @@ async function interrupted(db: string, env: ReturnType<typeof fauxModels>, optio
 	return Number(id);
 }
 
-describe("task/cli: resume --all", () => {
+/** Every `loop_owner` row, as stored; none for a database whose table was never created. */
+async function ownerRows(db: string): Promise<unknown[]> {
+	const sql = await openNodeSqliteDatabase(db);
+	try {
+		const table = await sql.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'loop_owner'");
+		return table === undefined ? [] : await sql.all("SELECT * FROM loop_owner ORDER BY loop_id");
+	} finally {
+		await sql.close();
+	}
+}
+
+/** What a resume would change: the stored loops and runs, and the owner rows. */
+async function snapshot(db: string) {
+	const { loops, runs } = await storedLoops(db);
+	return { loops, runs, owners: await ownerRows(db) };
+}
+
+/** Nothing resumed: the stored state is as before, no model call, no lock left, no `loop <id>` line. */
+async function expectNothingResumed(db: string, before: Awaited<ReturnType<typeof snapshot>>, r: Awaited<ReturnType<typeof cli>>, id: number) {
+	const after = await snapshot(db);
+	expect(after).toEqual(before);
+	const loop = after.loops.find((l) => Number(l.id) === id);
+	expect(loop).toBeDefined();
+	expect(loop?.state.outcome).toBeUndefined();
+	expect(after.owners.some((row) => Number((row as { loop_id: number | bigint }).loop_id) === id)).toBe(false);
+	expect(r.env.faux.state.callCount).toBe(0);
+	expect(existsSync(`${db}.lock`)).toBe(false);
+	expect(r.out).not.toMatch(/^loop \d+/m);
+}
+
+const USAGE_LINES = [
+	"agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]",
+	"agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]",
+	"agentscript-task resume <loop-id>|--all [--db <path>] [--json]",
+	"agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]",
+	"agentscript-task status [--db <path>]",
+] as const;
+
+describe("usage and argument refusals", () => {
 	it("Scenario: A loop id with --all prints usage", async () => {
 		const { db } = workdir();
 		const env = fauxModels();
+		// Interrupted: running, no outcome, not blocked, no lock and no owner row.
 		const id = await interrupted(db, env);
+		const before = await snapshot(db);
+		expect(before.loops.find((l) => Number(l.id) === id)?.state.status).not.toMatch(/^(terminal|completing)$/);
+		expect(before.owners).toEqual([]);
 		const r = await cli(["resume", String(id), "--all", "--db", db], env);
 		expect(r.err.startsWith("usage:")).toBe(true);
 		expect(r.code).toBe(2);
-		expect(env.faux.state.callCount).toBe(0);
-		expect(existsSync(`${db}.lock`)).toBe(false);
+		await expectNothingResumed(db, before, r, id);
 		expect((await cli(["status", "--db", db], env)).out).toContain("interrupted");
 	});
 
 	it("Scenario: --json with --all is refused", async () => {
 		const { db } = workdir();
 		const env = fauxModels();
-		await interrupted(db, env);
+		const id = await interrupted(db, env);
+		const before = await snapshot(db);
 		const r = await cli(["resume", "--all", "--json", "--db", db], env);
-		expect(r.errLines[0]).toBe("--json is not supported with --all");
-		expect(r.errLines[1]?.startsWith("usage:")).toBe(true);
+		const message = "--json is not supported with --all";
+		expect(r.err).toContain(message);
+		expect(r.err.indexOf("usage:")).toBeGreaterThan(r.err.indexOf(message));
 		expect(r.code).toBe(2);
-		expect(env.faux.state.callCount).toBe(0);
+		await expectNothingResumed(db, before, r, id);
 	});
 
+	it("Scenario: An unknown command prints usage", async () => {
+		const r = await cli(["frobnicate"]);
+		expect(r.err).toContain("usage:");
+		expect(r.code).toBe(2);
+	});
+
+	it("Scenario: No command prints usage", async () => {
+		const r = await cli([]);
+		expect(r.err.startsWith("usage:")).toBe(true);
+		for (const line of USAGE_LINES) expect(r.err).toContain(line);
+		expect(r.code).toBe(2);
+	});
+});
+
+describe("task/cli: resume --all", () => {
 	it("prints no interrupted loops in <db>, exit 0, for a database without one", async () => {
 		const { db } = workdir();
 		const missing = await cli(["resume", "--all", "--db", db]);

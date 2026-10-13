@@ -13,7 +13,7 @@
 ## 3. resume --all
 
 - [x] 3.1 Create `packages/agent/src/task/resume-all.ts` that finds interrupted loops, groups them by outermost running root, sorts roots by start time then id, resumes each like `resume <loop-id>` and returns outcome lines and exit code
-- [ ] 3.2 In `packages/agent/src/bin/agentscript-task.ts`, add `resume --all` taking the lock once and calling `resumeAll`, refuse a loop id with `--all` and `--all --json` with exit `2`, and change the resume usage line
-- [ ] 3.3 Test in `packages/agent/__tests__/task/resume-all.test.ts` "Nested loops resume through their parents in start order", "A refused root does not stop the batch", "A blocked root ends with the answer command", "Nothing to resume"
-- [ ] 3.4 Test in `packages/agent/__tests__/task/cli.test.ts` the scenarios "A loop id with --all prints usage", "--json with --all is refused", "An unknown command prints usage" and "No command prints usage"
-- [ ] 3.5 In `guides/07-task-loop.md`, document the `interrupted` status and `pnpm task resume --all`, including the one-database-per-call rule
+- [x] 3.2 In `packages/agent/src/bin/agentscript-task.ts`, add `resume --all` taking the lock once and calling `resumeAll`, refuse a loop id with `--all` and `--all --json` with exit `2`, and change the resume usage line
+- [x] 3.3 Test in `packages/agent/__tests__/task/resume-all.test.ts` "Nested loops resume through their parents in start order", "A refused root does not stop the batch", "A blocked root ends with the answer command", "Nothing to resume"
+- [x] 3.4 Test in `packages/agent/__tests__/task/cli.test.ts` the scenarios "A loop id with --all prints usage", "--json with --all is refused", "An unknown command prints usage" and "No command prints usage"
+- [x] 3.5 In `guides/07-task-loop.md`, document the `interrupted` status and `pnpm task resume --all`, including the one-database-per-call rule
