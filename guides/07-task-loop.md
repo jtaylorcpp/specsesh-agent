@@ -159,6 +159,124 @@ A group loop runs the group's unticked tasks in file order, each as its own task
 
 When the group check fails after every task converged, the **group judge** (`group.agent`) picks one of `rework`, `ask` or `amend-spec`. `rework` names one task of the group and what it must fix: that task is unticked in `tasks.md`, rerun with the failing check output and the judge's feedback carried in, and the group check runs again. Reworks are bounded by `--max-reworks` (default 2); spending them ends the group `exhausted`. `ask` and `amend-spec` end it `blocked`.
 
+### Build a whole change
+
+A change loop builds every group of a change, one group loop at a time, and each group loop runs its own task loops:
+
+```text
+change loop   agentscript.change-loop   groups 1, 2, 3 …, then the change check
+└─ group loop   agentscript.group-loop    the group's tasks, then the group check and judge
+   └─ task loop   agentscript.task-loop     orient, act, check, judge, until the task converges
+```
+
+The change loop runs every group in order and then a change check, and returns `LoopOutcome<ChangeOutcome>`: `groups` (one entry per group: `group`, its latest group-loop `outcome`, and `runs`) and `unclaimed`. For now it runs only from code. The `pnpm change build` command comes in `add-change-build`.
+
+#### The example
+
+Set up the models and the database as in [Use the library from code](#use-the-library-from-code), but install `changeLoopExtensions(options)` in the registry, in place of the task or group extensions. It returns the change loop's extension plus everything `groupLoopExtensions` returns, so one registry runs all three levels.
+
+```ts
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { createRegistry, Harness } from "@earendil-works/pi-durable";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import {
+	answerChangeEscalation,
+	changeLoopExtensions,
+	startChangeLoop,
+	waitForChangeLoop,
+	type ChangeLoopOptions,
+} from "@specsesh/agent/task";
+
+const context = BACKGROUND_CONTEXT;
+const options: ChangeLoopOptions = {
+	change: { dir: "openspec/changes/add-plan-export" },
+	workspace: process.cwd(),
+	checks: ["pnpm test"],
+	changeChecks: ["pnpm test", "pnpm spec:check", "pnpm docs:check"],
+	allow: ["pnpm", "node"],
+	budget: { maxIterations: 6, maxReworks: 2 },
+};
+
+const registry = createRegistry();
+for (const extension of changeLoopExtensions(options)) registry.install(extension);
+const harness = await Harness.open(await openNodeSqliteStorage(".agentscript/loops.sqlite"), { models, registry }, context);
+
+// Refused before anything exists: an invalid change, or one no longer as approved.
+let id = await startChangeLoop(harness, options, context);
+harness.resume();
+let outcome = await waitForChangeLoop(harness, id, context);
+
+while (outcome.status === "blocked") {
+	// Level "change": a task or a group judge needs a decision.
+	const { escalation } = outcome;
+	const decision = await askThePrincipal(escalation.question);
+	id = await answerChangeEscalation(harness, id, { escalation, by: escalation.to, decision, feedback: [] }, context);
+	harness.resume();
+	outcome = await waitForChangeLoop(harness, id, context);
+}
+
+switch (outcome.status) {
+	case "converged":
+		// groups: [{ group: 1, runs: 1, … }, { group: 2, runs: 2, … }, { group: 3, runs: 1, … }]
+		// Group 2 ran twice: it blocked once and was answered.
+		for (const { group, runs } of outcome.result.groups) console.log(`group ${group}: runs ${runs}`);
+		for (const { capability, scenario } of outcome.result.unclaimed) console.log(`unclaimed: ${capability.join("/")} › ${scenario}`);
+		break;
+	case "failed": {
+		// A group that did not converge, or else the change check's evidence.
+		const stopped = outcome.result?.groups.find((entry) => entry.outcome.status !== "converged");
+		if (stopped !== undefined) console.log(`group ${stopped.group} ended ${stopped.outcome.status}`);
+		for (const evidence of outcome.iterations[0]?.evidence ?? []) {
+			if (evidence.kind === "check") console.log(`${evidence.command}: exit ${evidence.exitCode}\n${evidence.output}`);
+		}
+		break;
+	}
+}
+await harness.close(context);
+```
+
+`models` and `askThePrincipal` are yours: the first as in the task loop example, the second however your host reaches the principal. `change` must be `{ dir }`, because the guard validates the change by its directory name. A blocked outcome's `escalation` is the blocked group's, copied at level `change`, with its `to`, `reason` and `question`.
+
+#### The guard
+
+`startChangeLoop` runs a guard before it creates anything, so a refused build leaves no loop behind. It rejects with a `TaskLoopStartError` naming why:
+
+- **The change must pass `openspec validate --strict`.** The refusal names the first issue. The guard runs `openspec` in the workspace, so the OpenSpec CLI must be installed.
+- **If `approvals.json` exists, the change must be as approved.** Every stage must be approved, and every file's sha256 must still match the recorded one. Otherwise the refusal names the file and the stage, for example `tasks.md changed since the tasks stage was approved; review it again`. The fix is to run that stage again and approve it: `pnpm task spec <change> <stage>`.
+- **A hand-written change, with no `approvals.json`, builds as it is.**
+- **Unclaimed scenarios are reported, never refused.** A delta scenario that no task in `tasks.md` quotes by its exact name is listed in the outcome's `unclaimed`, as it stood when the loop started.
+
+The task script and the group judge are checked as `startGroupLoop` checks them, and the change needs at least one check.
+
+#### The phases
+
+The change loop is one durable task, `agentscript.change-loop`, whose phases run `next` → `group` → `check`. `next` takes the next group from the queue, or goes to `check` when the queue is empty. `group` runs that group as a child group loop:
+
+- **Every group runs, ticked or not.** The queue is every group in `tasks.md`, ascending. A group whose tasks are all ticked starts no task loop, but its group loop still runs its group check, so it is checked rather than rebuilt.
+- **A crash resumes the same child.** The child group loop is created and its id stored in the checkpoint in one commit. A resumed process waits for that id instead of starting a second group loop.
+- **A blocked group blocks the change** at level `change`, with the group's escalation.
+- **A group that ends `exhausted` or `failed` ends the change `failed`.** Later groups don't run.
+
+A converged group is entered in `groups` and the loop returns to `next`.
+
+#### `changeChecks`
+
+The change check runs once, after the last group converges. `changeChecks` defaults to `checks`. Set it to a broader end-of-change set, such as `pnpm spec:check`, `pnpm docs:check` and `pnpm pack:check`, that would be too slow to run after every task. The commands run in order in the workspace, as argv with no shell, like `checks`. They are recorded as one `Iteration` targeting `{ check: "change" }`, with one `check` evidence per command. If every command exits 0, the change converges. Any other exit code ends it `failed`. No judge sees the failure yet.
+
+#### Answering
+
+`answerChangeEscalation(harness, id, answer, context)` answers a blocked change loop and returns the id of a new run:
+
+- It is accepted only when the loop ended `blocked`, and only when `answer.by` is the escalation's `to`. Otherwise it rejects with `EscalationAnswerError` and changes nothing.
+- It starts a new change run that keeps the entries already recorded, so the blocked group's `runs` goes on counting.
+- It hands the answer to `answerGroupEscalation` for the blocked group, waits for that group's new run, and then continues with the remaining groups and the change check.
+
+#### Notes
+
+- **No budget of its own.** The limits come from each group's `maxReworks` and each task's `maxIterations`, both set in `budget`.
+- **Don't put a `pnpm spec:archive` task in `tasks.md`.** The change check would then validate a change that has already been archived.
+- **The command line comes later.** `pnpm change build` comes in `add-change-build`.
+
 ### Worktrees
 
 ```bash

@@ -45,6 +45,8 @@ Loop<TaskList, ChangeOutcome>
 - An instance of [Loop](loop.md) over the [TaskList](../../taxonomy/task-list.md); run by the [execute](../process/steps/execute-step.md) step.
 - Runs [Group loop](group-loop.md)s; targets [unclaimed scenarios](../../taxonomy/unclaimed-scenario.md) and a valid [ValidationReport](../process/validation-report.md).
 - Returns a [ChangeOutcome](change-outcome.md) as the `result` of its `LoopOutcome<ChangeOutcome>`, which [execute](../process/steps/execute-step.md) hands back whole.
+- Implemented as the pi-durable task `agentscript.change-loop` (version 1) in `@specsesh/agent/task` (`packages/agent/src/task/change-loop.ts`, with `change-input.ts`, `change-guard.ts` and `change-api.ts`), exported as `startChangeLoop`, `waitForChangeLoop`, `answerChangeEscalation`, `changeLoopExtensions` and `ChangeLoopOptions`. Its phases are `next`, `group` and `check`: every group in tasks.md runs in order as an `agentscript.group-loop` child, fully ticked groups included, so `coversEveryGroup` holds, and it returns `LoopOutcome<ChangeOutcome>` with `unclaimed` reported, not refused. A blocked group blocks the change, its escalation raised to level `change`; `answerChangeEscalation` resumes it as a new run.
+- Its change check reworks nothing yet. `changeChecks` (default: the `checks`) run once after the last group, and any non-zero exit ends the change `"failed"` with the evidence. No change judge yet reopens a group or adds tasks for unclaimed scenarios: the `"rework-task"` and `"add-task"` invariant above is not yet implemented.
 
 ## Example
 

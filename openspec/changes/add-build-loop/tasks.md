@@ -14,8 +14,8 @@
 
 ## 3. Docs
 
-- [ ] 3.1 `docs/ontology/loops/change-loop.md`: name `agentscript.change-loop` as its implementation, and say its change check reworks nothing yet
-- [ ] 3.2 `guides/07-task-loop.md`: a "Build a whole change" section with the design's example
+- [x] 3.1 `docs/ontology/loops/change-loop.md`: name `agentscript.change-loop` as its implementation, and say its change check reworks nothing yet
+- [x] 3.2 `guides/07-task-loop.md`: a "Build a whole change" section with the design's example
 
 ## 4. Verify
 
