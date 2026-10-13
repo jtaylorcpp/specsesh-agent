@@ -24,6 +24,18 @@
         "design/examples/resume-all.sh": "0994d61790dab0ea03c71d18e5ffbfca98b258c8f0dbab3fa91074707a465f9b",
         "design/mock.html": "0fe031cd699ba6cb0602019129ce2a35e044599a86a76fe3d9b94ddbda5e5196"
       }
+    },
+    {
+      "stage": "specs",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-13T18:47:45.803Z",
+      "files": {
+        "specs/task/cli/spec.md": "9d68f5d4f7a7ef2ad1df6eaf773531da38abd6fc666af35c91cb0c7c784e7f9d",
+        "specs/task/headless/spec.md": "a3869706f12812736aa0cc1c70a87d8ac55308c522d518bbaa6f77c98430051e"
+      }
     }
   ]
 }

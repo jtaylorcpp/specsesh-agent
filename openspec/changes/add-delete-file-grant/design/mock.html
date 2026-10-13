@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>add-delete-file-grant: rendered sessions</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; background: #f6f6f4; color: #222; max-width: 70rem; }
+  h1 { font-size: 1.3rem; } h2 { font-size: 1.05rem; margin-top: 2rem; }
+  .note { font-size: .85rem; color: #555; }
+  .fake { display: inline-block; background: #ffe9a8; color: #6b5200; font-size: .75rem; padding: .1rem .4rem; border-radius: 3px; margin-left: .5rem; }
+  pre { background: #1e1f22; color: #ddd; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .82rem; line-height: 1.45; }
+  .cmd { color: #8fd18f; } .err { color: #9ab; } .out { color: #fff; } .bad { color: #f08a8a; } .hl { color: #ffd479; }
+</style>
+</head>
+<body>
+<h1>add-delete-file-grant: how a run looks</h1>
+<p class="note">All loop ids, paths, timestamps and file names below are fake example data, shown to illustrate the flow.</p>
+
+<h2>1. Granted: task-delegate retires a file <span class="fake">fake data</span></h2>
+<p class="note">Config has <code>"deleteFiles": true</code>. The Claude Code child ends with a <code>RETIRE:</code> line; the outer step calls <code>delete_file</code>.</p>
+<pre><span class="cmd">$ pnpm task add-actors-and-workspaces 3.6</span>
+<span class="err">resume with: agentscript-task resume 14 --db .agentscript/task-loops.sqlite</span>
+<span class="err">{"event":"loop-started","loop":14,"change":"add-actors-and-workspaces","task":"3.6","script":"task-delegate","at":"2026-10-13T09:00:00Z"}</span>
+<span class="err">{"event":"iteration-started","loop":14,"iteration":1,"at":"2026-10-13T09:00:01Z"}</span>
+<span class="err">{"event":"action","loop":14,"iteration":1,"kind":"delegate","summary":"claude_code: moved workspace helpers; RETIRE: packages/agent/src/old-workspace.ts","refs":[]}</span>
+<span class="hl">{"event":"action","loop":14,"iteration":1,"kind":"delete","summary":"delete_file packages/agent/src/old-workspace.ts","refs":["packages/agent/src/old-workspace.ts"]}</span>
+<span class="err">{"event":"evidence","loop":14,"iteration":1,"kind":"check","command":"pnpm check","exitCode":0}</span>
+<span class="err">{"event":"evidence","loop":14,"iteration":1,"kind":"check","command":"pnpm test","exitCode":0}</span>
+<span class="err">{"event":"verdict","loop":14,"iteration":1,"met":true,"unmet":"","next":"retry"}</span>
+<span class="err">{"event":"loop-ended","loop":14,"status":"converged","iterations":1,"ticked":true,"changed":["packages/agent/src/old-workspace.ts","packages/agent/src/workspace.ts"]}</span>
+<span class="out">converged: add-actors-and-workspaces 3.6 in 1 iteration (ticked)</span></pre>
+
+<h2>2. Not granted: the same bundled script still starts <span class="fake">fake data</span></h2>
+<p class="note">Config has no <code>deleteFiles</code>. No refusal at start; <code>delete_granted</code> is false so the retire step is skipped and the delegate is not asked to retire anything.</p>
+<pre><span class="cmd">$ pnpm task some-change 1.2</span>
+<span class="err">resume with: agentscript-task resume 15 --db .agentscript/task-loops.sqlite</span>
+<span class="err">{"event":"loop-started","loop":15,"change":"some-change","task":"1.2","script":"task-delegate","at":"2026-10-13T09:10:00Z"}</span>
+<span class="err">{"event":"iteration-started","loop":15,"iteration":1,"at":"2026-10-13T09:10:01Z"}</span>
+<span class="err">{"event":"action","loop":15,"iteration":1,"kind":"delegate","summary":"claude_code: edited src/a.ts","refs":[]}</span>
+<span class="err">{"event":"verdict","loop":15,"iteration":1,"met":true,"unmet":"","next":"retry"}</span>
+<span class="err">{"event":"loop-ended","loop":15,"status":"converged","iterations":1,"ticked":true,"changed":["src/a.ts"]}</span>
+<span class="out">converged: some-change 1.2 in 1 iteration (ticked)</span></pre>
+
+<h2>3. Not granted, custom script calls delete_file anyway <span class="fake">fake data</span></h2>
+<p class="note">The deterministic call answers ok:false; the existing failed-action rule retries with the message carried.</p>
+<pre><span class="err">{"event":"action","loop":16,"iteration":1,"kind":"delete","summary":"delete_file src/legacy.ts","refs":[]}</span>
+<span class="bad">{"event":"verdict","loop":16,"iteration":1,"met":false,"unmet":"delete_file is not granted: set \"deleteFiles\": true under \"task\" in agentscript.config.json","next":"retry"}</span>
+<span class="err">{"event":"iteration-started","loop":16,"iteration":2,"at":"2026-10-13T09:20:40Z"}</span></pre>
+
+<h2>4. Mistyped grant is refused <span class="fake">fake data</span></h2>
+<pre><span class="cmd">$ pnpm task some-change 1.2</span>
+<span class="bad">/home/dev/agentscript/agentscript.config.json: task.deleteFiles must be a boolean</span>
+<span class="cmd">$ echo $?</span>
+<span class="out">2</span></pre>
+</body>
+</html>

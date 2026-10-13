@@ -1,0 +1,24 @@
+{
+  "task": {
+    "changesDir": "openspec/changes",
+    "db": ".agentscript/task-loops.sqlite",
+    "provider": "claude-code",
+    "model": "opus",
+    "script": "task-delegate",
+    "checks": ["pnpm check", "pnpm test"],
+    "allow": ["pnpm", "node"],
+    "maxIterations": 8,
+    "escalateTo": "principal",
+    "requireCleanTree": true,
+    "worktreeSetup": ["pnpm install --frozen-lockfile --prefer-offline"],
+    "deleteFiles": true
+  },
+  "delegates": {
+    "claude_code": {
+      "runner": "claude-code",
+      "model": "opus",
+      "allow": ["pnpm", "node"],
+      "context": ["CLAUDE.md"]
+    }
+  }
+}

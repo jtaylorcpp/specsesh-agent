@@ -1,0 +1,29 @@
+# Excerpt of the bundled task-delegate.agent after this change (new parts only).
+# Agent Script syntax as in the existing bundled script; abbreviated.
+
+variables:
+  delete_granted: mutable boolean = False   # optional seeded variable, set by the loop
+  retire_path: mutable string = ""
+  delegate_reply: mutable string = ""
+
+subagent act:
+  # unchanged deterministic delegate call; prompt gains, when delete_granted:
+  #   "You cannot delete files. If the task retires a file, leave it in place
+  #    and end your reply with one line `RETIRE: <path>` per file."
+  run @actions.delegate_claude_code
+    set @variables.delegate_reply = @outputs.result
+    set @variables.act_files = @outputs.files_changed
+
+subagent retire:
+  available when @variables.delete_granted == True
+  reasoning:
+    instructions: |
+      The delegate's reply is below. If it contains a line `RETIRE: <path>`,
+      set retire_path to the first such path, exactly as written. Otherwise set it to "".
+      {!@variables.delegate_reply}
+  after_reasoning:
+    if @variables.retire_path != "":
+      run @actions.delete_file          # mcpTool://delete_file, path = retire_path
+        with path = @variables.retire_path
+
+# judge prompt gains: "Files deleted: {!@variables.retire_path or 'none'}"

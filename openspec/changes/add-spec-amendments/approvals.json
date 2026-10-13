@@ -26,6 +26,18 @@
         "design/examples/task-contract.agent": "25c2a300ef518c3525b335ab24d15d263f30b9c7e54e1f46273a61c927eaf24a",
         "design/mock.html": "254a807b3d885b548045de91a6bbe6c81c5f8bd74094008d97d5efe9f0afccfa"
       }
+    },
+    {
+      "stage": "specs",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-13T18:49:36.060Z",
+      "files": {
+        "specs/openspec/loops/spec.md": "9c12a81645978bd93e7d50cd3b90b9b55171fe1a22f5528cfabe9bf5b84a9111",
+        "specs/task/agent/spec.md": "c013bef8a6447964be498d6e57e8cc2e10e563958e333aa483dba7cc66a319be"
+      }
     }
   ]
 }
