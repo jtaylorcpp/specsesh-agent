@@ -1,0 +1,35 @@
+{
+  "status": "blocked",
+  "iterations": [
+    {
+      "n": 1,
+      "plan": "",
+      "actions": [{ "kind": "command", "summary": "run checks", "refs": ["pnpm test"] }],
+      "evidence": [],
+      "verdict": { "met": false, "satisfied": [], "unmet": [{ "target": { "check": "task 1.4" }, "reason": "2 tests fail" }] },
+      "feedback": [{ "from": { "kind": "code-defect", "target": { "check": "task 1.4" } }, "action": "retry" }]
+    },
+    {
+      "n": 2,
+      "plan": "",
+      "actions": [],
+      "evidence": [],
+      "verdict": {
+        "met": false,
+        "satisfied": [],
+        "unmet": [{ "target": { "check": "task 1.4" }, "reason": "The delta says run throws UndeclaredVariableError; the lint refuses first." }]
+      },
+      "feedback": [{ "from": { "kind": "spec-defect", "target": { "check": "task 1.4" } }, "action": "amend-spec" }]
+    }
+  ],
+  "escalation": {
+    "level": "task",
+    "to": "principal",
+    "reason": "The delta says run throws UndeclaredVariableError; the lint refuses first.",
+    "question": "The spec says run throws UndeclaredVariableError; the lint refuses first. Amend?",
+    "amendment": {
+      "delta": "specs/durable/host/spec.md",
+      "text": "## MODIFIED Requirements\n\n### Requirement: An undeclared variable is refused by the lint\n`run` SHALL NOT start a script the lint refuses; an undeclared variable is reported as a lint diagnostic.\n\n#### Scenario: An undeclared variable never reaches run\n- **WHEN** a script reads an undeclared variable\n- **THEN** the lint SHALL refuse it and `run` SHALL NOT be called\n"
+    }
+  }
+}

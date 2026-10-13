@@ -1,0 +1,15 @@
+{
+  "approvals": [
+    {
+      "stage": "proposal",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-13T16:27:57.233Z",
+      "files": {
+        "proposal.md": "8574a86fd73a13951607ce399fd69302a9974b3059d9c23a08d952d44ea9d240"
+      }
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>add-resume-interrupted — rendered CLI session</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #f4f4f2; color: #222; margin: 2rem auto; max-width: 980px; padding: 0 1rem; }
+  h1 { font-size: 1.3rem; }
+  h2 { font-size: 1.05rem; margin-top: 2rem; }
+  .note { color: #555; font-size: .9rem; }
+  .fake { display: inline-block; background: #ffe9a8; color: #6a4b00; font-size: .75rem; padding: .1rem .4rem; border-radius: 3px; margin-left: .5rem; }
+  pre.term { background: #1b1d21; color: #d8dee9; padding: 1rem 1.2rem; border-radius: 6px; overflow-x: auto; line-height: 1.45; font-size: .85rem; }
+  .p { color: #8fbcbb; }
+  .int { color: #ebcb8b; font-weight: bold; }
+  .ok { color: #a3be8c; }
+  .bad { color: #bf616a; }
+  .dim { color: #6c7686; }
+</style>
+</head>
+<body>
+<h1>pnpm task resume --all — rendered session <span class="fake">FAKE DATA</span></h1>
+<p class="note">Every loop id, change name and pid below is made up for illustration. The database is the repo config's <code>.agentscript/task-loops.sqlite</code>.</p>
+
+<h2>1. After a reboot: status marks interrupted loops</h2>
+<pre class="term"><span class="p">$</span> pnpm task status
+14  add-plan-export      1.3        <span class="int">interrupted</span>   2 iterations
+13  add-plan-export      group 1    <span class="int">interrupted</span>   1 iteration
+12  add-plan-schema      2.1        blocked       3 iterations
+11  add-resume-hint      group 2    <span class="int">interrupted</span>   0 iterations
+10  add-resume-hint      2.2        <span class="int">interrupted</span>   1 iteration
+ 9  add-resume-hint      2.1        converged     2 iterations</pre>
+<p class="note">Loop 12 is waiting for an answer and loop 9 has ended, so neither is marked. Loops 10 and 14 are task loops inside group loops 11 and 13.</p>
+
+<h2>2. Resume everything interrupted</h2>
+<pre class="term"><span class="p">$</span> pnpm task resume --all 2&gt;progress.jsonl
+loop 11 add-resume-hint group 2 (via 10) — <span class="ok">converged</span>
+loop 13 add-plan-export group 1 (via 14) — <span class="bad">blocked</span>: agentscript-task answer 13 --db .agentscript/task-loops.sqlite --by principal --decision "…"
+<span class="p">$</span> echo $?
+1
+<span class="p">$</span> head -3 progress.jsonl
+<span class="dim">{"event":"group-started","loop":11,"change":"add-resume-hint","group":"2","tasks":["2.2","2.3"],"at":"2026-10-13T09:02:11.000Z"}
+{"event":"iteration-started","loop":10,"group":"2","iteration":2,"at":"2026-10-13T09:02:11.400Z"}
+{"event":"action","loop":10,"group":"2","iteration":2,"kind":"edit","summary":"…","refs":[]}</span></pre>
+<p class="note">There is one line per outermost loop, in start order (11 started before 13). The nested task loops 10 and 14 carry on through their parents and are named after "via". They are not resumed twice.</p>
+
+<h2>3. Status afterwards</h2>
+<pre class="term"><span class="p">$</span> pnpm task status
+14  add-plan-export      1.3        blocked       3 iterations
+13  add-plan-export      group 1    blocked       1 iteration
+12  add-plan-schema      2.1        blocked       3 iterations
+11  add-resume-hint      group 2    converged     1 iteration
+10  add-resume-hint      2.2        converged     2 iterations
+ 9  add-resume-hint      2.1        converged     2 iterations</pre>
+
+<h2>4. Nothing to resume</h2>
+<pre class="term"><span class="p">$</span> pnpm task resume --all
+no interrupted loops in .agentscript/task-loops.sqlite
+<span class="p">$</span> echo $?
+0</pre>
+
+<h2>5. One loop refused, the rest still resumed</h2>
+<pre class="term"><span class="p">$</span> pnpm task resume --all
+loop 11 add-resume-hint group 2 (via 10) — <span class="bad">refused</span>: worktree ../agentscript-worktrees/add-resume-hint-2 does not exist
+loop 13 add-plan-export group 1 (via 14) — <span class="ok">converged</span>
+<span class="p">$</span> echo $?
+1</pre>
+
+<h2>6. Refusals before anything resumes</h2>
+<pre class="term"><span class="p">$</span> pnpm task resume --all
+<span class="bad">.agentscript/task-loops.sqlite is held by live process 48121</span>
+<span class="p">$</span> echo $?
+2
+<span class="p">$</span> pnpm task resume 12 --all
+<span class="bad">usage:
+  agentscript-task resume &lt;loop-id&gt;|--all [--db &lt;path&gt;] [--json]
+  …</span>
+<span class="p">$</span> pnpm task resume --all --json
+<span class="bad">--json is not supported with --all</span>
+<span class="bad">usage: …</span>
+<span class="p">$</span> echo $?
+2</pre>
+</body>
+</html>

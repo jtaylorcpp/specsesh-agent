@@ -1,0 +1,30 @@
+# Excerpt: the contract variables every task script declares after this change.
+# The seeded and read-back variables are unchanged except for the two marked "new".
+
+variables:
+    # seeded by the loop
+    task_id: mutable string = ""
+    task_text: mutable string = ""
+    proposal: mutable string = ""
+    design: mutable string = ""
+    deltas: mutable string = ""
+    iteration: mutable number = 0
+    carried: mutable string = ""
+
+    # read back by the loop
+    met: mutable boolean = False
+    unmet: mutable string = ""
+    next_action: mutable string = "retry"   # one of: retry, amend-spec, ask
+    question: mutable string = ""
+    amend_path: mutable string = ""         # new: "" or "specs/<capability>/spec.md", one of the change's deltas
+    amend_text: mutable string = ""         # new: the whole replacement text of that delta
+
+# Added to the judge step's instructions in task.agent and task-delegate.agent:
+#
+#   When next_action is amend-spec, set amend_path to the delta that is wrong,
+#   exactly as listed, and set amend_text to the whole new text of that file,
+#   not a patch. For any other next_action, leave both empty.
+#
+# The loop passes choices to every child run:
+#   { next_action: ["retry", "amend-spec", "ask"],
+#     amend_path:  ["", "specs/durable/host/spec.md", ...one per delta, sorted by capability path] }

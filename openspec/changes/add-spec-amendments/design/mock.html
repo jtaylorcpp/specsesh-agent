@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>add-spec-amendments: rendered session (mock)</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 960px; color: #222; background: #fafafa; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; border-bottom: 1px solid #ccc; padding-bottom: .2rem; }
+  .fake { display: inline-block; background: #fff3cd; border: 1px solid #e0c060; padding: .1rem .5rem; font-size: .8rem; border-radius: 3px; }
+  pre { background: #1e1e1e; color: #ddd; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .85rem; line-height: 1.4; }
+  .prompt { color: #8fd18f; }
+  .key { color: #9cdcfe; }
+  .new { background: #264f2a; }
+  .err { color: #f48771; }
+  .note { color: #d7ba7d; }
+  nav button { margin-right: .4rem; padding: .3rem .7rem; border: 1px solid #888; background: #fff; border-radius: 4px; cursor: pointer; }
+  nav button.on { background: #222; color: #fff; }
+  section { display: none; }
+  section.on { display: block; }
+  p.cap { font-size: .9rem; color: #555; }
+</style>
+</head>
+<body>
+<h1>add-spec-amendments: host session with a task loop</h1>
+<p><span class="fake">FAKE DATA</span> The change names, task ids and texts below are made up for illustration. This slice has no CLI. What is shown is a host script (<code>answer-amendment.ts</code>) calling <code>@specsesh/agent/task</code> and printing what it gets back. Lines highlighted green are new in this change.</p>
+
+<nav>
+  <button data-s="s1" class="on">1. Block with amendment</button>
+  <button data-s="s2">2. Answer: text</button>
+  <button data-s="s3">3. Answer: amendment-applied</button>
+  <button data-s="s4">4. Amendment dropped</button>
+  <button data-s="s5">5. Rejected answers</button>
+  <button data-s="s6">6. Contract refusal</button>
+</nav>
+
+<section id="s1" class="on">
+<h2>1. The judge answers amend-spec with a fix</h2>
+<p class="cap">Iteration 2's judge step returns these variables (fake). The loop ends blocked and the escalation carries the amendment.</p>
+<pre><span class="prompt">$</span> node answer-amendment.mjs --change demo-change --task 1.4
+starting task loop demo-change / 1.4 ...
+iteration 1  verdict: unmet  feedback: retry      (code-defect)
+iteration 2  judge result:
+  <span class="key">met</span>         False
+  <span class="key">next_action</span> "amend-spec"
+  <span class="key">unmet</span>       "The delta says run throws UndeclaredVariableError; the lint refuses first."
+  <span class="key">question</span>    "The spec says run throws UndeclaredVariableError; the lint refuses first. Amend?"
+<span class="new">  <span class="key">amend_path</span>  "specs/durable/host/spec.md"</span>
+<span class="new">  <span class="key">amend_text</span>  "## MODIFIED Requirements\n\n### Requirement: An undeclared variable is refused by the lint\n…" (2,184 chars)</span>
+
+outcome.status: blocked
+outcome.escalation:
+{
+  "level": "task",
+  "to": "principal",
+  "reason": "The delta says run throws UndeclaredVariableError; the lint refuses first.",
+  "question": "The spec says run throws UndeclaredVariableError; the lint refuses first. Amend?",
+<span class="new">  "amendment": {
+    "delta": "specs/durable/host/spec.md",
+    "text": "## MODIFIED Requirements\n\n### Requirement: An undeclared variable is refused by the lint\n…"
+  }</span>
+}
+findings: spec-defect on { check: "task 1.4" }
+</pre>
+</section>
+
+<section id="s2">
+<h2>2. The principal answers with text (unchanged behaviour)</h2>
+<pre><span class="prompt">$</span> node answer-amendment.mjs --change demo-change --task 1.4 \
+    --text "Keep the spec; make run check variables before the lint."
+answerEscalation: accepted (by principal)
+nothing written.
+resumed: new run, iterations 1–2 kept
+iteration 3  carried:
+  "Keep the spec; make run check variables before the lint."
+</pre>
+</section>
+
+<section id="s3">
+<h2>3. The principal applied the amendment</h2>
+<p class="cap">In this slice the principal writes the file themselves. Slice 3's <code>--amend</code> will write it, validate it and send this answer.</p>
+<pre><span class="prompt">$</span> node answer-amendment.mjs --change demo-change --task 1.4 --applied
+<span class="new">answerEscalation: accepted, decision "amendment-applied" (by principal)</span>
+resumed: new run, iterations 1–2 kept
+iteration 3  carried:
+<span class="new">  The principal applied your amendment to specs/durable/host/spec.md. That delta now reads:
+
+  ## MODIFIED Requirements
+
+  ### Requirement: An undeclared variable is refused by the lint
+  …</span>
+</pre>
+</section>
+
+<section id="s4">
+<h2>4. amend-spec with no usable amendment: still blocks, amendment dropped</h2>
+<pre><span class="prompt">$</span> node answer-amendment.mjs --change demo-change --task 2.1
+iteration 1  judge result:
+  <span class="key">next_action</span> "amend-spec"
+  <span class="key">amend_path</span>  "specs/durable/host/spec.md"
+  <span class="key">amend_text</span>  ""
+outcome.status: blocked
+outcome.escalation:
+{
+  "level": "task", "to": "principal",
+  "reason": "Scenario 'A resumed run …' contradicts requirement 'Runs are not resumed'.",
+  "question": "Which of the two should hold?"
+}
+<span class="note">notes:
+  amendment dropped: amend_text is empty</span>
+findings: spec-defect on { check: "task 2.1" }
+(answer with text as before; "amendment-applied" is not accepted for this escalation)
+</pre>
+</section>
+
+<section id="s5">
+<h2>5. Answers the loop rejects</h2>
+<pre><span class="prompt">$</span> node answer-amendment.mjs --change demo-change --task 2.1 --applied
+<span class="err">answerEscalation rejected: decision "amendment-applied" needs an escalation with an amendment; this one has none.
+loop stays blocked.</span>
+
+<span class="prompt">$</span> node answer-amendment.mjs --change demo-change --task 1.4 --applied --by agent
+<span class="err">answerEscalation rejected: by "agent" does not match escalation.to "principal".
+loop stays blocked.</span>
+
+<span class="prompt">$</span> node answer-amendment.mjs --change other-change --task 3.2 --applied --by agent   # escalateTo: "agent"
+<span class="err">answerEscalation rejected: only the principal can answer "amendment-applied".
+loop stays blocked.</span>
+</pre>
+</section>
+
+<section id="s6">
+<h2>6. A script that predates the new contract</h2>
+<pre><span class="prompt">$</span> node answer-amendment.mjs --change demo-change --task 1.4 --script old-task.agent
+<span class="err">startTaskLoop rejected: task script must declare amend_path: string
+no loop was created; no model request was made.</span>
+
+<span class="prompt">$</span> node answer-amendment.mjs --change demo-change --task 1.4 --script bad-default.agent
+<span class="err">startTaskLoop rejected: amend_path default "specs/x/spec.md" is not one of "", "specs/durable/host/spec.md"
+no loop was created.</span>
+</pre>
+</section>
+
+<script>
+  document.querySelectorAll("nav button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      document.querySelectorAll("nav button").forEach(function (x) { x.classList.remove("on"); });
+      document.querySelectorAll("section").forEach(function (x) { x.classList.remove("on"); });
+      b.classList.add("on");
+      document.getElementById(b.getAttribute("data-s")).classList.add("on");
+    });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>delete_file: rendered task-loop session (mock)</title>
+<style>
+  body { font-family: ui-monospace, Menlo, Consolas, monospace; background: #111418; color: #d7dde4; margin: 0; padding: 2rem; }
+  h1 { font-size: 1.1rem; margin: 0 0 .25rem; }
+  .fake { display: inline-block; background: #5a3d00; color: #ffd27a; padding: .1rem .5rem; border-radius: 3px; font-size: .8rem; margin-bottom: 1.25rem; }
+  .step { border-left: 3px solid #3b4652; padding: .5rem 1rem; margin: .75rem 0; background: #181d23; }
+  .step.ok { border-color: #3fa66b; }
+  .step.refused { border-color: #d9822b; }
+  .step.boot { border-color: #5b7bd5; }
+  .who { color: #8ea1b5; font-size: .8rem; }
+  .call { color: #9fd3ff; }
+  .res-ok { color: #6fd39a; }
+  .res-no { color: #f0a35e; }
+  pre { margin: .35rem 0 0; white-space: pre-wrap; }
+  nav button { background: #232a33; color: #d7dde4; border: 1px solid #3b4652; padding: .3rem .7rem; margin-right: .4rem; cursor: pointer; font: inherit; }
+  nav button.on { background: #3b4652; }
+  section { display: none; }
+  section.on { display: block; }
+</style>
+</head>
+<body>
+<h1>task loop · add-actors-and-workspaces · task 3.6</h1>
+<div class="fake">FAKE DATA: illustrative session, paths and messages are mock</div>
+
+<nav>
+  <button data-t="granted" class="on">Granted: delete and refusals</button>
+  <button data-t="ungranted">Not granted: binding check</button>
+  <button data-t="noremove">Workspace without remove</button>
+</nav>
+
+<section id="granted" class="on">
+  <div class="step boot"><div class="who">host</div>
+    <pre>registry: read_file, edit_file, run_command, run_checks, delete_file
+workspace: localWorkspace("/work/specsesh")   (fake path)</pre></div>
+
+  <div class="step ok"><div class="who">agent → action</div>
+    <pre class="call">delete_file { path: "src/legacy/old-runner.ts" }</pre>
+    <pre class="res-ok">ok: true  outputs: { ok: true }
+record: Action { kind: "edit", refs: ["src/legacy/old-runner.ts"] }
+        DiffEvidence { path: "src/legacy/old-runner.ts", change: "deleted" }</pre></div>
+
+  <div class="step refused"><div class="who">agent → action</div>
+    <pre class="call">delete_file { path: "src/legacy/old-runner.ts" }</pre>
+    <pre class="res-no">refused: no such file: src/legacy/old-runner.ts      (nothing deleted, no record)</pre></div>
+
+  <div class="step refused"><div class="who">agent → action</div>
+    <pre class="call">delete_file { path: "src/legacy" }</pre>
+    <pre class="res-no">refused: is a directory: src/legacy</pre></div>
+
+  <div class="step refused"><div class="who">agent → action</div>
+    <pre class="call">delete_file { path: "../outside.txt" }</pre>
+    <pre class="res-no">refused: outside the workspace</pre></div>
+
+  <div class="step refused"><div class="who">agent → action</div>
+    <pre class="call">delete_file { path: "/etc/hosts" }</pre>
+    <pre class="res-no">refused: outside the workspace</pre></div>
+
+  <div class="step refused"><div class="who">agent → action</div>
+    <pre class="call">delete_file { path: "link/passwd" }     # link → /etc</pre>
+    <pre class="res-no">refused: outside the workspace</pre></div>
+
+  <div class="step refused"><div class="who">agent → action</div>
+    <pre class="call">delete_file { path: ".git/index" }</pre>
+    <pre class="res-no">refused: inside .git</pre></div>
+
+  <div class="step ok"><div class="who">gate</div>
+    <pre class="res-ok">snapshot diff: [{ path: "src/legacy/old-runner.ts", change: "deleted" }]
+run_checks: pnpm check ✓  pnpm test ✓   → task 3.6 met</pre></div>
+</section>
+
+<section id="ungranted">
+  <div class="step boot"><div class="who">host</div>
+    <pre>registry: read_file, edit_file, run_command, run_checks     (config did not grant delete_file)</pre></div>
+  <div class="step refused"><div class="who">run start</div>
+    <pre class="res-no">ActionBindingError: subagent "task" action "delete_file":
+  mcpTool://delete_file is not registered
+(no step ran, no model request made)</pre></div>
+</section>
+
+<section id="noremove">
+  <div class="step boot"><div class="who">host</div>
+    <pre>registry: …, delete_file      workspace: memoryWorkspace()  (no remove)</pre></div>
+  <div class="step refused"><div class="who">agent → action</div>
+    <pre class="call">delete_file { path: "a.txt" }</pre>
+    <pre class="res-no">refused: this workspace cannot delete files</pre></div>
+</section>
+
+<script>
+  document.querySelectorAll("nav button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      document.querySelectorAll("nav button").forEach(function (x) { x.classList.toggle("on", x === b); });
+      document.querySelectorAll("section").forEach(function (s) { s.classList.toggle("on", s.id === b.dataset.t); });
+    });
+  });
+</script>
+</body>
+</html>
