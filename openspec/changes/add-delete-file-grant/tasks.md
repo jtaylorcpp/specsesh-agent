@@ -15,6 +15,6 @@
 ## 3. Use delete_file in the bundled scripts
 
 - [x] 3.1 In `packages/agent/src/task/scripts/task.agent`, declare `delete_granted`, offer `delete_file` in act, and add orient's line `If the task retires a file, delete it with delete_file; do not empty it.` when granted
-- [ ] 3.2 In `packages/agent/src/task/scripts/task-delegate.agent`, when `delete_granted` ask for `RETIRE: <path>` lines, add the `retire` step and `delete_file` call on `retire_path`, and show `Files deleted:` to the judge
-- [ ] 3.3 Test `packages/agent/__tests__/task/delete-scripts.test.ts`: "Granted, orient asks for deletion", "The delegate's retired file is deleted", "One file is retired per iteration"
-- [ ] 3.4 Test `packages/agent/__tests__/task/delete-scripts.test.ts`: "A model step is not offered an ungranted delete", "Not granted, orient says nothing of deletion", "Not granted, the delegate is not asked to retire"
+- [x] 3.2 In `packages/agent/src/task/scripts/task-delegate.agent`, when `delete_granted` ask for `RETIRE: <path>` lines, add the `retire` step and `delete_file` call on `retire_path`, and show `Files deleted:` to the judge
+- [x] 3.3 Test `packages/agent/__tests__/task/delete-scripts.test.ts`: "Granted, orient asks for deletion", "The delegate's retired file is deleted", "One file is retired per iteration"
+- [x] 3.4 Test `packages/agent/__tests__/task/delete-scripts.test.ts`: "A model step is not offered an ungranted delete", "Not granted, orient says nothing of deletion", "Not granted, the delegate is not asked to retire"
