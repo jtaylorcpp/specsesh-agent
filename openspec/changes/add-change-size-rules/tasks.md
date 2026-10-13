@@ -7,9 +7,9 @@
 
 ## 2. Tests
 
-- [ ] 2.1 `packages/agent/__tests__/openspec/size.test.ts`: "The default budget", "An oversized change fails strict validation", "Counting a change" and "A change within budget has no issues" (4)
-- [ ] 2.2 `packages/agent/__tests__/openspec/size.test.ts`: "Each exceeded limit is its own issue", "Split by capability", "Split by group" and "A proposal touching three capabilities" (4)
-- [ ] 2.3 `packages/agent/__tests__/openspec/size.test.ts`: "A task naming two files", "A task with sub-steps", "A test task claiming five scenarios" and "A command task passes" (4)
+- [x] 2.1 `packages/agent/__tests__/openspec/size.test.ts`: "The default budget", "An oversized change fails strict validation", "Counting a change" and "A change within budget has no issues" (4)
+- [x] 2.2 `packages/agent/__tests__/openspec/size.test.ts`: "Each exceeded limit is its own issue", "Split by capability", "Split by group" and "A proposal touching three capabilities" (4)
+- [x] 2.3 `packages/agent/__tests__/openspec/size.test.ts`: "A task naming two files", "A task with sub-steps", "A test task claiming five scenarios" and "A command task passes" (4)
 
 ## 3. Docs
 
