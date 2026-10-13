@@ -9,9 +9,9 @@
 
 ## 2. Tests
 
-- [ ] 2.1 `packages/agent/__tests__/change/cli-usage.test.ts`: "No command prints usage", "An unknown command prints usage", "A new change starts at the proposal" and "A new change without an intent is refused" (4)
-- [ ] 2.2 `packages/agent/__tests__/change/cli-draft.test.ts`: "An edited design redrafts from the design", "A fully approved change starts nothing", "Feedback redrafts the stage under review" and "Feedback answers a stage's question" (4)
-- [ ] 2.3 `packages/agent/__tests__/change/cli-output.test.ts`: "draft alone shows what is waiting", "A review ends with both commands", "A question exits 1" and "A drafted change points at the next step" (4)
+- [x] 2.1 `packages/agent/__tests__/change/cli-usage.test.ts`: "No command prints usage", "An unknown command prints usage", "A new change starts at the proposal" and "A new change without an intent is refused" (4)
+- [x] 2.2 `packages/agent/__tests__/change/cli-draft.test.ts`: "An edited design redrafts from the design", "A fully approved change starts nothing", "Feedback redrafts the stage under review" and "Feedback answers a stage's question" (4)
+- [x] 2.3 `packages/agent/__tests__/change/cli-output.test.ts`: "draft alone shows what is waiting", "A review ends with both commands", "A question exits 1" and "A drafted change points at the next step" (4)
 
 ## 3. Docs
 
