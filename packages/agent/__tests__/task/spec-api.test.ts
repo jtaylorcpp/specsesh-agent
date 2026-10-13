@@ -17,6 +17,13 @@ describe("spec loop entry points", () => {
 		expect(task.owns({ owns: ["design.md", "design/"] }, "design/examples/a.ts")).toBe(true);
 	});
 
+	it("the task entry exports proposalStage, owning proposal.md, following no stage, on the bundled spec-proposal.agent", () => {
+		expect(task.proposalStage.name).toBe("proposal");
+		expect(task.proposalStage.owns).toEqual(["proposal.md"]);
+		expect(task.proposalStage.after ?? []).toEqual([]);
+		expect("path" in task.proposalStage.script && task.proposalStage.script.path).toMatch(/spec-proposal\.agent$/);
+	});
+
 	it("a loop started with startSpecLoop over specLoopExtensions reaches review", async () => {
 		const { workspace, changeDir } = specWorkspace();
 		const stage = proposalStage();

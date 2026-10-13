@@ -58,4 +58,5 @@ export const BUNDLED_SCRIPTS = {
 	task: new URL("./scripts/task.agent", import.meta.url),
 	delegate: new URL("./scripts/task-delegate.agent", import.meta.url),
 	group: new URL("./scripts/group.agent", import.meta.url),
+	specProposal: new URL("./scripts/spec-proposal.agent", import.meta.url),
 } as const;

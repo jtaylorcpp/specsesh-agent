@@ -61,3 +61,4 @@ export {
 	type SpecLoopOptions,
 } from "./spec-api.js";
 export { answerSpecLoop, type SpecLoopAnswer } from "./spec-answer.js";
+export { proposalStage } from "./stages/proposal.js";

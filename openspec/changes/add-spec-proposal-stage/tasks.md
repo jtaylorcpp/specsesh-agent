@@ -1,11 +1,11 @@
 ## 1. The stage
 
-- [ ] 1.1 `packages/agent/src/task/stages/proposal-md.ts` (new): `proposalSections(markdown)` and `readProposalCapabilities(markdown)`
-- [ ] 1.2 `packages/agent/src/task/stages/capabilities.ts` (new): `existingCapabilities(workspace)` and `capabilityLines(workspace)` from `openspec/specs/`
-- [ ] 1.3 `packages/agent/src/task/scripts/spec-proposal.agent` (new): the script from the design's example
-- [ ] 1.4 `packages/agent/src/task/options.ts`: `BUNDLED_SCRIPTS.specProposal`
-- [ ] 1.5 `packages/agent/src/task/stages/proposal.ts` (new): `proposalStage` with its seed and gate
-- [ ] 1.6 `packages/agent/src/task/index.ts`: export `proposalStage`
+- [x] 1.1 `packages/agent/src/task/stages/proposal-md.ts` (new): `proposalSections(markdown)` and `readProposalCapabilities(markdown)`
+- [x] 1.2 `packages/agent/src/task/stages/capabilities.ts` (new): `existingCapabilities(workspace)` and `capabilityLines(workspace)` from `openspec/specs/`
+- [x] 1.3 `packages/agent/src/task/scripts/spec-proposal.agent` (new): the script from the design's example
+- [x] 1.4 `packages/agent/src/task/options.ts`: `BUNDLED_SCRIPTS.specProposal`
+- [x] 1.5 `packages/agent/src/task/stages/proposal.ts` (new): `proposalStage` with its seed and gate
+- [x] 1.6 `packages/agent/src/task/index.ts`: export `proposalStage`
 
 ## 2. Tests
 
