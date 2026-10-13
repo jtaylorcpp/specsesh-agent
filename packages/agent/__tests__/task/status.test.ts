@@ -1,15 +1,59 @@
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { defineExtension, defineTask } from "@earendil-works/pi-durable";
+import { openNodeSqliteDatabase, openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { main } from "../../src/bin/agentscript-task.js";
+import { TASK_LOOP } from "../../src/task/index.js";
+import { isAlive } from "../../src/task/lock.js";
+import { currentBootAt, writeOwner } from "../../src/task/owner.js";
 import { SPEC_LOOP } from "../../src/task/spec-loop.js";
-import { formatLoop, summarize } from "../../src/task/status.js";
+import { formatLoop, markInterrupted, summarize, type LoopSummary } from "../../src/task/status.js";
+import { openHarness, setup } from "../durable/helpers.js";
 import { cli, fauxModels, workdir } from "./cli-helpers.js";
 import { cleanTemps, context, temp, tinyChange, verdict } from "./helpers.js";
 import { draft, proposalStage } from "./spec-helpers.js";
 
 afterEach(() => cleanTemps());
+
+/** The id in the first stderr line, `loop <id> — resume with: …`. */
+const idOf = (errLines: readonly string[]) => Number(/^loop (\d+) — resume with: /.exec(errLines[0] ?? "")?.[1]);
+
+/** The status line for loop `id`, matched on its columns rather than their widths. */
+const lineOf = (lines: readonly string[], id: number) => lines.find((l) => new RegExp(`^loop\\s+${id}\\s`).test(l)) ?? "";
+
+/** A stand-in `agentscript.task-loop`: created and never resumed, so it stays a loop with no outcome. */
+const StandInLoopTask = defineTask<{ task: string; tasksPath: string; earlier: [] }, { phase: "await"; iterations: []; carried: "" }, never>({
+	name: TASK_LOOP,
+	version: 1,
+	initial: () => ({ phase: "await", iterations: [], carried: "" }),
+	phases: { await: async () => {} },
+	abort: async (_t, runtime, ctx) => {
+		await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted", reason: "aborted" } }), ctx);
+	},
+});
+
+/** One task loop with no outcome for `task` in the database at `db`; its id. */
+async function runningLoop(db: string, task: string): Promise<number> {
+	const env = setup();
+	env.registry.install(defineExtension({ name: TASK_LOOP, tasks: [StandInLoopTask] }));
+	const harness = await openHarness(await openNodeSqliteStorage(db), env);
+	try {
+		const owner = await harness.root(context);
+		const input = { task, tasksPath: "/r/openspec/changes/tiny/tasks.md", earlier: [] as [] };
+		return Number(await owner.commit((tx) => tx.createTask(StandInLoopTask, input, { ownership: { kind: "conversation" } }), context));
+	} finally {
+		await harness.close(context);
+	}
+}
+
+/** A pid that was alive a moment ago and is not now. */
+function deadPid(): number {
+	const pid = spawnSync(process.execPath, ["-e", ""]).pid;
+	expect(isAlive(pid)).toBe(false);
+	return pid;
+}
 
 describe("task/headless: status lists the loops in the database", () => {
 	it("Scenario: Two loops are listed newest first", async () => {
@@ -36,6 +80,47 @@ describe("task/headless: status lists the loops in the database", () => {
 		expect(r.out).toBe("no loops in loops.sqlite");
 		expect(r.code).toBe(0);
 		expect(db).toBe(join(dir, "loops.sqlite"));
+	});
+
+	it("Scenario: A group loop and its task loops are listed", async () => {
+		const { dir, script, db } = workdir();
+		const env = fauxModels();
+		env.faux.setResponses([verdict(true), verdict(true)]);
+		const g = await cli(["run", tinyChange(), "1", "--db", db, "--script", script, "--workspace", dir, "--check", "node --version", ...env.args], env);
+		expect(g.code, g.err).toBe(0);
+		const r = await cli(["status", "--db", db]);
+		expect(r.code).toBe(0);
+		const lines = r.out.split("\n");
+		expect(lines).toHaveLength(3);
+		expect(lines.at(-1)).toBe(`loop ${idOf(g.errLines)}  tiny  group 1  converged  1 iteration`);
+		expect(lines.filter((l) => l.includes("  1.1  converged"))).toHaveLength(1);
+		expect(lines.filter((l) => l.includes("  1.2  converged"))).toHaveLength(1);
+		const ids = lines.map((l) => Number(/^loop (\d+)/.exec(l)?.[1]));
+		expect(ids).toEqual([...ids].sort((a, b) => b - a));
+	});
+
+	it("Scenario: An interrupted loop is marked and a blocked one is not", async () => {
+		const { script, db } = workdir();
+		const env = fauxModels();
+		env.faux.setResponses([verdict(false, "two ways", "ask", "Which way?")]);
+		const b = await cli(["run", tinyChange(), "1.2", "--db", db, "--script", script, ...env.args], env);
+		expect(b.code).toBe(1);
+		const blocked = idOf(b.errLines);
+		const stale = await runningLoop(db, "1.1");
+		const sql = await openNodeSqliteDatabase(db);
+		try {
+			await writeOwner(sql, stale, deadPid(), currentBootAt());
+		} finally {
+			await sql.close();
+		}
+		expect(existsSync(`${db}.lock`)).toBe(false);
+
+		const r = await cli(["status", "--db", db]);
+		expect(r.code, r.err).toBe(0);
+		const lines = r.out.split("\n");
+		expect(lineOf(lines, stale)).toMatch(new RegExp(`^loop\\s+${stale}\\s+tiny\\s+1\\.1\\s+interrupted\\b`));
+		expect(lineOf(lines, blocked)).toMatch(new RegExp(`^loop\\s+${blocked}\\s+tiny\\s+1\\.2\\s+blocked\\b`));
+		expect(lineOf(lines, blocked)).not.toContain("interrupted");
 	});
 
 	it("a database file that does not exist has no loops, and is not created", async () => {
@@ -72,6 +157,17 @@ describe("task/headless: status lists the loops in the database", () => {
 		expect(formatLoop(old)).toBe("loop 8  add-plan-export  spec ?  failed  0 iterations");
 	});
 
+	it("markInterrupted relabels only running loops, never blocked or ended ones", () => {
+		const loop = (id: number, status: LoopSummary["status"]): LoopSummary => ({ id, change: "c", task: "1.1", status, iterations: 1 });
+		const loops = [loop(1, "converged"), loop(2, "exhausted"), loop(3, "failed"), loop(4, "blocked"), loop(5, "running"), loop(6, "running")];
+		const boot = 1_760_000_000_000;
+		// Every loop but 6 has a dead owner; no live process holds the lock.
+		const owners = new Map(loops.slice(0, 5).map((l) => [l.id, { pid: 100, bootAt: boot }]));
+		const marked = markInterrupted(loops, owners, undefined, boot, () => false);
+		expect(marked.map((l) => l.status)).toEqual(["converged", "exhausted", "failed", "blocked", "interrupted", "interrupted"]);
+		expect(formatLoop(marked[4]!)).toBe("loop 5  c  1.1  interrupted  1 iteration");
+	});
+
 	it("status with no --db and no config prints usage", async () => {
 		const r = await cli(["status"]);
 		expect(r.code).toBe(2);
@@ -91,7 +187,7 @@ describe("task/cli: The CLI has five commands and prints usage otherwise", () =>
 		expect(r.err.startsWith("usage:")).toBe(true);
 		expect(r.err).toContain("agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]");
 		expect(r.err).toContain("agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]");
-		expect(r.err).toContain("agentscript-task resume <loop-id> [--db <path>] [--json]");
+		expect(r.err).toContain("agentscript-task resume <loop-id>|--all [--db <path>] [--json]");
 		expect(r.err).toContain("agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]");
 		expect(r.err).toContain("agentscript-task status [--db <path>]");
 		expect(r.code).toBe(2);

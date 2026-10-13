@@ -81,20 +81,6 @@ async function runGroupOnce(responses: Parameters<ReturnType<typeof fauxModels>[
 
 const ask = verdict(false, "two ways", "ask", "Which way?");
 
-describe("task/headless: status lists the loops in the database", () => {
-	it("Scenario: A group loop and its task loops are listed", async () => {
-		const g = await runGroupOnce([verdict(true), verdict(true)]);
-		expect(g.code, g.err).toBe(0);
-		const r = await cli(["status", "--db", g.db]);
-		expect(r.code).toBe(0);
-		const lines = r.out.split("\n");
-		expect(lines).toHaveLength(3);
-		expect(lines.at(-1)).toBe(`loop ${g.id}  tiny  group 1  converged  1 iteration`);
-		expect(lines.filter((l) => l.includes("  1.1  converged"))).toHaveLength(1);
-		expect(lines.filter((l) => l.includes("  1.2  converged"))).toHaveLength(1);
-	});
-});
-
 describe("task/cli: Text output for a group lists its tasks and the group check", () => {
 	it("Scenario: A converged group prints its tasks", async () => {
 		const b = await runGroupOnce([ask]);
@@ -223,8 +209,9 @@ describe("task/cli: resume continues a stored loop without the change files", ()
 		expect(readFileSync(tasksMd, "utf8")).toContain("- [x] 1.1 ");
 		expect(readFileSync(tasksMd, "utf8")).toContain("- [ ] 1.2 ");
 		const midway = (await cli(["status", "--db", db])).out.split("\n");
-		expect(midway.some((l) => new RegExp(`^loop ${id} {2}tiny {2}group 1 {2}running`).test(l))).toBe(true);
-		expect(midway.some((l) => l.includes("  1.2  running"))).toBe(true);
+		// The killed process held the lock, so its loops show as interrupted.
+		expect(midway.some((l) => new RegExp(`^loop ${id} {2}tiny {2}group 1 {2}interrupted`).test(l))).toBe(true);
+		expect(midway.some((l) => l.includes("  1.2  interrupted"))).toBe(true);
 
 		const resumed = await spawnBin(["resume", id!, "--db", db], { cwd: repo, bin });
 		expect(resumed.code, resumed.stderr).toBe(0);

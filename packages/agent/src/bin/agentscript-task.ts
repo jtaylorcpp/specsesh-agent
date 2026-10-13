@@ -8,7 +8,7 @@
  *                    [--escalate-to principal|agent] [--provider <id>] [--model <id>]
  *                    [--allow-dirty] [--worktree] [--no-delegates] [--json]
  *   agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
- *   agentscript-task resume <loop-id> [--db <path>] [--json]
+ *   agentscript-task resume <loop-id>|--all [--db <path>] [--json]
  *   agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]
  *   agentscript-task status [--db <path>]
  *
@@ -20,6 +20,10 @@
  * goes to stderr as JSON Lines after the resume hint; the outcome goes to
  * stdout. A blocked loop exits 1 and ends with the exact `answer` command;
  * a spec loop waiting for review exits 0.
+ *
+ * `resume --all` resumes every interrupted loop in the database through its
+ * root, under one lock, and prints one line per root (`resumeAll` in
+ * `task/resume-all.ts`). It takes no `--json`.
  *
  * `spec` runs one stage of a change's spec loop in place (`runSpec` in
  * `task/spec-cli.ts`): it parses its own flags and, unlike `run`, never checks
@@ -47,7 +51,7 @@ import { parseArgs } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models, Provider } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, type Cursor, type ModelRef, type Storage, type TaskId } from "@earendil-works/pi-durable";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { openNodeSqliteDatabase, openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { AgentHarness } from "../durable/agent-config.js";
 import { DelegateGrantError, type DelegateGrants } from "../durable/delegation.js";
 import { createAgentHarness } from "../durable/harness.js";
@@ -96,13 +100,15 @@ import {
 } from "../task/config.js";
 import { GroupWatcher, LoopWatcher, jsonLines, now, type EventSink, type TaskEvent } from "../task/events.js";
 import { changedBetween, gitUserName, insideGit, repoRoot, snapshot, status } from "../task/git.js";
-import { DatabaseLockedError, lockDatabase, type DbLock } from "../task/lock.js";
+import { DatabaseLockedError, lockDatabase, readLockPid, type DbLock } from "../task/lock.js";
+import { LoopOwnership, readOwners } from "../task/owner.js";
+import { resumeAll, type ResumeOne, type RootResult } from "../task/resume-all.js";
 import { ChangeNotFoundError, nextGroup, nextTask, resolveChange } from "../task/resolve.js";
 import { GROUP_LOOP_NAME, type GroupLoopInput, type GroupLoopResult } from "../task/group.js";
 import { readResult } from "../task/group-api.js";
 import { after, formatSpecOutcome, runSpec, shownPath, specExitCode, stageScriptLabel, streamSpecEvents } from "../task/spec-cli.js";
 import { changeDirOf } from "../task/spec-loop.js";
-import { changeOf, formatLoop, listLoops, scriptOf } from "../task/status.js";
+import { changeOf, formatLoop, listLoops, markInterrupted, scriptOf } from "../task/status.js";
 import { WorktreeRefusedError, checkWorktree, createWorktree, inRepo, planWorktree, rebase, runSetup } from "../task/worktree.js";
 
 export { DEFAULT_MODEL, DEFAULT_PROVIDER };
@@ -117,7 +123,7 @@ const USAGE = `usage:
                --allow-dirty  --worktree  --json
                --no-delegates   withdraw every delegate grant for this run
   agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
-  agentscript-task resume <loop-id> [--db <path>] [--json]
+  agentscript-task resume <loop-id>|--all [--db <path>] [--json]
   agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]
   agentscript-task status [--db <path>]`;
 
@@ -210,6 +216,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 				...RUN_FLAG_OPTIONS,
 				next: { type: "boolean", default: false },
 				"next-group": { type: "boolean", default: false },
+				all: { type: "boolean", default: false },
 				by: { type: "string" },
 				decision: { type: "string" },
 				principal: { type: "string" },
@@ -254,7 +261,21 @@ interface Io {
 	readonly emit: EventSink;
 	readonly json: boolean | undefined;
 	readonly pollMs: number;
+	/** This process's `loop_owner` rows, set once the database is open. */
+	readonly ownership?: LoopOwnership;
+	/** Told how the loop ended, once it has: how `resume --all` learns each root's outcome. */
+	readonly settled?: (outcome: LoopOutcome<unknown>) => void;
 }
+
+/** Storage plus the owner record beside it: a `loop_owner` connection on the same file. */
+async function openLoops(path: string, io: Io): Promise<{ storage: Awaited<ReturnType<typeof openNodeSqliteStorage>>; io: Io; close(): Promise<void> }> {
+	const storage = await openNodeSqliteStorage(path);
+	const owners = await openNodeSqliteDatabase(path);
+	return { storage, io: { ...io, ownership: new LoopOwnership(owners, storage) }, close: () => owners.close() };
+}
+
+/** Follow `id`'s ownership while it runs; a no-op without an owner record. */
+const own = (io: Io, id: number) => io.ownership?.follow(id, BACKGROUND_CONTEXT, io.pollMs) ?? Promise.resolve(async () => {});
 
 type Values = Record<string, string | boolean | string[] | undefined>;
 
@@ -346,8 +367,13 @@ async function run(
 	mkdirSync(dirname(db.path), { recursive: true });
 	const lock = lockDatabase(db.path);
 	if (lock.staleFrom !== undefined) warnings.push(`took over a stale lock on ${db.label} left by process ${lock.staleFrom}, which is no longer running`);
+	const loops = await openLoops(db.path, io).catch((error: unknown) => {
+		lock.release();
+		throw error;
+	});
+	io = loops.io;
+	const storage = loops.storage;
 	try {
-		const storage = await openNodeSqliteStorage(db.path);
 		// After the worktree exists, so the actions, the gate and the delegates all work in it.
 		const built = await buildHarness(storage, { provider, model }, { workspace, checks: settings.checks, allow: settings.allow, delegates }, named);
 		const harness = built.harness;
@@ -376,7 +402,8 @@ async function run(
 				io.err(message(error));
 				return 2;
 			}
-			// Before any model call, so a crash still leaves you the ID to resume.
+			// Before any model call, so a crash still leaves you the ID to resume, and the loop its owner.
+			await io.ownership?.claim(Number(id), BACKGROUND_CONTEXT);
 			io.err(`loop ${id} — resume with: agentscript-task resume ${id} --db ${db.label}`);
 			const loop = Number(id);
 			io.emit({ event: "loop-started", loop, change: change.id, task, script: settings.script.label, at: now() });
@@ -386,6 +413,7 @@ async function run(
 			await harness.close(BACKGROUND_CONTEXT);
 		}
 	} finally {
+		await loops.close();
 		lock.release();
 	}
 }
@@ -494,6 +522,7 @@ async function runGroup(harness: Harness, storage: Storage, options: GroupLoopOp
 		io.err(message(error));
 		return 2;
 	}
+	await io.ownership?.claim(Number(id), BACKGROUND_CONTEXT);
 	io.err(`loop ${id} — resume with: agentscript-task resume ${id} --db ${db.label}`);
 	return await settleGroup(harness, storage, id, io, db);
 }
@@ -521,14 +550,17 @@ async function settleGroup(harness: Harness, storage: Storage, id: GroupId, io: 
 			: undefined;
 	watcher?.start();
 	const stop = watcher?.watch(harness, storage, id, BACKGROUND_CONTEXT, io.pollMs);
+	const disown = await own(io, Number(id));
 	harness.resume();
 	let outcome: LoopOutcome<GroupOutcome>;
 	try {
 		outcome = await waitForGroupLoop(harness, id, BACKGROUND_CONTEXT);
 	} finally {
+		await disown();
 		await stop?.();
 	}
 	await watcher?.finish(storage, outcome, changedAtEnd(), BACKGROUND_CONTEXT);
+	io.settled?.(outcome);
 	if (io.json === true) io.out(JSON.stringify({ loop: id, ...outcome }, null, 2));
 	else for (const line of formatGroupOutcome(id, outcome, db.label)) io.out(line);
 	return exitFor(outcome);
@@ -560,6 +592,7 @@ async function continueGroup(
 		io.err(message(error));
 		return 2;
 	}
+	await io.ownership?.claim(Number(next), BACKGROUND_CONTEXT);
 	io.err(`loop ${next} — resume with: agentscript-task resume ${next} --db ${db.label}`);
 	return await settleGroup(harness, storage, next, io, db);
 }
@@ -609,12 +642,14 @@ async function continueSpec(
 				io.err(message(error));
 				return 2;
 			}
+			await io.ownership?.claim(Number(next), BACKGROUND_CONTEXT);
 			io.err(`loop ${next} — resume with: agentscript-task resume ${next} --db ${db.label}`);
 		}
 		// The drafts the answered run already streamed are not streamed again.
 		const record = await harness.getTask(next, BACKGROUND_CONTEXT);
 		const earlier = (record?.input as unknown as SpecLoopInput | undefined)?.earlier?.length ?? 0;
 		const at = now();
+		const disown = await own(io, Number(next));
 		harness.resume();
 		let outcome: LoopOutcome<StageOutcome>;
 		try {
@@ -622,9 +657,12 @@ async function continueSpec(
 		} catch (error) {
 			io.err(message(error));
 			return 1;
+		} finally {
+			await disown();
 		}
 		const stage = stages.find((candidate) => candidate.name === input.stage.name);
 		streamSpecEvents(io.err, Number(next), { change: input.change, stage: input.stage.name, script: stageScriptLabel(stage), at }, outcome, earlier);
+		io.settled?.(outcome);
 		if (io.json === true) io.out(JSON.stringify({ loop: next, ...outcome }, null, 2));
 		else {
 			const context = { loop: String(next), change: input.change, changePath: shownPath(input.workspace, changeDirOf(input)) };
@@ -648,9 +686,15 @@ async function continueLoop(
 	io: Io,
 	usage: (text?: string) => number,
 ): Promise<number> {
+	const target = positionals[0];
+	// Refused before the database is resolved, so nothing is opened or locked.
+	if (values["all"] === true) {
+		if (command !== "resume" || target !== undefined) return usage();
+		if (io.json === true) return usage("--json is not supported with --all");
+	}
 	const db = resolveDb(values["db"] as string | undefined, config, cwd);
 	if (db === undefined) return usage(`${command} needs --db <path>, or a db in agentscript.config.json`);
-	const target = positionals[0];
+	if (values["all"] === true) return await resumeEvery(db, config, cwd, env, deps, io);
 	if (target === undefined) return usage();
 	let by: Recipient | undefined;
 	const decision = values["decision"] as string | undefined;
@@ -672,93 +716,193 @@ async function continueLoop(
 	const warnings: string[] = [];
 	const lock: DbLock = lockDatabase(db.path);
 	if (lock.staleFrom !== undefined) warnings.push(`took over a stale lock on ${db.label} left by process ${lock.staleFrom}, which is no longer running`);
+	const loops = await openLoops(db.path, io).catch((error: unknown) => {
+		lock.release();
+		throw error;
+	});
 	try {
-		const storage = await openNodeSqliteStorage(db.path);
-		const id = Number(target) as LoopId;
-		const found = Number.isInteger(id) ? await findLoop(storage, id) : undefined;
-		// A group's input carries the same workspace, checks, allowlist, model and delegates a task loop's does.
-		const stored = found?.record.input as unknown as (TaskLoopInput | GroupLoopInput | SpecLoopInput) | undefined;
-		const model: ModelRef = stored?.model ?? {
-			provider: env["AGENTSCRIPT_PROVIDER"] ?? config.task.provider ?? DEFAULT_PROVIDER,
-			modelId: env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL,
-		};
-		const provider = models.getProvider(model.provider);
-		if (found === undefined || stored === undefined || provider === undefined) {
-			await storage.close(BACKGROUND_CONTEXT);
-			io.err(found === undefined ? `no loop ${target} in ${db.label}` : `no provider "${model.provider}" for loop ${target}`);
+		return await continueStored(command, target, { by, decision }, loops.storage, loops.io, db, { values, cwd, env, config, deps, models, named, warnings });
+	} finally {
+		await loops.close();
+		lock.release();
+	}
+}
+
+/** What `continueStored` resolves a loop against, besides the loop's own record. */
+interface StoredTerms {
+	readonly values: Values;
+	readonly cwd: string;
+	readonly env: Readonly<Record<string, string | undefined>>;
+	readonly config: LoadedConfig;
+	readonly deps: CliDeps;
+	readonly models: Models;
+	readonly named: Readonly<Record<string, ResolvedModel>>;
+	/** Emitted as `warning` events once the loop is found. */
+	readonly warnings: readonly string[];
+}
+
+/** `resume` or `answer` one stored loop, its database open and locked by the caller. */
+async function continueStored(
+	command: "resume" | "answer",
+	target: string,
+	{ by, decision }: { readonly by: Recipient | undefined; readonly decision: string | undefined },
+	storage: Storage,
+	io: Io,
+	db: DbPath,
+	{ values, cwd, env, config, deps, models, named, warnings }: StoredTerms,
+): Promise<number> {
+	const id = Number(target) as LoopId;
+	const found = Number.isInteger(id) ? await findLoop(storage, id) : undefined;
+	// A group's input carries the same workspace, checks, allowlist, model and delegates a task loop's does.
+	const stored = found?.record.input as unknown as (TaskLoopInput | GroupLoopInput | SpecLoopInput) | undefined;
+	const model: ModelRef = stored?.model ?? {
+		provider: env["AGENTSCRIPT_PROVIDER"] ?? config.task.provider ?? DEFAULT_PROVIDER,
+		modelId: env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL,
+	};
+	const provider = models.getProvider(model.provider);
+	if (found === undefined || stored === undefined || provider === undefined) {
+		await storage.close(BACKGROUND_CONTEXT);
+		io.err(found === undefined ? `no loop ${target} in ${db.label}` : `no provider "${model.provider}" for loop ${target}`);
+		return 2;
+	}
+	if (found.kind === "spec") {
+		const input = found.record.input as unknown as SpecLoopInput;
+		let answer: SpecAnswer | undefined;
+		if (command === "answer") {
+			// Only a spec loop answered by the principal needs a name, so nothing else resolves one.
+			answer = { by: by as Recipient, decision: decision as string };
+			if (by === "principal") {
+				const principal = resolvePrincipal(values["principal"] as string | undefined, () => gitUserName(cwd), env);
+				if (principal === undefined) {
+					await storage.close(BACKGROUND_CONTEXT);
+					io.err("no principal; pass --principal");
+					return 2;
+				}
+				answer = { ...answer, principal };
+			}
+		}
+		for (const warning of warnings) io.emit({ event: "warning", loop: Number(id), message: warning });
+		return await continueSpec(storage, models, id as unknown as SpecId, input, answer, deps.stages ?? SPEC_STAGES, io, db);
+	}
+	// The loop's own terms, so a resumed loop delegates and checks as it started.
+	const { harness } = await buildHarness(storage, { provider, model }, stored as TaskLoopInput | GroupLoopInput, named);
+	try {
+		const record = await harness.getTask(id, BACKGROUND_CONTEXT);
+		if (record === undefined) {
+			io.err(`no loop ${target} in ${db.label}`);
 			return 2;
 		}
-		if (found.kind === "spec") {
-			const input = found.record.input as unknown as SpecLoopInput;
-			let answer: SpecAnswer | undefined;
-			if (command === "answer") {
-				// Only a spec loop answered by the principal needs a name, so nothing else resolves one.
-				answer = { by: by as Recipient, decision: decision as string };
-				if (by === "principal") {
-					const principal = resolvePrincipal(values["principal"] as string | undefined, () => gitUserName(cwd), env);
-					if (principal === undefined) {
-						await storage.close(BACKGROUND_CONTEXT);
-						io.err("no principal; pass --principal");
-						return 2;
-					}
-					answer = { ...answer, principal };
-				}
-			}
+		if (found.kind === "group") {
 			for (const warning of warnings) io.emit({ event: "warning", loop: Number(id), message: warning });
-			return await continueSpec(storage, models, id as unknown as SpecId, input, answer, deps.stages ?? SPEC_STAGES, io, db);
+			const answer = command === "answer" ? { by: by as Recipient, decision: decision as string } : undefined;
+			return await continueGroup(command, harness, storage, id as unknown as GroupId, answer, io, db);
 		}
-		// The loop's own terms, so a resumed loop delegates and checks as it started.
-		const { harness } = await buildHarness(storage, { provider, model }, stored as TaskLoopInput | GroupLoopInput, named);
-		try {
-			const record = await harness.getTask(id, BACKGROUND_CONTEXT);
-			if (record === undefined) {
-				io.err(`no loop ${target} in ${db.label}`);
-				return 2;
-			}
-			if (found.kind === "group") {
-				for (const warning of warnings) io.emit({ event: "warning", loop: Number(id), message: warning });
-				const answer = command === "answer" ? { by: by as Recipient, decision: decision as string } : undefined;
-				return await continueGroup(command, harness, storage, id as unknown as GroupId, answer, io, db);
-			}
-			const input = record.input as unknown as TaskLoopInput;
-			const context = {
-				io,
-				db,
-				workspace: input.workspace,
-				...(input.tasksPath !== undefined ? { tasksPath: input.tasksPath } : {}),
-				...(input.worktree !== undefined ? { worktree: input.worktree } : {}),
-			};
-			const started = (loop: number) => {
-				io.emit({ event: "loop-started", loop, change: changeOf(input), task: input.task, script: scriptOf(input), at: now() });
-				for (const warning of warnings) io.emit({ event: "warning", loop, message: warning });
-			};
-			if (command === "resume") {
-				started(Number(id));
-				return await finish(harness, id, { ...context, earlier: input.earlier.length });
-			}
+		const input = record.input as unknown as TaskLoopInput;
+		const context = {
+			io,
+			db,
+			workspace: input.workspace,
+			...(input.tasksPath !== undefined ? { tasksPath: input.tasksPath } : {}),
+			...(input.worktree !== undefined ? { worktree: input.worktree } : {}),
+		};
+		const started = (loop: number) => {
+			io.emit({ event: "loop-started", loop, change: changeOf(input), task: input.task, script: scriptOf(input), at: now() });
+			for (const warning of warnings) io.emit({ event: "warning", loop, message: warning });
+		};
+		if (command === "resume") {
+			started(Number(id));
+			return await finish(harness, id, { ...context, earlier: input.earlier.length });
+		}
 
-			const settled = record.state.status === "terminal" && record.state.outcome.status === "completed"
-				? (record.state.outcome.result as unknown as TaskLoopResult)
-				: undefined;
-			const escalation = settled?.outcome.status === "blocked" ? (settled.outcome.escalation as Escalation) : undefined;
-			let next: LoopId;
-			try {
-				if (escalation === undefined) throw new Error(`loop ${id} has not ended blocked, so it has no escalation to answer`);
-				next = await answerEscalation(
-					harness,
-					id,
-					{ escalation, by: by as Recipient, decision: decision as string, feedback: [] },
-					BACKGROUND_CONTEXT,
-				);
-			} catch (error) {
-				io.err(message(error));
-				return 2;
-			}
-			io.err(`loop ${next} — resume with: agentscript-task resume ${next} --db ${db.label}`);
-			started(Number(next));
-			return await finish(harness, next, { ...context, earlier: settled?.outcome.iterations.length ?? 0 });
+		const settled = record.state.status === "terminal" && record.state.outcome.status === "completed"
+			? (record.state.outcome.result as unknown as TaskLoopResult)
+			: undefined;
+		const escalation = settled?.outcome.status === "blocked" ? (settled.outcome.escalation as Escalation) : undefined;
+		let next: LoopId;
+		try {
+			if (escalation === undefined) throw new Error(`loop ${id} has not ended blocked, so it has no escalation to answer`);
+			next = await answerEscalation(
+				harness,
+				id,
+				{ escalation, by: by as Recipient, decision: decision as string, feedback: [] },
+				BACKGROUND_CONTEXT,
+			);
+		} catch (error) {
+			io.err(message(error));
+			return 2;
+		}
+		await io.ownership?.claim(Number(next), BACKGROUND_CONTEXT);
+		io.err(`loop ${next} — resume with: agentscript-task resume ${next} --db ${db.label}`);
+		started(Number(next));
+		return await finish(harness, next, { ...context, earlier: settled?.outcome.iterations.length ?? 0 });
+	} finally {
+		await harness.close(BACKGROUND_CONTEXT);
+	}
+}
+
+/** How a root ended, as `resumeAll` reports it. */
+function rootResultOf(outcome: LoopOutcome<unknown>): RootResult {
+	return outcome.status === "blocked" ? { status: "blocked", to: outcome.escalation.to, reason: outcome.escalation.reason } : { status: outcome.status };
+}
+
+/**
+ * `resume --all`: `<db>.lock` taken once, then `resumeAll` resumes each root as
+ * `resume <loop-id>` would. A root's own output is replaced by its one line; its
+ * progress events still go to stderr. A refusal, or a root that never settles,
+ * is thrown, so `resumeAll` prints it and goes on.
+ */
+async function resumeEvery(
+	db: DbPath,
+	config: LoadedConfig,
+	cwd: string,
+	env: Readonly<Record<string, string | undefined>>,
+	deps: CliDeps,
+	io: Io,
+): Promise<number> {
+	if (!existsSync(db.path)) {
+		io.out(`no interrupted loops in ${db.label}`);
+		return 0;
+	}
+	const models = await (deps.models ?? builtin)();
+	const named = resolveNamedModels(config.models, models);
+	const lock = lockDatabase(db.path);
+	// The first root carries the stale-lock warning, as a single resume would.
+	const warnings = lock.staleFrom !== undefined ? [`took over a stale lock on ${db.label} left by process ${lock.staleFrom}, which is no longer running`] : [];
+	try {
+		const storage = await openNodeSqliteStorage(db.path);
+		const sql = await openNodeSqliteDatabase(db.path);
+		try {
+			const resumeOne: ResumeOne = async (root) => {
+				const worktree = ((await findLoop(storage, root.loop.id))?.record.input as { worktree?: LoopWorktree } | undefined)?.worktree;
+				if (worktree !== undefined && !existsSync(worktree.path)) throw new Error(`worktree ${worktree.path} does not exist`);
+				// Each root gets its own storage: closing its harness closes it.
+				const loops = await openLoops(db.path, io);
+				let result: RootResult | undefined;
+				let refusal: string | undefined;
+				const quiet: Io = {
+					...loops.io,
+					out: () => {},
+					err: (line) => {
+						refusal = line;
+						io.err(line);
+					},
+					settled: (outcome) => (result = rootResultOf(outcome)),
+				};
+				try {
+					const terms = { values: {}, cwd, env, config, deps, models, named, warnings: warnings.splice(0) };
+					await continueStored("resume", String(root.loop.id), { by: undefined, decision: undefined }, loops.storage, quiet, db, terms);
+				} finally {
+					await loops.close();
+				}
+				if (result === undefined) throw new Error(refusal ?? `loop ${root.loop.id} did not settle`);
+				return result;
+			};
+			const { lines, exitCode } = await resumeAll({ storage, sql, db, lockPid: lock.staleFrom, resumeOne, context: BACKGROUND_CONTEXT });
+			for (const line of lines) io.out(line);
+			return exitCode;
 		} finally {
-			await harness.close(BACKGROUND_CONTEXT);
+			await sql.close();
+			await storage.close(BACKGROUND_CONTEXT);
 		}
 	} finally {
 		lock.release();
@@ -772,7 +916,10 @@ async function showStatus(db: DbPath, out: (line: string) => void): Promise<numb
 	}
 	const storage = await openNodeSqliteStorage(db.path);
 	try {
-		const loops = await listLoops(storage, BACKGROUND_CONTEXT);
+		const sql = await openNodeSqliteDatabase(db.path);
+		const owners = await readOwners(sql).finally(() => sql.close());
+		// The lock is read, never taken: `status` runs beside a live loop.
+		const loops = markInterrupted(await listLoops(storage, BACKGROUND_CONTEXT), owners, readLockPid(db.path));
 		if (loops.length === 0) out(`no loops in ${db.label}`);
 		for (const loop of loops) out(formatLoop(loop));
 		return 0;
@@ -812,11 +959,13 @@ async function finish(harness: Harness, id: LoopId, context: FinishContext): Pro
 	const before = inGit ? snapshot(context.workspace) : undefined;
 	const watcher = new LoopWatcher(Number(id), io.emit, context.earlier);
 	const stop = watcher.watch(harness, id, BACKGROUND_CONTEXT, io.pollMs);
+	const disown = await own(io, Number(id));
 	harness.resume();
 	let result: Awaited<ReturnType<typeof waitForTaskLoopResult>>;
 	try {
 		result = await waitForTaskLoopResult(harness, id, BACKGROUND_CONTEXT);
 	} finally {
+		await disown();
 		await stop();
 	}
 	const { outcome, notes } = result;
@@ -832,6 +981,7 @@ async function finish(harness: Harness, id: LoopId, context: FinishContext): Pro
 		changed,
 	};
 	io.emit(ended);
+	io.settled?.(outcome);
 
 	const out = io.out;
 	if (io.json === true) {

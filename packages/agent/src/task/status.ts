@@ -11,8 +11,10 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Cursor, Harness, Storage, TaskId } from "@earendil-works/pi-durable";
 import { BUNDLED_SCRIPT_NAMES } from "./config.js";
 import { GROUP_LOOP_NAME, type GroupLoopInput, type GroupLoopResult } from "./group.js";
+import { isAlive } from "./lock.js";
 import type { LoopCheckpoint, TaskLoopInput, TaskLoopResult } from "./loop-input.js";
 import { TASK_LOOP } from "./loop.js";
+import { currentBootAt, isInterrupted, type LoopOwner } from "./owner.js";
 import { SPEC_LOOP, type SpecLoopInput, type SpecLoopResult } from "./spec-loop.js";
 
 export type LoopStatus = "running" | "converged" | "blocked" | "exhausted" | "failed";
@@ -21,7 +23,8 @@ export interface LoopSummary {
 	readonly id: number;
 	readonly change: string;
 	readonly task: string;
-	readonly status: LoopStatus;
+	/** `interrupted` only after `markInterrupted`: a running loop whose owner is not the live lock holder. */
+	readonly status: LoopStatus | "interrupted";
 	readonly iterations: number;
 	readonly branch?: string;
 }
@@ -145,6 +148,25 @@ export async function listLoops(storage: Storage, context: Context): Promise<Loo
 		} while (cursor !== undefined);
 	}
 	return loops.sort((a, b) => b.id - a.id);
+}
+
+/**
+ * Relabel each running loop `interrupted` when its owner is not the live holder
+ * of the lock naming `lockPid` (see `isInterrupted`). Blocked and ended loops
+ * keep their status.
+ */
+export function markInterrupted(
+	loops: readonly LoopSummary[],
+	owners: ReadonlyMap<number, LoopOwner>,
+	lockPid: number | undefined,
+	bootAt: number = currentBootAt(),
+	alive: (pid: number) => boolean = isAlive,
+): LoopSummary[] {
+	return loops.map((loop) =>
+		loop.status === "running" && isInterrupted({ status: "running", owner: owners.get(loop.id), lockPid, bootAt, alive })
+			? { ...loop, status: "interrupted" }
+			: loop,
+	);
 }
 
 /** Which kind of loop `id` is: a group loop, a task loop, or neither. */

@@ -57,6 +57,11 @@ const holderOf = (path: string): number | undefined => {
 	}
 };
 
+/** The pid `<db>.lock` names, without taking it; undefined when it is missing or unreadable. */
+export function readLockPid(db: string): number | undefined {
+	return holderOf(`${db}.lock`);
+}
+
 /** Take `<db>.lock`, or throw `DatabaseLockedError` naming the live holder. */
 export function lockDatabase(db: string): DbLock {
 	const path = `${db}.lock`;

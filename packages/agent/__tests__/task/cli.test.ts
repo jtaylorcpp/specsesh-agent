@@ -229,6 +229,102 @@ describe("task/cli: resume continues a stored loop without the change files", ()
 	});
 });
 
+/**
+ * Start task loop 1.1 of a tiny change in `db` and leave it: no owner row and
+ * no lock, so `resume --all` finds it interrupted.
+ */
+async function interrupted(db: string, env: ReturnType<typeof fauxModels>, options: { worktree?: string } = {}): Promise<number> {
+	const workspace = temp("task-ws-");
+	const registry = createRegistry();
+	for (const extension of taskLoopExtensions({ workspace })) registry.install(extension);
+	const harness = await Harness.open(await openNodeSqliteStorage(db), { models: env.models, registry }, context);
+	const model = env.models.getModel(env.args[1]!, env.args[3]!)!;
+	const id = await startTaskLoop(
+		harness,
+		{
+			change: { dir: tinyChange() },
+			task: "1.1",
+			script: { text: JUDGE_ONLY },
+			workspace,
+			escalateTo: "principal",
+			model: { provider: model.provider, modelId: model.id },
+			...(options.worktree !== undefined ? { worktree: { path: options.worktree, branch: "task/tiny/1.1" } } : {}),
+		},
+		context,
+	);
+	await harness.close(context);
+	return Number(id);
+}
+
+describe("task/cli: resume --all", () => {
+	it("Scenario: A loop id with --all prints usage", async () => {
+		const { db } = workdir();
+		const env = fauxModels();
+		const id = await interrupted(db, env);
+		const r = await cli(["resume", String(id), "--all", "--db", db], env);
+		expect(r.err.startsWith("usage:")).toBe(true);
+		expect(r.code).toBe(2);
+		expect(env.faux.state.callCount).toBe(0);
+		expect(existsSync(`${db}.lock`)).toBe(false);
+		expect((await cli(["status", "--db", db], env)).out).toContain("interrupted");
+	});
+
+	it("Scenario: --json with --all is refused", async () => {
+		const { db } = workdir();
+		const env = fauxModels();
+		await interrupted(db, env);
+		const r = await cli(["resume", "--all", "--json", "--db", db], env);
+		expect(r.errLines[0]).toBe("--json is not supported with --all");
+		expect(r.errLines[1]?.startsWith("usage:")).toBe(true);
+		expect(r.code).toBe(2);
+		expect(env.faux.state.callCount).toBe(0);
+	});
+
+	it("prints no interrupted loops in <db>, exit 0, for a database without one", async () => {
+		const { db } = workdir();
+		const missing = await cli(["resume", "--all", "--db", db]);
+		expect(missing.out).toBe(`no interrupted loops in ${db}`);
+		expect(missing.code).toBe(0);
+
+		const b = await blocked();
+		const settled = await cli(["resume", "--all", "--db", b.db], b.env);
+		expect(settled.out).toBe(`no interrupted loops in ${b.db}`);
+		expect(settled.code).toBe(0);
+	});
+
+	it("resumes each root under one lock, one line each: a refusal, then a blocked root with its answer command, exit 1", async () => {
+		const { db } = workdir();
+		const env = fauxModels();
+		const gone = join(temp("task-wt-"), "gone");
+		const refused = await interrupted(db, env, { worktree: gone });
+		const asks = await interrupted(db, env);
+		// A harness resumes every unsettled task in its storage, so the refused root's loop runs too and takes a response.
+		const ask = verdict(false, "two ways", "ask", "Which way?");
+		env.faux.setResponses([ask, ask]);
+		const r = await cli(["resume", "--all", "--db", db], env);
+		expect(r.out.split("\n")).toEqual([
+			`loop ${refused} tiny 1.1 — refused: worktree ${gone} does not exist`,
+			`loop ${asks} tiny 1.1 — blocked: agentscript-task answer ${asks} --db ${db} --by principal --decision "…"`,
+		]);
+		expect(r.code).toBe(1);
+		// Progress events still reach stderr.
+		expect(r.errLines.some((line) => line.includes('"event":"loop-ended"'))).toBe(true);
+		expect(existsSync(`${db}.lock`)).toBe(false);
+	});
+
+	it("a live lock holder refuses the batch, exit 2, naming its pid", async () => {
+		const { db } = workdir();
+		const env = fauxModels();
+		await interrupted(db, env);
+		writeFileSync(`${db}.lock`, String(process.pid));
+		const r = await cli(["resume", "--all", "--db", db], env);
+		expect(r.err).toContain(`process ${process.pid}`);
+		expect(r.code).toBe(2);
+		expect(env.faux.state.callCount).toBe(0);
+		rmSync(`${db}.lock`);
+	});
+});
+
 /** Run a loop that blocks on its first iteration, escalated to the principal. */
 async function blocked() {
 	const { script, db } = workdir();
