@@ -66,3 +66,5 @@ export { designStage } from "./stages/design.js";
 export { specsStage } from "./stages/specs.js";
 export { tasksStage } from "./stages/tasks.js";
 export { SPEC_STAGES } from "./spec-stages.js";
+export type { DraftLoopOptions, DraftOutcome } from "./draft-input.js";
+export { answerDraftLoop, draftLoopExtensions, startDraftLoop, waitForDraftLoop } from "./draft-api.js";

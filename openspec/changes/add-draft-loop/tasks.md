@@ -1,9 +1,9 @@
 ## 1. The loop
 
-- [ ] 1.1 `packages/agent/src/task/draft-input.ts` (new): `DraftLoopOptions`, `DraftOutcome` and the checkpoint `{ phase, stage?, child?, entries }` as TypeBox schemas
-- [ ] 1.2 `packages/agent/src/task/draft-loop.ts` (new): the `agentscript.draft-loop` task with its phases `next`, `stage` and `answer`
-- [ ] 1.3 `packages/agent/src/task/draft-api.ts` (new): `startDraftLoop`, `waitForDraftLoop`, `answerDraftLoop` and `draftLoopExtensions`
-- [ ] 1.4 `packages/agent/src/task/index.ts`: export the draft loop's functions and types
+- [x] 1.1 `packages/agent/src/task/draft-input.ts` (new): `DraftLoopOptions`, `DraftOutcome` and the checkpoint `{ phase, stage?, child?, entries }` as TypeBox schemas
+- [x] 1.2 `packages/agent/src/task/draft-loop.ts` (new): the `agentscript.draft-loop` task with its phases `next`, `stage` and `answer`
+- [x] 1.3 `packages/agent/src/task/draft-api.ts` (new): `startDraftLoop`, `waitForDraftLoop`, `answerDraftLoop` and `draftLoopExtensions`
+- [x] 1.4 `packages/agent/src/task/index.ts`: export the draft loop's functions and types
 
 ## 2. Tests
 
