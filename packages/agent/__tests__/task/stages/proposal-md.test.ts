@@ -1,14 +1,43 @@
 import { describe, expect, it } from "vitest";
+import { capabilityIssues, sectionIssues } from "../../../src/task/stages/proposal.js";
 import { PROPOSAL_SECTIONS, proposalSections, readProposalCapabilities } from "../../../src/task/stages/proposal-md.js";
 
 function proposal(capabilities: string, sections: readonly string[] = PROPOSAL_SECTIONS): string {
 	return sections.map((heading) => `## ${heading}\n\n${heading === "Capabilities" ? capabilities : `${heading} text.`}\n`).join("\n");
 }
 
+const EXISTING = ["core/subset", "task/cli", "task/headless"];
+
 describe("task/stages/proposal-md: scenarios", () => {
+	it("Scenario: A missing Out of scope section", () => {
+		const issues = sectionIssues(proposal("- **New:** `spec/stages`.", PROPOSAL_SECTIONS.filter((s) => s !== "Out of scope")));
+		expect(issues).toHaveLength(1);
+		expect(issues[0]?.level).toBe("ERROR");
+		expect(issues[0]?.message).toContain("## Out of scope");
+	});
+
 	it("Scenario: Capabilities in nested bullets", () => {
 		const text = proposal("- **Modified:**\n  - `task/cli`;\n  - `task/headless`.\n");
 		expect(readProposalCapabilities(text)).toEqual({ new: [], modified: ["task/cli", "task/headless"] });
+		const newFirst = proposal("- **New:** `spec/stages`.\n- **Modified:**\n  - `task/cli`;\n  - `task/headless`.\n");
+		expect(readProposalCapabilities(newFirst)).toEqual({ new: ["spec/stages"], modified: ["task/cli", "task/headless"] });
+	});
+
+	it("Scenario: A modified path that does not exist", () => {
+		const issues = capabilityIssues({ new: [], modified: ["task/clii"] }, EXISTING);
+		expect(issues).toHaveLength(1);
+		expect(issues[0]?.level).toBe("ERROR");
+		expect(issues[0]?.message).toContain("task/clii");
+		expect(capabilityIssues({ new: [], modified: ["task/cli"] }, EXISTING)).toEqual([]);
+	});
+
+	it("Scenario: A new path that already exists", () => {
+		const issues = capabilityIssues({ new: ["core/subset"], modified: [] }, EXISTING);
+		expect(issues).toHaveLength(1);
+		expect(issues[0]?.level).toBe("ERROR");
+		expect(issues[0]?.message).toContain("core/subset");
+		expect(issues[0]?.message).toMatch(/already exists/);
+		expect(issues[0]?.message).toMatch(/Modified/);
 	});
 });
 

@@ -9,8 +9,8 @@
 
 ## 2. Tests
 
-- [ ] 2.1 `packages/agent/__tests__/task/stages/proposal-md.test.ts`: "A missing Out of scope section", "Capabilities in nested bullets", "A modified path that does not exist" and "A new path that already exists" (4)
-- [ ] 2.2 `packages/agent/__tests__/task/stages/proposal-stage.test.ts`: "The proposal stage is seeded with every capability", "A proposal touching three capabilities is sent back" and "The bundled proposal script fits the contract" (3)
+- [x] 2.1 `packages/agent/__tests__/task/stages/proposal-md.test.ts`: "A missing Out of scope section", "Capabilities in nested bullets", "A modified path that does not exist" and "A new path that already exists" (4)
+- [x] 2.2 `packages/agent/__tests__/task/stages/proposal-stage.test.ts`: "The proposal stage is seeded with every capability", "A proposal touching three capabilities is sent back" and "The bundled proposal script fits the contract" (3)
 
 ## 3. Docs
 
