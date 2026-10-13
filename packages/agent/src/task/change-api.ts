@@ -43,8 +43,8 @@ export function changeLoopExtensions(options: TaskLoopActionOptions): readonly [
 	return [bound === undefined ? ChangeLoop : boundChangeLoop(bound), ...groupLoopExtensions(options)];
 }
 
-/** The guard's `run`: argv, no shell, in the directory the loop works in. */
-function guardRun(dir: string): StageContext["run"] {
+/** The guard's `run`: argv, no shell, in the directory the loop works in. `close` runs `openspec` through it too. */
+export function guardRun(dir: string): StageContext["run"] {
 	const workspace = localWorkspace(dir);
 	return async (argv): Promise<CheckRun> => {
 		const command = argv.join(" ");

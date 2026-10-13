@@ -16,7 +16,7 @@
  *   ## change check: passed|failed                     when it ran, a failure followed by its commands and output
  *   ## unclaimed: <n>                                  when any, then one scenario per line
  *
- *   then, by state: waiting (the question, answer), built (changed files, archive) or failed (retry).
+ *   then, by state: waiting (the question, answer), built (changed files, close) or failed (retry).
  *
  * Pure: it prints nothing and reads nothing. The exit code is the result's own.
  */
@@ -44,7 +44,7 @@ export const approveCmd = (change: string) => `pnpm change approve ${change}`;
 export const answerCmd = (change: string) => `pnpm change draft ${change} "<answer>"`;
 export const buildCmd = (change: string) => `pnpm change build ${change}`;
 export const buildAnswerCmd = (change: string) => `pnpm change build ${change} "<answer>"`;
-export const archiveCmd = (change: string) => `pnpm spec:archive ${change}`;
+export const closeCmd = (change: string) => `pnpm change close ${change}`;
 export const retryCmd = (change: string) => `pnpm change draft ${change}`;
 export const sliceCmd = (slice: { readonly id: string; readonly intent: string }) => `pnpm change draft ${slice.id} --intent ${shellQuote(slice.intent)}`;
 
@@ -155,7 +155,7 @@ export function formatBuildOutput(result: BuildShown): string[] {
 			break;
 		case "built":
 			if (result.changed.length > 0) lines.push(`Changed: ${result.changed.join(", ")}`);
-			lines.push(`Archive it: ${archiveCmd(change)}`);
+			lines.push(closeCmd(change));
 			break;
 		case "failed":
 			// An exhausted or failed build is restarted by the next `build`, with a fresh budget.

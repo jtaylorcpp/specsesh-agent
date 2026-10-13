@@ -441,8 +441,8 @@ no files and runs no loop.
 - `agentscript-durable run <file> --db <path> [...]` runs a script as a durable task on a Node SQLite file;
   `agentscript-durable resume <task-id> --db <path>` finishes one whose process died. Needs the durable peers.
 - `agentscript-task` works an OpenSpec change as durable loops; see below. Needs the durable peers.
-- `agentscript-change` drafts an OpenSpec change stage by stage and approves each stage; see below.
-  Needs the durable peers.
+- `agentscript-change` drafts, approves, builds and closes an OpenSpec change
+  (`pnpm change <command> <change>`); see below. Needs the durable peers.
 
 Credentials are pi-ai's own environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, ...).
 
@@ -556,6 +556,8 @@ change's name, never by a loop ID:
 usage:
   agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
   agentscript-change approve <change> [--principal <name>] [--db <path>]
+  agentscript-change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
+  agentscript-change close <change> [--db <path>]
 ```
 
 Any other command, or none, prints this usage to stderr and exits `2`. It resolves the database,
@@ -656,11 +658,28 @@ run it starts as `draft` does: the next stage's review, or the drafted change.
   `pnpm change draft <id> --intent "<intent>"` per later slice, as in the session above.
 - **One stage at a time.** Every stage gets its own review; there is no "approve all".
 
+#### `close`
+
+```
+pnpm change close add-plan-export                        # once the build ends with this line
+```
+
+A built change ends with `pnpm change close <change>`. `close <change>` refuses an unfinished
+change: an unticked task in `tasks.md` (listing them), a newest change loop that didn't converge
+(naming its state), or a failed `openspec validate <change> --strict` (naming the first issue).
+It exits `2` and changes nothing.
+
+Otherwise it first folds the change into a temporary copy of `openspec/` and validates the merged
+specs with `openspec validate --specs --strict`. A failed trial exits `2` with `openspec/`
+unchanged. Only then does it run `openspec archive <change> --yes` in the repository, always with
+`OPENSPEC_TELEMETRY=0`. It prints the capabilities it folded into and the archive directory, and
+ends with `git add -A openspec && git commit`. It never commits: you do.
+
 #### Exit codes
 
 | Code | When |
 |---|---|
-| `0` | Waiting for review, or drafted |
+| `0` | Waiting for review, drafted, or closed |
 | `1` | Waiting on a question, or the draft ended exhausted or failed |
 | `2` | Usage, or a refusal |
 

@@ -7,6 +7,7 @@
  *   agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
  *   agentscript-change approve <change> [--principal <name>] [--db <path>]
  *   agentscript-change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
+ *   agentscript-change close <change> [--db <path>]
  *
  * `draft` starts, continues or answers the change's draft loop (`task/cmd-draft.ts`);
  * `approve` approves the stage under review (`task/cmd-approve.ts`). Both print
@@ -21,9 +22,12 @@
  * `agentscript-task run` resolves them, and its harness is `agentscript-task`'s with
  * the change loop installed beside the task and group loops.
  *
+ * `close` folds a finished change into `openspec/specs/` (`task/cmd-close.ts`). It needs
+ * no model, and reads the database, when there is one, only for the change's newest loop.
+ *
  * Headless: it never reads stdin and never prompts. Every refusal exits 2 before
- * the database opens, except those `runDraft`, `runApprove` and `runBuild` find in
- * the database or the tree. A review, a drafted or a built change exits 0; a question,
+ * the database opens, except those `runDraft`, `runApprove`, `runBuild` and `runClose` find in
+ * the database or the tree. A review, a drafted, a built or a closed change exits 0; a question,
  * a waiting build or a failed draft or build exits 1.
  */
 
@@ -43,6 +47,7 @@ import { ChangeLoop } from "../task/change-api.js";
 import { formatBuildOutput, formatDraftOutput } from "../task/change-output.js";
 import { prepareApprove, runApprove, type ApproveArgs } from "../task/cmd-approve.js";
 import { parseBuild, prepareBuild, runBuild, type BuildArgs } from "../task/cmd-build.js";
+import { prepareClose, runClose, type CloseArgs, type CloseResult } from "../task/cmd-close.js";
 import { prepareDraft, runDraft, type DraftRequest } from "../task/cmd-draft.js";
 import { ConfigError, DEFAULT_CHANGES_DIR, DEFAULT_MODEL, DEFAULT_PROVIDER, loadConfig, resolveDb, resolveNamedModels, type DbPath, type LoadedConfig } from "../task/config.js";
 import { gitUserName } from "../task/git.js";
@@ -56,7 +61,8 @@ import { builtin, resolvePrincipal } from "./agentscript-task.js";
 const USAGE = `usage:
   agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
   agentscript-change approve <change> [--principal <name>] [--db <path>]
-  agentscript-change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]`;
+  agentscript-change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
+  agentscript-change close <change> [--db <path>]`;
 
 export interface ChangeCliDeps {
 	/** The pi-ai model collection. Defaults to every built-in provider plus claude-code. */
@@ -144,6 +150,18 @@ export async function main(argv: readonly string[], deps: ChangeCliDeps = {}): P
 			return args.exitCode;
 		}
 		run = (config, io) => build(args, config, io);
+	} else if (command === "close") {
+		let parsed;
+		try {
+			parsed = parseArgs({ args: [...rest], allowPositionals: true, options: { db: { type: "string" } } });
+		} catch (error) {
+			return usage(message(error));
+		}
+		const { values, positionals } = parsed;
+		const [change, ...extra] = positionals;
+		if (change === undefined) return usage("close needs a change");
+		if (extra.length > 0) return usage(`close takes only a change, got ${positionals.join(" ")}`);
+		run = (config, io) => close({ change }, values.db, config, io);
 	} else {
 		return usage();
 	}
@@ -348,6 +366,47 @@ async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promi
 	} finally {
 		lock.release();
 	}
+}
+
+/** `close <change>`: the exit code. Needs no model; the database, when there is one, is only read for the change loop. */
+async function close(args: CloseArgs, dbFlag: string | undefined, config: LoadedConfig, io: ChangeIo): Promise<number> {
+	const refuse = refuser(io);
+	const request = prepareClose(args, { workspace: config.dir, changesDir: changesDirOf(config) });
+	if (request.kind === "refused") return refuse(request.message);
+	const db = resolveDb(dbFlag, config, io.cwd);
+
+	const show = (result: CloseResult) => {
+		if (result.kind === "refused") return refuse(result.message);
+		for (const line of closeLines(result)) io.out(line);
+		return result.exitCode;
+	};
+	// No database, or none yet, holds no change loop: a change built with `pnpm task` closes on its ticked tasks.
+	if (db === undefined || !existsSync(db.path)) return show(await runClose(undefined, request, BACKGROUND_CONTEXT));
+	const lock = lockDatabase(db.path);
+	try {
+		const storage = await openNodeSqliteStorage(db.path);
+		const harness = await Harness.open(storage, { models: await io.models(), registry: createRegistry() }, BACKGROUND_CONTEXT);
+		try {
+			return show(await runClose(harness, request, BACKGROUND_CONTEXT));
+		} finally {
+			await harness.close(BACKGROUND_CONTEXT);
+		}
+	} finally {
+		lock.release();
+	}
+}
+
+/** A closed change as text, as design.md's session shows it, ending with the commit command. */
+function closeLines(result: Extract<CloseResult, { kind: "closed" }>): string[] {
+	const folded = result.capabilities.map(({ capability, created, requirements }) => `${capability} (${created ? "new" : `${requirements} modified`})`);
+	const list = folded.length < 2 ? folded.join("") : `${folded.slice(0, -1).join(", ")} and ${folded.at(-1)}`;
+	return [
+		`# ${result.change} — closed`,
+		...(folded.length > 0 ? [`Folded into ${list}.`] : []),
+		`Moved to ${result.archive}`,
+		"",
+		"Commit it: git add -A openspec && git commit",
+	];
 }
 
 /** The entries of the change's `slices.md`, this change first; none when it is missing or has a malformed line. */

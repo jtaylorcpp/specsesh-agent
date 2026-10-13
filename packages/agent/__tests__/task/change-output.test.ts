@@ -113,7 +113,7 @@ const shown = { change, loop: 7, ran: true, groups: [], unclaimed: [], changed: 
 const converged = (k: number, over: Partial<BuildGroup> = {}): BuildGroup => ({ group: k, status: "converged", tasks: 2, reworks: 0, ...over });
 
 describe("formatBuildOutput", () => {
-	it("lists every group, the change check, the changed files, and ends a built change with the archive command", () => {
+	it("lists every group, the change check, the changed files, and ends a built change with the close command", () => {
 		const result: BuildShown = {
 			...shown,
 			kind: "built",
@@ -130,7 +130,7 @@ describe("formatBuildOutput", () => {
 			"## change check: passed",
 			"",
 			"Changed: packages/plan/src/export.ts, packages/plan/src/cli.ts",
-			"Archive it: pnpm spec:archive add-plan-export",
+			"pnpm change close add-plan-export",
 		]);
 		expect(result.exitCode).toBe(0);
 	});
@@ -139,7 +139,22 @@ describe("formatBuildOutput", () => {
 		const lines = formatBuildOutput({ ...shown, ran: false, kind: "built", groups: [converged(1)], check: { passed: true }, exitCode: 0 });
 		expect(lines[0]).toBe("# add-plan-export — built");
 		expect(lines.join("\n")).not.toContain("Changed:");
-		expect(lines.at(-1)).toBe("Archive it: pnpm spec:archive add-plan-export");
+		expect(lines.at(-1)).toBe("pnpm change close add-plan-export");
+	});
+
+	it("ends a built change with the close command after the change check and the unclaimed scenarios, never spec:archive", () => {
+		const lines = formatBuildOutput({
+			...shown,
+			kind: "built",
+			groups: [converged(1)],
+			check: { passed: true },
+			unclaimed: [{ capability: ["plan", "export"], requirement: "Export writes JSON", scenario: "An empty plan exports" }],
+			exitCode: 0,
+		});
+		expect(lines).toContain("## change check: passed");
+		expect(lines.indexOf("## unclaimed: 1")).toBeGreaterThan(lines.indexOf("## change check: passed"));
+		expect(lines.at(-1)).toBe("pnpm change close add-plan-export");
+		expect(lines.join("\n")).not.toContain("spec:archive");
 	});
 
 	it("ends a blocked build with the group's question, then the answer command", () => {

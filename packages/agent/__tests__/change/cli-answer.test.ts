@@ -200,7 +200,8 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 			expect(run.out.split("\n")[0]).toBe(`# ${CHANGE} — built`);
 			expect(run.out).toMatch(/## group 1: converged \(\d+ tasks?, 1 rework\)/);
 			expect(run.out).toContain("## change check: passed");
-			expect(run.out.trim()).toMatch(new RegExp(`pnpm spec:archive ${CHANGE}$`));
+			expect(run.out.trim()).toMatch(new RegExp(`pnpm change close ${CHANGE}$`));
+			expect(run.out).not.toContain("spec:archive");
 			expect(run.code).toBe(0);
 		}, 120_000);
 	});

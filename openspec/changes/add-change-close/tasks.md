@@ -1,9 +1,9 @@
 ## 1. The command
 
-- [ ] 1.1 `packages/agent/src/task/cmd-close.ts` (new): `close`: the guard, the trial fold in a temporary copy, and the archive
-- [ ] 1.2 `packages/agent/src/task/change-output.ts`: the close output; a built change ends with `pnpm change close <change>`
-- [ ] 1.3 `packages/agent/src/bin/agentscript-change.ts`: the `close` command and its usage line
-- [ ] 1.4 `packages/agent/README.md`: name `agentscript-change` among the bins, and add `close` to the change CLI section
+- [x] 1.1 `packages/agent/src/task/cmd-close.ts` (new): `close`: the guard, the trial fold in a temporary copy, and the archive
+- [x] 1.2 `packages/agent/src/task/change-output.ts`: the close output; a built change ends with `pnpm change close <change>`
+- [x] 1.3 `packages/agent/src/bin/agentscript-change.ts`: the `close` command and its usage line
+- [x] 1.4 `packages/agent/README.md`: name `agentscript-change` among the bins, and add `close` to the change CLI section
 
 ## 2. Tests
 
