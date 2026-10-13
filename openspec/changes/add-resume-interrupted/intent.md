@@ -1,0 +1,5 @@
+Add `pnpm task resume --all`: resume every stored loop that was interrupted, meaning its record says it is still running but no process is running it any more (the machine rebooted, or the session that started it was killed). Loops resume in the order they started, and a nested loop resumes through its parent (a change loop carries on its group loop, a group loop its task loop) rather than twice. It prints one line per loop resumed, with its outcome. `pnpm task status` marks such loops `interrupted`, so they can be seen before resuming. Loops blocked waiting for an answer, and loops that have ended, are left alone.
+
+Why: gaps.md #6. The driver died twice in the 21-change run (a session ending, then a reboot). The loops were safe in SQLite, but each one had to be found and resumed by hand with `pnpm task resume <loop>`.
+
+Out of scope: anything that restarts loops on its own, such as daemons, systemd units, watchers, schedulers or queues of changes. This repo is the agent, the harness and the OpenSpec tools; restarting work automatically belongs to the repo that integrates it.
