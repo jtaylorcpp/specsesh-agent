@@ -7,5 +7,6 @@
 import type { SpecStage } from "./spec-stage.js";
 import { designStage } from "./stages/design.js";
 import { proposalStage } from "./stages/proposal.js";
+import { specsStage } from "./stages/specs.js";
 
-export const SPEC_STAGES: readonly SpecStage[] = Object.freeze([proposalStage, designStage]);
+export const SPEC_STAGES: readonly SpecStage[] = Object.freeze([proposalStage, designStage, specsStage]);

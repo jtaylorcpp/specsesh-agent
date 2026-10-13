@@ -26,7 +26,7 @@ describe("spec loop entry points", () => {
 	});
 
 	it("the task entry exports SPEC_STAGES, starting at the proposal, each stage after only earlier ones", () => {
-		expect(task.SPEC_STAGES).toEqual([task.proposalStage, designStage]);
+		expect(task.SPEC_STAGES).toEqual([task.proposalStage, designStage, task.specsStage]);
 		expect(Object.isFrozen(task.SPEC_STAGES)).toBe(true);
 		task.SPEC_STAGES.forEach((stage, index) => {
 			const earlier = task.SPEC_STAGES.slice(0, index).map((s) => s.name);

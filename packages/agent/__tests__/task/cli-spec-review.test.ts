@@ -30,8 +30,17 @@ const DESIGN = [
 	"export const plan = {};\n",
 ].join("\n");
 
+/** One delta for the proposal's one new capability, with its `## Purpose`. */
+const SPECS = [
+	"=== specs/plan/export/spec.md",
+	"## Purpose\n\nExport a plan as JSON.\n",
+	"## ADDED Requirements\n",
+	"### Requirement: Export as JSON\n\nThe CLI SHALL print the plan as JSON.\n",
+	"#### Scenario: JSON on stdout\n\n- **WHEN** the plan is exported\n- **THEN** stdout is the plan as JSON\n",
+].join("\n");
+
 /** A clean draft per stage in `SPEC_STAGES`; a stage added there needs one here. */
-const DRAFTS: Record<string, string> = { proposal: `=== proposal.md\n${PROPOSAL}`, design: DESIGN };
+const DRAFTS: Record<string, string> = { proposal: `=== proposal.md\n${PROPOSAL}`, design: DESIGN, specs: SPECS };
 
 const INTENT = "Export a plan as JSON so CI can read it";
 

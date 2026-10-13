@@ -74,7 +74,7 @@ describe("designStage", () => {
 	});
 
 	it("Scenario: The design follows the proposal", () => {
-		expect(SPEC_STAGES.map((stage) => stage.name)).toEqual(["proposal", "design"]);
+		expect(SPEC_STAGES.map((stage) => stage.name)).toEqual(["proposal", "design", "specs"]);
 		expect(designStage.after).toEqual(["proposal"]);
 		expect(designStage.owns).toEqual(expect.arrayContaining(["design.md", "design/"]));
 		expect("path" in designStage.script && designStage.script.path).toMatch(/spec-design\.agent$/);
