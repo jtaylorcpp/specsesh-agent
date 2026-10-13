@@ -330,6 +330,57 @@ export interface RunFlags {
 	readonly worktree?: boolean;
 }
 
+/** The `parseArgs` options of the flags a group run maps onto `RunFlags`, shared by every command that starts one. */
+export const RUN_FLAG_OPTIONS = {
+	db: { type: "string" },
+	script: { type: "string" },
+	workspace: { type: "string" },
+	check: { type: "string", multiple: true },
+	allow: { type: "string", multiple: true },
+	"max-iterations": { type: "string" },
+	"max-reworks": { type: "string" },
+	"group-script": { type: "string" },
+	"escalate-to": { type: "string" },
+	provider: { type: "string" },
+	model: { type: "string" },
+	"allow-dirty": { type: "boolean", default: false },
+	worktree: { type: "boolean" },
+	"no-delegates": { type: "boolean", default: false },
+} as const;
+
+/**
+ * The parsed values of `RUN_FLAG_OPTIONS` as `RunFlags`, without `worktree` (each command
+ * decides it), or the usage error for a malformed number or recipient.
+ */
+export function runFlagsOf(values: Readonly<Record<string, string | boolean | string[] | undefined>>): Omit<RunFlags, "worktree"> | string {
+	const maxIterations = values["max-iterations"] as string | undefined;
+	if (maxIterations !== undefined && !/^[1-9][0-9]*$/.test(maxIterations)) {
+		return `--max-iterations must be a positive integer, got "${maxIterations}"`;
+	}
+	const maxReworks = values["max-reworks"] as string | undefined;
+	if (maxReworks !== undefined && !/^[1-9][0-9]*$/.test(maxReworks)) {
+		return `--max-reworks must be a positive integer, got "${maxReworks}"`;
+	}
+	const escalateTo = values["escalate-to"] as string | undefined;
+	if (escalateTo !== undefined && escalateTo !== "principal" && escalateTo !== "agent") {
+		return `--escalate-to must be principal or agent, got "${escalateTo}"`;
+	}
+	return {
+		...(values["db"] !== undefined ? { db: values["db"] as string } : {}),
+		...(values["script"] !== undefined ? { script: values["script"] as string } : {}),
+		...(values["workspace"] !== undefined ? { workspace: values["workspace"] as string } : {}),
+		...(values["check"] !== undefined ? { check: values["check"] as string[] } : {}),
+		...(values["allow"] !== undefined ? { allow: values["allow"] as string[] } : {}),
+		...(values["group-script"] !== undefined ? { groupScript: values["group-script"] as string } : {}),
+		...(maxIterations !== undefined ? { maxIterations: Number(maxIterations) } : {}),
+		...(maxReworks !== undefined ? { maxReworks: Number(maxReworks) } : {}),
+		...(escalateTo !== undefined ? { escalateTo } : {}),
+		...(values["provider"] !== undefined ? { provider: values["provider"] as string } : {}),
+		...(values["model"] !== undefined ? { model: values["model"] as string } : {}),
+		allowDirty: values["allow-dirty"] === true,
+	};
+}
+
 /** A database: the path to open, and how messages and hints name it (as given, or absolute from the config). */
 export interface DbPath {
 	readonly path: string;

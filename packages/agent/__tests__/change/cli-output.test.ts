@@ -115,6 +115,6 @@ describe("change/cli draft output", () => {
 		const run = await change(["draft", CHANGE], dir, [], stages);
 		expect(run.code).toBe(0);
 		expect(run.out.split("\n")[0]).toContain("drafted");
-		expect(tail(run.out, 1)[0]).toContain(`pnpm task ${CHANGE} --next-group`);
+		expect(tail(run.out, 1)[0]).toContain(`pnpm change build ${CHANGE}`);
 	});
 });

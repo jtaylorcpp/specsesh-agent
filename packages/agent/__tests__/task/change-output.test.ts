@@ -1,10 +1,11 @@
 /**
- * `formatDraftOutput`: the draft's text and its next commands, on results built by hand.
+ * `formatDraftOutput` and `formatBuildOutput`: the text and its next commands, on results built by hand.
  * The scenarios themselves are tested through the bin in `__tests__/change/cli-output.test.ts`.
  */
 
 import { describe, expect, it } from "vitest";
-import { formatDraftOutput, type DraftShown } from "../../src/task/change-output.js";
+import { formatBuildOutput, formatDraftOutput, type BuildShown, type DraftShown } from "../../src/task/change-output.js";
+import type { BuildGroup } from "../../src/task/cmd-build.js";
 
 const change = "add-plan-export";
 const context = { changePath: `openspec/changes/${change}` };
@@ -62,10 +63,10 @@ describe("formatDraftOutput", () => {
 		expect(shown.exitCode).toBe(1);
 	});
 
-	it("ends a drafted change with the next group, and says every stage is approved", () => {
+	it("ends a drafted change with the build command, and says every stage is approved", () => {
 		const lines = formatDraftOutput({ kind: "drafted", change, ran: false, approved: ["proposal", "design", "specs", "tasks"], exitCode: 0 }, context);
 		expect(lines[0]).toBe("# add-plan-export — drafted: every stage is approved");
-		expect(lines.at(-1)).toBe("  next:     pnpm task add-plan-export --next-group");
+		expect(lines.at(-1)).toBe("  next:     pnpm change build add-plan-export");
 	});
 
 	it("puts the header, then the approved stages, then the current stage's drafts with their issues", () => {
@@ -105,5 +106,92 @@ describe("formatDraftOutput", () => {
 		const exhausted = formatDraftOutput({ kind: "failed", change, loop: 5, ran: true, approved: [], status: "exhausted", reason: "exhausted", drafts: [], exitCode: 1 }, context);
 		expect(exhausted[0]).toBe("# add-plan-export — draft exhausted");
 		expect(exhausted.slice(-2)).toEqual(["", "  retry:    pnpm change draft add-plan-export"]);
+	});
+});
+
+const shown = { change, loop: 7, ran: true, groups: [], unclaimed: [], changed: [], notes: [] };
+const converged = (k: number, over: Partial<BuildGroup> = {}): BuildGroup => ({ group: k, status: "converged", tasks: 2, reworks: 0, ...over });
+
+describe("formatBuildOutput", () => {
+	it("lists every group, the change check, the changed files, and ends a built change with the archive command", () => {
+		const result: BuildShown = {
+			...shown,
+			kind: "built",
+			groups: [converged(1, { tasks: 4 }), converged(2, { tasks: 3, reworks: 1 }), converged(3)],
+			check: { passed: true },
+			changed: ["packages/plan/src/export.ts", "packages/plan/src/cli.ts"],
+			exitCode: 0,
+		};
+		expect(formatBuildOutput(result)).toEqual([
+			"# add-plan-export — built",
+			"## group 1: converged (4 tasks, 0 reworks)",
+			"## group 2: converged (3 tasks, 1 rework)",
+			"## group 3: converged (2 tasks, 0 reworks)",
+			"## change check: passed",
+			"",
+			"Changed: packages/plan/src/export.ts, packages/plan/src/cli.ts",
+			"Archive it: pnpm spec:archive add-plan-export",
+		]);
+		expect(result.exitCode).toBe(0);
+	});
+
+	it("says a build that ran nothing is built, with no changed files", () => {
+		const lines = formatBuildOutput({ ...shown, ran: false, kind: "built", groups: [converged(1)], check: { passed: true }, exitCode: 0 });
+		expect(lines[0]).toBe("# add-plan-export — built");
+		expect(lines.join("\n")).not.toContain("Changed:");
+		expect(lines.at(-1)).toBe("Archive it: pnpm spec:archive add-plan-export");
+	});
+
+	it("ends a blocked build with the group's question, then the answer command", () => {
+		const result: BuildShown = {
+			...shown,
+			kind: "waiting",
+			groups: [converged(1, { tasks: 4 }), { group: 2, status: "blocked", tasks: 3, reworks: 0, blockedAt: "2.3" }],
+			to: "principal",
+			question: "Which API?",
+			group: 2,
+			task: "2.3",
+			exitCode: 1,
+		};
+		const lines = formatBuildOutput(result);
+		expect(lines.slice(0, 3)).toEqual(["# add-plan-export — waiting for an answer", "## group 1: converged (4 tasks, 0 reworks)", "## group 2: blocked at 2.3"]);
+		expect(lines.slice(-2)).toEqual(["group 2 asks: Which API?", '  answer:  pnpm change build add-plan-export "<answer>"']);
+		expect(result.exitCode).toBe(1);
+	});
+
+	it("asks without a group when the build doesn't know it", () => {
+		const lines = formatBuildOutput({ ...shown, kind: "waiting", to: "principal", question: "Which API?", exitCode: 1 });
+		expect(lines.slice(-2)).toEqual(["question: Which API?", '  answer:  pnpm change build add-plan-export "<answer>"']);
+	});
+
+	it("prints a failed change check's commands and output, and the unclaimed scenarios", () => {
+		const lines = formatBuildOutput({
+			...shown,
+			kind: "failed",
+			status: "exhausted",
+			reason: "exhausted",
+			groups: [converged(1)],
+			check: { passed: false, reason: "change check failed:\n$ pnpm spec:check\nexit 1\n1 change invalid" },
+			unclaimed: [{ capability: ["plan", "export"], requirement: "Export writes JSON", scenario: "An empty plan exports" }],
+			exitCode: 1,
+		});
+		expect(lines).toEqual([
+			"# add-plan-export — exhausted",
+			"## group 1: converged (2 tasks, 0 reworks)",
+			"## change check: failed",
+			"   $ pnpm spec:check",
+			"   exit 1",
+			"   1 change invalid",
+			"## unclaimed: 1",
+			"   plan/export › Export writes JSON › An empty plan exports",
+			"",
+			"  retry:   pnpm change build add-plan-export",
+		]);
+	});
+
+	it("ends a failed build with its reason and the retry command", () => {
+		const lines = formatBuildOutput({ ...shown, kind: "failed", status: "failed", reason: "model unavailable", exitCode: 1 });
+		expect(lines[0]).toBe("# add-plan-export — failed");
+		expect(lines.slice(-2)).toEqual(["reason: model unavailable", "  retry:   pnpm change build add-plan-export"]);
 	});
 });

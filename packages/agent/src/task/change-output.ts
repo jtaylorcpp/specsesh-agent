@@ -9,9 +9,20 @@
  *   then, after the approval of a sliced proposal, a draft command per later slice;
  *   then, by state: review (revise, approve), question (answer), drafted (next) or failed (retry).
  *
+ * `build`'s result as text, ending the same way:
+ *
+ *   # <change> — built|waiting for an answer|exhausted|failed
+ *   ## group <n>: <status> (<k> tasks, <r> reworks)    one per group entered; `blocked at <task>` when it did
+ *   ## change check: passed|failed                     when it ran, a failure followed by its commands and output
+ *   ## unclaimed: <n>                                  when any, then one scenario per line
+ *
+ *   then, by state: waiting (the question, answer), built (changed files, archive) or failed (retry).
+ *
  * Pure: it prints nothing and reads nothing. The exit code is the result's own.
  */
 
+import { formatRef } from "../openspec/index.js";
+import type { BuildRefusal, BuildResult } from "./cmd-build.js";
 import type { DraftRefusal, DraftResult } from "./cmd-draft.js";
 import { issueLine } from "./spec-loop.js";
 
@@ -31,7 +42,9 @@ const shellQuote = (s: string) => `"${s.replace(/["\\$`]/g, "\\$&")}"`;
 export const reviseCmd = (change: string) => `pnpm change draft ${change} "<what to change>"`;
 export const approveCmd = (change: string) => `pnpm change approve ${change}`;
 export const answerCmd = (change: string) => `pnpm change draft ${change} "<answer>"`;
-export const nextGroupCmd = (change: string) => `pnpm task ${change} --next-group`;
+export const buildCmd = (change: string) => `pnpm change build ${change}`;
+export const buildAnswerCmd = (change: string) => `pnpm change build ${change} "<answer>"`;
+export const archiveCmd = (change: string) => `pnpm spec:archive ${change}`;
 export const retryCmd = (change: string) => `pnpm change draft ${change}`;
 export const sliceCmd = (slice: { readonly id: string; readonly intent: string }) => `pnpm change draft ${slice.id} --intent ${shellQuote(slice.intent)}`;
 
@@ -84,12 +97,70 @@ export function formatDraftOutput(result: DraftShown, context: DraftOutputContex
 			lines.push(`question: ${result.question}`, `  answer:   ${answerCmd(change)}`);
 			break;
 		case "drafted":
-			lines.push(`  next:     ${nextGroupCmd(change)}`);
+			lines.push(`  next:     ${buildCmd(change)}`);
 			break;
 		case "failed":
 			// An exhausted or failed draft is restarted by the next `draft`, with a fresh budget.
 			if (result.reason !== result.status) lines.push(`reason: ${result.reason}`);
 			lines.push(`  retry:    ${retryCmd(change)}`);
+			break;
+	}
+	return lines;
+}
+
+/** A settled build: anything `runBuild` returns but a refusal, which is only its message. */
+export type BuildShown = Exclude<BuildResult, BuildRefusal>;
+
+const count = (k: number, noun: string) => `${k} ${noun}${k === 1 ? "" : "s"}`;
+
+/** The change loop's own prefix on a failed change check; the commands and their output follow it. */
+const CHECK_FAILED = "change check failed:\n";
+
+function buildHeader(result: BuildShown): string {
+	switch (result.kind) {
+		case "built":
+			return "built";
+		case "waiting":
+			return "waiting for an answer";
+		case "failed":
+			return result.status;
+	}
+}
+
+/** A settled build as text, ending with the next command. */
+export function formatBuildOutput(result: BuildShown): string[] {
+	const { change } = result;
+	const lines = [`# ${change} — ${buildHeader(result)}`];
+	for (const group of result.groups) {
+		lines.push(
+			group.blockedAt !== undefined
+				? `## group ${group.group}: blocked at ${group.blockedAt}`
+				: `## group ${group.group}: ${group.status} (${count(group.tasks, "task")}, ${count(group.reworks, "rework")})`,
+		);
+	}
+	if (result.check?.passed === true) lines.push("## change check: passed");
+	else if (result.check?.passed === false) {
+		const reason = result.check.reason.startsWith(CHECK_FAILED) ? result.check.reason.slice(CHECK_FAILED.length) : result.check.reason;
+		lines.push("## change check: failed", ...reason.split("\n").map((line) => (line === "" ? "" : `   ${line}`)));
+	}
+	if (result.unclaimed.length > 0) {
+		lines.push(`## unclaimed: ${result.unclaimed.length}`);
+		for (const ref of result.unclaimed) lines.push(`   ${formatRef(ref)}`);
+	}
+
+	lines.push("");
+	switch (result.kind) {
+		case "waiting":
+			lines.push(`${result.group !== undefined ? `group ${result.group} asks` : "question"}: ${result.question}`, `  answer:  ${buildAnswerCmd(change)}`);
+			break;
+		case "built":
+			if (result.changed.length > 0) lines.push(`Changed: ${result.changed.join(", ")}`);
+			lines.push(`Archive it: ${archiveCmd(change)}`);
+			break;
+		case "failed":
+			// An exhausted or failed build is restarted by the next `build`, with a fresh budget.
+			if (result.reason !== result.status) lines.push(`reason: ${result.reason}`);
+			lines.push(`  retry:   ${buildCmd(change)}`);
 			break;
 	}
 	return lines;

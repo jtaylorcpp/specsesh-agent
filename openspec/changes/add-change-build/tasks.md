@@ -1,9 +1,9 @@
 ## 1. The command
 
-- [ ] 1.1 `packages/agent/src/task/change-state.ts`: the change's newest change loop, and whether it is waiting, built or ready
-- [ ] 1.2 `packages/agent/src/task/cmd-build.ts` (new): `build`: the flags, `--change-check`, the refusals, start, and answer
-- [ ] 1.3 `packages/agent/src/task/change-output.ts`: the build output; a drafted change ends with `pnpm change build <change>`
-- [ ] 1.4 `packages/agent/src/bin/agentscript-change.ts`: the `build` command, its usage line and its exit codes
+- [x] 1.1 `packages/agent/src/task/change-state.ts`: the change's newest change loop, and whether it is waiting, built or ready
+- [x] 1.2 `packages/agent/src/task/cmd-build.ts` (new): `build`: the flags, `--change-check`, the refusals, start, and answer
+- [x] 1.3 `packages/agent/src/task/change-output.ts`: the build output; a drafted change ends with `pnpm change build <change>`
+- [x] 1.4 `packages/agent/src/bin/agentscript-change.ts`: the `build` command, its usage line and its exit codes
 
 ## 2. Tests
 

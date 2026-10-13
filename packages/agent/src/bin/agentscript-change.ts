@@ -6,6 +6,7 @@
  *
  *   agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
  *   agentscript-change approve <change> [--principal <name>] [--db <path>]
+ *   agentscript-change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
  *
  * `draft` starts, continues or answers the change's draft loop (`task/cmd-draft.ts`);
  * `approve` approves the stage under review (`task/cmd-approve.ts`). Both print
@@ -15,9 +16,15 @@
  * resolves them. Feedback and approvals are given as the principal: `--principal`
  * (approve only), else `git config user.name`, else `$USER`.
  *
+ * `build` starts, continues or answers the change's change loop (`task/cmd-build.ts`)
+ * and prints `formatBuildOutput`. It takes the group run's flags, resolved as
+ * `agentscript-task run` resolves them, and its harness is `agentscript-task`'s with
+ * the change loop installed beside the task and group loops.
+ *
  * Headless: it never reads stdin and never prompts. Every refusal exits 2 before
- * the database opens, except those `runDraft` and `runApprove` find in the database.
- * A review or a drafted change exits 0; a question or a failed draft exits 1.
+ * the database opens, except those `runDraft`, `runApprove` and `runBuild` find in
+ * the database or the tree. A review, a drafted or a built change exits 0; a question,
+ * a waiting build or a failed draft or build exits 1.
  */
 
 import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
@@ -28,11 +35,16 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, type ModelRef } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { draftLoopExtensions } from "../task/index.js";
-import { formatDraftOutput } from "../task/change-output.js";
+import { DelegateGrantError } from "../durable/delegation.js";
+import { createAgentHarness } from "../durable/harness.js";
+import { defaultRunners, localWorkspace } from "../node/index.js";
+import { GroupLoop, TaskLoop, draftLoopExtensions } from "../task/index.js";
+import { ChangeLoop } from "../task/change-api.js";
+import { formatBuildOutput, formatDraftOutput } from "../task/change-output.js";
 import { prepareApprove, runApprove, type ApproveArgs } from "../task/cmd-approve.js";
+import { parseBuild, prepareBuild, runBuild, type BuildArgs } from "../task/cmd-build.js";
 import { prepareDraft, runDraft, type DraftRequest } from "../task/cmd-draft.js";
-import { ConfigError, DEFAULT_CHANGES_DIR, DEFAULT_MODEL, DEFAULT_PROVIDER, loadConfig, resolveDb, type DbPath, type LoadedConfig } from "../task/config.js";
+import { ConfigError, DEFAULT_CHANGES_DIR, DEFAULT_MODEL, DEFAULT_PROVIDER, loadConfig, resolveDb, resolveNamedModels, type DbPath, type LoadedConfig } from "../task/config.js";
 import { gitUserName } from "../task/git.js";
 import { DatabaseLockedError, lockDatabase } from "../task/lock.js";
 import type { SpecStage } from "../task/spec-stage.js";
@@ -43,7 +55,8 @@ import { builtin, resolvePrincipal } from "./agentscript-task.js";
 /** One line per command. */
 const USAGE = `usage:
   agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
-  agentscript-change approve <change> [--principal <name>] [--db <path>]`;
+  agentscript-change approve <change> [--principal <name>] [--db <path>]
+  agentscript-change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]`;
 
 export interface ChangeCliDeps {
 	/** The pi-ai model collection. Defaults to every built-in provider plus claude-code. */
@@ -123,6 +136,14 @@ export async function main(argv: readonly string[], deps: ChangeCliDeps = {}): P
 		if (change === undefined) return usage("approve needs a change");
 		if (extra.length > 0) return usage(`approve takes only a change, got ${positionals.join(" ")}`);
 		run = (config, io) => approve({ change }, values.principal, values.db, config, io);
+	} else if (command === "build") {
+		const args = parseBuild(rest);
+		if ("kind" in args) {
+			if (args.kind === "usage") return usage(args.message);
+			err(args.message);
+			return args.exitCode;
+		}
+		run = (config, io) => build(args, config, io);
 	} else {
 		return usage();
 	}
@@ -262,6 +283,71 @@ async function approve(args: ApproveArgs, principalFlag: string | undefined, dbF
 		for (const line of formatDraftOutput(result, { changePath: request.changePath, ...(slices !== undefined ? { slices } : {}) })) io.out(line);
 		return result.exitCode;
 	});
+}
+
+/** `build <change> [<answer>]`: the exit code. */
+async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promise<number> {
+	const refuse = refuser(io);
+	const request = prepareBuild(args, { config, env: io.env, cwd: io.cwd });
+	if (request.kind === "refused") return refuse(request.message);
+	const models = await io.models();
+	const provider = models.getProvider(request.provider);
+	if (provider === undefined || models.getModel(request.provider, request.model) === undefined) {
+		return refuse(`no model "${request.model}" on provider "${request.provider}"`);
+	}
+	const model: ModelRef = { provider: request.provider, modelId: request.model };
+	let named;
+	try {
+		named = resolveNamedModels(config.models, models);
+	} catch (error) {
+		if (error instanceof ConfigError) return refuse(error.message);
+		throw error;
+	}
+	const others = Object.fromEntries(Object.entries(named).map(([name, entry]) => [name, () => ({ provider: entry.provider, model: entry.model })]));
+
+	mkdirSync(dirname(request.db.path), { recursive: true });
+	const lock = lockDatabase(request.db.path);
+	try {
+		const storage = await openNodeSqliteStorage(request.db.path);
+		// `agentscript-task`'s harness, with the change loop beside the task and group loops it runs.
+		let built;
+		try {
+			built = await createAgentHarness<Record<string, never>>(
+				{
+					models: { default: () => ({ provider, model }), ...others },
+					workspace: () => localWorkspace(request.workspace),
+					checks: request.checks,
+					allow: request.allow,
+					delegates: request.delegates,
+					runners: defaultRunners,
+				},
+				{ storage, env: {}, extensions: [TaskLoop, GroupLoop, ChangeLoop], context: BACKGROUND_CONTEXT },
+			);
+		} catch (error) {
+			if (error instanceof DelegateGrantError) return refuse(error.message);
+			throw error;
+		}
+		const { harness } = built;
+		try {
+			const result = await runBuild(
+				harness,
+				request,
+				{
+					model: built.models["default"] ?? model,
+					// Before any model call, so a crash still leaves the way back: build without an answer resumes a running loop.
+					onLoop: (loop) => io.err(`change loop ${loop} — resume with: agentscript-change build ${request.change} --db ${request.db.label}`),
+				},
+				BACKGROUND_CONTEXT,
+			);
+			if (result.kind === "refused") return refuse(result.message);
+			for (const line of formatBuildOutput(result)) io.out(line);
+			return result.exitCode;
+		} finally {
+			await harness.close(BACKGROUND_CONTEXT);
+		}
+	} finally {
+		lock.release();
+	}
 }
 
 /** The entries of the change's `slices.md`, this change first; none when it is missing or has a malformed line. */

@@ -86,6 +86,8 @@ import {
 	resolveGroupScript,
 	resolveNamedModels,
 	resolveRunSettings,
+	RUN_FLAG_OPTIONS,
+	runFlagsOf,
 	type DbPath,
 	type LoadedConfig,
 	type ResolvedModel,
@@ -205,22 +207,9 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 			args: [...rest],
 			allowPositionals: true,
 			options: {
-				db: { type: "string" },
-				script: { type: "string" },
-				workspace: { type: "string" },
-				check: { type: "string", multiple: true },
-				allow: { type: "string", multiple: true },
-				"max-iterations": { type: "string" },
-				"max-reworks": { type: "string" },
-				"group-script": { type: "string" },
-				"escalate-to": { type: "string" },
-				provider: { type: "string" },
-				model: { type: "string" },
+				...RUN_FLAG_OPTIONS,
 				next: { type: "boolean", default: false },
 				"next-group": { type: "boolean", default: false },
-				"allow-dirty": { type: "boolean", default: false },
-				worktree: { type: "boolean" },
-				"no-delegates": { type: "boolean", default: false },
 				by: { type: "string" },
 				decision: { type: "string" },
 				principal: { type: "string" },
@@ -281,43 +270,14 @@ async function run(
 ): Promise<number> {
 	const target = parseTarget(positionals, { next: values["next"] === true, nextGroup: values["next-group"] === true });
 	if (target.kind === "usage") return usage(target.reason);
-	const maxIterations = values["max-iterations"] as string | undefined;
-	if (maxIterations !== undefined && !/^[1-9][0-9]*$/.test(maxIterations)) {
-		return usage(`--max-iterations must be a positive integer, got "${maxIterations}"`);
-	}
-	const maxReworks = values["max-reworks"] as string | undefined;
-	if (maxReworks !== undefined && !/^[1-9][0-9]*$/.test(maxReworks)) {
-		return usage(`--max-reworks must be a positive integer, got "${maxReworks}"`);
-	}
-	const escalateTo = values["escalate-to"] as string | undefined;
-	if (escalateTo !== undefined && !isRecipient(escalateTo)) {
-		return usage(`--escalate-to must be principal or agent, got "${escalateTo}"`);
-	}
+	const flags = runFlagsOf(values);
+	if (typeof flags === "string") return usage(flags);
 	const worktreeMode = (values["worktree"] as boolean | undefined) ?? config.task.worktree ?? false;
 	if (worktreeMode && values["db"] === undefined) {
 		io.err("worktree mode needs --db <path>: each worktree run names its own database, and the config's db is not used");
 		return 2;
 	}
-	const settings = resolveRunSettings(
-		{
-			...(values["db"] !== undefined ? { db: values["db"] as string } : {}),
-			...(values["script"] !== undefined ? { script: values["script"] as string } : {}),
-			...(values["workspace"] !== undefined ? { workspace: values["workspace"] as string } : {}),
-			...(values["check"] !== undefined ? { check: values["check"] as string[] } : {}),
-			...(values["allow"] !== undefined ? { allow: values["allow"] as string[] } : {}),
-			...(values["group-script"] !== undefined ? { groupScript: values["group-script"] as string } : {}),
-			...(maxIterations !== undefined ? { maxIterations: Number(maxIterations) } : {}),
-			...(maxReworks !== undefined ? { maxReworks: Number(maxReworks) } : {}),
-			...(escalateTo !== undefined ? { escalateTo } : {}),
-			...(values["provider"] !== undefined ? { provider: values["provider"] as string } : {}),
-			...(values["model"] !== undefined ? { model: values["model"] as string } : {}),
-			allowDirty: values["allow-dirty"] === true,
-			worktree: worktreeMode,
-		},
-		env,
-		config,
-		cwd,
-	);
+	const settings = resolveRunSettings({ ...flags, worktree: worktreeMode }, env, config, cwd);
 	const db = settings.db;
 	if (db === undefined) return usage("run needs --db <path>, or a db in agentscript.config.json");
 
