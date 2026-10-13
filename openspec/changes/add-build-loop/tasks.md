@@ -8,9 +8,9 @@
 
 ## 2. Tests
 
-- [ ] 2.1 `packages/agent/__tests__/task/change-loop.test.ts`: "A host starts and awaits a change loop", "A finished group is checked, not rebuilt", "Killed during a group" and "An unclaimed scenario is reported" (4)
-- [ ] 2.2 `packages/agent/__tests__/task/change-guard.test.ts`: "An invalid change refuses the build", "An edited approved tasks.md refuses the build" and "A hand-written change builds" (3)
-- [ ] 2.3 `packages/agent/__tests__/task/change-groups.test.ts`: "A blocked group blocks the change", "A failed group ends the change", "A failing change check fails the change" and "Answering a blocked group resumes the change" (4)
+- [x] 2.1 `packages/agent/__tests__/task/change-loop.test.ts`: "A host starts and awaits a change loop", "A finished group is checked, not rebuilt", "Killed during a group" and "An unclaimed scenario is reported" (4)
+- [x] 2.2 `packages/agent/__tests__/task/change-guard.test.ts`: "An invalid change refuses the build", "An edited approved tasks.md refuses the build" and "A hand-written change builds" (3)
+- [x] 2.3 `packages/agent/__tests__/task/change-groups.test.ts`: "A blocked group blocks the change", "A failed group ends the change", "A failing change check fails the change" and "Answering a blocked group resumes the change" (4)
 
 ## 3. Docs
 
