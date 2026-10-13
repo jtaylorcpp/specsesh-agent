@@ -50,7 +50,7 @@ let out;
 if (schemaAt >= 0) {
 	const schema = JSON.parse(argv[schemaAt + 1]);
 	const structured = "next_action" in (schema.properties || {})
-		? { met: true, unmet: "", next_action: "retry", question: "" }
+		? { met: true, unmet: "", next_action: "retry", question: "", amend_path: "", amend_text: "" }
 		: { plan: "nothing to change" };
 	out = { type: "result", is_error: false, result: "", structured_output: structured };
 } else out = { type: "result", is_error: false, result: "Changed nothing." };

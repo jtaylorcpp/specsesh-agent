@@ -27,6 +27,8 @@ export type IterationRead =
 			readonly unmet: string;
 			readonly nextAction: string;
 			readonly question: string;
+			readonly amendPath: string;
+			readonly amendText: string;
 	  }
 	| {
 			readonly ok: false;
@@ -64,6 +66,8 @@ export function readRun(result: RunResult | undefined, failure: string | undefin
 		unmet: String(v["unmet"] ?? ""),
 		nextAction: String(v["next_action"] ?? ""),
 		question: String(v["question"] ?? ""),
+		amendPath: String(v["amend_path"] ?? ""),
+		amendText: String(v["amend_text"] ?? ""),
 	};
 }
 

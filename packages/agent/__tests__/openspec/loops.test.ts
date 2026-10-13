@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+	AMENDMENT_APPLIED,
 	Action,
+	type Amendment,
 	type Budget,
+	type Escalation,
+	Escalation as EscalationSchema,
 	ChangeOutcome,
 	ContextRef,
 	type EscalationAnswer,
@@ -23,6 +27,7 @@ import {
 	check,
 	checkFeedback,
 	concludeLoop,
+	explain,
 	feedbackFor,
 	groupTargets,
 	handedUp,
@@ -200,14 +205,24 @@ describe("An escalation names who must decide and what", () => {
 		const outcome = concludeLoop({ level: "task", iterations: [unmetIteration(1, "ask", "needs-decision")], budget: BUDGET });
 		expect(outcome?.status).toBe("blocked");
 		expect(outcome?.status === "blocked" && outcome.escalation.level).toBe("task");
+		expect(outcome?.status === "blocked" && "amendment" in outcome.escalation).toBe(false);
 		expect(check(LoopOutcome(TaskOutcome), outcome)).toBe(true);
 	});
 
 	it("Scenario: An escalation can go to an agent", () => {
-		const outcome = concludeLoop({ level: "task", iterations: [unmetIteration(1, "ask", "test-defect")], budget: BUDGET, to: "agent" });
+		const iterations = [unmetIteration(1, "ask", "test-defect")];
+		const outcome = concludeLoop({ level: "task", iterations, budget: BUDGET, to: "agent" });
 		expect(outcome?.status).toBe("blocked");
 		expect(outcome?.status === "blocked" && outcome.escalation.to).toBe("agent");
+		expect(outcome?.status === "blocked" && "amendment" in outcome.escalation).toBe(false);
 		expect(check(LoopOutcome(TaskOutcome), outcome)).toBe(true);
+		// Until it is answered, the loop stays blocked.
+		expect(outcomeStatus(iterations, BUDGET)).toBe("blocked");
+		// The agent's answer is what unblocks it.
+		const escalation = (outcome as Extract<typeof outcome, { status: "blocked" }>).escalation;
+		const answer: EscalationAnswer = { escalation, by: "agent", decision: "the test asserts the wrong step number", feedback: [] };
+		expect(check(EscalationAnswerSchema, answer)).toBe(true);
+		expect(resume({ goal: TASK_24, context: [], budget: BUDGET, carried: [] }, answer).ok).toBe(true);
 	});
 });
 
@@ -236,7 +251,39 @@ describe("An answered escalation resumes the loop", () => {
 		const answer = { escalation, by: "agent" as const, decision: "d", feedback: [] };
 		expect(check(EscalationAnswerSchema, answer)).toBe(false);
 		expect(check(EscalationAnswerSchema, { ...answer, by: "principal" })).toBe(true);
-		expect(resume({ goal: TASK_24, context: [], budget: BUDGET, carried: [] }, answer).ok).toBe(false);
+		const input: LoopInputType<Task> = { goal: TASK_24, context: [], budget: BUDGET, carried: [] };
+		expect(resume(input, answer)).toEqual({ ok: false, reason: "the escalation goes to the principal, not the agent" });
+		expect(resume(input, { ...answer, by: "principal" }).ok).toBe(true);
+	});
+
+	it("Scenario: amendment-applied needs an amendment", () => {
+		const input: LoopInputType<Task> = { goal: TASK_24, context: [], budget: BUDGET, carried: [] };
+		const escalation: Escalation = { level: "task", to: "principal", reason: "spec-defect: amend-spec", question: "Amend the host spec?" };
+		const bare = { escalation, by: "principal" as const, decision: AMENDMENT_APPLIED, feedback: [] };
+		expect(AMENDMENT_APPLIED).toBe("amendment-applied");
+		expect(check(EscalationAnswerSchema, bare)).toBe(false);
+		expect(explain(EscalationAnswerSchema, bare).join("\n")).toContain("no amendment");
+		expect(resume(input, bare)).toEqual({ ok: false, reason: "the escalation has no amendment to apply" });
+		// The refused answer leaves the blocked outcome as it was.
+		const blocked = { status: "blocked" as const, iterations: [unmetIteration(1, "amend-spec", "spec-defect")], escalation };
+		const before = structuredClone(blocked);
+		expect(check(LoopOutcome(TaskOutcome), blocked)).toBe(true);
+		resume(input, { ...bare, escalation: blocked.escalation });
+		expect(blocked).toEqual(before);
+		expect(input.carried).toEqual([]);
+		// With an amendment, the principal may apply it.
+		const amendment: Amendment = { delta: "specs/durable/host/spec.md", text: "## MODIFIED Requirements\n" };
+		const amended = { ...escalation, amendment };
+		expect(check(EscalationSchema, amended)).toBe(true);
+		expect(check(EscalationSchema, { ...amended, amendment: { ...amendment, extra: 1 } })).toBe(false);
+		expect(check(EscalationAnswerSchema, { ...bare, escalation: amended })).toBe(true);
+		expect(resume(input, { ...bare, escalation: amended }).ok).toBe(true);
+		// An agent may not, even when the escalation goes to it.
+		const toAgent = { ...bare, escalation: { ...amended, to: "agent" as const }, by: "agent" as const };
+		expect(check(EscalationAnswerSchema, toAgent)).toBe(false);
+		expect(resume(input, toAgent)).toEqual({ ok: false, reason: "only the principal applies an amendment" });
+		// Any other decision is free text, as before.
+		expect(check(EscalationAnswerSchema, { ...bare, escalation: amended, decision: "keep the current behaviour" })).toBe(true);
 	});
 });
 

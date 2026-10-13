@@ -31,13 +31,33 @@ export const READ_BACK: Readonly<Record<string, ContractType>> = {
 	unmet: "string",
 	next_action: "string",
 	question: "string",
+	amend_path: "string",
+	amend_text: "string",
 };
 
 /** The `next_action` values the loop acts on. */
 export const NEXT_ACTIONS = ["retry", "amend-spec", "ask"] as const;
 
-/** One line per missing or mistyped contract variable; empty when the script keeps the contract. */
-export function contractProblems(source: string): string[] {
+/**
+ * The `amend_path` choices: `""`, then `specs/<capability>/spec.md` per delta, in the order of
+ * `deltas`. Read from the `## <capability>` headings `concatDeltas` wrote (a capability has no
+ * whitespace; OpenSpec's `## ADDED Requirements` does), so a resumed loop reads no file.
+ */
+export function amendPathChoices(deltas: string): string[] {
+	const paths = [...deltas.matchAll(/^## (\S+)$/gm)].map((m) => `specs/${m[1]}/spec.md`);
+	return ["", ...new Set(paths)];
+}
+
+/** The values each choice-limited variable may take, as every child run's `choices` carries them. */
+export function contractChoices(deltas: string): Record<string, string[]> {
+	return { next_action: [...NEXT_ACTIONS], amend_path: amendPathChoices(deltas) };
+}
+
+/**
+ * One line per missing or mistyped contract variable, and per choice-limited default outside its
+ * values; empty when the script keeps the contract. `deltas` is the loop's `deltas` seed.
+ */
+export function contractProblems(source: string, deltas = ""): string[] {
 	const declarations = readDeclarations(analyze(source).parsed);
 	const problems: string[] = [];
 	for (const [name, type] of Object.entries({ ...SEEDED, ...READ_BACK })) {
@@ -45,18 +65,20 @@ export function contractProblems(source: string): string[] {
 		if (declared === undefined) problems.push(`${name} is not declared; declare it as ${type}`);
 		else if (declared.type !== type) problems.push(`${name} is declared ${declared.type}; the contract needs ${type}`);
 	}
-	const action = declarations.get("next_action");
-	if (action?.type === "string" && typeof action.initial === "string" && !(NEXT_ACTIONS as readonly string[]).includes(action.initial)) {
-		problems.push(
-			`@variables.next_action defaults to ${JSON.stringify(action.initial)}, which is not one of ${NEXT_ACTIONS.map((a) => JSON.stringify(a)).join(", ")}`,
-		);
+	for (const [name, values] of Object.entries(contractChoices(deltas))) {
+		const declared = declarations.get(name);
+		if (declared?.type === "string" && typeof declared.initial === "string" && !values.includes(declared.initial)) {
+			problems.push(
+				`@variables.${name} defaults to ${JSON.stringify(declared.initial)}, which is not one of ${values.map((v) => JSON.stringify(v)).join(", ")}`,
+			);
+		}
 	}
 	return problems;
 }
 
 /** Refuse a script that breaks the contract, naming every variable and its expected type. */
-export function checkContract(source: string): void {
-	const problems = contractProblems(source);
+export function checkContract(source: string, deltas = ""): void {
+	const problems = contractProblems(source, deltas);
 	if (problems.length > 0) {
 		throw new TaskLoopStartError(
 			`the script breaks the task-script contract, so the loop was not started:\n${problems.map((p) => `  - ${p}`).join("\n")}`,

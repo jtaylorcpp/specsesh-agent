@@ -104,6 +104,7 @@ describe("task/agent: The loop constrains next_action to its contract values", (
 			for (const run of runs) {
 				expect((run.input as { options: { choices: unknown } }).options.choices).toEqual({
 					next_action: ["retry", "amend-spec", "ask"],
+					amend_path: ["", "specs/value/file/spec.md"],
 				});
 			}
 		} finally {
@@ -238,17 +239,71 @@ describe("task/agent: Judge maps retry to another iteration or exhaustion", () =
 	});
 });
 
-describe("task/agent: Judge maps ask and amend-spec to a blocked loop", () => {
-	it("Scenario: An amend-spec verdict blocks with a spec defect", async () => {
-		const question = "The spec says run throws UndeclaredVariableError; the lint refuses first. Amend?";
-		const r = await runLoop([verdict(false, "the spec and the lint disagree", "amend-spec", question)]);
+/** JUDGE_ONLY that also reads `amend_path` and `amend_text` back from the result. */
+const JUDGE_AMENDING = JUDGE_ONLY.replace(
+	"            set @variables.question = @outputs.question\n",
+	"            set @variables.question = @outputs.question\n" +
+		"            set @variables.amend_path = @outputs.amend_path\n" +
+		"            set @variables.amend_text = @outputs.amend_text\n",
+);
+const HOST = "specs/durable/host/spec.md";
+
+/** A loop of JUDGE_AMENDING over a change with a `durable/host` delta, so `HOST` is an `amend_path` choice. */
+const runAmending = (responses: Parameters<typeof runLoop>[0]) =>
+	runLoop(responses, { change: { dir: tinyChange({ capabilities: ["durable/host"] }) }, script: { text: JUDGE_AMENDING } });
+
+describe("task/agent: The script declares the variables the loop reads back", () => {
+	it("Scenario: A met verdict is read back", async () => {
+		const r = await runAmending([verdict(true, "", "retry", "", { amend_path: "", amend_text: "" })]);
+		await r.harness.close(context);
+		expect(r.outcome.status).toBe("converged");
+		expect(r.outcome.iterations.at(-1)?.verdict.met).toBe(true);
+		expect(r.outcome).not.toHaveProperty("escalation");
+	});
+});
+
+describe("openspec/loops: An escalation names who must decide and what", () => {
+	it("Scenario: A task loop escalates", async () => {
+		// `ask` ignores the amend fields even when they are set.
+		const r = await runAmending([verdict(false, "reason", "ask", "Which?", { amend_path: HOST, amend_text: "x" })]);
 		await r.harness.close(context);
 		expect(r.outcome.status).toBe("blocked");
 		if (r.outcome.status !== "blocked") return;
-		expect(r.outcome.escalation).toEqual({ level: "task", to: "principal", reason: "the spec and the lint disagree", question });
+		expect(r.outcome.escalation).toMatchObject({ level: "task", to: r.options.escalateTo ?? "principal", question: "Which?", reason: "reason" });
+		expect(r.outcome.escalation).not.toHaveProperty("amendment");
+	});
+});
+
+describe("task/agent: Judge maps ask and amend-spec to a blocked loop", () => {
+	it("Scenario: An amend-spec verdict blocks with a spec defect", async () => {
+		const question = "The spec says run throws UndeclaredVariableError; the lint refuses first. Amend?";
+		const amendText = "## MODIFIED Requirements\n\n### Requirement: The host refuses an undeclared variable\nThe lint SHALL refuse it first.\n";
+		const r = await runAmending([
+			verdict(false, "the spec and the lint disagree", "amend-spec", question, { amend_path: HOST, amend_text: amendText }),
+		]);
+		await r.harness.close(context);
+		expect(r.outcome.status).toBe("blocked");
+		if (r.outcome.status !== "blocked") return;
+		expect(r.outcome.escalation).toMatchObject({ question, to: "principal" });
+		expect(r.outcome.escalation.amendment).toEqual({ delta: HOST, text: amendText });
 		expect(r.outcome.iterations[0]?.feedback).toEqual([
 			expect.objectContaining({ action: "amend-spec", from: expect.objectContaining({ kind: "spec-defect" }) }),
 		]);
+	});
+
+	it.each([
+		["Scenario: An empty amend_text drops the amendment", HOST, "", "amendment dropped: amend_text is empty"],
+		["a whitespace-only amend_text drops the amendment", HOST, "  \n", "amendment dropped: amend_text is empty"],
+		["an empty amend_path drops the amendment", "", "## MODIFIED Requirements\n", "amendment dropped: amend_path is empty"],
+	])("%s", async (_name, amendPath, amendText, note) => {
+		const r = await runAmending([verdict(false, "x", "amend-spec", "Amend?", { amend_path: amendPath, amend_text: amendText })]);
+		const again = await waitForTaskLoopResult(r.harness, r.id, context);
+		await r.harness.close(context);
+		expect(r.outcome.status).toBe("blocked");
+		if (r.outcome.status !== "blocked") return;
+		expect(r.outcome.iterations[0]?.feedback[0]?.from.kind).toBe("spec-defect");
+		expect(r.outcome.escalation.amendment).toBeUndefined();
+		expect(again.notes).toContain(note);
 	});
 
 	it("an ask verdict blocks with a needs-decision finding, to the configured recipient", async () => {

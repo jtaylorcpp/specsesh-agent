@@ -190,9 +190,9 @@ setTimeout(() => {
 			const next = queue.shift() || "met";
 			fs.writeFileSync(file, JSON.stringify(queue));
 			structured =
-				next === "met" ? { met: true, unmet: "", next_action: "retry", question: "" }
-				: next === "ask" ? { met: false, unmet: "two ways", next_action: "ask", question: "Which way?" }
-				: { met: false, unmet: "not yet", next_action: "retry", question: "" };
+				next === "met" ? { met: true, unmet: "", next_action: "retry", question: "", amend_path: "", amend_text: "" }
+				: next === "ask" ? { met: false, unmet: "two ways", next_action: "ask", question: "Which way?", amend_path: "", amend_text: "" }
+				: { met: false, unmet: "not yet", next_action: "retry", question: "", amend_path: "", amend_text: "" };
 		}
 		out = { type: "result", is_error: false, result: "", structured_output: structured };
 	} else {
@@ -228,7 +228,7 @@ if (schemaAt >= 0) {
 	const schema = JSON.parse(argv[schemaAt + 1]);
 	const structured = !("next_action" in (schema.properties || {}))
 		? { plan: "write the file" }
-		: { met: true, unmet: "", next_action: "retry", question: "" };
+		: { met: true, unmet: "", next_action: "retry", question: "", amend_path: "", amend_text: "" };
 	out = { type: "result", is_error: false, result: "", structured_output: structured };
 } else {
 	const file = path.join(__dirname, "files.json");

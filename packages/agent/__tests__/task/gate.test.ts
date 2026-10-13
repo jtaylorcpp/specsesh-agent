@@ -44,7 +44,7 @@ const rounds = (workspace: string) => {
 	return existsSync(file) ? readFileSync(file, "utf8").split("\n").length - 1 : 0;
 };
 
-const MET: IterationRead = { ok: true, plan: "", actions: [], evidence: [], met: true, unmet: "", nextAction: "retry", question: "" };
+const MET: IterationRead = { ok: true, plan: "", actions: [], evidence: [], met: true, unmet: "", nextAction: "retry", question: "", amendPath: "", amendText: "" };
 
 function loopInput(checks: string[]): TaskLoopInput {
 	return {

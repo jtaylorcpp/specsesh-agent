@@ -36,7 +36,8 @@ export function prepareTaskLoop(options: TaskLoopOptions): TaskLoopInput {
 	const change = readChange(options.change);
 	const taskText = findTask(change.tasks, options.task, change.tasksLabel);
 
-	checkContract(script);
+	const deltas = concatDeltas(change.deltas);
+	checkContract(script, deltas);
 	// The whole document, as a run would check it: parse, lint, subset, entries.
 	start(script, { entry: subagentsOf(script) });
 	const checks = [...(options.checks ?? [])];
@@ -48,7 +49,7 @@ export function prepareTaskLoop(options: TaskLoopOptions): TaskLoopInput {
 		taskText,
 		proposal: change.proposal,
 		design: change.design,
-		deltas: concatDeltas(change.deltas),
+		deltas,
 		...(change.tasksPath !== undefined ? { tasksPath: change.tasksPath } : {}),
 		script,
 		workspace: options.workspace,

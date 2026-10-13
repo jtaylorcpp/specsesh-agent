@@ -121,6 +121,7 @@ const FIXTURES: Record<string, { valid: unknown; invalid: unknown; args?: TSchem
 	Recipient: { valid: "agent", invalid: "ci" },
 	LoopLevel: { valid: "group", invalid: "step" },
 	Escalation: { valid: ESCALATION, invalid: { ...ESCALATION, question: "" } },
+	Amendment: { valid: { delta: "specs/durable/host/spec.md", text: "t" }, invalid: { delta: "specs/durable/host/spec.md" } },
 	EscalationAnswer: { valid: { escalation: ESCALATION, by: "principal", decision: "d", feedback: [] }, invalid: { escalation: ESCALATION, by: "agent", decision: "d", feedback: [] } },
 	Iteration: { valid: metIteration(1), invalid: { ...unmetIteration(1), feedback: [] } },
 	LoopInput: { args: [openspec.Task], valid: LOOP_INPUT, invalid: { ...LOOP_INPUT, budget: { maxIterations: 0 } } },

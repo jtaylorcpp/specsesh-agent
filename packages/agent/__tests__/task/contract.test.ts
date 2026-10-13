@@ -75,6 +75,14 @@ describe("task/agent: The script declares the variables the loop reads back", ()
 		expect(r.outcome.iterations[0]?.verdict.met).toBe(true);
 		expect(r.outcome.status).toBe("converged");
 	});
+
+	it("Scenario: A script missing amend_path is refused", async () => {
+		const { error, requests, tasks } = await refused(judgeOnlyWith(['    amend_path: mutable string = ""\n', ""]));
+		expect(error?.message).toContain("amend_path");
+		expect(error?.message).toContain("string");
+		expect(requests).toHaveLength(0);
+		expect(tasks).toEqual([]);
+	});
 });
 
 /** Start a loop of `script`, expecting a refusal; returns its message, the model requests and the tasks created. */
@@ -117,6 +125,16 @@ describe("task/agent: The contract is checked before anything runs", () => {
 		expect(error?.message).toContain("next_action");
 		expect(error?.message).toContain('"proceed"');
 		expect(error?.message).toContain('"retry", "amend-spec", "ask"');
+		expect(requests).toHaveLength(0);
+		expect(tasks).toEqual([]);
+	});
+
+	it("refuses an amend_path default outside its values", async () => {
+		const { error, requests, tasks } = await refused(
+			judgeOnlyWith(['    amend_path: mutable string = ""\n', '    amend_path: mutable string = "x"\n']),
+		);
+		expect(error?.message).toContain("amend_path");
+		expect(error?.message).toContain('"x"');
 		expect(requests).toHaveLength(0);
 		expect(tasks).toEqual([]);
 	});

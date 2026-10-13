@@ -73,7 +73,7 @@ export async function prepareChangeLoop(options: ChangeLoopOptions): Promise<Cha
 	checkGroupContract(input.groupScript);
 	start(input.groupScript, { entry: subagentsOf(input.groupScript) });
 	// The grandchildren are task loops, so the task script keeps the task-script contract.
-	checkContract(input.script);
+	checkContract(input.script, input.deltas);
 	start(input.script, { entry: subagentsOf(input.script) });
 	checkBindings(
 		input.script,

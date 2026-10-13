@@ -46,13 +46,20 @@ export function judgeIteration(input: TaskLoopInput, iterations: readonly Iterat
 		case "converged":
 			return { kind: "converged", iterations: all };
 		case "blocked": {
-			const escalation: Escalation = {
+			let escalation: Escalation = {
 				level: "task",
 				to: input.escalateTo,
 				reason: read.unmet,
 				question: read.question || read.unmet || `How should task ${input.task} proceed?`,
 			};
-			return { kind: "end", outcome: { status: "blocked", iterations: all, escalation }, notes: [] };
+			const notes: string[] = [];
+			// Only `amend-spec` carries an amendment; the path is checked before the text, so one note at most.
+			if (read.nextAction === "amend-spec") {
+				if (read.amendPath === "") notes.push("amendment dropped: amend_path is empty");
+				else if (read.amendText.trim() === "") notes.push("amendment dropped: amend_text is empty");
+				else escalation = { ...escalation, amendment: { delta: read.amendPath, text: read.amendText } };
+			}
+			return { kind: "end", outcome: { status: "blocked", iterations: all, escalation }, notes };
 		}
 		default:
 			return { kind: "end", outcome: { status, iterations: all }, notes: [] };

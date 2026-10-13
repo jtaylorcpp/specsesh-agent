@@ -148,7 +148,7 @@ if (schemaAt >= 0) {
 		}
 		out = { type: "result", is_error: false, result: "", structured_output: { plan: "plan for " + task } };
 	} else {
-		out = { type: "result", is_error: false, result: "", structured_output: { met: true, unmet: "", next_action: "retry", question: "" } };
+		out = { type: "result", is_error: false, result: "", structured_output: { met: true, unmet: "", next_action: "retry", question: "", amend_path: "", amend_text: "" } };
 	}
 } else {
 	const task = /plan for (\\d+\\.\\d+)/.exec(text)?.[1];

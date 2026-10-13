@@ -69,14 +69,44 @@ export type Recipient = Static<typeof Recipient>;
 export const LoopLevel = literals("task", "group", "change");
 export type LoopLevel = Static<typeof LoopLevel>;
 
-export const Escalation = closed({ level: LoopLevel, to: Recipient, reason: Type.String(), question: Name() });
+/**
+ * A proposed spec change: `delta` is relative to the change directory, as
+ * `specs/<capability>/spec.md`, and `text` is that file's full new text.
+ */
+export const Amendment = closed({ delta: Name(), text: Type.String() });
+export type Amendment = Static<typeof Amendment>;
+
+/** Only an escalation raised by `amend-spec` feedback may carry `amendment`. */
+export const Escalation = closed({
+	level: LoopLevel,
+	to: Recipient,
+	reason: Type.String(),
+	question: Name(),
+	amendment: Type.Optional(Amendment),
+});
 export type Escalation = Static<typeof Escalation>;
 
-/** Only the escalation's named recipient may answer it. */
+/** The reserved decision: the principal applied the escalation's `amendment`. */
+export const AMENDMENT_APPLIED = "amendment-applied";
+
+/** Why `answer` is refused, or `undefined` when it may be given. */
+function answerRefusal(answer: { escalation: Escalation; by: Recipient; decision: string }): string | undefined {
+	if (answer.by !== answer.escalation.to) return `the escalation goes to the ${answer.escalation.to}, not the ${answer.by}`;
+	if (answer.decision !== AMENDMENT_APPLIED) return undefined;
+	if (answer.escalation.amendment === undefined) return `the escalation has no amendment to apply`;
+	if (answer.by !== "principal") return `only the principal applies an amendment`;
+	return undefined;
+}
+
+/**
+ * Only the escalation's named recipient may answer it. `decision` is free text,
+ * except `"amendment-applied"` (`AMENDMENT_APPLIED`), which needs the
+ * escalation's `amendment` and an answer by the principal.
+ */
 export const EscalationAnswer = Type.Refine(
 	closed({ escalation: Escalation, by: Recipient, decision: Type.String(), feedback: Type.Array(Feedback) }),
-	(answer) => answer.by === answer.escalation.to,
-	(answer) => `the escalation goes to the ${answer.escalation.to}, not the ${answer.by}`,
+	(answer) => answerRefusal(answer) === undefined,
+	(answer) => answerRefusal(answer)!,
 );
 export type EscalationAnswer = Static<typeof EscalationAnswer>;
 
@@ -238,16 +268,16 @@ export function handedUp<Out>(outcome: LoopOutcome<Out>): Feedback[] {
 
 /**
  * The input of a blocked loop's next run: the same goal, with the answer's
- * feedback added to `carried`. Refuses an answer from anyone but the
- * escalation's recipient. The earlier run's outcome is not touched.
+ * feedback added to `carried`. Refuses an answer `EscalationAnswer` refuses:
+ * one from anyone but the escalation's recipient, or an `"amendment-applied"`
+ * with no amendment or not by the principal. The earlier run's outcome is not touched.
  */
 export function resume<Goal>(
 	input: LoopInput<Goal>,
 	answer: EscalationAnswer,
 ): { ok: true; value: LoopInput<Goal> } | { ok: false; reason: string } {
-	if (answer.by !== answer.escalation.to) {
-		return { ok: false, reason: `the escalation goes to the ${answer.escalation.to}, not the ${answer.by}` };
-	}
+	const reason = answerRefusal(answer);
+	if (reason !== undefined) return { ok: false, reason };
 	return { ok: true, value: { ...input, carried: [...input.carried, ...answer.feedback] } };
 }
 

@@ -9,6 +9,7 @@
 import type { Context } from "@earendil-works/chord";
 import type { Harness, TaskId } from "@earendil-works/pi-durable";
 import {
+	AMENDMENT_APPLIED,
 	EscalationAnswer,
 	LoopOutcome,
 	TaskOutcome,
@@ -63,8 +64,10 @@ function readResult(value: unknown, id: unknown): { outcome: LoopOutcome<TaskOut
 
 /**
  * Answer a blocked loop's escalation. Accepted only for a loop that ended
- * `blocked`, from the escalation's recipient; otherwise rejects with
- * `EscalationAnswerError` and changes nothing. Returns the new run's ID.
+ * `blocked`, from the escalation's recipient, and for `"amendment-applied"`
+ * only from the principal on an escalation with an amendment; otherwise
+ * rejects with `EscalationAnswerError` and changes nothing. Returns the new
+ * run's ID.
  */
 export async function answerEscalation(
 	harness: Harness,
@@ -91,10 +94,28 @@ export async function answerEscalation(
 	if (!check(EscalationAnswer, answer)) {
 		throw new EscalationAnswerError(`the answer is not an EscalationAnswer: ${explain(EscalationAnswer, answer).join("; ")}`);
 	}
+	// The amendment rule is judged against the escalation the loop stored, not the answer's copy.
+	const stored = { ...answer, escalation };
+	if (!check(EscalationAnswer, stored)) {
+		throw new EscalationAnswerError(`the answer to task loop ${id} is refused: ${explain(EscalationAnswer, stored).join("; ")}`);
+	}
 	const input = record.input as unknown as TaskLoopInput;
 	return createLoop(
 		harness,
-		{ ...input, carried: answer.decision, earlier: outcome.iterations, answers: id as unknown as number, escalation },
+		{ ...input, carried: carriedFor(stored), earlier: outcome.iterations, answers: id as unknown as number, escalation },
 		context,
 	);
+}
+
+/**
+ * The decision, or for `"amendment-applied"` the amendment's delta and its full new text,
+ * then each feedback item's finding message, as the loop carries a finding (`openspec/loops`).
+ */
+function carriedFor({ escalation, decision, feedback }: EscalationAnswer): string {
+	const amendment = escalation.amendment;
+	const head =
+		decision !== AMENDMENT_APPLIED || amendment === undefined
+			? decision
+			: `The principal applied your amendment to ${amendment.delta}. That delta now reads:\n\n${amendment.text}`;
+	return [head, ...feedback.map((item) => item.from.message)].join("\n\n");
 }

@@ -103,6 +103,8 @@ variables:
     unmet: mutable string = ""
     next_action: mutable string = "retry"
     question: mutable string = ""
+    amend_path: mutable string = ""
+    amend_text: mutable string = ""
 
 subagent judge:
     description: "Judge the task"
@@ -160,8 +162,14 @@ export const judgeOnlyWith = (replace: [string, string]) => JUDGE_ONLY.replace(r
 const submit = (args: Record<string, string | boolean>) =>
 	fauxAssistantMessage([fauxToolCall(RESULT_TOOL, args)], { stopReason: "toolUse" });
 
-export const verdict = (met: boolean, unmet = "", nextAction = "retry", question = "") =>
-	submit({ met, unmet, next_action: nextAction, question });
+/** A judge's answer with every task.agent field; `amend_path` and `amend_text` are empty unless overridden. */
+export const verdict = (
+	met: boolean,
+	unmet = "",
+	nextAction = "retry",
+	question = "",
+	overrides: { amend_path?: string; amend_text?: string } = {},
+) => submit({ met, unmet, next_action: nextAction, question, amend_path: "", amend_text: "", ...overrides });
 export const plan = (text: string) => submit({ plan: text });
 export const toolCall = (name: string, args: Record<string, string>) =>
 	fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });

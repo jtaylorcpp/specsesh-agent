@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { apply, applyAction, next, start, type ReasoningRequest, type VariableValue } from "../../src/interpreter/index.js";
-import { SCRIPTS } from "./helpers.js";
+import { BUNDLED_SCRIPTS } from "../../src/task/index.js";
+import { SCRIPTS, cleanTemps, context, fakePnpm, plan, runLoop, text, tinyChange, verdict } from "./helpers.js";
+
+afterEach(cleanTemps);
 
 const TASK_VARIABLES: Record<string, VariableValue> = {
 	task_id: "2.4",
@@ -73,12 +76,67 @@ function composeJudge(source: string, variables: Record<string, VariableValue>):
 	throw new Error("no judge step within 50 steps");
 }
 
+type Offered = { name: string; parameters?: { properties?: Record<string, Record<string, unknown>> } };
+
+/**
+ * Run the bundled task.agent over `change` to one met verdict, and return the
+ * properties of the first `submit_result` offered with `next_action`: the judge's.
+ */
+async function dispatchJudge(change: string = tinyChange()): Promise<Record<string, Record<string, unknown>>> {
+	const restore = fakePnpm();
+	try {
+		const r = await runLoop([plan("p"), text("Done."), verdict(true)], {
+			change: { dir: change },
+			script: { path: BUNDLED_SCRIPTS.task.pathname },
+			checks: ["pnpm test"],
+			allow: ["pnpm"],
+		});
+		await r.harness.close(context);
+		expect(r.outcome.status).toBe("converged");
+		const judge = r.env.requests
+			.flatMap((request) =>
+				(request.messages as unknown as { role: string; toolsAdded?: Offered[] }[])
+					.filter((m) => m.role === "system")
+					.flatMap((m) => m.toolsAdded ?? []),
+			)
+			.find((t) => t.name === "submit_result" && t.parameters?.properties?.["next_action"] !== undefined);
+		if (judge?.parameters?.properties === undefined) throw new Error("no judge step was dispatched");
+		return judge.parameters.properties;
+	} finally {
+		restore();
+	}
+}
+
 describe.each(["task.agent", "task-delegate.agent"])("task/agent: The judge defaults to retry (%s)", (name) => {
 	it("Scenario: The judge prompt says retry is the default", () => {
 		const { prompt } = composeJudge(read(name), TASK_VARIABLES);
 		expect(prompt).toContain("It is done only when the checks pass");
 		expect(prompt).toContain("Default to retry");
 		expect(prompt).toContain("Answer next_action with exactly one word");
+	});
+});
+
+describe.each(["task.agent", "task-delegate.agent"])("task/agent: The script declares the variables the loop reads back (%s)", (name) => {
+	it("Scenario: The judge prompt asks for the whole file", () => {
+		const { prompt } = composeJudge(read(name), TASK_VARIABLES);
+		expect(prompt).toContain("set amend_path to the delta that is wrong");
+		expect(prompt).toContain("the whole new text of that file, not a patch");
+		expect(prompt).toContain("leave both empty");
+	});
+});
+
+describe("task/agent: The loop constrains next_action to its contract values", () => {
+	it("Scenario: The judge step's schema lists the three values", async () => {
+		const properties = await dispatchJudge();
+		expect(properties["next_action"]).toEqual({ type: "string", enum: ["retry", "amend-spec", "ask"] });
+	});
+
+	it("Scenario: The judge step's schema lists the change's deltas", async () => {
+		// Written host first: the choices follow the sorted deltas, not the file system.
+		const properties = await dispatchJudge(tinyChange({ capabilities: ["durable/host", "durable/cli"] }));
+		expect(properties["amend_path"]?.["enum"]).toEqual(["", "specs/durable/cli/spec.md", "specs/durable/host/spec.md"]);
+		expect(properties["amend_text"]?.["type"]).toBe("string");
+		expect(properties["amend_text"]).not.toHaveProperty("enum");
 	});
 });
 

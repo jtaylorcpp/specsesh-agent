@@ -40,7 +40,7 @@ import {
 } from "../durable/index.js";
 import { defaultRunners, localWorkspace } from "../node/index.js";
 import { LoopOutcome, TaskOutcome, check, explain, outcomeStatus, type Finding, type Iteration } from "../openspec/index.js";
-import { NEXT_ACTIONS } from "./contract.js";
+import { contractChoices } from "./contract.js";
 import { checkEvidence, runLoopChecks } from "./checks.js";
 import { readRun, recordIteration, taskTarget } from "./iteration.js";
 import { judgeIteration } from "./judge.js";
@@ -63,6 +63,8 @@ export function seededVariables(input: TaskLoopInput, n: number, carried: string
 		carried,
 	};
 }
+
+export { amendPathChoices } from "./contract.js";
 
 /** Every subagent the script declares, in source order. */
 export function subagentsOf(script: string): string[] {
@@ -159,7 +161,7 @@ export const TaskLoopTask: Task<TaskLoopInput, LoopCheckpoint, TaskLoopResult, o
 				options: {
 					entry: subagentsOf(input.script),
 					variables: seededVariables(input, iterations.length + 1, carried),
-					choices: { next_action: [...NEXT_ACTIONS] },
+					choices: contractChoices(input.deltas),
 				},
 				...(input.model !== undefined ? { model: input.model } : {}),
 			};

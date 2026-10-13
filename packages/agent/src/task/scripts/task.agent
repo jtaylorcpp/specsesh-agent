@@ -38,6 +38,10 @@ variables:
         description: "retry, amend-spec or ask"
     question: mutable string = ""
         description: "the question to escalate when next_action is ask or amend-spec"
+    amend_path: mutable string = ""
+        description: "the delta to replace when next_action is amend-spec"
+    amend_text: mutable string = ""
+        description: "the whole new text of that delta when next_action is amend-spec"
 
 subagent orient:
     description: "Plan this iteration"
@@ -131,7 +135,10 @@ subagent judge:
             | Choose next_action. Default to retry: keep iterating until the checks pass. A change outside this task's files is allowed when the spec deltas already require it and the checks need it.
             | Choose amend-spec only when the spec deltas themselves contradict each other or the code they describe. Choose ask only for a decision that no passing check could settle.
             | Answer next_action with exactly one word: retry, amend-spec or ask. Put every explanation in unmet, never in next_action.
+            | When next_action is amend-spec, set amend_path to the delta that is wrong, exactly as listed, and set amend_text to the whole new text of that file, not a patch. For any other next_action, leave both empty.
             set @variables.met = @outputs.met
             set @variables.unmet = @outputs.unmet
             set @variables.next_action = @outputs.next_action
             set @variables.question = @outputs.question
+            set @variables.amend_path = @outputs.amend_path
+            set @variables.amend_text = @outputs.amend_text

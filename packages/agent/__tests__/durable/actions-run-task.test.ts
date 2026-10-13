@@ -466,7 +466,7 @@ describe("the default task scripts, end to end on a faux model", () => {
 					workspace,
 				);
 				const judge = fauxAssistantMessage(
-					[fauxToolCall("submit_result", { met: true, unmet: "", next_action: "retry", question: "" })],
+					[fauxToolCall("submit_result", { met: true, unmet: "", next_action: "retry", question: "", amend_path: "", amend_text: "" })],
 					{ stopReason: "toolUse" },
 				);
 				const plan = fauxAssistantMessage([fauxToolCall("submit_result", { plan: "write src/a.ts" })], { stopReason: "toolUse" });
