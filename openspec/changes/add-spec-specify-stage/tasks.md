@@ -10,8 +10,8 @@
 
 ## 2. Tests
 
-- [ ] 2.1 `packages/agent/__tests__/task/stages/specs-gate.test.ts`: "An OpenSpec error reaches the next draft", "openspec is missing", "A delta for an unnamed capability" and "A new capability without a Purpose" (4), with a fake `openspec` on `PATH`
-- [ ] 2.2 `packages/agent/__tests__/task/stages/specs-stage.test.ts`: "The specs stage sees the mock and examples", "Seventeen scenarios are sent back", "The design follows the proposal" and "The bundled specify script fits the contract" (4)
+- [x] 2.1 `packages/agent/__tests__/task/stages/specs-gate.test.ts`: "An OpenSpec error reaches the next draft", "openspec is missing", "A delta for an unnamed capability" and "A new capability without a Purpose" (4), with a fake `openspec` on `PATH`
+- [x] 2.2 `packages/agent/__tests__/task/stages/specs-stage.test.ts`: "The specs stage sees the mock and examples", "Seventeen scenarios are sent back", "The design follows the proposal" and "The bundled specify script fits the contract" (4)
 
 ## 3. Verify
 

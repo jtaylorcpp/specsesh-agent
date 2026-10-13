@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { localWorkspace } from "../../../src/node/index.js";
+import type { StageContext } from "../../../src/task/spec-stage.js";
 import type { Delta } from "../../../src/task/stages/openspec-cli.js";
+import { specsGate } from "../../../src/task/stages/specs.js";
 import { asChange, coverageIssues, deltaCapabilities, notTasks, specsSizeIssues } from "../../../src/task/stages/specs-gate.js";
+import { cleanTemps, temp } from "../helpers.js";
+
+afterEach(cleanTemps);
 
 const SCENARIO = { name: "S", clauses: [] };
 const delta = (spec: string, operation: Delta["operation"], scenarios = 1): Delta => ({
@@ -74,5 +82,112 @@ describe("specsSizeIssues", () => {
 		expect(messages).toEqual([expect.stringMatching(/^3 capabilities/), expect.stringMatching(/^9 requirements/)]);
 		expect(notTasks({ level: "WARNING", path: "tasks.md", message: "13 tasks" })).toBe(false);
 		expect(notTasks({ level: "WARNING", path: "specs", message: "17 scenarios" })).toBe(true);
+	});
+});
+
+const CHANGE = "add-thing";
+
+const proposal = (capabilities: string) =>
+	["Why", "What Changes", "Out of scope", "Capabilities", "Impact"]
+		.map((heading) => `## ${heading}\n\n${heading === "Capabilities" ? capabilities : `- ${heading} text.\n`}`)
+		.join("\n");
+
+/** A workspace holding `CHANGE` with `proposal.md` approved as given. */
+function changeWorkspace(proposalMd: string): { workspace: string; changeDir: string } {
+	const workspace = temp("specs-gate-");
+	const changeDir = join(workspace, "openspec", "changes", CHANGE);
+	mkdirSync(changeDir, { recursive: true });
+	writeFileSync(join(changeDir, "proposal.md"), proposalMd);
+	return { workspace, changeDir };
+}
+
+/**
+ * A directory holding an `openspec` script that logs `$OPENSPEC_TELEMETRY $*` to `calls.log`
+ * and prints the given JSON for `validate` (exiting 1 when it reports an issue, as OpenSpec
+ * does) or `show`.
+ */
+function fakeOpenspec(validate: unknown, show: unknown): string {
+	const dir = temp("fake-openspec-");
+	writeFileSync(join(dir, "validate.json"), JSON.stringify(validate));
+	writeFileSync(join(dir, "show.json"), JSON.stringify(show));
+	const invalid = JSON.stringify(validate).includes('"valid":false') ? 1 : 0;
+	const script = [
+		"#!/bin/sh",
+		`printf '%s %s\\n' "$OPENSPEC_TELEMETRY" "$*" >> '${dir}/calls.log'`,
+		'case "$1" in',
+		`  validate) cat '${dir}/validate.json'; exit ${invalid} ;;`,
+		`  show) cat '${dir}/show.json' ;;`,
+		"esac",
+		"",
+	].join("\n");
+	writeFileSync(join(dir, "openspec"), script, { mode: 0o755 });
+	return dir;
+}
+
+/** A `StageContext` whose `run` is the spec loop's: `localWorkspace` exec, here with `path` as `PATH`. */
+function gateContext(proposalMd: string, files: Record<string, string>, path: string): StageContext {
+	const { workspace, changeDir } = changeWorkspace(proposalMd);
+	const exec = localWorkspace(workspace).exec;
+	return {
+		changeId: CHANGE,
+		workspace,
+		changeDir,
+		files,
+		run: async (argv) => {
+			const command = argv.join(" ");
+			const ran = await exec!(argv, { timeoutMs: 30_000, env: { ...(process.env as Record<string, string>), PATH: path } });
+			if (ran.kind === "exited") return { command, exitCode: ran.code, output: ran.stdout + ran.stderr };
+			if (ran.kind === "timed-out") return { command, exitCode: -1, output: `${ran.stdout}${ran.stderr}\n(timed out)` };
+			return { command, exitCode: 127, output: `(could not start: ${ran.message})` };
+		},
+	};
+}
+
+const onPath = (dir: string) => `${dir}:${process.env["PATH"] ?? ""}`;
+const validated = (issues: unknown[] = []) => ({ items: [{ id: CHANGE, valid: issues.length === 0, issues }] });
+const shown = (...specs: string[]) => ({
+	deltas: specs.map((spec) => ({ spec, operation: "MODIFIED", requirement: { name: spec, text: "It SHALL.", scenarios: [{ rawText: "S" }] } })),
+});
+const MODIFIED_DELTA = "## MODIFIED Requirements\n\n### Requirement: It runs\nIt SHALL run.\n\n#### Scenario: S\n- **WHEN** x\n- **THEN** y\n";
+
+describe.skipIf(process.platform === "win32")("specsGate, with a fake openspec on PATH", () => {
+	it("Scenario: An OpenSpec error reaches the next draft", async () => {
+		const issue = { level: "ERROR", path: "specs/plan/export/spec.md", message: "Requirement must have at least one scenario" };
+		const fake = fakeOpenspec(validated([issue]), shown("plan/export"));
+		const files = { "specs/plan/export/spec.md": MODIFIED_DELTA };
+		const issues = await specsGate(gateContext(proposal("- **Modified:** `plan/export`\n"), files, onPath(fake)));
+		expect(issues).toEqual([issue]);
+		expect(readFileSync(join(fake, "calls.log"), "utf8")).toBe(`0 validate ${CHANGE} --strict --json\n0 show ${CHANGE} --json --deltas-only\n`);
+	});
+
+	it("Scenario: openspec is missing", async () => {
+		const bin = temp("no-openspec-");
+		symlinkSync("/usr/bin/env", join(bin, "env"));
+		const files = { "specs/task/cli/spec.md": MODIFIED_DELTA };
+		const issues = await specsGate(gateContext(proposal("- **Modified:** `task/cli`\n"), files, bin));
+		expect(issues).toEqual([{ level: "ERROR", path: ".", message: expect.stringContaining("`openspec validate`") }]);
+	});
+
+	it("reports the same one ERROR when even env cannot be spawned", async () => {
+		const files = { "specs/task/cli/spec.md": MODIFIED_DELTA };
+		const issues = await specsGate(gateContext(proposal("- **Modified:** `task/cli`\n"), files, temp("empty-path-")));
+		expect(issues).toEqual([{ level: "ERROR", path: ".", message: expect.stringContaining("`openspec validate`") }]);
+	});
+
+	it("Scenario: A delta for an unnamed capability", async () => {
+		const fake = fakeOpenspec(validated(), shown("task/cli", "task/group"));
+		const files = { "specs/task/cli/spec.md": MODIFIED_DELTA, "specs/task/group/spec.md": MODIFIED_DELTA };
+		const issues = await specsGate(gateContext(proposal("- **Modified:** `task/cli`\n"), files, onPath(fake)));
+		expect(issues).toEqual([{ level: "ERROR", path: "specs/task/group/spec.md", message: expect.stringContaining("`task/group`") }]);
+	});
+
+	it("Scenario: A new capability without a Purpose", async () => {
+		const fake = fakeOpenspec(validated(), {
+			deltas: [{ spec: "spec/export", operation: "ADDED", requirement: { name: "Export", text: "It SHALL export.", scenarios: [{ rawText: "S" }] } }],
+		});
+		const delta = "## ADDED Requirements\n\n### Requirement: Export\nIt SHALL export.\n\n#### Scenario: S\n- **WHEN** x\n- **THEN** y\n";
+		const issues = await specsGate(gateContext(proposal("- **New:** `spec/export`\n"), { "specs/spec/export/spec.md": delta }, onPath(fake)));
+		expect(issues).toEqual([{ level: "ERROR", path: "specs/spec/export/spec.md", message: expect.stringContaining("`spec/export`") }]);
+		expect(issues[0]?.message).toContain("## Purpose");
 	});
 });
