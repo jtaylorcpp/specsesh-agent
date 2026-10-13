@@ -5,6 +5,7 @@
  * `slices.md` when the draft slices the intent, and the capability budget.
  */
 
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type Proposal, proposalSizeIssues } from "../../openspec/index.js";
 import { BUNDLED_SCRIPTS } from "../options.js";
@@ -77,7 +78,7 @@ export const proposalStage: SpecStage = {
 	owns: [PROPOSAL, SLICES],
 	script: { path: fileURLToPath(BUNDLED_SCRIPTS.specProposal) },
 	seed: async ({ workspace }) => ({ base: await capabilityLines(workspace) }),
-	gate: async ({ workspace, changeId, files }) => {
+	gate: async ({ workspace, changeId, changeDir, files }) => {
 		const markdown = files[PROPOSAL] ?? "";
 		const size = proposalSizeIssues(asProposal(markdown));
 		const slices = files[SLICES];
@@ -86,7 +87,7 @@ export const proposalStage: SpecStage = {
 			...capabilityIssues(readProposalCapabilities(markdown), await existingCapabilities(workspace)),
 			...(slices === undefined
 				? size.map(withHint("Write slices.md: one line per small change, this one first"))
-				: [...sliceIssues(readSlices(slices), changeId, await existingChanges(workspace)), ...size]),
+				: [...sliceIssues(readSlices(slices), changeId, await existingChanges(dirname(changeDir))), ...size]),
 		];
 	},
 };

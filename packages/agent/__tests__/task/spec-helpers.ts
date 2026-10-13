@@ -94,6 +94,7 @@ export async function startBare(
 		approved: [],
 		budget: { maxIterations: 8 },
 		escalateTo: "principal",
+		changesDir: join(input.workspace, "openspec", "changes"),
 		...input,
 	};
 	return owner.commit((tx) => tx.createTask(task, full, { ownership: { kind: "conversation" } }), context);

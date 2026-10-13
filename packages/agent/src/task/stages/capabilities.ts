@@ -2,7 +2,7 @@
  * The capabilities a repo already has: every `openspec/specs/<area>/<name>/spec.md`,
  * by path, and each one's `## Purpose` paragraph. The proposal stage seeds `base`
  * with these lines and its gate checks named paths against them. Also the change ids
- * already used under `openspec/changes/`, active or archived.
+ * already used under the config's `changesDir`, active or archived.
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -39,9 +39,8 @@ function subdirectories(dir: string): string[] {
 	}
 }
 
-/** Every change id already used under `<workspace>/openspec/changes/`, active or archived (its `YYYY-MM-DD-` prefix removed). */
-export async function existingChanges(workspace: string): Promise<Set<string>> {
-	const changes = join(workspace, "openspec", "changes");
+/** Every change id already used under `changes` (the config's `changesDir`), active or archived (its `YYYY-MM-DD-` prefix removed). */
+export async function existingChanges(changes: string): Promise<Set<string>> {
 	const ids = new Set(subdirectories(changes).filter((name) => name !== "archive"));
 	for (const name of subdirectories(join(changes, "archive"))) ids.add(name.replace(ARCHIVE_DATE, ""));
 	return ids;

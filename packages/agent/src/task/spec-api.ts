@@ -33,13 +33,15 @@ import {
 import { stageContractProblems, type SpecStage } from "./spec-stage.js";
 
 export interface SpecLoopOptions {
-	/** The change's id: its directory is `<workspace>/openspec/changes/<change>`. */
+	/** The change's id: its directory is `<changesDir>/<change>`. */
 	readonly change: string;
 	readonly stage: SpecStage;
 	/** What the change is for, in the principal's words. */
 	readonly intent: string;
 	/** The repo root, where `openspec/` lives. Made absolute. */
 	readonly workspace: string;
+	/** The directory holding the change directories: the config's `changesDir`. Made absolute. */
+	readonly changesDir: string;
 	/** The owned paths of the stages already approved, seeded as `approved`. Defaults to none. */
 	readonly approved?: readonly string[];
 	readonly budget?: { readonly maxIterations: number };
@@ -92,6 +94,7 @@ export function prepareSpecLoop(options: SpecLoopOptions): SpecLoopInput {
 		script,
 		intent: options.intent,
 		workspace: resolve(options.workspace),
+		changesDir: resolve(options.changesDir),
 		approved: [...(options.approved ?? [])],
 		budget: { maxIterations },
 		escalateTo: options.escalateTo ?? DEFAULT_ESCALATE_TO,
@@ -105,7 +108,7 @@ export function prepareSpecLoop(options: SpecLoopOptions): SpecLoopInput {
  */
 function assertAfterApproved(options: SpecLoopOptions): void {
 	if ((options.stage.after ?? []).length === 0) return;
-	const changeDir = join(resolve(options.workspace), "openspec", "changes", options.change);
+	const changeDir = join(resolve(options.changesDir), options.change);
 	let stale;
 	try {
 		stale = staleApprovals(options.stage, changeDir);

@@ -9,7 +9,7 @@ A built change still ends with `pnpm spec:archive <change>`, a script that exist
   - It folds safely, the way `scripts/spec-archive.mjs` does. It validates the change, folds it into a temporary copy of `openspec/` and validates the merged specs, and only then runs `openspec archive <change> --yes` for real. `OPENSPEC_TELEMETRY=0` is set throughout.
   - It prints the capabilities it folded into and where the change moved, and ends with the commit command. It doesn't commit.
 - **A built change points at `pnpm change close <change>`.**
-- **The package ships four bins.** The distribution spec and the README name `agentscript-change`.
+- **The README names the fourth bin**, `agentscript-change` (the bin itself lands in `add-change-draft`).
 
 ## Out of scope
 

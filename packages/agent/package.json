@@ -48,7 +48,8 @@
   "bin": {
     "agentscript-pi": "./dist/bin/agentscript-pi.js",
     "agentscript-durable": "./dist/bin/agentscript-durable.js",
-    "agentscript-task": "./dist/bin/agentscript-task.js"
+    "agentscript-task": "./dist/bin/agentscript-task.js",
+    "agentscript-change": "./dist/bin/agentscript-change.js"
   },
   "files": [
     "dist",

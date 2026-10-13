@@ -67,6 +67,7 @@ async function host(
 		change: CHANGE,
 		intent: "Export a plan as CSV or JSON",
 		workspace,
+		changesDir: join(workspace, "openspec", "changes"),
 		stages: over,
 		model: env.model,
 		...(maxIterations !== undefined ? { budget: { maxIterations } } : {}),
@@ -109,6 +110,7 @@ describe("spec/draft: The draft loop is one durable task with three phases", () 
 			change: CHANGE,
 			intent: "Export a plan as CSV or JSON",
 			workspace,
+			changesDir: join(workspace, "openspec", "changes"),
 			stages,
 			model,
 		});

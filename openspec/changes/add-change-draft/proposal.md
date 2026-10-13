@@ -14,12 +14,13 @@
 
 ## Out of scope
 
-- `approve`: `add-change-approve`. `build`: `add-change-build`. `close`: `add-change-close`, which also adds the bin to the distribution spec and the README.
+- `approve`: `add-change-approve`. `build`: `add-change-build`. `close`: `add-change-close`, which also names the bin in the README.
 - A listing of every change and its state (`pnpm change` with no change). It's parked.
 
 ## Capabilities
 
 - **New:** `change/cli`.
+- **Modified:** `package/distribution`: the four CLIs are compiled bins.
 
 ## Impact
 

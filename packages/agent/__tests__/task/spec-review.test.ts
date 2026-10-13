@@ -60,7 +60,7 @@ async function withSpecHarness(
 	const blockedOn = (reason: "review" | "question") => async (stage: SpecStage, response: ReturnType<typeof draft>) => {
 		env.faux.setResponses([response]);
 		const approved = stage.after?.includes("proposal") ? ["proposal.md"] : [];
-		const id = await startSpecLoop(harness, { change: CHANGE, stage, intent: "Export the plan", workspace, approved, model: env.model }, context);
+		const id = await startSpecLoop(harness, { change: CHANGE, stage, intent: "Export the plan", workspace, changesDir: join(workspace, "openspec", "changes"), approved, model: env.model }, context);
 		const outcome = await waitForSpecLoop(harness, id, context);
 		expect(outcome).toMatchObject({ status: "blocked", escalation: { reason } });
 		return { id, outcome };

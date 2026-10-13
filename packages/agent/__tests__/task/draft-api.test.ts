@@ -49,7 +49,7 @@ async function host(body: (h: {
 	for (const extension of task.draftLoopExtensions({ workspace, stages })) env.registry.install(extension);
 	const storage = new MemoryStorage();
 	const harness = await openHarness(storage, env);
-	const options: task.DraftLoopOptions = { change: "add-thing", intent: "Make the thing", workspace, stages, model: env.model };
+	const options: task.DraftLoopOptions = { change: "add-thing", intent: "Make the thing", workspace, changesDir: join(workspace, "openspec", "changes"), stages, model: env.model };
 	const count = async (kind: string) => (await storage.scanTasks({ kind }, 100, undefined, context)).items.length;
 	try {
 		await body({ harness, env, changeDir, options, count });

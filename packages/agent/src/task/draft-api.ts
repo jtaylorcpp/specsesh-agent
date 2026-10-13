@@ -45,6 +45,7 @@ export function prepareDraftLoop(options: DraftLoopOptions): DraftLoopInput {
 		})),
 		intent: options.intent,
 		workspace: resolve(options.workspace),
+		changesDir: resolve(options.changesDir),
 		budget: first.budget,
 		escalateTo: first.escalateTo,
 		...(options.model !== undefined ? { model: options.model } : {}),
@@ -114,7 +115,7 @@ export async function waitForDraftLoop(
 }
 
 /** The draft's last spec loop: the one it was waiting on when it ended. A terminal task keeps no checkpoint, so it is found by owner. */
-async function lastSpecLoop(
+export async function lastSpecLoop(
 	harness: Harness,
 	draft: TaskRecord<JsonValue, JsonValue, DraftLoopResult>,
 	context: Context,

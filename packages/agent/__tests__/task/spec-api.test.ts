@@ -43,7 +43,7 @@ describe("spec loop entry points", () => {
 		env.faux.setResponses([draft("=== proposal.md\n## Why\n\nBecause.\n")]);
 		const harness = await openHarness(new MemoryStorage(), env);
 		try {
-			const id = await task.startSpecLoop(harness, { change: "add-thing", stage, intent: "Make the thing", workspace, model: env.model }, context);
+			const id = await task.startSpecLoop(harness, { change: "add-thing", stage, intent: "Make the thing", workspace, changesDir: join(workspace, "openspec", "changes"), model: env.model }, context);
 			harness.resume();
 			const outcome = await task.waitForSpecLoop(harness, id, context);
 

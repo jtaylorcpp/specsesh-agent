@@ -98,7 +98,7 @@ import { DatabaseLockedError, lockDatabase, type DbLock } from "../task/lock.js"
 import { ChangeNotFoundError, nextGroup, nextTask, resolveChange } from "../task/resolve.js";
 import { GROUP_LOOP_NAME, type GroupLoopInput, type GroupLoopResult } from "../task/group.js";
 import { readResult } from "../task/group-api.js";
-import { after, formatSpecOutcome, runSpec, specExitCode, stageScriptLabel, streamSpecEvents } from "../task/spec-cli.js";
+import { after, formatSpecOutcome, runSpec, shownPath, specExitCode, stageScriptLabel, streamSpecEvents } from "../task/spec-cli.js";
 import { changeDirOf } from "../task/spec-loop.js";
 import { changeOf, formatLoop, listLoops, scriptOf } from "../task/status.js";
 import { WorktreeRefusedError, checkWorktree, createWorktree, inRepo, planWorktree, rebase, runSetup } from "../task/worktree.js";
@@ -156,7 +156,8 @@ export function formatGroupOutcome(id: number | string, outcome: LoopOutcome<Gro
 	return lines;
 }
 
-async function builtin(): Promise<Models> {
+/** Every built-in pi-ai provider plus claude-code: the models a CLI runs on by default. */
+export async function builtin(): Promise<Models> {
 	const { builtinModels } = await import("@earendil-works/pi-ai/providers/all");
 	const { claudeCodeProvider } = await import("../claude-code/index.js");
 	const models = builtinModels();
@@ -666,7 +667,7 @@ async function continueSpec(
 		streamSpecEvents(io.err, Number(next), { change: input.change, stage: input.stage.name, script: stageScriptLabel(stage), at }, outcome, earlier);
 		if (io.json === true) io.out(JSON.stringify({ loop: next, ...outcome }, null, 2));
 		else {
-			const context = { loop: String(next), change: input.change, changePath: `openspec/changes/${input.change}` };
+			const context = { loop: String(next), change: input.change, changePath: shownPath(input.workspace, changeDirOf(input)) };
 			for (const line of formatSpecOutcome(outcome, { ...context, ...after(outcome, stages, changeDirOf(input)) })) io.out(line);
 		}
 		return specExitCode(outcome);

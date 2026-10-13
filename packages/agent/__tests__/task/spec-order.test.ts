@@ -75,7 +75,7 @@ async function withSpecHarness(
 	harness.resume();
 
 	const start = (stage: SpecStage) =>
-		startSpecLoop(harness, { change: CHANGE, stage, intent: "Export the plan", workspace, approved: [], model: env.model }, context);
+		startSpecLoop(harness, { change: CHANGE, stage, intent: "Export the plan", workspace, changesDir: join(workspace, "openspec", "changes"), approved: [], model: env.model }, context);
 
 	const blockedOnReview = async () => {
 		env.faux.setResponses([draft("=== proposal.md\n## Why\n\nExport the plan as JSON.\n")]);

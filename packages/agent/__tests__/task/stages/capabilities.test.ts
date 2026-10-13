@@ -81,16 +81,16 @@ describe("task/stages/capabilities: existingChanges", () => {
 			"openspec/changes/archive/README.md": "# Archive\n",
 			"openspec/changes/.gitkeep": "",
 		});
-		expect(await existingChanges(root)).toEqual(new Set(["add-spec-loop", "add-spec-cli-events", "undated-change"]));
+		expect(await existingChanges(join(root, "openspec", "changes"))).toEqual(new Set(["add-spec-loop", "add-spec-cli-events", "undated-change"]));
 	});
 
 	it("is empty when openspec/changes/ is missing", async () => {
-		expect(await existingChanges(workspace({}))).toEqual(new Set());
+		expect(await existingChanges(join(workspace({}), "openspec", "changes"))).toEqual(new Set());
 	});
 
 	it("lists only the active ids when there is no archive/", async () => {
 		const root = workspace({ "openspec/changes/add-spec-loop/proposal.md": "# x\n" });
-		expect(await existingChanges(root)).toEqual(new Set(["add-spec-loop"]));
+		expect(await existingChanges(join(root, "openspec", "changes"))).toEqual(new Set(["add-spec-loop"]));
 	});
 });
 

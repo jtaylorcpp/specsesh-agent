@@ -1,11 +1,11 @@
 ## 1. The command
 
-- [ ] 1.1 `packages/agent/src/task/change-state.ts` (new): `changeState(harness, change)`: the change's latest draft loop, and what it waits for
-- [ ] 1.2 `packages/agent/src/task/cmd-draft.ts` (new): `draft`: start, continue, answer with feedback, and its refusals
-- [ ] 1.3 `packages/agent/src/task/change-output.ts` (new): the draft output and its next commands
-- [ ] 1.4 `packages/agent/src/bin/agentscript-change.ts` (new): the `draft` command, usage, settings resolved as in `agentscript-task`, and exit codes
-- [ ] 1.5 `packages/agent/package.json`: `bin` gains `agentscript-change` at `./dist/bin/agentscript-change.js`
-- [ ] 1.6 `package.json`: a `change` script that runs `packages/agent/dist/bin/agentscript-change.js`
+- [x] 1.1 `packages/agent/src/task/change-state.ts` (new): `changeState(harness, change)`: the change's latest draft loop, and what it waits for
+- [x] 1.2 `packages/agent/src/task/cmd-draft.ts` (new): `draft`: start, continue, answer with feedback, and its refusals
+- [x] 1.3 `packages/agent/src/task/change-output.ts` (new): the draft output and its next commands
+- [x] 1.4 `packages/agent/src/bin/agentscript-change.ts` (new): the `draft` command, usage, settings resolved as in `agentscript-task`, and exit codes
+- [x] 1.5 `packages/agent/package.json`: `bin` gains `agentscript-change` at `./dist/bin/agentscript-change.js`, and `__tests__/package/manifest.test.ts` expects four bins in "The bins are wired to compiled files"
+- [x] 1.6 `package.json`: a `change` script that runs `packages/agent/dist/bin/agentscript-change.js`
 
 ## 2. Tests
 

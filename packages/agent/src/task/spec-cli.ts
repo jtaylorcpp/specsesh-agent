@@ -19,14 +19,14 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, type ModelRef } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { LoopOutcome } from "../openspec/index.js";
-import { DEFAULT_MODEL, DEFAULT_PROVIDER, resolveDb, type LoadedConfig } from "./config.js";
+import { DEFAULT_CHANGES_DIR, DEFAULT_MODEL, DEFAULT_PROVIDER, resolveDb, type LoadedConfig } from "./config.js";
 import { ApprovalsFileError } from "./errors.js";
 import { jsonLines, now, specEvents } from "./events.js";
 import { lockDatabase } from "./lock.js";
@@ -71,7 +71,7 @@ export function currentApproval(approvals: readonly ApprovalEntry[], stage: Appr
 export interface SpecOutcomeContext {
 	readonly loop: number | string;
 	readonly change: string;
-	/** The change directory as the output names it, e.g. `openspec/changes/<change>`. */
+	/** The change directory as the output names it: under the config's `changesDir`, relative to the workspace. */
 	readonly changePath: string;
 	/** Who approved, for an approval. */
 	readonly principal?: string;
@@ -141,8 +141,14 @@ export function streamSpecEvents(
 	for (const event of specEvents(loop, start, outcome, earlier)) emit(event);
 }
 
-/** A change id is one directory name under `openspec/changes/`. */
+/** A change id is one directory name under the config's `changesDir`. */
 const isChangeId = (value: string) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) && !value.includes("..");
+
+/** `path` as output names it: relative to `workspace` when under it, else absolute. */
+export const shownPath = (workspace: string, path: string): string => {
+	const rel = relative(workspace, path);
+	return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel) ? rel.split(sep).join("/") : path;
+};
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -174,7 +180,9 @@ export async function runSpec(args: readonly string[], config: LoadedConfig, io:
 	const [change, stageName, ...extra] = positionals;
 	if (change === undefined) return refuse("spec needs a change: spec <change> [<stage>]");
 	if (extra.length > 0) return refuse(`spec takes a change and at most one stage, got ${positionals.join(" ")}`);
-	if (!isChangeId(change)) return refuse(`"${change}" is not a change id: give the directory name under openspec/changes/`);
+	const workspace = config.dir;
+	const changesDir = resolve(config.dir, config.task.changesDir ?? DEFAULT_CHANGES_DIR);
+	if (!isChangeId(change)) return refuse(`"${change}" is not a change id: give the directory name under ${shownPath(workspace, changesDir)}/`);
 	if (values.worktree !== undefined) return refuse("spec runs in place; --worktree is not supported");
 	if (values.intent !== undefined && values["intent-file"] !== undefined) return refuse("give --intent or --intent-file, not both");
 	const named = stageName !== undefined ? stages.find((stage) => stage.name === stageName) : undefined;
@@ -191,9 +199,8 @@ export async function runSpec(args: readonly string[], config: LoadedConfig, io:
 		}
 	}
 
-	const workspace = config.dir;
-	const changePath = `openspec/changes/${change}`;
-	const changeDir = join(workspace, "openspec", "changes", change);
+	const changeDir = join(changesDir, change);
+	const changePath = shownPath(workspace, changeDir);
 	const intentPath = join(changeDir, INTENT_FILE);
 	const exists = existsSync(changeDir);
 	if (!exists && given === undefined) return refuse(`the change ${change} does not exist; give --intent or --intent-file`);
@@ -254,6 +261,7 @@ export async function runSpec(args: readonly string[], config: LoadedConfig, io:
 						stage,
 						intent,
 						workspace,
+						changesDir,
 						approved,
 						...(config.task.maxIterations !== undefined ? { budget: { maxIterations: config.task.maxIterations } } : {}),
 						...(config.task.escalateTo !== undefined ? { escalateTo: config.task.escalateTo } : {}),

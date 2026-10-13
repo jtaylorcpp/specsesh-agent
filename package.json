@@ -15,6 +15,7 @@
     "agent": "node packages/agent/dist/bin/agentscript-pi.js",
     "durable": "node packages/agent/dist/bin/agentscript-durable.js",
     "task": "node scripts/task.mjs",
+    "change": "node packages/agent/dist/bin/agentscript-change.js",
     "pack:check": "pnpm --filter @specsesh/agent pack:check",
     "spec:check": "OPENSPEC_TELEMETRY=0 openspec validate --all --strict",
     "spec:archive": "node scripts/spec-archive.mjs",

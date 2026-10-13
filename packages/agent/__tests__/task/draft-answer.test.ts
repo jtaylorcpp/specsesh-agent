@@ -57,7 +57,7 @@ async function blockedOnProposal(
 	const count = async (kind: string) => (await scan(kind)).length;
 	try {
 		env.faux.setResponses([draft("=== proposal.md\n## Why\n\nCSV and JSON.\n")]);
-		const options: task.DraftLoopOptions = { change: CHANGE, intent: "Export a plan as CSV or JSON", workspace, stages, model: env.model };
+		const options: task.DraftLoopOptions = { change: CHANGE, intent: "Export a plan as CSV or JSON", workspace, changesDir: join(workspace, "openspec", "changes"), stages, model: env.model };
 		const first = await task.startDraftLoop(harness, options, context);
 		harness.resume();
 		const blocked = await task.waitForDraftLoop(harness, first, context);

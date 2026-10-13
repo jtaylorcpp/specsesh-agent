@@ -65,7 +65,7 @@ async function host(
 	for (const extension of task.draftLoopExtensions({ workspace, stages })) env.registry.install(extension);
 	const storage = new MemoryStorage();
 	const harness = await openHarness(storage, env);
-	const options: task.DraftLoopOptions = { change: CHANGE, intent: "Export a plan as CSV or JSON", workspace, stages, model: env.model };
+	const options: task.DraftLoopOptions = { change: CHANGE, intent: "Export a plan as CSV or JSON", workspace, changesDir: join(workspace, "openspec", "changes"), stages, model: env.model };
 	const specLoops = async () =>
 		(await storage.scanTasks({ kind: SPEC_LOOP }, 100, undefined, context)).items.map((record) => record.input as unknown as SpecLoopInput);
 	try {

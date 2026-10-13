@@ -99,12 +99,13 @@ describe("The tarball holds only the build, the readme and the license", () => {
 	});
 });
 
-describe("The three CLIs are compiled bins", () => {
+describe("The four CLIs are compiled bins", () => {
 	it("Scenario: The bins are wired to compiled files", () => {
 		expect(manifest.bin).toEqual({
 			"agentscript-pi": "./dist/bin/agentscript-pi.js",
 			"agentscript-durable": "./dist/bin/agentscript-durable.js",
 			"agentscript-task": "./dist/bin/agentscript-task.js",
+			"agentscript-change": "./dist/bin/agentscript-change.js",
 		});
 		for (const target of Object.values(manifest.bin) as string[]) {
 			const path = join(PKG_DIR, target);

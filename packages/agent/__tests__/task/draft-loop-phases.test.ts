@@ -34,6 +34,7 @@ async function startDraft(harness: Harness, input: Partial<DraftLoopInput> & Pic
 		intent: "Make the thing",
 		budget: { maxIterations: 8 },
 		escalateTo: "principal",
+		changesDir: join(input.workspace, "openspec", "changes"),
 		...input,
 	};
 	const owner = await harness.root(context);

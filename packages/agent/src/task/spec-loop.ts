@@ -85,6 +85,8 @@ export interface SpecLoopInput {
 	readonly intent: string;
 	/** Absolute: the repo root, where `openspec/` lives. */
 	readonly workspace: string;
+	/** Absolute: the directory holding the change directories, the config's `changesDir`. */
+	readonly changesDir: string;
 	/** The owned paths of the stages already approved, seeded as `approved`. */
 	readonly approved: readonly string[];
 	readonly budget: { readonly maxIterations: number };
@@ -150,8 +152,7 @@ const registeredStage: StageResolver = (name) => registered.get(name);
 /** The single target every verdict of a stage's loop judges. */
 export const stageTarget = (stage: string): Target => ({ check: `${stage} gate` });
 
-export const changeDirOf = (input: Pick<SpecLoopInput, "workspace" | "change">): string =>
-	join(input.workspace, "openspec", "changes", input.change);
+export const changeDirOf = (input: Pick<SpecLoopInput, "changesDir" | "change">): string => join(input.changesDir, input.change);
 
 /**
  * The files under `changeDir` that `owns` names, by path relative to it, in path order:

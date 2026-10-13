@@ -60,6 +60,8 @@ export interface DraftLoopInput {
 	readonly intent: string;
 	/** Absolute: the repo root, where `openspec/` lives. */
 	readonly workspace: string;
+	/** Absolute: the directory holding the change directories, the config's `changesDir`. */
+	readonly changesDir: string;
 	readonly budget: { readonly maxIterations: number };
 	readonly escalateTo: Recipient;
 	readonly model?: ModelRef;
@@ -108,10 +110,10 @@ export function initialDraftCheckpoint(input: Pick<DraftLoopInput, "resume">): D
  * when `approvals.json` is not valid.
  */
 export function nextStage(
-	input: Pick<DraftLoopInput, "workspace" | "change" | "stages">,
+	input: Pick<DraftLoopInput, "changesDir" | "change" | "stages">,
 	entries: readonly DraftStageEntry[],
 ): { readonly stage?: string; readonly entries: DraftStageEntry[] } {
-	const changeDir = join(input.workspace, "openspec", "changes", input.change);
+	const changeDir = join(input.changesDir, input.change);
 	let kept = [...entries];
 	for (const stage of input.stages) {
 		// A stage that follows only this one may start exactly when this one's approval is current.
@@ -143,6 +145,7 @@ export function stageLoopInput(input: DraftLoopInput, stage: string, entries: re
 		script: found.script,
 		intent: input.intent,
 		workspace: input.workspace,
+		changesDir: input.changesDir,
 		approved,
 		budget: { maxIterations: input.budget.maxIterations },
 		escalateTo: input.escalateTo,

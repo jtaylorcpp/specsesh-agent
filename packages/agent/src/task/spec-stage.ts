@@ -21,7 +21,7 @@ export interface StageContext {
 	readonly changeId: string;
 	/** Absolute: the repo root, where `openspec/` lives. */
 	readonly workspace: string;
-	/** Absolute: `<workspace>/openspec/changes/<id>`. */
+	/** Absolute: `<changesDir>/<id>`, `changesDir` being the config's. */
 	readonly changeDir: string;
 	/** The stage's owned files, as now on disk, by path relative to the change directory. */
 	readonly files: Readonly<Record<string, string>>;

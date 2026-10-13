@@ -19,7 +19,7 @@ async function refusedStart(script: string) {
 	const stage = { ...proposalStage(), script: { text: script } };
 	const { harness, storage } = await specHarness([stage]);
 	try {
-		const error = await startSpecLoop(harness, { change: "add-thing", stage, intent: "Make the thing", workspace }, context).then(
+		const error = await startSpecLoop(harness, { change: "add-thing", stage, intent: "Make the thing", workspace, changesDir: join(workspace, "openspec", "changes") }, context).then(
 			() => undefined,
 			(e: unknown) => e,
 		);
