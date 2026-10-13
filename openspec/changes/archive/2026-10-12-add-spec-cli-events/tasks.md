@@ -10,5 +10,5 @@
 
 ## 3. Verify
 
-- [ ] 3.1 `pnpm check`, `pnpm test`, `pnpm spec:check` and `pnpm docs:check` pass
-- [ ] 3.2 `pnpm test:live` (the orchestrator runs it), then `pnpm spec:archive add-spec-cli-events`
+- [x] 3.1 `pnpm check`, `pnpm test`, `pnpm spec:check` and `pnpm docs:check` pass
+- [x] 3.2 `pnpm test:live` (the orchestrator runs it), then `pnpm spec:archive add-spec-cli-events`
