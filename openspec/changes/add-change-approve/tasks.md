@@ -13,7 +13,7 @@
 
 ## 3. Docs
 
-- [ ] 3.1 `packages/agent/README.md`: `pnpm change draft` and `approve` in the CLIs section, with the session from `add-change-draft`'s design
+- [x] 3.1 `packages/agent/README.md`: `pnpm change draft` and `approve` in the CLIs section, with the session from `add-change-draft`'s design
 
 ## 4. Verify
 

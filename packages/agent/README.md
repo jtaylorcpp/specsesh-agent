@@ -441,6 +441,8 @@ no files and runs no loop.
 - `agentscript-durable run <file> --db <path> [...]` runs a script as a durable task on a Node SQLite file;
   `agentscript-durable resume <task-id> --db <path>` finishes one whose process died. Needs the durable peers.
 - `agentscript-task` works an OpenSpec change as durable loops; see below. Needs the durable peers.
+- `agentscript-change` drafts an OpenSpec change stage by stage and approves each stage; see below.
+  Needs the durable peers.
 
 Credentials are pi-ai's own environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, ...).
 
@@ -521,6 +523,9 @@ Every stage of add-plan-export is approved. Execute it: pnpm task add-plan-expor
 The text output is `# spec loop <id> — <status>`, then one `## <stage> draft <n>: clean` or
 `## <stage> draft <n>: <k> issues` line per draft with its issues below it, then the next step.
 
+To draft a whole change, use [`agentscript-change`](#agentscript-change) instead. It approves with
+`pnpm change approve <change>`, not `pnpm task answer`.
+
 #### `answer`
 
 `answer` starts a new run of a blocked loop with your decision. On a spec loop it calls
@@ -541,6 +546,123 @@ its task, for example `spec proposal`.
 | `2` | Usage, or a refused start |
 
 The harness is closed before exiting, even after a refusal.
+
+### `agentscript-change`
+
+It drafts a change one stage at a time (proposal, design, specs, tasks). You address it by the
+change's name, never by a loop ID:
+
+```
+usage:
+  agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
+  agentscript-change approve <change> [--principal <name>] [--db <path>]
+```
+
+Any other command, or none, prints this usage to stderr and exits `2`. It resolves the database,
+provider and model the same way `agentscript-task` does. It reads no stdin and never prompts. In
+this repo, `pnpm change …` runs the built bin.
+
+Every output starts `# <change> — <state>`, then `## <stage>: approved` for each approved stage,
+then the current stage's `### <stage> draft <n>` lines. The last line is always the next command.
+
+A session, following `add-change-draft`'s design:
+
+```console
+$ pnpm change draft add-plan-export --intent "Export a plan as JSON so CI can read it"
+# add-plan-export — waiting for review of the proposal
+### proposal draft 1: 1 issue
+   WARNING proposal.md: touches 3 capabilities, over the budget of 2. …
+### proposal draft 2: clean
+
+Review openspec/changes/add-plan-export/proposal.md, openspec/changes/add-plan-export/slices.md, then:
+  revise:   pnpm change draft add-plan-export "<what to change>"
+  approve:  pnpm change approve add-plan-export
+
+$ pnpm change draft add-plan-export "JSON only"      # the next draft carries: The principal asked for: JSON only
+# add-plan-export — waiting for review of the proposal
+### proposal draft 3: clean
+…
+
+$ pnpm change approve add-plan-export                # approvals.json records the principal; the design drafts
+# add-plan-export — waiting for review of the design
+## proposal: approved
+### design draft 1: clean
+
+Sliced into 3 changes. Draft the others when you're ready:
+  pnpm change draft add-plan-export-schema --intent "Publish the JSON Schema of the export. Follows add-plan-export."
+  pnpm change draft add-plan-export-ci --intent "Fail a PR whose plan export is invalid. Follows add-plan-export-schema."
+
+Review openspec/changes/add-plan-export/design.md, …/design/mock.html, …/design/examples/export.sh, then:
+  revise:   pnpm change draft add-plan-export "<what to change>"
+  approve:  pnpm change approve add-plan-export
+
+$ pnpm change draft add-plan-export                  # lost your place? shows what is waiting, starts nothing
+# add-plan-export — waiting for review of the design
+…
+
+$ pnpm change approve add-plan-export                # the specs draft
+$ pnpm change approve add-plan-export                # the tasks draft
+$ pnpm change approve add-plan-export
+# add-plan-export — drafted: every stage is approved
+## proposal: approved
+## design: approved
+## specs: approved
+## tasks: approved
+
+  next:     pnpm task add-plan-export --next-group
+```
+
+When a stage asks a question instead, the draft exits `1` and ends with the question and the
+command that answers it:
+
+```console
+$ pnpm change draft add-plan-export "JSON only"
+# add-plan-export — waiting for an answer on the proposal
+### proposal draft 4: clean
+
+question: CSV too?
+  answer:   pnpm change draft add-plan-export "<answer>"
+```
+
+#### `draft`
+
+- **A new change** needs `--intent` or `--intent-file`, as `agentscript-task spec` does.
+- **Feedback** is the text after the change's name. At a review it asks for a revision; at a
+  question it is your answer. Either way the stage drafts again carrying
+  `The principal asked for: <feedback>`.
+- **No feedback** prints what is waiting again, starts nothing, and exits as that loop did.
+- **`approve` is not feedback.** `draft <change> approve` (trimmed, any case) exits `2` naming
+  `pnpm change approve <change>` and changes nothing, so a revision request can never approve a
+  stage.
+
+#### `approve`
+
+```
+pnpm change approve add-plan-export                      # records git user.name
+pnpm change approve add-plan-export --principal "Jesse"  # or a name you give
+pnpm change draft add-plan-export approve                # refused: use pnpm change approve
+```
+
+`approve <change>` approves the stage under review, records it in `approvals.json`, and prints the
+run it starts as `draft` does: the next stage's review, or the drafted change.
+
+- **Who approves.** `--principal` defaults to `git config user.name`, then `$USER`. If neither
+  gives a name, the command is refused: an approval must say who approved.
+- **A question can't be approved.** A change waiting on a question exits `2` naming
+  `pnpm change draft <change> "<answer>"`, and nothing starts.
+- **Nothing to approve.** A change with nothing under review exits `2` with
+  `nothing in <change> is under review`.
+- **Slices.** Approving a proposal that has `slices.md` lists one
+  `pnpm change draft <id> --intent "<intent>"` per later slice, as in the session above.
+- **One stage at a time.** Every stage gets its own review; there is no "approve all".
+
+#### Exit codes
+
+| Code | When |
+|---|---|
+| `0` | Waiting for review, or drafted |
+| `1` | Waiting on a question, or the draft ended exhausted or failed |
+| `2` | Usage, or a refusal |
 
 ## What it does not do
 
