@@ -8,9 +8,9 @@
 
 ## 2. Tests
 
-- [ ] 2.1 `packages/agent/__tests__/task/spec-bundle.test.ts`: "A stage owning a directory", "Two files in one bundle", "A file the stage does not own" and "An empty bundle" (4)
-- [ ] 2.2 `packages/agent/__tests__/task/spec-loop.test.ts`: "A script without files is refused", "A next_action default outside the choices is refused", "A crash during await starts no second run" and "The current files are re-read each iteration"
-- [ ] 2.3 `packages/agent/__tests__/task/spec-loop-gate.test.ts`: "An issue is fixed on the second iteration", "Issues every time exhaust the budget", "A clean draft waits for review" and "The stage asks a question" (4)
+- [x] 2.1 `packages/agent/__tests__/task/spec-bundle.test.ts`: "A stage owning a directory", "Two files in one bundle", "A file the stage does not own" and "An empty bundle" (4)
+- [x] 2.2 `packages/agent/__tests__/task/spec-loop.test.ts`: "A script without files is refused", "A next_action default outside the choices is refused", "A crash during await starts no second run" and "The current files are re-read each iteration"
+- [x] 2.3 `packages/agent/__tests__/task/spec-loop-gate.test.ts`: "An issue is fixed on the second iteration", "Issues every time exhaust the budget", "A clean draft waits for review" and "The stage asks a question" (4)
 
 ## 3. Docs
 

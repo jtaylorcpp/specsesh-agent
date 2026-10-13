@@ -1,10 +1,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { Models } from "@earendil-works/pi-ai";
+import { Harness, MemoryStorage, defineExtension } from "@earendil-works/pi-durable";
 import { TaskLoopStartError, startSpecLoop } from "../../src/task/index.js";
-import { SPEC_LOOP } from "../../src/task/spec-loop.js";
+import { SPEC_LOOP, specLoopTask } from "../../src/task/spec-loop.js";
+import { setup } from "../durable/helpers.js";
 import { cleanTemps, context, prompts } from "./helpers.js";
-import { STAGE_SCRIPT, draft, proposalStage, runSpecLoop, specHarness, specWorkspace } from "./spec-helpers.js";
+import { STAGE_SCRIPT, draft, proposalStage, runSpecLoop, specHarness, specWorkspace, startBare, waitForOutcome } from "./spec-helpers.js";
 
 afterEach(cleanTemps);
 
@@ -46,7 +49,66 @@ describe("spec/loop: The stage script keeps the stage contract", () => {
 	});
 });
 
+/** The same Models, whose every streamed request calls `onRequest` and then never answers: the process died mid-request. */
+function stalled(models: Models, onRequest: () => void): Models {
+	return new Proxy(models, {
+		get(target, prop, receiver) {
+			if (prop === "streamSimple" || prop === "stream") {
+				return () => {
+					onRequest();
+					const never = () => new Promise<never>(() => {});
+					return { [Symbol.asyncIterator]: () => ({ next: never }), result: never };
+				};
+			}
+			const value = Reflect.get(target, prop, receiver);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
+}
+
 describe("spec/loop: The spec loop is one durable task with four phases", () => {
+	it("Scenario: A crash during await starts no second run", async () => {
+		const { workspace, changeDir } = specWorkspace();
+		const stage = proposalStage();
+		const storage = new MemoryStorage();
+
+		// The first process reaches iteration 1's model request, and dies there: never closed, never answered.
+		const first = setup();
+		const task = specLoopTask((name) => (name === stage.name ? stage : undefined));
+		first.registry.install(defineExtension({ name: SPEC_LOOP, tasks: [task] }));
+		let died = () => {};
+		const requested = new Promise<void>((resolve) => (died = resolve));
+		const dead = await Harness.open(storage, { models: stalled(first.models, () => died()), registry: first.registry }, context);
+		const id = await startBare(dead, task, { workspace, stage: { name: stage.name, owns: stage.owns }, model: first.model });
+		dead.resume();
+		await requested;
+
+		const stranded = await storage.task(id, context);
+		const checkpoint = (stranded?.state as { checkpoint?: { phase: string; child: number } }).checkpoint;
+		const before = (await storage.scanTasks({ kind: "agentscript.run" }, 100, undefined, context)).items;
+
+		// A fresh process on the same storage resumes the loop.
+		const { env, harness } = await specHarness([stage], storage);
+		env.faux.setResponses([draft("=== proposal.md\n## Why\n\nDrafted.\n")]);
+		harness.resume();
+		try {
+			const outcome = await waitForOutcome(harness, id);
+			const after = (await storage.scanTasks({ kind: "agentscript.run" }, 100, undefined, context)).items;
+
+			expect(checkpoint?.phase).toBe("await");
+			expect(before.map((t) => t.id)).toEqual([checkpoint?.child]);
+			// The same child finished the iteration; no other run was created.
+			expect(after.map((t) => t.id)).toEqual([checkpoint?.child]);
+			expect(after[0]?.state.status).toBe("terminal");
+			expect(outcome.status).toBe("blocked");
+			expect(outcome.escalation).toMatchObject({ to: "principal", reason: "review" });
+			expect(outcome.iterations).toHaveLength(1);
+			expect(readFileSync(join(changeDir, "proposal.md"), "utf8")).toBe("## Why\n\nDrafted.\n");
+		} finally {
+			await harness.close(context);
+		}
+	});
+
 	it("Scenario: The current files are re-read each iteration", async () => {
 		let round = 0;
 		// The principal edits the draft between iteration 1's gate and iteration 2.
