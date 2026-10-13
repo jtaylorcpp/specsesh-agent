@@ -1,9 +1,9 @@
 ## 1. The rules
 
-- [ ] 1.1 `packages/agent/src/openspec/size.ts` (new): `SizeBudget`, `DEFAULT_SIZE_BUDGET`, `ChangeSize` and `changeSize(change)`
-- [ ] 1.2 `packages/agent/src/openspec/size.ts`: `sizeIssues(change, budget?)` and `proposalSizeIssues(proposal, budget?)`, with the split suggestions
-- [ ] 1.3 `packages/agent/src/openspec/size.ts`: `taskIssues(task, budget?)`
-- [ ] 1.4 `packages/agent/src/openspec/index.ts`: `export * from "./size.js"`
+- [x] 1.1 `packages/agent/src/openspec/size.ts` (new): `SizeBudget`, `DEFAULT_SIZE_BUDGET`, `ChangeSize` and `changeSize(change)`
+- [x] 1.2 `packages/agent/src/openspec/size.ts`: `sizeIssues(change, budget?)` and `proposalSizeIssues(proposal, budget?)`, with the split suggestions
+- [x] 1.3 `packages/agent/src/openspec/size.ts`: `taskIssues(task, budget?)`
+- [x] 1.4 `packages/agent/src/openspec/index.ts`: `export * from "./size.js"`
 
 ## 2. Tests
 

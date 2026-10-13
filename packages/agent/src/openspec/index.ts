@@ -16,4 +16,5 @@ export * from "./evidence.js";
 export * from "./loops.js";
 export * from "./model.js";
 export * from "./process.js";
+export * from "./size.js";
 export { check, explain, toJSONSchema } from "./schema.js";

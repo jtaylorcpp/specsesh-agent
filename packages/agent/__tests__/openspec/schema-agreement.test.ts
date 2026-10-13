@@ -146,6 +146,8 @@ const FIXTURES: Record<string, { valid: unknown; invalid: unknown; args?: TSchem
 	ArchiveResult: { valid: { archivedAs: "x", totals: { added: 1, modified: 0, removed: 0, renamed: 0 }, specsUpdated: [["a"]] }, invalid: { archivedAs: "x", totals: { added: -1, modified: 0, removed: 0, renamed: 0 }, specsUpdated: [] } },
 	ChangeEvent: { valid: { on: "execute" }, invalid: { on: "deploy" } },
 	TransitionResult: { valid: { ok: true, state: "approved" }, invalid: { ok: true, state: "deployed" } },
+	SizeBudget: { valid: openspec.DEFAULT_SIZE_BUDGET, invalid: { ...openspec.DEFAULT_SIZE_BUDGET, tasks: 0 } },
+	ChangeSize: { valid: { capabilities: 0, requirements: 0, scenarios: 0, groups: 0, tasks: 0 }, invalid: { capabilities: 1, requirements: 1, scenarios: 1, groups: 1 } },
 };
 
 /** The exported schema of that name; a generic one instantiated over its fixture's parameters. */
@@ -235,7 +237,7 @@ describe("schema and type agreement", () => {
 
 	it("reads the source tree it checks", () => {
 		expect(readdirSync(SRC).filter((file) => file.endsWith(".ts")).sort()).toEqual([
-			"evidence.ts", "index.ts", "loops.ts", "model.ts", "process.ts", "schema.ts",
+			"evidence.ts", "index.ts", "loops.ts", "model.ts", "process.ts", "schema.ts", "size.ts",
 		]);
 		expect(ROOT).toBeTruthy();
 	});
