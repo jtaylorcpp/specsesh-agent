@@ -9,8 +9,8 @@
 
 ## 2. Tests
 
-- [ ] 2.1 `packages/agent/__tests__/task/stages/design-gate.test.ts`: "A design without a mock", "A design without an example", "A mock that loads a script from the network" and "A fragment is not a mock" (4)
-- [ ] 2.2 `packages/agent/__tests__/task/stages/design-stage.test.ts`: "The design stage is seeded with the modified specs", "design.md names a missing example", "The design follows the proposal" and "The bundled design script fits the contract" (4)
+- [x] 2.1 `packages/agent/__tests__/task/stages/design-gate.test.ts`: "A design without a mock", "A design without an example", "A mock that loads a script from the network" and "A fragment is not a mock" (4)
+- [x] 2.2 `packages/agent/__tests__/task/stages/design-stage.test.ts`: "The design stage is seeded with the modified specs", "design.md names a missing example", "The design follows the proposal" and "The bundled design script fits the contract" (4)
 
 ## 3. Verify
 
