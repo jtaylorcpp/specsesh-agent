@@ -1,11 +1,11 @@
 ## 1. The stage
 
-- [ ] 1.1 `packages/agent/src/task/stages/tasks-gate.ts` (new): `readTaskList`, `withClaims`, `unclaimed` and the size filter
-- [ ] 1.2 `packages/agent/src/task/scripts/spec-plan.agent` (new): the script from the design's example
-- [ ] 1.3 `packages/agent/src/task/options.ts`: `BUNDLED_SCRIPTS.specPlan`
-- [ ] 1.4 `packages/agent/src/task/stages/tasks.ts` (new): `tasksStage` with its seed and gate
-- [ ] 1.5 `packages/agent/src/task/spec-stages.ts`: `SPEC_STAGES` gains `tasksStage`
-- [ ] 1.6 `packages/agent/src/task/index.ts`: export `tasksStage`
+- [x] 1.1 `packages/agent/src/task/stages/tasks-gate.ts` (new): `readTaskList`, `withClaims`, `unclaimed` and the size filter
+- [x] 1.2 `packages/agent/src/task/scripts/spec-plan.agent` (new): the script from the design's example
+- [x] 1.3 `packages/agent/src/task/options.ts`: `BUNDLED_SCRIPTS.specPlan`
+- [x] 1.4 `packages/agent/src/task/stages/tasks.ts` (new): `tasksStage` with its seed and gate
+- [x] 1.5 `packages/agent/src/task/spec-stages.ts`: `SPEC_STAGES` gains `tasksStage`
+- [x] 1.6 `packages/agent/src/task/index.ts`: export `tasksStage`
 
 ## 2. Tests
 

@@ -61,4 +61,5 @@ export const BUNDLED_SCRIPTS = {
 	specProposal: new URL("./scripts/spec-proposal.agent", import.meta.url),
 	specDesign: new URL("./scripts/spec-design.agent", import.meta.url),
 	specSpecify: new URL("./scripts/spec-specify.agent", import.meta.url),
+	specPlan: new URL("./scripts/spec-plan.agent", import.meta.url),
 } as const;

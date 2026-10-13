@@ -39,8 +39,15 @@ const SPECS = [
 	"#### Scenario: JSON on stdout\n\n- **WHEN** the plan is exported\n- **THEN** stdout is the plan as JSON\n",
 ].join("\n");
 
+/** One group with one task, naming one file and quoting the delta's one scenario. */
+const TASKS = [
+	"=== tasks.md",
+	"## 1. Export\n",
+	'- [ ] 1.1 `src/export.ts` (new): print the plan as JSON, "JSON on stdout"\n',
+].join("\n");
+
 /** A clean draft per stage in `SPEC_STAGES`; a stage added there needs one here. */
-const DRAFTS: Record<string, string> = { proposal: `=== proposal.md\n${PROPOSAL}`, design: DESIGN, specs: SPECS };
+const DRAFTS: Record<string, string> = { proposal: `=== proposal.md\n${PROPOSAL}`, design: DESIGN, specs: SPECS, tasks: TASKS };
 
 const INTENT = "Export a plan as JSON so CI can read it";
 

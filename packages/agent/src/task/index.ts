@@ -64,4 +64,5 @@ export { answerSpecLoop, type SpecLoopAnswer } from "./spec-answer.js";
 export { proposalStage } from "./stages/proposal.js";
 export { designStage } from "./stages/design.js";
 export { specsStage } from "./stages/specs.js";
+export { tasksStage } from "./stages/tasks.js";
 export { SPEC_STAGES } from "./spec-stages.js";

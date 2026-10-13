@@ -40,7 +40,7 @@ gate: async ({ changeId, run, files }) => {
 
 ## Seeds
 
-- `approved`: `proposal.md`, `design.md`, the files under `design/examples/`, and every delta, as `=== ` sections. The HTML mock is left out: the deltas already pin what it shows.
+- `approved`: every file the approved stages own (`proposal.md`, `slices.md`, `design.md`, everything under `design/`, and every delta), as `=== ` sections, built by the spec loop as for every stage.
 - `base`: `git ls-files` in the workspace, one path per line, cut at 3,000 lines with a closing line saying how many were cut. Outside git, empty.
 
 ## The guide
