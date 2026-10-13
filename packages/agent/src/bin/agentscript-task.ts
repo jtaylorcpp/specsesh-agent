@@ -98,7 +98,7 @@ import { DatabaseLockedError, lockDatabase, type DbLock } from "../task/lock.js"
 import { ChangeNotFoundError, nextGroup, nextTask, resolveChange } from "../task/resolve.js";
 import { GROUP_LOOP_NAME, type GroupLoopInput, type GroupLoopResult } from "../task/group.js";
 import { readResult } from "../task/group-api.js";
-import { after, formatSpecOutcome, runSpec, specExitCode } from "../task/spec-cli.js";
+import { after, formatSpecOutcome, runSpec, specExitCode, stageScriptLabel, streamSpecEvents } from "../task/spec-cli.js";
 import { changeDirOf } from "../task/spec-loop.js";
 import { changeOf, formatLoop, listLoops, scriptOf } from "../task/status.js";
 import { WorktreeRefusedError, checkWorktree, createWorktree, inRepo, planWorktree, rebase, runSetup } from "../task/worktree.js";
@@ -650,6 +650,10 @@ async function continueSpec(
 			}
 			io.err(`loop ${next} — resume with: agentscript-task resume ${next} --db ${db.label}`);
 		}
+		// The drafts the answered run already streamed are not streamed again.
+		const record = await harness.getTask(next, BACKGROUND_CONTEXT);
+		const earlier = (record?.input as unknown as SpecLoopInput | undefined)?.earlier?.length ?? 0;
+		const at = now();
 		harness.resume();
 		let outcome: LoopOutcome<StageOutcome>;
 		try {
@@ -658,6 +662,8 @@ async function continueSpec(
 			io.err(message(error));
 			return 1;
 		}
+		const stage = stages.find((candidate) => candidate.name === input.stage.name);
+		streamSpecEvents(io.err, Number(next), { change: input.change, stage: input.stage.name, script: stageScriptLabel(stage), at }, outcome, earlier);
 		if (io.json === true) io.out(JSON.stringify({ loop: next, ...outcome }, null, 2));
 		else {
 			const context = { loop: String(next), change: input.change, changePath: `openspec/changes/${input.change}` };

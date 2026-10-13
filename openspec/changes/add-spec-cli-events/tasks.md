@@ -1,8 +1,8 @@
 ## 1. Events
 
-- [ ] 1.1 `packages/agent/src/task/events.ts`: the five spec event builders, from a spec loop's drafts and outcome
-- [ ] 1.2 `packages/agent/src/task/spec-cli.ts`: stream the spec events on stderr after the resume hint
-- [ ] 1.3 `packages/agent/__tests__/task/events-spec.test.ts`: "A proposal's stream", "An approval's stream" and "A question is its own event" (3), faux provider
+- [x] 1.1 `packages/agent/src/task/events.ts`: the five spec event builders, from a spec loop's drafts and outcome
+- [x] 1.2 `packages/agent/src/task/spec-cli.ts`: stream the spec events on stderr after the resume hint
+- [x] 1.3 `packages/agent/__tests__/task/events-spec.test.ts`: "A proposal's stream", "An approval's stream" and "A question is its own event" (3), faux provider
 
 ## 2. Live
 

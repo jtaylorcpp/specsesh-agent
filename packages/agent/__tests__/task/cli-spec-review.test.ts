@@ -82,6 +82,12 @@ describe("task/cli: status and answer cover spec loops", () => {
 		};
 		const entry = file.approvals.find((approval) => approval.stage === "proposal");
 		expect(entry?.principal).toBe("jesse");
+		const [hint, ...lines] = r.err.trimEnd().split("\n");
+		expect(hint).toMatch(/^loop \d+ — resume with: agentscript-task resume \d+ --db /);
+		expect(lines.map((line) => JSON.parse(line) as unknown)).toMatchObject([
+			{ event: "stage-started", stage: "proposal", script: "spec-proposal" },
+			{ event: "stage-ended", status: "converged", drafts: 0, approved: true },
+		]);
 	});
 });
 

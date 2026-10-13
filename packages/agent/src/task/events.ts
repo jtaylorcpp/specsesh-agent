@@ -21,6 +21,7 @@ import type { GroupOutcome, Iteration, LoopOutcome, LoopStatus, TaskOutcome } fr
 import { decodeCheckpoint, initialGroupCheckpoint, type GroupCheckpoint, type GroupLoopInput } from "./group.js";
 import type { LoopCheckpoint, TaskLoopResult } from "./loop-input.js";
 import { TASK_LOOP } from "./loop.js";
+import type { StageOutcome } from "./spec-loop.js";
 
 export type TaskEvent =
 	| { event: "loop-started"; loop: number; group?: number; change: string; task: string; script: string; at: string }
@@ -51,7 +52,23 @@ export type GroupEvent =
 			changed: string[];
 	  };
 
-export type StreamEvent = TaskEvent | GroupEvent;
+/**
+ * A spec loop's events (`loop` is the spec loop's id), one `stage-draft` per gate round:
+ *
+ *   stage-started   change, stage, script, at
+ *   stage-draft     draft, written, issues
+ *   stage-review    files, question
+ *   stage-question  question
+ *   stage-ended     status, drafts, approved
+ */
+export type SpecEvent =
+	| { event: "stage-started"; loop: number; change: string; stage: string; script: string; at: string }
+	| { event: "stage-draft"; loop: number; draft: number; written: string[]; issues: { level: string; path: string; message: string }[] }
+	| { event: "stage-review"; loop: number; files: string[]; question: string }
+	| { event: "stage-question"; loop: number; question: string }
+	| { event: "stage-ended"; loop: number; status: LoopStatus; drafts: number; approved: boolean };
+
+export type StreamEvent = TaskEvent | GroupEvent | SpecEvent;
 
 export const now = (): string => new Date().toISOString();
 
@@ -87,6 +104,59 @@ export const groupEnded = (
 export function groupEndedFromOutcome(loop: number, outcome: LoopOutcome<GroupOutcome>, changed: readonly string[]): GroupEvent {
 	const tasks = (outcome.result?.tasks ?? []).map((entry) => ({ task: entry.task, status: entry.outcome.status, runs: entry.runs }));
 	return groupEnded(loop, outcome.status, tasks, changed);
+}
+
+export const stageStarted = (loop: number, change: string, stage: string, script: string, at = now()): SpecEvent => ({
+	event: "stage-started",
+	loop,
+	change,
+	stage,
+	script,
+	at,
+});
+
+/** A spec loop's iteration as its `stage-draft`: the paths its round wrote and its gate's issues. */
+export function stageDraft(loop: number, iteration: Iteration): SpecEvent {
+	const written = iteration.actions.filter((action) => action.kind === "edit").flatMap((action) => action.refs);
+	const issues = iteration.evidence.flatMap((evidence) =>
+		evidence.kind === "validation" ? evidence.report.issues.map(({ level, path, message }) => ({ level, path, message })) : [],
+	);
+	return { event: "stage-draft", loop, draft: iteration.n, written, issues };
+}
+
+/** `stage-review` or `stage-question` for a blocked spec loop; none for any other end. */
+export function stageOutcome(loop: number, outcome: LoopOutcome<StageOutcome>): SpecEvent | undefined {
+	if (outcome.status !== "blocked") return undefined;
+	const { reason, question } = outcome.escalation;
+	if (reason === "review") return { event: "stage-review", loop, files: [...(outcome.result?.files ?? [])], question };
+	return { event: "stage-question", loop, question };
+}
+
+export const stageEnded = (loop: number, outcome: LoopOutcome<StageOutcome>): SpecEvent => ({
+	event: "stage-ended",
+	loop,
+	status: outcome.status,
+	drafts: outcome.iterations.length,
+	approved: outcome.status === "converged" && outcome.result.approved,
+});
+
+/**
+ * A settled spec loop's whole stream, in order: `stage-started`, a `stage-draft` per
+ * iteration after the `earlier` ones (an answered run's, already streamed), then
+ * `stage-review` or `stage-question` when it blocked, then `stage-ended`.
+ */
+export function specEvents(
+	loop: number,
+	start: { readonly change: string; readonly stage: string; readonly script: string; readonly at?: string },
+	outcome: LoopOutcome<StageOutcome>,
+	earlier = 0,
+): SpecEvent[] {
+	const events = [stageStarted(loop, start.change, start.stage, start.script, start.at)];
+	for (const iteration of outcome.iterations) if (iteration.n > earlier) events.push(stageDraft(loop, iteration));
+	const blocked = stageOutcome(loop, outcome);
+	if (blocked !== undefined) events.push(blocked);
+	events.push(stageEnded(loop, outcome));
+	return events;
 }
 
 /**

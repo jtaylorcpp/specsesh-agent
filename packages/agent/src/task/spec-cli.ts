@@ -13,10 +13,13 @@
  * Every refusal (exit 2) comes before the database or the harness opens, except
  * `startSpecLoop`'s own, after which the harness is closed. A review exits 0:
  * waiting for the principal is the expected end of a stage.
+ *
+ * Once the loop exists, the resume hint is the first stderr line; the spec
+ * events follow it as JSON Lines when the loop settles, before the outcome.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai";
@@ -25,6 +28,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import type { LoopOutcome } from "../openspec/index.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, resolveDb, type LoadedConfig } from "./config.js";
 import { ApprovalsFileError } from "./errors.js";
+import { jsonLines, now, specEvents } from "./events.js";
 import { lockDatabase } from "./lock.js";
 import { hashOwnedFiles, readApprovals, type ApprovalEntry, type ApprovalStage } from "./spec-approvals.js";
 import { specLoopExtensions, startSpecLoop, waitForSpecLoop } from "./spec-api.js";
@@ -106,6 +110,23 @@ export function formatSpecOutcome(outcome: LoopOutcome<StageOutcome>, context: S
 		lines.push(context.nextStage !== undefined ? `Next: pnpm task spec ${change}` : allApproved(change));
 	}
 	return lines;
+}
+
+/** The script `stage-started` names: the stage script's file name without `.agent`, or `custom` for inline text. */
+export function stageScriptLabel(stage: Pick<SpecStage, "script"> | undefined): string {
+	return stage !== undefined && "path" in stage.script ? basename(stage.script.path, ".agent") : "custom";
+}
+
+/** A settled spec loop's events, as JSON Lines through `write`; `earlier` drafts were streamed by the run it answers. */
+export function streamSpecEvents(
+	write: (line: string) => void,
+	loop: number,
+	start: { readonly change: string; readonly stage: string; readonly script: string; readonly at: string },
+	outcome: LoopOutcome<StageOutcome>,
+	earlier = 0,
+): void {
+	const emit = jsonLines(write);
+	for (const event of specEvents(loop, start, outcome, earlier)) emit(event);
 }
 
 /** A change id is one directory name under `openspec/changes/`. */
@@ -231,6 +252,9 @@ export async function runSpec(args: readonly string[], config: LoadedConfig, io:
 			} catch (error) {
 				return refuse(message(error));
 			}
+			// Before any model call, so a crash still leaves you the ID to resume.
+			io.err(`loop ${id} — resume with: agentscript-task resume ${id} --db ${db.label}`);
+			const at = now();
 			harness.resume();
 			let outcome: LoopOutcome<StageOutcome>;
 			try {
@@ -239,6 +263,7 @@ export async function runSpec(args: readonly string[], config: LoadedConfig, io:
 				io.err(message(error));
 				return 1;
 			}
+			streamSpecEvents(io.err, Number(id), { change, stage: stage.name, script: stageScriptLabel(stage), at }, outcome);
 			if (values.json === true) io.out(JSON.stringify({ loop: id, ...outcome }, null, 2));
 			else for (const line of formatSpecOutcome(outcome, { loop: String(id), change, changePath, ...after(outcome, stages, changeDir) })) io.out(line);
 			return specExitCode(outcome);

@@ -41,7 +41,7 @@ const PROPOSAL_BUNDLE = "=== proposal.md\n# A proposal\n";
 describe("spec", () => {
 	it("Scenario: A new change starts at the proposal", async () => {
 		const run = await spec(["add-plan-export", "--intent", "Export a plan"], { responses: [draft(PROPOSAL_BUNDLE)] });
-		expect(run.err).toBe("");
+		expect(run.err.split("\n")[0]).toMatch(/^loop \d+ — resume with: agentscript-task resume \d+ --db /);
 		expect(run.code).toBe(0);
 		const changeDir = join(run.dir, "openspec", "changes", "add-plan-export");
 		expect(readFileSync(join(changeDir, "intent.md"), "utf8")).toBe("Export a plan");
@@ -111,6 +111,18 @@ describe("spec", () => {
 		expect(again.code).toBe(2);
 		expect(again.err).toContain("intent.md exists; edit it instead");
 		expect(readFileSync(join(dir, "openspec", "changes", "add-plan-export", "intent.md"), "utf8")).toBe("Export a plan");
+	});
+
+	it("streams the spec events as JSON Lines after the resume hint", async () => {
+		const run = await spec(["add-plan-export", "--intent", "Export a plan"], { responses: [draft(PROPOSAL_BUNDLE)] });
+		const [hint, ...lines] = run.err.split("\n");
+		const id = Number(/^loop (\d+) — resume with/.exec(hint ?? "")?.[1]);
+		const events = lines.map((line) => JSON.parse(line) as { event: string; loop: number });
+		expect(events.map((event) => event.event)).toEqual(["stage-started", "stage-draft", "stage-review", "stage-ended"]);
+		expect(events.every((event) => event.loop === id)).toBe(true);
+		expect(events[0]).toMatchObject({ change: "add-plan-export", stage: "proposal", script: "custom" });
+		expect(events[1]).toMatchObject({ draft: 1, written: ["proposal.md"], issues: [] });
+		expect(events[3]).toMatchObject({ status: "blocked", drafts: 1, approved: false });
 	});
 
 	it("writes --intent-file's words verbatim", async () => {
