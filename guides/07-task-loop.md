@@ -2,6 +2,8 @@
 
 After this guide you can point `agentscript-task` at an OpenSpec change in your repository and have an agent work its `tasks.md` unattended: one task at a time or a whole task group, in your working tree or in its own git worktree, until your checks pass or the budget runs out. You will know how to configure it, how to write changes and tasks an agent can finish, how to read what it prints, how to answer when it stops to ask, and how to tune the script it runs.
 
+Coming from [09 The spec agent](09-spec-agent.md)? Once `pnpm change draft <change>` converges, it ends with `pnpm change build <change>`, and that is the next step, no longer `pnpm task <change> --next-group`. `pnpm change build <change>` runs the whole change: each group in order as its own group loop, with its task loops and judge, then the change check (see [Building a whole change](#building-a-whole-change)). `pnpm task <change> <group>` (`pnpm task run …`) still runs a single group; use it to rerun or debug one group.
+
 ## Prerequisites
 
 - Node 22.19 or newer, a git repository, and an OpenSpec project (`openspec/changes/<id>/` with `proposal.md`, `specs/<capability>/spec.md` and `tasks.md`). The [OpenSpec](https://github.com/Fission-AI/OpenSpec) CLI is not required to run the loop, but you will want it to validate and archive changes.
@@ -147,7 +149,81 @@ agentscript-task run add-shout-flag --next  # the first unticked task
 
 The first stderr line, before any model call, is the resume hint: `loop 7 — resume with: agentscript-task resume 7 --db <path>`. Loop ids are numbers; they are task ids in the database and not consecutive.
 
+### Building a whole change
+
+```bash
+pnpm change build add-plan-export                                   # start, or show what's waiting
+pnpm change build add-plan-export --change-check "pnpm spec:check"  # a broader final check
+pnpm change build add-plan-export "Use the v2 API"                  # answer the agent that asked
+pnpm change build add-plan-export --allow-dirty                     # build over uncommitted edits
+```
+
+The usage is `pnpm change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]` (the bin is `agentscript-change`). `build` runs a [change loop](#the-change-loop-from-code): every group of the change in order, each as its own group loop with its task loops and judge, then the change check.
+
+- **Flags.** The group run's flags carry over (`--check`, `--allow`, `--max-iterations`, `--escalate-to`, `--provider`, `--model` and the rest) and resolve through flags, environment, config and defaults exactly as for `pnpm task`.
+- **`--change-check <command>`** can be repeated and defaults to the resolved `--check` commands. Use it for an end-of-change set too slow to run after every task.
+- **`--worktree` is refused for now:** `build has no --worktree yet; run it in a clean checkout`. A build always runs in place, even when the config sets `worktree`.
+
+Each of these refusals exits `2` and starts nothing:
+
+- uncommitted changes without `--allow-dirty`, listed as `pnpm task` lists them;
+- a refusal by the change loop's [guard](#the-guard), such as a requirement with no scenario, or an approved file edited since its approval;
+- an answer when nothing waits: `nothing of add-plan-export waits for an answer; run build add-plan-export without one`.
+
+`build` is addressed by change, never by loop id. What it does depends on the change's newest change loop:
+
+| Newest change loop | State | `build` | `build "<text>"` |
+|---|---|---|---|
+| none, or ended exhausted or failed | ready to build | starts one | refused, nothing waits |
+| `blocked` | waiting for an answer | shows the question again, exit 1 | answers it as the escalation's `to` |
+| `converged` | built | says so, exit 0 | refused, nothing waits |
+
+A session in which group 2 asks a question:
+
+```console
+$ pnpm change build add-plan-export --change-check "pnpm spec:check"
+# add-plan-export — waiting for an answer
+## group 1: converged (4 tasks, 0 reworks)
+## group 2: blocked at 2.3
+
+group 2 asks: The export can call the v1 or the v2 plan API. Which?
+  answer:  pnpm change build add-plan-export "<answer>"
+
+$ pnpm change build add-plan-export "Use the v2 API"
+# add-plan-export — built
+## group 1: converged (4 tasks, 0 reworks)
+## group 2: converged (3 tasks, 1 rework)
+## group 3: converged (2 tasks, 0 reworks)
+## change check: passed
+
+Changed: packages/plan/src/export.ts, packages/plan/src/cli.ts, …
+Archive it: pnpm spec:archive add-plan-export
+```
+
+Reading the output:
+
+- **The header** is `# <change> — <state>`: `built`, `waiting for an answer`, `exhausted` or `failed`.
+- **One line per group entered:** `## group <n>: <status> (<k> tasks, <r> reworks)`, or `## group <n>: blocked at <task>`. Tasks are the group's entries; reworks are the sum of `runs - 1` over its tasks, each extra run being the judge reopening a task (or the rerun after an answer).
+- **The change check**, once it ran: `## change check: passed`, or `## change check: failed` followed by each failing command and its output.
+- **`## unclaimed: <n>`**, when any delta scenario is quoted by no task, then one scenario per line.
+- **`Changed:`** lists the files changed since the build started, less `tasks.md` and the database. Nothing is committed.
+- **The last line is the command to run next:** `pnpm change build <change> "<answer>"` when waiting, `pnpm spec:archive <change>` when built, `retry: pnpm change build <change>` after an exhausted or failed build, which the next `build` restarts with a fresh budget.
+
+**Answering.** The answer is positional, as `draft`'s feedback is, and goes in as the escalation's `to`: the `principal` by default, the `agent` when `--escalate-to agent` addressed it there. The blocked group reruns first, then the remaining groups and the change check. Running `build` alone on a waiting change shows the question again, starts nothing and exits `1`.
+
+| Exit | Meaning |
+|---|---|
+| `0` | Built |
+| `1` | Waiting for an answer, exhausted or failed |
+| `2` | Usage error or a refusal |
+
+**Long runs.** A build runs every group's task loops and checks in one process. The loop is durable: before any model call, stderr prints `change loop <id> — resume with: agentscript-change build <change> --db <path>`. If the process dies, that command, or `pnpm change build <change>` with the config's database, finds the unfinished loop and continues it rather than starting another.
+
+`pnpm spec:archive <change>` is the last step until `add-change-close` replaces it with `pnpm change close`.
+
 ### Groups
+
+To run one group, to rerun or debug it, use `pnpm task <change> <group>`. To run every group of a change, use [`pnpm change build`](#building-a-whole-change).
 
 ```bash
 agentscript-task run add-shout-flag 1              # a bare integer is a group
@@ -159,7 +235,7 @@ A group loop runs the group's unticked tasks in file order, each as its own task
 
 When the group check fails after every task converged, the **group judge** (`group.agent`) picks one of `rework`, `ask` or `amend-spec`. `rework` names one task of the group and what it must fix: that task is unticked in `tasks.md`, rerun with the failing check output and the judge's feedback carried in, and the group check runs again. Reworks are bounded by `--max-reworks` (default 2); spending them ends the group `exhausted`. `ask` and `amend-spec` end it `blocked`.
 
-### Build a whole change
+### The change loop from code
 
 A change loop builds every group of a change, one group loop at a time, and each group loop runs its own task loops:
 
@@ -169,7 +245,7 @@ change loop   agentscript.change-loop   groups 1, 2, 3 …, then the change chec
    └─ task loop   agentscript.task-loop     orient, act, check, judge, until the task converges
 ```
 
-The change loop runs every group in order and then a change check, and returns `LoopOutcome<ChangeOutcome>`: `groups` (one entry per group: `group`, its latest group-loop `outcome`, and `runs`) and `unclaimed`. For now it runs only from code. The `pnpm change build` command comes in `add-change-build`.
+The change loop runs every group in order and then a change check, and returns `LoopOutcome<ChangeOutcome>`: `groups` (one entry per group: `group`, its latest group-loop `outcome`, and `runs`) and `unclaimed`. [`pnpm change build`](#building-a-whole-change) runs it from the command line; this section is for hosts that run it from code.
 
 #### The example
 
@@ -275,7 +351,6 @@ The change check runs once, after the last group converges. `changeChecks` defau
 
 - **No budget of its own.** The limits come from each group's `maxReworks` and each task's `maxIterations`, both set in `budget`.
 - **Don't put a `pnpm spec:archive` task in `tasks.md`.** The change check would then validate a change that has already been archived.
-- **The command line comes later.** `pnpm change build` comes in `add-change-build`.
 
 ### Worktrees
 

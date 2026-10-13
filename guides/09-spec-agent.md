@@ -14,6 +14,7 @@ The whole journey, stage by stage, is mocked in the [`add-spec-loop` walkthrough
 
 ```
 agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
+agentscript-change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
 ```
 
 **Start** a change with `pnpm change draft <change> --intent "<words>"`, or `--intent-file <path>`. This creates `openspec/changes/<change>/intent.md` holding your words verbatim, and starts a draft loop over `SPEC_STAGES`, beginning with the proposal. A new change with neither flag exits 2, naming `--intent`, and creates nothing. On an existing change both flags are refused, so what you asked for never changes without you seeing it: edit `intent.md` instead.
@@ -52,7 +53,7 @@ question: CSV too?
 
 **Look again.** `pnpm change draft <change>` alone, while something waits, prints the same review or question again and starts nothing. A change never has two drafts at once.
 
-**Continue.** With nothing waiting, `draft` starts from the first stage that has no current approval. Editing an approved file, such as `design.md`, makes its approval stale, so drafting restarts from that stage. A draft that ended exhausted or failed is restarted the same way, with a fresh budget. With every stage approved and unchanged, it starts nothing, exits 0 and points at the task loop:
+**Continue.** With nothing waiting, `draft` starts from the first stage that has no current approval. Editing an approved file, such as `design.md`, makes its approval stale, so drafting restarts from that stage. A draft that ended exhausted or failed is restarted the same way, with a fresh budget. With every stage approved and unchanged, it starts nothing, exits 0 and points at the build:
 
 ```
 # add-plan-export — drafted: every stage is approved
@@ -61,10 +62,42 @@ question: CSV too?
 ## specs: approved
 ## tasks: approved
 
-  next:     pnpm task add-plan-export --next-group
+  next:     pnpm change build add-plan-export
 ```
 
 **Approving** is the one step still addressed by loop id: the approve line names the draft loop (`12` above) until `add-change-approve` lands. As of `add-change-draft`, `pnpm task answer` doesn't find draft loops yet, so that line is refused with `no loop 12 in <db>`.
+
+**Build it.** `pnpm change build <change>` runs every group of the drafted change in order, each with its task loops and judge, then a change check, and stops only when an agent needs a decision:
+
+```console
+$ pnpm change build add-plan-export --change-check "pnpm spec:check"
+# add-plan-export — waiting for an answer
+## group 1: converged (4 tasks, 0 reworks)
+## group 2: blocked at 2.3
+
+group 2 asks: The export can call the v1 or the v2 plan API. Which?
+  answer:  pnpm change build add-plan-export "<answer>"
+
+$ pnpm change build add-plan-export "Use the v2 API"
+# add-plan-export — built
+## group 1: converged (4 tasks, 0 reworks)
+## group 2: converged (3 tasks, 1 rework)
+## group 3: converged (2 tasks, 0 reworks)
+## change check: passed
+
+Changed: packages/plan/src/export.ts, packages/plan/src/cli.ts, …
+Archive it: pnpm spec:archive add-plan-export
+```
+
+- **Flags.** `build` takes the group run's flags (`--check`, `--allow`, `--max-iterations`, `--escalate-to`, `--provider`, `--model`, …) plus `--change-check <command>`, which can be repeated and defaults to the resolved checks.
+- **Refusals.** A dirty tree is refused unless you pass `--allow-dirty`, as with `pnpm task`. `--worktree` isn't supported yet. Both exit 2 and start nothing.
+- **Answering.** The answer is positional, as `draft`'s feedback is, and goes to whoever the escalation names: you, with the default `escalateTo`. `build <change>` with no answer shows the question again.
+- **Built.** A change that is already built says so and starts nothing.
+- **Crashes.** If the process dies, `pnpm change build <change>` with the same database continues the unfinished build instead of starting another. Before any model call, stderr prints `change loop <id> — resume with: agentscript-change build <change> --db <path>`.
+- **Reworks** are extra task runs: each one is the group's judge reopening a task.
+- **Exit codes:** 0 built; 1 waiting for an answer, exhausted or failed; 2 usage or a refusal.
+
+`pnpm spec:archive <change>` is the last step until `add-change-close`. [Building a whole change](07-task-loop.md#building-a-whole-change) in 07 covers the rest: the refusals, the output and the change loop.
 
 ### Where a change stands
 

@@ -14,8 +14,8 @@
 
 ## 3. Docs
 
-- [ ] 3.1 `guides/07-task-loop.md`: `pnpm change build` executes a whole change; `pnpm task <change> <group>` runs one group
-- [ ] 3.2 `guides/09-spec-agent.md`: end the walkthrough with `pnpm change build`
+- [x] 3.1 `guides/07-task-loop.md`: `pnpm change build` executes a whole change; `pnpm task <change> <group>` runs one group
+- [x] 3.2 `guides/09-spec-agent.md`: end the walkthrough with `pnpm change build`
 
 ## 4. Verify
 
