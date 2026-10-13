@@ -13,9 +13,9 @@
 
 ## 3. Docs
 
-- [ ] 3.1 `docs/ontology/process/size-budget.md` (new): the `SizeBudget` concept page, with its defaults and where they come from
-- [ ] 3.2 `docs/ontology/process/change-size.md` (new): the `ChangeSize` concept page and the three rules over it
-- [ ] 3.3 `docs/README.md`: both pages in the process table
+- [x] 3.1 `docs/ontology/process/size-budget.md` (new): the `SizeBudget` concept page, with its defaults and where they come from
+- [x] 3.2 `docs/ontology/process/change-size.md` (new): the `ChangeSize` concept page and the three rules over it
+- [x] 3.3 `docs/README.md`: both pages in the process table
 
 ## 4. Verify
 

@@ -43,6 +43,8 @@ Status: **implemented** as `@specsesh/agent/openspec`: each type is a TypeBox sc
 | [Intent](ontology/process/intent.md) | `intent` | The principal's words plus the existing capability index. |
 | [CapabilityIndex](ontology/process/capability-index.md) | `capability-index` | Every existing capability path with its purpose. |
 | [ValidationReport](ontology/process/validation-report.md) | `validation-report` | Strict validation's verdict and its issues by level. |
+| [ChangeSize](ontology/process/change-size.md) | `change-size` | A change's counts, and the rules that check it and its tasks against a budget. |
+| [SizeBudget](ontology/process/size-budget.md) | `size-budget` | The limits a change and its tasks are checked against, with their defaults. |
 | [Approval](ontology/process/approval.md) | `approval` | The principal's yes or no on a change. |
 | [ArchiveResult](ontology/process/archive-result.md) | `archive-result` | Where a change was archived and what it folded into the specs. |
 | [ChangeState](ontology/process/change-state.md) | `change-state` | The change's state machine, from drafting to archived. |
