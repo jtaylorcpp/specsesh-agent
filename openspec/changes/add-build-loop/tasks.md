@@ -1,10 +1,10 @@
 ## 1. The loop
 
-- [ ] 1.1 `packages/agent/src/task/change-input.ts` (new): `ChangeLoopOptions` with `changeChecks`, and the checkpoint `{ phase, queue, entries, child? }`
-- [ ] 1.2 `packages/agent/src/task/change-guard.ts` (new): `buildRefusal(change, changeDir)`: strict validation and the approvals check; `unclaimedAtStart` by quoted name
-- [ ] 1.3 `packages/agent/src/task/change-loop.ts` (new): the `agentscript.change-loop` task with its phases `next`, `group` and `check`
-- [ ] 1.4 `packages/agent/src/task/change-api.ts` (new): `startChangeLoop`, `waitForChangeLoop`, `answerChangeEscalation` and `changeLoopExtensions`
-- [ ] 1.5 `packages/agent/src/task/index.ts`: export the change loop's functions and `ChangeLoopOptions`
+- [x] 1.1 `packages/agent/src/task/change-input.ts` (new): `ChangeLoopOptions` with `changeChecks`, and the checkpoint `{ phase, queue, entries, child? }`
+- [x] 1.2 `packages/agent/src/task/change-guard.ts` (new): `buildRefusal(change, changeDir)`: strict validation and the approvals check; `unclaimedAtStart` by quoted name
+- [x] 1.3 `packages/agent/src/task/change-loop.ts` (new): the `agentscript.change-loop` task with its phases `next`, `group` and `check`
+- [x] 1.4 `packages/agent/src/task/change-api.ts` (new): `startChangeLoop`, `waitForChangeLoop`, `answerChangeEscalation` and `changeLoopExtensions`
+- [x] 1.5 `packages/agent/src/task/index.ts`: export the change loop's functions and `ChangeLoopOptions`
 
 ## 2. Tests
 

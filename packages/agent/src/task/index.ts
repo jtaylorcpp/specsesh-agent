@@ -36,6 +36,8 @@ export {
 	type TaskEvent,
 } from "./events.js";
 export { answerGroupEscalation } from "./group-answer.js";
+export type { ChangeLoopOptions } from "./change-input.js";
+export { answerChangeEscalation, changeLoopExtensions, startChangeLoop, waitForChangeLoop } from "./change-api.js";
 export { prepareTaskLoop, startTaskLoop } from "./start.js";
 export { answerEscalation, waitForTaskLoop, waitForTaskLoopResult } from "./answer.js";
 export { SPEC_NEXT_ACTIONS, SPEC_STAGE_CONTRACT, owns, stageContractProblems, type SpecStage, type StageContext, type StageIssue } from "./spec-stage.js";
