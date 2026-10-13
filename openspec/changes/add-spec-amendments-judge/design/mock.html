@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>add-spec-amendments-judge — rendered flow</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 860px; color: #222; }
+  h1 { font-size: 1.3rem; } h2 { font-size: 1.05rem; margin-top: 2rem; }
+  .fake { background: #fff3c4; border: 1px solid #e0c060; padding: .4rem .7rem; font-size: .85rem; }
+  .step { border-left: 4px solid #888; padding: .5rem 1rem; margin: .8rem 0; background: #f7f7f7; }
+  .blocked { border-color: #c80; } .ok { border-color: #2a2; } .err { border-color: #c22; }
+  pre { background: #1e1e1e; color: #ddd; padding: .8rem; overflow-x: auto; font-size: .8rem; }
+  .diff-del { color: #f88; } .diff-add { color: #8f8; }
+  .tag { display: inline-block; font-size: .75rem; padding: 0 .4rem; border-radius: 3px; background: #ddd; }
+</style>
+</head>
+<body>
+<h1>Group loop: amend-spec with an amendment</h1>
+<p class="fake">FAKE DATA: change <code>add-queue</code>, group 1, deltas <code>specs/task/queue/spec.md</code> and <code>specs/task/group/spec.md</code>. All text is illustrative.</p>
+
+<h2>1. Group runs, check fails, judge proposes an amendment</h2>
+<div class="step"><span class="tag">next</span> → <span class="tag">task 1.1</span> converged (runs 1) → <span class="tag">next</span> → <span class="tag">task 1.2</span> converged (runs 1) → <span class="tag">check</span></div>
+<div class="step err"><b>check</b> <code>pnpm test</code> exit 1<pre>FAIL queue.test.ts › Empty queue › keeps ticked tasks
+  expected entries to be [] but got [ "1.1" ]</pre></div>
+<div class="step"><b>judge</b> (group.agent) dispatched with:
+<pre>choices: {
+  next_action: ["rework", "ask", "amend-spec"],
+  amend_path:  ["", "specs/task/queue/spec.md", "specs/task/group/spec.md"]
+}</pre>
+and sets:
+<pre>next_action = "amend-spec"
+question    = "Scenario 'Empty queue' contradicts the ticked-task rule; replace the delta?"
+amend_path  = "specs/task/queue/spec.md"
+amend_text  = "## MODIFIED Requirements\n\n### Requirement: Empty queue\n…(full file)…"</pre></div>
+
+<h2>2. Outcome: blocked, escalation carries the Amendment unchanged</h2>
+<div class="step blocked"><pre>{
+  "status": "blocked",
+  "escalation": {
+    "level": "group",
+    "to": "principal",
+    "question": "Scenario 'Empty queue' contradicts the ticked-task rule; replace the delta?",
+    "amendment": {
+      "delta": "specs/task/queue/spec.md",
+      "text": "## MODIFIED Requirements\n\n### Requirement: Empty queue\n…"
+    }
+  },
+  "iterations": [ { "verdict": { "met": false,
+      "findings": [ { "kind": "spec-defect", "feedback": "amend-spec" } ] } } ]
+}</pre></div>
+
+<h2>3. Principal applies it (outside this change), then answers</h2>
+<div class="step"><p>writes <code>text</code> to <code>openspec/changes/add-queue/specs/task/queue/spec.md</code></p>
+<pre><span class="diff-del">- the queue SHALL be empty when every task is ticked</span>
+<span class="diff-add">+ the queue SHALL be empty when every task is ticked; ticked tasks SHALL still be entered</span></pre>
+<pre>answerGroupEscalation(harness, id, { by: "principal", decision: "amendment-applied" }, ctx)</pre></div>
+
+<h2>4. Group resumes: deltas re-read, check reruns</h2>
+<div class="step"><span class="tag">re-read deltas</span> → <span class="tag">check</span> <code>pnpm test</code> exit 0</div>
+<div class="step ok"><b>converged</b>: 1.1 runs 1, 1.2 runs 1, reworks 0</div>
+
+<h2>Alternative: blank amendment is dropped, group still blocked</h2>
+<div class="step"><pre>next_action = "amend-spec"
+question    = "The queue delta looks wrong; how should it read?"
+amend_path  = "specs/task/queue/spec.md"
+amend_text  = ""</pre></div>
+<div class="step blocked">note: <code>amendment dropped: amend_text is empty</code>
+<pre>{
+  "status": "blocked",
+  "escalation": {
+    "level": "group",
+    "to": "principal",
+    "question": "The queue delta looks wrong; how should it read?"
+  }
+}</pre>
+No <code>amendment</code> field; finding is still <code>spec-defect</code> / <code>amend-spec</code>.</div>
+
+<h2>Alternative: old script refused at start</h2>
+<div class="step err">startGroupLoop rejected: group script does not declare <code>amend_path</code> (string)</div>
+</body>
+</html>
