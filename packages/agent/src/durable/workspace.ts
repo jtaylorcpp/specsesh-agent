@@ -51,6 +51,11 @@ export interface Workspace {
 	 */
 	search?(pattern: string, options?: SearchOptions): Promise<SearchMatch[]>;
 	/**
+	 * Delete one file. Rejects with `WorkspaceError` when it refuses. Without it a
+	 * workspace cannot delete files; `memoryWorkspace` has none.
+	 */
+	remove?(path: string): Promise<void>;
+	/**
 	 * Record the workspace's changes in its history of record. `localWorkspace`
 	 * has none: the local runner never commits.
 	 */
@@ -133,12 +138,17 @@ export function matchGlob(glob: string, path: string): boolean {
 	return globToRegExp(glob).test(path);
 }
 
+/** `inside .git` and `is a directory` come only from `remove`. */
+export type WorkspaceErrorReason = "outside the workspace" | "no such file" | "inside .git" | "is a directory";
+
 export class WorkspaceError extends Error {
-	readonly reason: "outside the workspace" | "no such file";
+	readonly reason: WorkspaceErrorReason;
 	readonly path: string;
 
-	constructor(reason: "outside the workspace" | "no such file", path: string) {
-		super(reason === "outside the workspace" ? `${path} is outside the workspace` : `no such file: ${path}`);
+	constructor(reason: WorkspaceErrorReason, path: string) {
+		super(
+			reason === "outside the workspace" || reason === "inside .git" ? `${path} is ${reason}` : `${reason}: ${path}`,
+		);
 		this.name = "WorkspaceError";
 		this.reason = reason;
 		this.path = path;

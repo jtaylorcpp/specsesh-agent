@@ -220,6 +220,70 @@ An action that changes or runs something attaches a `record` to its result: an o
 
 `run_command` and `run_checks` record a `command` action with one `check` evidence per command (its exit code and output). A granted delegate records a `delegate` action. `read_file` records nothing. The record rides along in `RunResult.actions[n].result.record` for a `run`, and in `toolCalls[n].record` for a model call. The interpreter keeps it as given and never reads it.
 
+## Deleting a file: `delete_file`
+
+`delete_file` is not one of the four built-ins. It is not in `builtinActions` or `workspaceActions`, so no host has it unless the host grants it.
+
+| Action | Inputs → outputs | `kind` | `replay` |
+|---|---|---|---|
+| `delete_file` | `path` → `ok` | edit | unsafe |
+
+It deletes exactly one file through `workspace.remove(path)`. If the path is a symlink inside the workspace, the link is removed and its target is left alone. The file is removed from the working tree only, and the removal is not staged. The next snapshot shows the file as `deleted`.
+
+Replay is `unsafe` because a second run of the same delete is refused with `no such file`. On replay the recorded result is used, and the delete never runs a second time.
+
+Every refusal is an ordinary `{ ok: false }` result with a message. Nothing throws, nothing is deleted and nothing is recorded. Apart from the last one, each message ends `; nothing was deleted`:
+
+| Message | When |
+|---|---|
+| `<path> is outside the workspace` | An absolute path, a `..` segment, or a real path that leaves the workspace (for example a symlink to `/etc`). |
+| `<path> is inside .git` | A `.git` segment, or a real path under `.git` (for example a symlink into `.git`). |
+| `no such file: <path>` | Nothing is at the path. |
+| `is a directory: <path>` | A directory, or a symlink to one. |
+| `this workspace cannot delete files` | The workspace has no `remove`. `memoryWorkspace` has none. |
+
+A successful delete records an `edit` action and a diff:
+
+```json
+{
+  "action": { "kind": "edit", "summary": "delete src/legacy/old-runner.ts", "refs": ["src/legacy/old-runner.ts"] },
+  "evidence": [{ "kind": "diff", "files": [{ "path": "src/legacy/old-runner.ts", "change": "deleted" }] }]
+}
+```
+
+To grant it, a host adds `deleteActions(workspace)` to its registry. `deleteActions` comes from `@specsesh/agent/durable`, which loads without Node built-ins.
+
+```ts
+import { agentScriptExtensions, createActionRegistry, deleteActions } from "@specsesh/agent/durable";
+import { builtinActions, localWorkspace } from "@specsesh/agent/node";
+
+export function hostFor(config: { dir: string; allow: string[]; checks: string[]; grants: string[] }) {
+  const workspace = localWorkspace(config.dir);
+  const actions = createActionRegistry([
+    ...builtinActions({ workspace: config.dir, allow: config.allow, checks: config.checks }),
+    ...(config.grants.includes("delete_file") ? deleteActions(workspace) : []),
+  ]);
+  return agentScriptExtensions({ actions, workspace });
+}
+```
+
+What it answers:
+
+```ts
+const workspace = localWorkspace("/work/repo");
+const [deleteFile] = deleteActions(workspace);
+const ctx = { workspace, signal: new AbortController().signal };
+
+await deleteFile.execute({ path: "src/legacy/old-runner.ts" }, ctx);
+// { ok: true, outputs: { ok: true }, record: … "change": "deleted" … }
+await deleteFile.execute({ path: "src/legacy/old-runner.ts" }, ctx);
+// { ok: false, message: "no such file: src/legacy/old-runner.ts; nothing was deleted" }
+await deleteFile.execute({ path: ".git/config" }, ctx);
+// { ok: false, message: ".git/config is inside .git; nothing was deleted" }
+```
+
+A host that does not grant it refuses any script that declares `mcpTool://delete_file`. The run is refused up front with an `ActionBindingError` naming `delete_file` (see [The binding check](#the-binding-check)). `pnpm task` does not grant it to its own loops yet; that is the follow-up change `add-delete-file-grant`.
+
 ## Write your own action
 
 Two examples, simplest first. Both go beside the built-ins in the same registry.
@@ -366,7 +430,7 @@ An unsafe interrupted action is a decision for a person: the work may have happe
 Pick the policy by one question: if this call runs twice with the same inputs, is the world the same as if it ran once?
 
 - Reading a file, looking something up, replacing a file's whole content: yes, `safe`. (`read_file` and `edit_file` are safe for this reason.)
-- Appending, sending a message, creating a ticket, running a command, calling a delegate: no, `unsafe`. When in doubt, choose `unsafe`.
+- Appending, deleting a file, sending a message, creating a ticket, running a command, calling a delegate: no, `unsafe`. When in doubt, choose `unsafe`.
 
 `execute` also receives an `AbortSignal` as `signal`. It fires when the run is aborted; pass it to `fetch` and to child processes, as the built-ins do.
 

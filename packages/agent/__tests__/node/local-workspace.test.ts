@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -159,6 +159,124 @@ function gitDir(): string {
 function put(dir: string, path: string, content: string | Buffer): void {
 	mkdirSync(dirname(join(dir, path)), { recursive: true });
 	writeFileSync(join(dir, path), content);
+}
+
+describe("actions/workspace: localWorkspace refuses a remove outside the workspace or inside .git", () => {
+	it("Scenario: Absolute and parent-directory paths are refused", async () => {
+		const parent = tempDir();
+		const dir = join(parent, "ws");
+		put(dir, "keep.txt", "k");
+		put(parent, "outside.txt", "o");
+		const workspace = localWorkspace(dir);
+		for (const path of ["/etc/hosts", "../outside.txt", join(dir, "keep.txt"), "src/../../outside.txt", "..\\outside.txt"]) {
+			const error = await rejection(workspace.remove!(path));
+			expect(error.reason, path).toBe("outside the workspace");
+			expect(error.message, path).toContain("outside the workspace");
+		}
+		expect(existsSync("/etc/hosts")).toBe(true);
+		expect(readFileSync(join(parent, "outside.txt"), "utf8")).toBe("o");
+		expect(readFileSync(join(dir, "keep.txt"), "utf8")).toBe("k");
+	});
+
+	it("Scenario: A symlink out of the workspace is refused", async () => {
+		const dir = tempDir();
+		put(dir, "src/a.ts", "a");
+		symlinkSync("/etc", join(dir, "link"));
+		symlinkSync("/etc/hosts", join(dir, "hostlink"));
+		const workspace = localWorkspace(dir);
+		expect((await rejection(workspace.remove!("link/passwd"))).message).toContain("outside the workspace");
+		expect((await rejection(workspace.remove!("link/agentscript-missing"))).reason).toBe("outside the workspace");
+		expect((await rejection(workspace.remove!("hostlink"))).reason).toBe("outside the workspace");
+		expect(existsSync("/etc/passwd")).toBe(true);
+		expect(existsSync(join(dir, "link"))).toBe(true);
+		expect(existsSync(join(dir, "hostlink"))).toBe(true);
+		expect(readFileSync(join(dir, "src/a.ts"), "utf8")).toBe("a");
+	});
+
+	it("Scenario: A path inside .git is refused", async () => {
+		const dir = gitDir();
+		put(dir, "src/a.ts", "a");
+		const config = readFileSync(join(dir, ".git/config"), "utf8");
+		const workspace = localWorkspace(dir);
+		for (const path of [".git/config", ".git", "sub/.git/x", ".git\\config"]) {
+			const error = await rejection(workspace.remove!(path));
+			expect(error.reason, path).toBe("inside .git");
+			expect(error.message, path).toContain("inside .git");
+			expect(error.message, path).not.toContain("outside the workspace");
+		}
+		expect(readFileSync(join(dir, ".git/config"), "utf8")).toBe(config);
+		expect(readFileSync(join(dir, "src/a.ts"), "utf8")).toBe("a");
+	});
+
+	it("Scenario: A symlink into .git is refused", async () => {
+		const dir = gitDir();
+		put(dir, "src/a.ts", "a");
+		const config = readFileSync(join(dir, ".git/config"), "utf8");
+		symlinkSync(join(dir, ".git"), join(dir, "gitlink"));
+		symlinkSync(join(dir, ".git/config"), join(dir, "configlink"));
+		const workspace = localWorkspace(dir);
+		expect((await rejection(workspace.remove!("gitlink/config"))).message).toContain("inside .git");
+		expect((await rejection(workspace.remove!("configlink"))).reason).toBe("inside .git");
+		expect(readFileSync(join(dir, ".git/config"), "utf8")).toBe(config);
+		expect(entryExists(join(dir, "gitlink"))).toBe(true);
+		expect(entryExists(join(dir, "configlink"))).toBe(true);
+		expect(readFileSync(join(dir, "src/a.ts"), "utf8")).toBe("a");
+	});
+});
+
+describe("actions/workspace: localWorkspace removes exactly one existing non-directory entry", () => {
+	it("Scenario: A directory is refused", async () => {
+		const dir = tempDir();
+		put(dir, "src/legacy/old-runner.ts", "old");
+		symlinkSync(join(dir, "src/legacy"), join(dir, "legacylink"));
+		const workspace = localWorkspace(dir);
+		expect((await rejection(workspace.remove!("src/legacy"))).message).toBe("is a directory: src/legacy");
+		expect((await rejection(workspace.remove!("legacylink"))).message).toBe("is a directory: legacylink");
+		expect(readFileSync(join(dir, "src/legacy/old-runner.ts"), "utf8")).toBe("old");
+		expect(lstatSync(join(dir, "src/legacy")).isDirectory()).toBe(true);
+		expect(lstatSync(join(dir, "legacylink")).isSymbolicLink()).toBe(true);
+	});
+
+	it("Scenario: A symlink inside the workspace is removed, not its target", async () => {
+		const dir = tempDir();
+		put(dir, "src/a.ts", "export const a = 1;\n");
+		symlinkSync("src/a.ts", join(dir, "alias.ts"));
+		await expect(localWorkspace(dir).remove!("alias.ts")).resolves.toBeUndefined();
+		expect(entryExists(join(dir, "alias.ts"))).toBe(false);
+		expect(readFileSync(join(dir, "src/a.ts"), "utf8")).toBe("export const a = 1;\n");
+	});
+
+	it("deletes one file, and names a missing one", async () => {
+		const dir = tempDir();
+		put(dir, "src/legacy/old-runner.ts", "old");
+		put(dir, "src/legacy/keep.ts", "keep");
+		const workspace = localWorkspace(dir);
+		await workspace.remove!("src/legacy/old-runner.ts");
+		expect(existsSync(join(dir, "src/legacy/old-runner.ts"))).toBe(false);
+		expect(existsSync(join(dir, "src/legacy/keep.ts"))).toBe(true);
+		for (const path of ["src/gone.ts", "src/legacy/old-runner.ts", "nowhere/deep/x.ts", "src/legacy/keep.ts/x"]) {
+			const error = await rejection(workspace.remove!(path));
+			expect(error.reason, path).toBe("no such file");
+			expect(error.message, path).toBe(`no such file: ${path}`);
+		}
+	});
+
+	it("removes a dangling symlink inside the workspace", async () => {
+		const dir = tempDir();
+		symlinkSync("src/gone.ts", join(dir, "dangling.ts"));
+		await localWorkspace(dir).remove!("dangling.ts");
+		expect(entryExists(join(dir, "dangling.ts"))).toBe(false);
+	});
+});
+
+/** Whether anything, a dangling link included, is at `path`. */
+function entryExists(path: string): boolean {
+	try {
+		lstatSync(path);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 describe("actions/workspace: localWorkspace lists and searches, honouring .gitignore in git", () => {

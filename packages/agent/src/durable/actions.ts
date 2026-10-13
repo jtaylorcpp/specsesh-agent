@@ -12,7 +12,7 @@ import type { TaskId, TaskOutcome } from "@earendil-works/pi-durable";
 import { declaredActions, type ActionResult, type RunResult, type VariableValue } from "../interpreter/index.js";
 import { isGrantedDelegate } from "./delegate-brand.js";
 import type { RunInput } from "./extension.js";
-import type { WorkspaceSnapshot } from "./workspace.js";
+import { actionRecord, type Workspace, type WorkspaceSnapshot } from "./workspace.js";
 
 /** The scalar types an action's inputs and outputs carry, like a script variable's. */
 export type ActionParameterType = "string" | "number" | "boolean";
@@ -186,4 +186,42 @@ function compareParameters(
 		if (!(name in declared)) mismatches.push(`${what} ${name} of the host action is not declared`);
 	}
 	return mismatches;
+}
+
+export const NO_REMOVE = "this workspace cannot delete files";
+
+/**
+ * `delete_file`, over `workspace.remove`. Never in `workspaceActions` or
+ * `builtinActions`: a host grants it by adding this to its registry. A second
+ * delete of one path is refused, so on recovery it is never run again.
+ *
+ *   delete_file { path } → { ok }    edit  unsafe
+ */
+export function deleteActions(workspace: Workspace): ExecutedHostAction[] {
+	const deleteFileAction: ExecutedHostAction = {
+		name: "delete_file",
+		kind: "edit",
+		inputs: { path: "string" },
+		outputs: { ok: "boolean" },
+		replay: "unsafe",
+		async execute(inputs) {
+			if (workspace.remove === undefined) return { ok: false, message: NO_REMOVE };
+			const path = String(inputs["path"]);
+			try {
+				await workspace.remove(path);
+			} catch (error) {
+				// Every rejection is a refusal the agent hears, never a throw out of the loop.
+				return { ok: false, message: `${error instanceof Error ? error.message : String(error)}; nothing was deleted` };
+			}
+			return {
+				ok: true,
+				outputs: { ok: true },
+				record: actionRecord({ kind: "edit", summary: `delete ${path}`, refs: [path] }, [
+					{ kind: "diff", files: [{ path, change: "deleted" }] },
+				]),
+			};
+		},
+	};
+
+	return [deleteFileAction];
 }

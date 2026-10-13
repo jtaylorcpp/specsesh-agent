@@ -6,12 +6,14 @@
  * or `undefined` outside a git repository. `list` is the files git does not
  * ignore (`git ls-files -co --exclude-standard`), or every file but `.git/`
  * outside git; `search` reads those as UTF-8 here, skipping any with a NUL byte.
+ * `remove` also refuses anything in `.git` and any directory, and unlinks a
+ * symlink itself, never its target.
  */
 
 import { execFile, spawn } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
-import { lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { existsSync, realpathSync, type Stats } from "node:fs";
+import { lstat, mkdir, readFile, readdir, realpath, stat, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
 	DEFAULT_SEARCH_LIMIT,
 	WorkspaceError,
@@ -67,6 +69,29 @@ export function localWorkspace(dir: string): Workspace {
 		exec: (argv, options) => exec(root, argv, options),
 		snapshot: () => gitSnapshot(root),
 		list,
+		async remove(path) {
+			const segments = path.split(/[/\\]/);
+			if (path === "" || isAbsolute(path) || segments.includes("..")) throw new WorkspaceError("outside the workspace", path);
+			if (segments.includes(".git")) throw new WorkspaceError("inside .git", path);
+			const realRoot = await realpath(root);
+			const target = join(realRoot, path);
+			// Where the entry itself lives, and for a link, where it leads: a dangling link has only the first.
+			const located = [join(await realAncestry(dirname(target)), basename(target))];
+			const entry = await lstatOrMissing(target);
+			if (entry?.isSymbolicLink()) {
+				const leads = await realpath(target).catch((error: NodeJS.ErrnoException) => {
+					if (error.code === "ENOENT" || error.code === "ELOOP") return undefined;
+					throw error;
+				});
+				if (leads !== undefined) located.push(leads);
+			}
+			if (located.some((real) => !inside(realRoot, real))) throw new WorkspaceError("outside the workspace", path);
+			if (located.some((real) => inside(join(realRoot, ".git"), real))) throw new WorkspaceError("inside .git", path);
+			if (entry === undefined) throw new WorkspaceError("no such file", path);
+			if (entry.isDirectory() || (entry.isSymbolicLink() && (await isDirectory(target)))) throw new WorkspaceError("is a directory", path);
+			// A link is removed itself, never its target.
+			await unlink(target);
+		},
 		async search(pattern, options = {}) {
 			// No `g` flag: `test` keeps no state from one line to the next. An invalid pattern rejects here.
 			const regex = new RegExp(pattern);
@@ -133,6 +158,44 @@ async function walk(root: string, prefix: string): Promise<string[]> {
 		} else if (entry.isFile()) files.push(path);
 	}
 	return files;
+}
+
+/** The real path of `path`: its deepest existing ancestor resolved, with the missing rest added back. */
+async function realAncestry(path: string): Promise<string> {
+	let existing = path;
+	const missing: string[] = [];
+	for (;;) {
+		try {
+			return join(await realpath(existing), ...missing);
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
+			const parent = dirname(existing);
+			if (parent === existing) throw error;
+			missing.unshift(basename(existing));
+			existing = parent;
+		}
+	}
+}
+
+/** `lstat`, or `undefined` when nothing is there. */
+async function lstatOrMissing(path: string): Promise<Stats | undefined> {
+	try {
+		return await lstat(path);
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ENOENT" || code === "ENOTDIR") return undefined;
+		throw error;
+	}
+}
+
+/** Whether `path`, followed through links, is a directory; false for a dangling link. */
+async function isDirectory(path: string): Promise<boolean> {
+	try {
+		return (await stat(path)).isDirectory();
+	} catch {
+		return false;
+	}
 }
 
 function inside(root: string, candidate: string): boolean {

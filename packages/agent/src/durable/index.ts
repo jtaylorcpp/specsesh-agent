@@ -17,6 +17,7 @@ export {
 	ActionBindingError,
 	checkBindings,
 	createActionRegistry,
+	deleteActions,
 	isDurable,
 	type ActionBindingProblem,
 	type ActionContext,
