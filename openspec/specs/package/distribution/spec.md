@@ -126,11 +126,11 @@ No file under `packages/agent/src/` or `packages/agent/dist/`, and neither `READ
 - **AND** no file SHALL contain `@coopcli`
 
 ### Requirement: The readme lists the entry points
-`packages/agent/README.md` SHALL give the install command `npm install @specsesh/agent`, list the nine entry points with one line each on what they hold and which peers they need, and name all three bins.
+`packages/agent/README.md` SHALL give the install command `npm install @specsesh/agent`, list the nine entry points with one line each on what they hold and which peers they need, and name all four bins.
 
 #### Scenario: Every entry is documented
 - **WHEN** `packages/agent/README.md` is read
-- **THEN** it SHALL contain `npm install @specsesh/agent`, each of the nine `@specsesh/agent/<entry>` strings, `agentscript-pi`, `agentscript-durable` and `agentscript-task`
+- **THEN** it SHALL contain `npm install @specsesh/agent`, each of the nine `@specsesh/agent/<entry>` strings, `agentscript-pi`, `agentscript-durable`, `agentscript-task` and `agentscript-change`
 
 ### Requirement: pack:check proves the tarball installs and runs
 `pnpm pack:check` SHALL run `__tests__/package/pack.test.ts` under vitest (`vitest.pack.config.ts`; not in `pnpm test`: it needs the npm registry). It SHALL pack the built package, install it into temp projects with and without the peers, import every entry but `./cloudflare` with plain Node, run the installed `agentscript-durable run` on a faux model to `completed` and `agentscript-task` to its usage, name what failed, and clean up.
