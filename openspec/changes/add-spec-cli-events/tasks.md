@@ -6,7 +6,7 @@
 
 ## 2. Live
 
-- [ ] 2.1 `packages/agent/__tests__/live/task.live.test.ts`: "The live proposal reaches review clean", skipping as the task live run does
+- [x] 2.1 `packages/agent/__tests__/live/task.live.test.ts`: "The live proposal reaches review clean", skipping as the task live run does
 
 ## 3. Verify
 

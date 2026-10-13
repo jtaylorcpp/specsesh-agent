@@ -9,7 +9,8 @@
  * stale comment. The run uses the repo config, with `--check` narrowed to the
  * fixture's own vitest file so a run costs one small task, not the whole suite.
  * Each run has a limit below the test timeout and never outlives its test: see
- * spawn.ts.
+ * spawn.ts. A last run drafts the proposal of a new change, `fixture-live-spec`,
+ * with `spec`, and checks it against the proposal stage's own gate.
  *
  * It needs `claude` installed and logged in, and skips saying why otherwise. Login
  * is asked of `claude auth status`; set AGENTSCRIPT_LIVE_FORCE=1 to skip that
@@ -22,13 +23,16 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { proposalStage } from "../../src/task/index.js";
+import { issueLine } from "../../src/task/spec-loop.js";
 import { claudeReady } from "./ready.js";
 import { killRunning, RUN_LIMIT_MS, startDetached, type Run } from "./spawn.js";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 const CHANGE = "fixture-live-task";
 const GROUP = "fixture-live-group";
-const GROUP_CHECK = "node packages/agent/__tests__/live-fixture/greet-check.mjs";
+const SPEC = "fixture-live-spec";
+const GROUP_CHECK ="node packages/agent/__tests__/live-fixture/greet-check.mjs";
 const TARGET = "packages/agent/__tests__/live-fixture/target.ts";
 const STALE = "// STALE: this comment describes the old regex parser.";
 const FRESH = "// Parsed by the agentforce dialect.";
@@ -200,5 +204,30 @@ describe("task/headless: An opt-in live run proves it works on this repo", () =>
 		const ticked = readFileSync(join(copy, "openspec/changes", GROUP, "tasks.md"), "utf8");
 		expect(ticked).toMatch(/^- \[x\] 1\.1 /m);
 		expect(ticked).toMatch(/^- \[x\] 1\.2 /m);
+	});
+
+	it("Scenario: The live proposal reaches review clean", async (ctx) => {
+		if (!ready.ok) return ctx.skip(ready.reason);
+		// spec never checks the tree is clean, and the gate is shape and facts, not quality.
+		const r = await runTask(["spec", SPEC, "--intent", "Add a --quiet flag to agentscript-task status that prints only loop ids"]);
+		expect(r.code, `${r.stdout}\n${r.stderr}`).toBe(0);
+		const review = r.events.find((e) => e.event === "stage-review");
+		expect(review, r.stderr).toBeDefined();
+		const files = review!.files as string[];
+		expect(files).toContain("proposal.md");
+		const changeDir = join(copy, "openspec/changes", SPEC);
+		const proposal = join(changeDir, "proposal.md");
+		expect(existsSync(proposal)).toBe(true);
+		const issues = await proposalStage.gate({
+			changeId: SPEC,
+			workspace: copy,
+			changeDir,
+			files: { "proposal.md": readFileSync(proposal, "utf8") },
+			run: async () => {
+				throw new Error("the proposal gate runs no command");
+			},
+		});
+		const blocking = issues.filter((issue) => issue.level === "ERROR" || issue.level === "WARNING");
+		expect(blocking, blocking.map(issueLine).join("\n")).toEqual([]);
 	});
 });
