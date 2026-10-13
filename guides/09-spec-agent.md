@@ -126,6 +126,89 @@ The file is checked against its schema every time it is read. The runner never c
 
 **Sending a stage back.** Run the stage again by name, for example `pnpm task spec add-plan-export design`, and approve its new draft. Re-approving a stage replaces its entry and drops the entries of every stage after it, directly or through others. Those stages have to be drafted and approved again, against what you just approved.
 
+## Draft a whole change
+
+One spec loop per stage means running `spec` four times. The draft loop (`agentscript.draft-loop`) runs every stage that has no current approval, in order, and stops only for your review or a question. It sits above the stages the way the [group loop](07-task-loop.md) sits above tasks: each stage's gate and your review decide, and the draft loop decides nothing itself. This section covers the `./task` API. The `pnpm change draft` command comes later, in `add-change-draft`.
+
+The [design's example](../openspec/changes/add-draft-loop/design/examples/draft.ts), a host drafting a change with one loop and four reviews:
+
+```ts
+import { answerDraftLoop, draftLoopExtensions, startDraftLoop, waitForDraftLoop } from "@specsesh/agent/task";
+
+const options = { change: "add-plan-export", workspace: process.cwd(), intent: "Export a plan as JSON so CI can read it" };
+for (const extension of draftLoopExtensions(options)) harness.install(extension);
+
+let id = await startDraftLoop(harness, options, context);
+let outcome = await waitForDraftLoop(harness, id, context);
+
+while (outcome.status === "blocked") {
+	// outcome.escalation.reason is "review" or "question"; its question names the files to read.
+	const decision = await askThePrincipal(outcome.escalation.question); // "approve", or what to change
+	id = await answerDraftLoop(harness, id, { by: "principal", principal: "jesse", decision }, context);
+	outcome = await waitForDraftLoop(harness, id, context);
+}
+
+// converged: { change: "add-plan-export", stages: [
+//   { stage: "proposal", approved: true, runs: 2 },
+//   { stage: "design",   approved: true, runs: 1 },
+//   { stage: "specs",    approved: true, runs: 1 },
+//   { stage: "tasks",    approved: true, runs: 1 } ] }
+console.log(outcome);
+```
+
+- `draftLoopExtensions(options)` returns the draft loop's extension plus the three that `specLoopExtensions` returns, so install only these.
+- `startDraftLoop` takes `DraftLoopOptions`: the spec loop's options with `stages` in place of one `stage`. `stages` defaults to `SPEC_STAGES`.
+- The first `waitForDraftLoop` returns `blocked` with reason `review`, and its question names `proposal.md`.
+- Answering `approve` records the approval, drafts the design, and the new run blocks for review of `design.md`.
+- Any other answer, such as `JSON only`, redrafts the same stage, and its next draft carries `The principal asked for: JSON only`. That is why the proposal above shows `runs: 2`.
+
+Each answer starts a new draft run with its own id, so wait on the id that `answerDraftLoop` returns.
+
+### How it works
+
+The loop is one durable task with three phases:
+
+- **`next`** picks the first stage with no entry in `approvals.json` whose hashes match its files. If there is none, the loop ends `converged`. This phase makes no model request and starts no child.
+- **`stage`** starts an `agentscript.spec-loop` child for that stage, keeps the child's id in the checkpoint and awaits it. A resume after a crash awaits the same child, so no second spec loop starts for the stage. A converged child sends the loop back to `next`.
+- **`answer`** is the first phase of a run that answers a blocked draft. It hands your answer to `answerSpecLoop` for the blocked child, then goes on as `stage` does.
+
+### Outcomes
+
+`waitForDraftLoop` returns a `LoopOutcome<DraftOutcome>`:
+
+- **`converged`**: every stage is approved. A fully approved change converges at once, without starting a spec loop. If `design.md` was edited after its approval, the first spec loop is the design stage's.
+- **`blocked`**: a stage's spec loop blocked. Its escalation is passed up unchanged: `level`, `reason`, a `question` that names the files to read, and `to`, which is `"principal"` for a review and the loop's `escalateTo` for a question.
+- **`failed`**: a stage's spec loop ended exhausted or failed. The loop's notes name the stage, for example `the design stage ended exhausted`, and the stage is the last entry in the result, not approved.
+
+The result lists every stage reached so far, in `stages` order:
+
+```ts
+type DraftOutcome = {
+	change: string;
+	stages: { stage: string; approved: boolean; runs: number }[];
+};
+```
+
+`runs` counts the spec loops this draft, and the runs answering it, started for the stage. A stage approved before the draft began is listed with `runs: 0`, so the outcome always says which stages this draft wrote. For a change whose proposal was already approved, a draft that blocks for review of the design gives:
+
+```json
+{
+  "change": "add-plan-export",
+  "stages": [
+    { "stage": "proposal", "approved": true, "runs": 0 },
+    { "stage": "design", "approved": false, "runs": 1 }
+  ]
+}
+```
+
+### Rules
+
+- **Only a blocked draft takes an answer.** `answerDraftLoop` refuses any other with `EscalationAnswerError`.
+- **Only the principal approves.** An answer to a review needs `by: "principal"` and a `principal` name. An agent's `approve` is refused: no run starts and `approvals.json` is unchanged.
+- **No "approve all", and no budget of its own.** You review every stage, and each spec loop keeps its own `maxIterations`.
+- **One stage at a time.** Stages run one after another, never in parallel.
+- **Custom stages.** Pass `stages`, to both `draftLoopExtensions` and `startDraftLoop`, to draft with stages other than `SPEC_STAGES`, as the tests do.
+
 ## Hand-editing a draft
 
 The drafts are ordinary files, so edit them whenever you like. Each draft starts from `current`, which is read from disk, so the next draft builds on your edits, and the gate checks the result like any other draft.

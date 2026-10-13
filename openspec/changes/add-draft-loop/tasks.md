@@ -13,7 +13,7 @@
 
 ## 3. Docs
 
-- [ ] 3.1 `guides/09-spec-agent.md`: a "Draft a whole change" section with the design's example
+- [x] 3.1 `guides/09-spec-agent.md`: a "Draft a whole change" section with the design's example
 
 ## 4. Verify
 
