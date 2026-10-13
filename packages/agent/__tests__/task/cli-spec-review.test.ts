@@ -114,4 +114,35 @@ describe("task/cli: text output for a spec loop ends with the next step", () => 
 		expect(last!.out).toMatch(/^# spec loop \d+ — converged/);
 		expect(lastLines(last!.out, 1)[0]).toMatch(/pnpm task add-plan-export --next-group$/);
 	});
+
+	it("Scenario: Approving a sliced proposal lists the other slices", async () => {
+		const repo = reviewRepo();
+		const slices = [
+			"1. `add-plan-export`: Export a plan as JSON with `specplan export --json`.",
+			"2. `add-plan-export-schema`: Publish the JSON Schema of the export. Follows add-plan-export.",
+			"3. `add-plan-export-ci`: A GitHub Action that fails a PR whose plan export is invalid. Follows add-plan-export-schema.",
+		].join("\n");
+		const first = await task(
+			repo,
+			["spec", "add-plan-export", "--intent", INTENT],
+			[draft(`${DRAFTS.proposal}\n=== slices.md\n${slices}\n`)],
+		);
+		const id = /^# spec loop (\d+) — blocked/.exec(first.out)?.[1];
+		expect(id, `${first.out}\n${first.err}`).toBeDefined();
+
+		const r = await task(repo, ["answer", id!, "--by", "principal", "--decision", "approve"]);
+		expect(r.code, r.err).toBe(0);
+		const next =
+			SPEC_STAGES.length > 1 ? "Next: pnpm task spec add-plan-export" : "pnpm task add-plan-export --next-group";
+		const schema =
+			'pnpm task spec add-plan-export-schema --intent "Publish the JSON Schema of the export. Follows add-plan-export."';
+		const ci =
+			'pnpm task spec add-plan-export-ci --intent "A GitHub Action that fails a PR whose plan export is invalid. Follows add-plan-export-schema."';
+		expect(r.out).toContain(schema);
+		expect(r.out).toContain(ci);
+		expect(r.out.indexOf(schema)).toBeLessThan(r.out.indexOf(ci));
+		expect(r.out).not.toContain("spec add-plan-export --intent");
+		expect(r.out.indexOf(next), r.out).toBeGreaterThanOrEqual(0);
+		expect(r.out.indexOf(next)).toBeLessThan(r.out.indexOf(schema));
+	});
 });

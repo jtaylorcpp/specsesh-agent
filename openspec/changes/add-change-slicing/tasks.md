@@ -8,9 +8,9 @@
 
 ## 2. Tests
 
-- [ ] 2.1 `packages/agent/__tests__/task/stages/slices.test.ts`: "A sliced proposal passes", "A slice whose id is taken" and "The first slice must be this change" (3)
-- [ ] 2.2 `packages/agent/__tests__/task/stages/proposal-stage.test.ts`: update "The proposal stage is seeded with every capability" and "A proposal touching three capabilities is sent back" (2)
-- [ ] 2.3 `packages/agent/__tests__/task/cli-spec-review.test.ts`: "Approving a sliced proposal lists the other slices" (1)
+- [x] 2.1 `packages/agent/__tests__/task/stages/slices.test.ts`: "A sliced proposal passes", "A slice whose id is taken" and "The first slice must be this change" (3)
+- [x] 2.2 `packages/agent/__tests__/task/stages/proposal-stage.test.ts`: update "The proposal stage is seeded with every capability" and "A proposal touching three capabilities is sent back" (2)
+- [x] 2.3 `packages/agent/__tests__/task/cli-spec-review.test.ts`: "Approving a sliced proposal lists the other slices" (1)
 
 ## 3. Verify
 
