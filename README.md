@@ -93,9 +93,58 @@ claude-code provider:
    `pnpm spec:archive`, a commit and a push. The last change, `add-change-close`, archived itself
    with `pnpm change close`.
 
-**What it took.** About 12.5 hours of group-loop time across the 21 changes, 9 to 146 minutes
-each (the first foundation change was the longest). The test suite grew from 1162 to 1649
-tests, all passing at every verify. Nearly every task converged on its first iteration.
+**What it took.** About 14 hours of group-loop time across the 21 changes. The test suite grew
+from 1162 to 1649 tests, all passing at every verify. 190 of 211 task loops converged on their
+first iteration.
+
+### How long things take
+
+Times are from the stored loops' `startedAt` and `endedAt` in `.agentscript/task-loops.sqlite`, on
+Opus through the claude-code provider. Verify and archive times are from the queue log.
+
+| Item | What runs | Typical | Range |
+|---|---|---|---|
+| Task loop | One task: an agent's iterations, then `pnpm check` and `pnpm test` | 3.7 min median, 6.5 min p90 | under 1 min to 56 min |
+| Iteration | One agent pass at a task | 1.1 per task loop (232 across 211 loops) | 1 to 8 |
+| Group | Its task loops in order, then the judge | 10.8 min median | 2.9 to 86.7 min |
+| Change | Every group (2 to 5 per change) | 33.0 min median | 9.2 to 146.5 min |
+| Verify and archive | `check`, `test` twice, `pack:check`, `spec:check`, `docs:check`, archive, commit, push | 2 to 3 min | plus the live run when it is part of the change |
+| All 21 changes | 61 groups, 211 task loops | 14.1 h of group time | |
+
+The slow outliers were in the first foundation change. Its task 1.1 took 56 minutes and three
+iterations, and its group 3 was run twice: the stored script named an action the group had
+retired, so the group was restarted. Past the foundation changes, every change took between 9
+and 52 minutes.
+
+Per change, in the order they ran:
+
+| # | Change | Groups | Task loops run | Converged first try | Median task (min) | Slowest task (min) | Group time (min) |
+|---|---|---|---|---|---|---|---|
+| 1 | `add-actors-and-workspaces` | 5 | 25 | 14 | 5.4 | 56.0 (1.1, 3 it.) | 146.5 |
+| 2 | `add-agent-runner` | 5 | 17 | 16 | 3.7 | 7.5 (2.2, 1 it.) | 76.6 |
+| 3 | `add-cloudflare-workspace` | 3 | 12 | 11 | 4.6 | 7.0 (1.2, 1 it.) | 56.7 |
+| 4 | `reorder-design-before-specs` | 2 | 9 | 8 | 2.1 | 4.7 (1.1, 2 it.) | 23.3 |
+| 5 | `add-design-attachments` | 2 | 3 | 3 | 2.2 | 3.5 (1.1, 1 it.) | 9.2 |
+| 6 | `add-change-size-rules` | 3 | 10 | 9 | 2.8 | 4.9 (1.1, 2 it.) | 31.6 |
+| 7 | `add-spec-loop` | 3 | 9 | 9 | 3.6 | 8.0 (1.3, 1 it.) | 38.1 |
+| 8 | `add-spec-review` | 3 | 9 | 9 | 3.2 | 5.9 (1.1, 1 it.) | 36.4 |
+| 9 | `add-spec-proposal-stage` | 3 | 9 | 9 | 2.8 | 4.0 (1.1, 1 it.) | 30.4 |
+| 10 | `add-spec-cli` | 3 | 11 | 10 | 3.5 | 5.7 (1.1, 1 it.) | 25.6 |
+| 11 | `add-spec-cli-events` | 2 | 4 | 4 | 4.1 | 4.9 (1.2, 1 it.) | 18.3 |
+| 12 | `add-change-slicing` | 2 | 8 | 8 | 3.8 | 5.2 (1.3, 1 it.) | 30.7 |
+| 13 | `add-spec-design-stage` | 2 | 8 | 8 | 3.5 | 4.0 (1.4, 1 it.) | 27.4 |
+| 14 | `add-spec-specify-stage` | 2 | 9 | 9 | 3.6 | 5.3 (1.1, 1 it.) | 35.0 |
+| 15 | `add-spec-plan-stage` | 3 | 11 | 10 | 2.8 | 4.2 (3.1, 1 it.) | 25.0 |
+| 16 | `add-draft-loop` | 3 | 8 | 8 | 4.4 | 7.1 (1.2, 1 it.) | 38.9 |
+| 17 | `add-change-draft` | 3 | 11 | 8 | 4.3 | 14.0 (1.4, 3 it.) | 25.0 |
+| 18 | `add-change-approve` | 3 | 8 | 8 | 4.2 | 5.0 (1.1, 1 it.) | 33.0 |
+| 19 | `add-build-loop` | 3 | 10 | 10 | 4.3 | 6.8 (1.3, 1 it.) | 46.4 |
+| 20 | `add-change-build` | 3 | 10 | 10 | 5.0 | 8.3 (1.2, 1 it.) | 51.1 |
+| 21 | `add-change-close` | 3 | 10 | 9 | 3.1 | 6.0 (1.2, 2 it.) | 39.3 |
+| | **All 21** | **61** | **211** | **190** | **3.7** | **56.0** | **844.5** (14.1 h) |
+
+"Task loops run" counts every loop started, including those restarted after an escalation.
+"Group time" counts groups that converged.
 
 **Where a person stepped in: five times.**
 
