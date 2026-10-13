@@ -18,5 +18,5 @@
 
 ## 4. Verify
 
-- [ ] 4.1 `pnpm check`, `pnpm test`, `pnpm spec:check` and `pnpm docs:check` pass
-- [ ] 4.2 `pnpm spec:archive add-spec-proposal-stage`
+- [x] 4.1 `pnpm check`, `pnpm test`, `pnpm spec:check` and `pnpm docs:check` pass
+- [x] 4.2 `pnpm spec:archive add-spec-proposal-stage`
