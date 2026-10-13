@@ -17,5 +17,5 @@
 
 ## 4. Verify
 
-- [ ] 4.1 `pnpm check`, `pnpm test`, `pnpm spec:check` and `pnpm docs:check` pass
-- [ ] 4.2 `pnpm spec:archive add-draft-loop`
+- [x] 4.1 `pnpm check`, `pnpm test`, `pnpm spec:check` and `pnpm docs:check` pass
+- [x] 4.2 `pnpm spec:archive add-draft-loop`
