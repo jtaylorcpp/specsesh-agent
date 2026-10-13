@@ -30,8 +30,9 @@ stage of an OpenSpec change (proposal, design, specs or tasks), a gate with no m
 the loop iterates until the gate is clean, then blocks for the principal's review. Module by module
 in `src/task`:
 
-- `spec-stage.ts`: `SpecStage { name, owns, script, seed?, gate }`, `StageContext`, `StageIssue`.
-  `owns` paths are relative to the change directory; a trailing `/` owns everything under it.
+- `spec-stage.ts`: `SpecStage { name, owns, script, after?, seed?, gate }`, `StageContext`,
+  `StageIssue`. `owns` paths are relative to the change directory; a trailing `/` owns everything
+  under it. `after` names the stages that must be approved before this one starts.
 - `spec-bundle.ts`: parses `files` as `=== <path>` sections; text before the first header is
   ignored. An absolute, `..` or unowned path is not written and becomes an ERROR issue, and so
   does an empty bundle.
@@ -39,13 +40,37 @@ in `src/task`:
   every iteration. Blocking issues carry into the next one as `<level> <path>: <message>` lines,
   up to `maxIterations` (default 8), then the loop ends `exhausted`.
 - `spec-api.ts`: `startSpecLoop`, `waitForSpecLoop` and `specLoopExtensions`, exported from `./task`.
+- `spec-answer.ts`: `answerSpecLoop`, also exported from `./task`.
+- `spec-approvals.ts`: reads, records and checks `approvals.json`.
 
 The stage contract: seeded strings `change_id`, `stage`, `intent`, `approved`, `current`, `base`,
 `carried` and the number `iteration`; read back `files`, `summary`, `next_action` (`review` or
 `ask`) and `question`. `startSpecLoop` refuses a script that breaks it and starts nothing. A clean
 gate (no ERROR or WARNING) ends `blocked`, reason `review`, escalated to the principal at level
 `change`, with result `{ change, stage, files, approved: false }`. `ask` ends `blocked`, reason
-`question`, to `escalateTo`, skipping the gate. Approving or revising is `add-spec-review`'s job.
+`question`, to `escalateTo`, skipping the gate.
+
+Answering: `answerSpecLoop(harness, id, { by, principal, decision }, context)`, which, like every answer in
+the package, starts a new run of the blocked loop.
+
+- **Approve.** On a review, the decision `approve` (trimmed, any case) writes no draft, records the
+  approval in `approvals.json` and ends the run `converged` with `approved: true`.
+- **Revise.** Any other decision on a review is carried into the next draft as
+  `The principal asked for: <decision>`, iterations numbering on from the blocked run.
+- **Questions.** An answer to a question is always carried the same way, even `approve`, and
+  nothing is recorded.
+- **Only the principal approves.** An answer to a review is refused unless `by` is `"principal"`
+  and `principal` names who answered. A refused answer starts no run and records nothing.
+
+`approvals.json` lives in the change directory. Each entry is the ontology's `Approval`
+(`approved`, `by: "principal"`, `principal`, `notes`) plus `stage`, `at` and a sha256 per owned
+file, and every read checks it against a TypeBox schema. Approving a stage replaces its entry and
+drops the entry of every stage that follows it, directly or through others. The runner never
+commits it: the principal commits it with the stage's files. `startSpecLoop` refuses a stage, and
+creates nothing, when a stage in its `after` has no approval (naming that stage), when a recorded
+hash no longer matches its file (naming the file and the stage to review again), or when
+`approvals.json` fails the schema (naming the file). The CLI (`pnpm task answer` for spec loops)
+is `add-spec-cli`'s job.
 
 `src/cloudflare`, module by module:
 

@@ -14,7 +14,7 @@
 
 ## 3. Docs
 
-- [ ] 3.1 `CLAUDE.md`: the spec loop paragraph gains approvals, `after` and the revise path
+- [x] 3.1 `CLAUDE.md`: the spec loop paragraph gains approvals, `after` and the revise path
 
 ## 4. Verify
 
