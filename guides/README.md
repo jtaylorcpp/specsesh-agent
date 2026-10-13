@@ -17,6 +17,7 @@ follow the path that matches what you want.
 | Host agents on Cloudflare | [03](03-durable-agents.md) → [05](05-cloudflare.md) |
 | Use the OpenSpec types in your own tooling | [06](06-openspec.md) |
 | Have an agent execute your OpenSpec changes until the tests pass | [06](06-openspec.md) → [07](07-task-loop.md) |
+| Have an agent draft an OpenSpec change from one sentence of intent, stage by stage | [07](07-task-loop.md) → [09](09-spec-agent.md) |
 
 ## All guides
 
@@ -28,6 +29,7 @@ follow the path that matches what you want.
 6. **[The OpenSpec ontology](06-openspec.md)**: typed schemas for changes, steps, loops and evidence.
 7. **[Executing changes with the task loop](07-task-loop.md)**: `agentscript-task`, configuration, writing tasks an agent can finish, groups, escalations, tuning.
 8. **[Troubleshooting](08-troubleshooting.md)**: every refusal and failure you're likely to meet, and what to do.
+9. **[Drafting changes with the spec agent](09-spec-agent.md)**: from `pnpm task spec <id> --intent "…"` to `pnpm task <id> --next-group`: the four stages (proposal, design, specs, tasks), approving and revising, slicing, and what each gate checks.
 
 ## Examples
 

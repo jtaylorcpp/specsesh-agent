@@ -14,8 +14,8 @@
 
 ## 3. Docs
 
-- [ ] 3.1 `guides/09-spec-agent.md` (new): the spec agent guide the design outlines
-- [ ] 3.2 `guides/README.md`: guide 09 in the paths table and the list
+- [x] 3.1 `guides/09-spec-agent.md` (new): the spec agent guide the design outlines
+- [x] 3.2 `guides/README.md`: guide 09 in the paths table and the list
 
 ## 4. Verify
 
