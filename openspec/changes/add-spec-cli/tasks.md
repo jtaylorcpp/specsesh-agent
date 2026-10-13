@@ -15,7 +15,7 @@
 
 ## 3. Docs
 
-- [ ] 3.1 `packages/agent/README.md`: `spec` in the CLIs section, with the session from the design
+- [x] 3.1 `packages/agent/README.md`: `spec` in the CLIs section, with the session from the design
 
 ## 4. Verify
 

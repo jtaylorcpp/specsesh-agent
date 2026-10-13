@@ -440,14 +440,107 @@ no files and runs no loop.
   lists a provider's models. Needs `@earendil-works/pi-ai`.
 - `agentscript-durable run <file> --db <path> [...]` runs a script as a durable task on a Node SQLite file;
   `agentscript-durable resume <task-id> --db <path>` finishes one whose process died. Needs the durable peers.
-- `agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [...]` works a task, or a
-  whole task group, of an OpenSpec change as a durable loop until it converges (every check passing), blocks
-  on a question, or spends its budget; `resume`, `answer` and `status` manage loops in a database. Defaults
-  come from the nearest `agentscript.config.json`. It runs headless (JSON Lines progress on stderr), refuses
-  a dirty git tree unless `--allow-dirty`, never commits, and with `--worktree` runs in a new git worktree.
-  Needs the durable peers.
+- `agentscript-task` works an OpenSpec change as durable loops; see below. Needs the durable peers.
 
 Credentials are pi-ai's own environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, ...).
+
+### `agentscript-task`
+
+It has five commands:
+
+```
+usage:
+  agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]
+  agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
+  agentscript-task resume <loop-id> [--db <path>] [--json]
+  agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]
+  agentscript-task status [--db <path>]
+```
+
+Any other first argument, or none, prints this usage to stderr and exits `2`. Defaults come from
+the nearest `agentscript.config.json`. In this repo, `pnpm task …` runs the built bin and adds
+`run` when the first argument is not one of the five commands, so `pnpm task add-thing 2.1` is
+`agentscript-task run add-thing 2.1`.
+
+**Headless.** It never prompts: progress is JSON Lines on stderr, the outcome on stdout. It never
+commits. The only git commands it runs are `git status`, `git rev-parse`, `git worktree add`,
+`git worktree list` and `git config user.name` (read only).
+
+#### `run`
+
+`run` works a task, or a whole task group, of a change as a durable loop until it converges (every
+check passing), blocks on a question, or spends its budget. It refuses a dirty git tree unless
+`--allow-dirty`, and with `--worktree` it runs in a new git worktree.
+
+#### `spec`
+
+```
+agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
+```
+
+`spec` runs one stage of the change as a spec loop: an agent drafts it, a gate with no model checks
+it, and the loop drafts again until the gate is clean, then waits for your review.
+
+- **Choosing the stage.** With no stage, it runs the first stage in `SPEC_STAGES` that has no
+  approval with matching hashes. Today that is only `proposal`. A named stage still needs every
+  stage in its `after` approved.
+- **`intent.md`.** A new change needs `--intent` or `--intent-file`: the command creates
+  `openspec/changes/<change>/` and writes `intent.md` with your words exactly as given. If the
+  change exists, `intent.md` is read, and `--intent` is refused with `intent.md exists; edit it
+  instead`.
+- **Refusals (exit `2`).** A missing change with no intent (nothing is created), `--intent` when
+  `intent.md` already exists, an unknown stage, and `--worktree`.
+- **No clean-tree check.** `spec` writes only inside the change directory, so it never checks that
+  the tree is clean.
+
+A session:
+
+```console
+$ pnpm task spec add-plan-export --intent "Export a plan as JSON so CI can read it"
+# spec loop 12 — blocked (review)
+## proposal draft 1: 1 issue
+   WARNING proposal.md: touches 3 capabilities, over the budget of 2. Split it into one change per capability: …
+## proposal draft 2: clean
+
+Review openspec/changes/add-plan-export/proposal.md, then:
+  approve:  pnpm task answer 12 --by principal --decision approve
+  revise:   pnpm task answer 12 --by principal --decision "<what to change>"
+
+$ pnpm task answer 12 --by principal --decision approve
+# spec loop 13 — converged (approved)
+proposal approved by jesse.
+Next: pnpm task spec add-plan-export
+```
+
+Once every stage is approved, the last line is:
+
+```
+Every stage of add-plan-export is approved. Execute it: pnpm task add-plan-export --next-group
+```
+
+The text output is `# spec loop <id> — <status>`, then one `## <stage> draft <n>: clean` or
+`## <stage> draft <n>: <k> issues` line per draft with its issues below it, then the next step.
+
+#### `answer`
+
+`answer` starts a new run of a blocked loop with your decision. On a spec loop it calls
+`answerSpecLoop`: `--principal` defaults to `git config user.name`, then `$USER`, and an approval
+records that name in `approvals.json`.
+
+#### `status`
+
+`status` lists every loop in the database. A spec loop shows `spec <stage>` where a task loop shows
+its task, for example `spec proposal`.
+
+#### Exit codes
+
+| Code | When |
+|---|---|
+| `0` | The loop converged, or a spec loop ended blocked waiting for review |
+| `1` | A task or group loop ended blocked, a spec loop ended blocked on a question, or any loop ended exhausted or failed |
+| `2` | Usage, or a refused start |
+
+The harness is closed before exiting, even after a refusal.
 
 ## What it does not do
 
