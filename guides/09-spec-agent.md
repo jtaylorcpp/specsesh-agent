@@ -4,38 +4,83 @@ After this guide you can turn one sentence of intent into an OpenSpec change tha
 
 ## Prerequisites
 
-- Everything [07 Executing changes with the task loop](07-task-loop.md) needs: a built checkout (`pnpm build`), an `agentscript.config.json` with a `db`, and a provider. The spec agent uses the same `provider`, `model`, `maxIterations` and `escalateTo` as the task loop.
+- Everything [07 Executing changes with the task loop](07-task-loop.md) needs: a built checkout, an `agentscript.config.json` with a `db`, and a provider. The spec agent uses the same `provider`, `model`, `maxIterations` and `escalateTo` as the task loop. `pnpm change` runs the built bin (`packages/agent/dist/bin/agentscript-change.js`), so run `pnpm build` first. Before that, it fails saying the file is missing.
 - The [OpenSpec](https://github.com/Fission-AI/OpenSpec) CLI on `PATH`. The specs and tasks gates run `openspec validate` and `openspec show`.
 - Background: [06 The OpenSpec ontology](06-openspec.md). The gates are built from its rules.
 
 ## A walkthrough
 
-The whole journey, stage by stage, is mocked in the [`add-spec-loop` walkthrough](../openspec/changes/archive/2026-10-12-add-spec-loop/design/walkthrough.html). Open it in a browser. In the terminal, a stage looks like this:
+The whole journey, stage by stage, is mocked in the [`add-spec-loop` walkthrough](../openspec/changes/archive/2026-10-12-add-spec-loop/design/walkthrough.html). Open it in a browser. In the terminal, you address the change, never a loop:
+
+```
+agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
+```
+
+**Start** a change with `pnpm change draft <change> --intent "<words>"`, or `--intent-file <path>`. This creates `openspec/changes/<change>/intent.md` holding your words verbatim, and starts a draft loop over `SPEC_STAGES`, beginning with the proposal. A new change with neither flag exits 2, naming `--intent`, and creates nothing. On an existing change both flags are refused, so what you asked for never changes without you seeing it: edit `intent.md` instead.
 
 ```console
-$ pnpm task spec add-plan-export --intent "Export a plan as JSON so CI can read it"
-# spec loop 12 — blocked (review)
-## proposal draft 1: 1 issue
+$ pnpm change draft add-plan-export --intent "Export a plan as JSON so CI can read it"
+# add-plan-export — waiting for review of the proposal
+### proposal draft 1: 1 issue
    WARNING proposal.md: 3 capabilities, over the budget of 2. Split it into one change per capability: … Write slices.md: one line per small change, this one first
-## proposal draft 2: clean
+### proposal draft 2: clean
 
-Review openspec/changes/add-plan-export/proposal.md, then:
+Review openspec/changes/add-plan-export/proposal.md, openspec/changes/add-plan-export/slices.md, then:
+  revise:   pnpm change draft add-plan-export "<what to change>"
   approve:  pnpm task answer 12 --by principal --decision approve
-  revise:   pnpm task answer 12 --by principal --decision "<what to change>"
-
-$ pnpm task answer 12 --by principal --decision approve
-# spec loop 13 — converged (approved)
-proposal approved by jesse.
-Next: pnpm task spec add-plan-export
 ```
 
-Run `pnpm task spec add-plan-export` again for each stage after that. Once the last stage is approved, the output points you at the task loop:
+The output starts with `# <change> — <state>`, then `## <stage>: approved` for each approved stage, then the current stage's `### <stage> draft <n>` lines with their issues, and ends with the commands to run next. Before any model call, stderr names the loop and how to finish it if the process dies: `draft loop 12 — resume with: agentscript-change draft add-plan-export --db <path>`.
+
+**Revise** with `pnpm change draft <change> "<feedback>"`. It answers the review as the principal (`git config user.name`, else `$USER`), and the stage's next draft carries `The principal asked for: <feedback>`. Drafts keep numbering:
+
+```console
+$ pnpm change draft add-plan-export "JSON only; no CSV"
+# add-plan-export — waiting for review of the proposal
+### proposal draft 3: clean
+…
+```
+
+**Answer a question.** When the agent asks instead of drafting, the output ends with the question and the command to answer it, and exits 1:
 
 ```
-Every stage of add-plan-export is approved. Execute it: pnpm task add-plan-export --next-group
+question: CSV too?
+  answer:   pnpm change draft add-plan-export "<answer>"
 ```
 
-`spec <change>` with no stage runs the first stage that has no current approval. `spec <change> <stage>` runs the stage you name. The first run of a new change needs `--intent "…"` or `--intent-file <path>`. Your words go verbatim into `intent.md` in the change directory. After that, `--intent` is refused (`intent.md exists; edit it instead`), so what you asked for never changes without you seeing it. A stage that waits for your review exits 0. A stage that ends on a question exits 1.
+`pnpm change draft <change> "<answer>"` carries your answer into the next draft the same way.
+
+**Look again.** `pnpm change draft <change>` alone, while something waits, prints the same review or question again and starts nothing. A change never has two drafts at once.
+
+**Continue.** With nothing waiting, `draft` starts from the first stage that has no current approval. Editing an approved file, such as `design.md`, makes its approval stale, so drafting restarts from that stage. A draft that ended exhausted or failed is restarted the same way, with a fresh budget. With every stage approved and unchanged, it starts nothing, exits 0 and points at the task loop:
+
+```
+# add-plan-export — drafted: every stage is approved
+## proposal: approved
+## design: approved
+## specs: approved
+## tasks: approved
+
+  next:     pnpm task add-plan-export --next-group
+```
+
+**Approving** is the one step still addressed by loop id: the approve line names the draft loop (`12` above) until `add-change-approve` lands. As of `add-change-draft`, `pnpm task answer` doesn't find draft loops yet, so that line is refused with `no loop 12 in <db>`.
+
+### Where a change stands
+
+| What waits | `pnpm change draft <change>` | `pnpm change draft <change> "<text>"` |
+|---|---|---|
+| nothing: the change doesn't exist | needs `--intent` or `--intent-file`, else exits 2 | exits 2 |
+| a review | shows it again, exit 0 | redrafts the stage with your text |
+| a question | shows it again, exit 1 | answers it with your text |
+| nothing, a stage unapproved | starts a draft from that stage | exits 2: nothing waits |
+| nothing, every stage approved | says so, starts nothing, exit 0 | exits 2: nothing waits |
+
+Exit codes:
+
+- **0:** waiting for your review, or every stage is approved.
+- **1:** a question, or a draft that ended exhausted or failed. The latter ends with `retry: pnpm change draft <change>`.
+- **2:** refused, before anything starts: usage, a missing or doubled intent, feedback with nothing waiting, an invalid `approvals.json`, or a database another process holds.
 
 Each run of a stage is a durable spec loop:
 
@@ -96,7 +141,7 @@ For the tasks stage, `approved` holds the proposal, `design.md` with the files u
 
 ## Approving and revising
 
-A clean draft waits for you. Read the files the output names, then answer:
+A clean draft waits for you. Read the files the output names, then answer. Your text in `pnpm change draft <change> "<text>"`, like `--decision` in `pnpm task answer` on a spec loop (see [Rerunning one stage](#rerunning-one-stage)), is the principal's decision:
 
 - **`--decision approve`** (any case) records your approval and drafts nothing.
 - **Any other decision** asks for another draft. Your words are carried in as `The principal asked for: <decision>`, and the drafts keep numbering from where they stopped.
@@ -124,11 +169,11 @@ An approval is an entry in the change's `approvals.json`:
 
 The file is checked against its schema every time it is read. The runner never commits it: commit it yourself, together with the stage's files.
 
-**Sending a stage back.** Run the stage again by name, for example `pnpm task spec add-plan-export design`, and approve its new draft. Re-approving a stage replaces its entry and drops the entries of every stage after it, directly or through others. Those stages have to be drafted and approved again, against what you just approved.
+**Sending a stage back.** Edit one of its approved files and run `pnpm change draft <change>`, or rerun the stage by name with `pnpm task spec add-plan-export design` (see [Rerunning one stage](#rerunning-one-stage)), and approve its new draft. Re-approving a stage replaces its entry and drops the entries of every stage after it, directly or through others. Those stages have to be drafted and approved again, against what you just approved.
 
 ## Draft a whole change
 
-One spec loop per stage means running `spec` four times. The draft loop (`agentscript.draft-loop`) runs every stage that has no current approval, in order, and stops only for your review or a question. It sits above the stages the way the [group loop](07-task-loop.md) sits above tasks: each stage's gate and your review decide, and the draft loop decides nothing itself. This section covers the `./task` API. The `pnpm change draft` command comes later, in `add-change-draft`.
+The draft loop (`agentscript.draft-loop`) is what `pnpm change draft` runs. It runs every stage that has no current approval, in order, and stops only for your review or a question. It sits above the stages the way the [group loop](07-task-loop.md) sits above tasks: each stage's gate and your review decide, and the draft loop decides nothing itself. This section covers the `./task` API, for hosts that draft a change without the CLI.
 
 The [design's example](../openspec/changes/add-draft-loop/design/examples/draft.ts), a host drafting a change with one loop and four reviews:
 
@@ -209,11 +254,33 @@ type DraftOutcome = {
 - **One stage at a time.** Stages run one after another, never in parallel.
 - **Custom stages.** Pass `stages`, to both `draftLoopExtensions` and `startDraftLoop`, to draft with stages other than `SPEC_STAGES`, as the tests do.
 
+## Rerunning one stage
+
+`pnpm change draft` is the normal way in. `pnpm task spec` runs a single spec loop for one stage, addressed by loop id, for low-level reruns or debugging:
+
+```console
+$ pnpm task spec add-plan-export design
+# spec loop 14 — blocked (review)
+## design draft 1: clean
+
+Review openspec/changes/add-plan-export/design.md, then:
+  approve:  pnpm task answer 14 --by principal --decision approve
+  revise:   pnpm task answer 14 --by principal --decision "<what to change>"
+```
+
+`spec <change> <stage>` runs the stage you name. `spec <change>` with no stage runs the first stage that has no current approval. A change that doesn't exist yet needs `--intent "…"` or `--intent-file <path>`, as with `draft`. After that, `--intent` is refused (`intent.md exists; edit it instead`). A stage that waits for your review exits 0. A stage that ends on a question exits 1.
+
+Approving a spec loop with `pnpm task answer <id> --by principal --decision approve` prints `proposal approved by jesse.` (or the stage you approved) and the next command. Once the last stage is approved, it points you at the task loop:
+
+```
+Every stage of add-plan-export is approved. Execute it: pnpm task add-plan-export --next-group
+```
+
 ## Hand-editing a draft
 
 The drafts are ordinary files, so edit them whenever you like. Each draft starts from `current`, which is read from disk, so the next draft builds on your edits, and the gate checks the result like any other draft.
 
-Editing an *approved* file makes its approval stale, because the recorded sha256 no longer matches. `pnpm task spec <id>` then runs that stage again. A later stage is refused until you re-approve; the refusal names the file that changed and the stage to review. If `approvals.json` itself fails the schema, every start is refused and the message names the file.
+Editing an *approved* file makes its approval stale, because the recorded sha256 no longer matches. `pnpm change draft <change>` then drafts again from that stage. A later stage is refused until you re-approve; the refusal names the file that changed and the stage to review. If `approvals.json` itself fails the schema, every start is refused and the message names the file.
 
 ## Slicing
 

@@ -15,7 +15,7 @@
 
 ## 3. Docs
 
-- [ ] 3.1 `guides/09-spec-agent.md`: start with `pnpm change draft`, and keep `pnpm task spec` for rerunning one stage
+- [x] 3.1 `guides/09-spec-agent.md`: start with `pnpm change draft`, and keep `pnpm task spec` for rerunning one stage
 
 ## 4. Verify
 
