@@ -10,6 +10,8 @@
  *   ready                   a new draft, fresh budget    refused, nothing waits
  *   drafted                 nothing starts, exit 0       refused, nothing waits
  *
+ * Feedback that is `approve` is refused in every state, naming `pnpm change approve`.
+ *
  * Two halves, so every refusal comes before the database opens: `prepareDraft` checks
  * the arguments and reads the intent, touching nothing; `runDraft` writes `intent.md`
  * for a new change and works the loop on a harness the caller opened with
@@ -113,9 +115,12 @@ const refused = (message: string): DraftRefusal => ({ kind: "refused", message, 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** A change id is one directory name under `changesDir`. */
-const isChangeId = (value: string) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) && !value.includes("..");
+export const isChangeId = (value: string) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) && !value.includes("..");
 
 const shown = shownPath;
+
+/** True for feedback that is `approve`, trimmed and in any case: an approval, which only `approve` gives. */
+export const isApproveFeedback = (feedback: string) => feedback.trim().toLowerCase() === "approve";
 
 /** Check the arguments and read the intent. Writes nothing and opens nothing, so a refusal leaves everything as it was. */
 export function prepareDraft(args: DraftArgs, options: DraftPrepareOptions): DraftRequest | DraftRefusal {
@@ -125,6 +130,9 @@ export function prepareDraft(args: DraftArgs, options: DraftPrepareOptions): Dra
 	const changeDir = resolve(changesDir, change);
 	if (!isChangeId(change) || dirname(changeDir) !== changesDir) {
 		return refused(`"${change}" is not a change id: give the directory name under ${shown(workspace, changesDir)}/`);
+	}
+	if (args.feedback !== undefined && isApproveFeedback(args.feedback)) {
+		return refused(`"approve" is not feedback; to approve the stage under review run: pnpm change approve ${change}`);
 	}
 	if (args.intent !== undefined && args.intentFile !== undefined) return refused("give --intent or --intent-file, not both");
 	const changePath = shown(workspace, changeDir);
@@ -233,7 +241,7 @@ async function answer(harness: Harness, loop: number, request: DraftRequest, opt
 }
 
 /** Run draft loop `loop` to its end and read where the change stands. */
-async function settle(harness: Harness, loop: number, request: DraftRequest, stages: readonly SpecStage[], context: Context): Promise<DraftResult> {
+export async function settle(harness: Harness, loop: number, request: DraftRequest, stages: readonly SpecStage[], context: Context): Promise<DraftResult> {
 	const { change, changesDir } = request;
 	harness.resume();
 	let outcome: LoopOutcome<DraftOutcome>;

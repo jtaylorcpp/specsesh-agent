@@ -28,8 +28,32 @@ describe("formatDraftOutput", () => {
 		expect(lines.slice(-3)).toEqual([
 			"Review openspec/changes/add-plan-export/proposal.md, then:",
 			'  revise:   pnpm change draft add-plan-export "<what to change>"',
-			"  approve:  pnpm task answer 12 --by principal --decision approve",
+			"  approve:  pnpm change approve add-plan-export",
 		]);
+		expect(lines.join("\n")).not.toContain("pnpm task answer");
+	});
+
+	const slices = [
+		{ id: change, intent: "Export a plan." },
+		{ id: "add-plan-export-schema", intent: "A schema for the export." },
+		{ id: "add-plan-export-ci", intent: 'Check "$PLAN" in `ci` \\ too.' },
+	];
+
+	it("lists a draft command per later slice, in order, before the ending", () => {
+		const lines = formatDraftOutput(review({ approved: ["proposal"], stage: "design", files: ["design.md"] }), { ...context, slices });
+		const at = lines.indexOf("Sliced into 3 changes. Draft the others when you're ready:");
+		expect(lines[at - 1]).toBe("");
+		expect(lines.slice(at + 1, at + 3)).toEqual([
+			'  pnpm change draft add-plan-export-schema --intent "A schema for the export."',
+			'  pnpm change draft add-plan-export-ci --intent "Check \\"\\$PLAN\\" in \\`ci\\` \\\\ too."',
+		]);
+		expect(lines.at(-1)).toBe("  approve:  pnpm change approve add-plan-export");
+	});
+
+	it("lists no slices without them, or with this change alone", () => {
+		for (const given of [context, { ...context, slices: [] }, { ...context, slices: slices.slice(0, 1) }]) {
+			expect(formatDraftOutput(review({ approved: ["proposal"] }), given).join("\n")).not.toContain("Sliced into");
+		}
 	});
 
 	it("ends a question with it, then the answer command", () => {

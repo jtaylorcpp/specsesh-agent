@@ -5,21 +5,23 @@
  * command to run next.
  *
  *   agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
+ *   agentscript-change approve <change> [--principal <name>] [--db <path>]
  *
  * `draft` starts, continues or answers the change's draft loop (`task/cmd-draft.ts`);
- * its output is `formatDraftOutput` (`task/change-output.ts`). The database comes
- * from `--db` or the nearest `agentscript.config.json`, the model from
+ * `approve` approves the stage under review (`task/cmd-approve.ts`). Both print
+ * `formatDraftOutput` (`task/change-output.ts`). The database comes from `--db` or
+ * the nearest `agentscript.config.json`, the model from
  * `AGENTSCRIPT_PROVIDER`/`AGENTSCRIPT_MODEL` or the config, as `agentscript-task`
- * resolves them. Feedback is answered as the principal: `git config user.name`,
- * else `$USER`.
+ * resolves them. Feedback and approvals are given as the principal: `--principal`
+ * (approve only), else `git config user.name`, else `$USER`.
  *
  * Headless: it never reads stdin and never prompts. Every refusal exits 2 before
- * the database opens, except those `runDraft` finds in the database. A review or
- * a drafted change exits 0; a question or a failed draft exits 1.
+ * the database opens, except those `runDraft` and `runApprove` find in the database.
+ * A review or a drafted change exits 0; a question or a failed draft exits 1.
  */
 
-import { mkdirSync, realpathSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -28,17 +30,20 @@ import { createRegistry, Harness, type ModelRef } from "@earendil-works/pi-durab
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { draftLoopExtensions } from "../task/index.js";
 import { formatDraftOutput } from "../task/change-output.js";
-import { prepareDraft, runDraft } from "../task/cmd-draft.js";
-import { ConfigError, DEFAULT_CHANGES_DIR, DEFAULT_MODEL, DEFAULT_PROVIDER, loadConfig, resolveDb, type LoadedConfig } from "../task/config.js";
+import { prepareApprove, runApprove, type ApproveArgs } from "../task/cmd-approve.js";
+import { prepareDraft, runDraft, type DraftRequest } from "../task/cmd-draft.js";
+import { ConfigError, DEFAULT_CHANGES_DIR, DEFAULT_MODEL, DEFAULT_PROVIDER, loadConfig, resolveDb, type DbPath, type LoadedConfig } from "../task/config.js";
 import { gitUserName } from "../task/git.js";
 import { DatabaseLockedError, lockDatabase } from "../task/lock.js";
 import type { SpecStage } from "../task/spec-stage.js";
 import { SPEC_STAGES } from "../task/spec-stages.js";
+import { readSlices, type Slice } from "../task/stages/slices-md.js";
 import { builtin, resolvePrincipal } from "./agentscript-task.js";
 
 /** One line per command. */
 const USAGE = `usage:
-  agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]`;
+  agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
+  agentscript-change approve <change> [--principal <name>] [--db <path>]`;
 
 export interface ChangeCliDeps {
 	/** The pi-ai model collection. Defaults to every built-in provider plus claude-code. */
@@ -66,26 +71,61 @@ export async function main(argv: readonly string[], deps: ChangeCliDeps = {}): P
 		return 2;
 	};
 	const [command, ...rest] = argv;
-	if (command !== "draft") return usage();
 
-	let parsed;
-	try {
-		parsed = parseArgs({
-			args: [...rest],
-			allowPositionals: true,
-			options: {
-				intent: { type: "string" },
-				"intent-file": { type: "string" },
-				db: { type: "string" },
-			},
-		});
-	} catch (error) {
-		return usage(message(error));
+	let run: (config: LoadedConfig, io: ChangeIo) => Promise<number>;
+	if (command === "draft") {
+		let parsed;
+		try {
+			parsed = parseArgs({
+				args: [...rest],
+				allowPositionals: true,
+				options: {
+					intent: { type: "string" },
+					"intent-file": { type: "string" },
+					db: { type: "string" },
+				},
+			});
+		} catch (error) {
+			return usage(message(error));
+		}
+		const { values, positionals } = parsed;
+		const [change, feedback, ...extra] = positionals;
+		if (change === undefined) return usage("draft needs a change");
+		if (extra.length > 0) return usage(`draft takes a change and at most one feedback, got ${positionals.join(" ")}; quote the feedback`);
+		run = (config, io) =>
+			draft(
+				{
+					change,
+					...(feedback !== undefined ? { feedback } : {}),
+					...(values.intent !== undefined ? { intent: values.intent } : {}),
+					...(values["intent-file"] !== undefined ? { intentFile: values["intent-file"] } : {}),
+				},
+				values.db,
+				config,
+				io,
+			);
+	} else if (command === "approve") {
+		let parsed;
+		try {
+			parsed = parseArgs({
+				args: [...rest],
+				allowPositionals: true,
+				options: {
+					principal: { type: "string" },
+					db: { type: "string" },
+				},
+			});
+		} catch (error) {
+			return usage(message(error));
+		}
+		const { values, positionals } = parsed;
+		const [change, ...extra] = positionals;
+		if (change === undefined) return usage("approve needs a change");
+		if (extra.length > 0) return usage(`approve takes only a change, got ${positionals.join(" ")}`);
+		run = (config, io) => approve({ change }, values.principal, values.db, config, io);
+	} else {
+		return usage();
 	}
-	const { values, positionals } = parsed;
-	const [change, feedback, ...extra] = positionals;
-	if (change === undefined) return usage("draft needs a change");
-	if (extra.length > 0) return usage(`draft takes a change and at most one feedback, got ${positionals.join(" ")}; quote the feedback`);
 
 	let config: LoadedConfig;
 	try {
@@ -98,17 +138,7 @@ export async function main(argv: readonly string[], deps: ChangeCliDeps = {}): P
 		throw error;
 	}
 	try {
-		return await draft(
-			{
-				change,
-				...(feedback !== undefined ? { feedback } : {}),
-				...(values.intent !== undefined ? { intent: values.intent } : {}),
-				...(values["intent-file"] !== undefined ? { intentFile: values["intent-file"] } : {}),
-			},
-			values.db,
-			config,
-			{ out, err, cwd, env, models: deps.models ?? builtin, stages: deps.stages ?? SPEC_STAGES },
-		);
+		return await run(config, { out, err, cwd, env, models: deps.models ?? builtin, stages: deps.stages ?? SPEC_STAGES });
 	} catch (error) {
 		if (error instanceof DatabaseLockedError) {
 			err(error.message);
@@ -118,7 +148,7 @@ export async function main(argv: readonly string[], deps: ChangeCliDeps = {}): P
 	}
 }
 
-interface DraftIo {
+interface ChangeIo {
 	readonly out: (line: string) => void;
 	readonly err: (line: string) => void;
 	readonly cwd: string;
@@ -127,61 +157,119 @@ interface DraftIo {
 	readonly stages: readonly SpecStage[];
 }
 
-/** `draft <change> [<feedback>]`: the exit code. */
-async function draft(args: Parameters<typeof prepareDraft>[0], dbFlag: string | undefined, config: LoadedConfig, io: DraftIo): Promise<number> {
-	const refuse = (text: string) => {
-		io.err(text);
-		return 2;
-	};
-	// The workspace is the config's directory, as for `agentscript-task spec`; changes live under its `changesDir`.
-	const changesDir = resolve(config.dir, config.task.changesDir ?? DEFAULT_CHANGES_DIR);
-	const request = prepareDraft(args, { workspace: config.dir, changesDir, cwd: io.cwd });
-	if (request.kind === "refused") return refuse(request.message);
+/** Where a command's loop runs: the database, the model and the collection holding it. */
+interface Target {
+	readonly db: DbPath;
+	readonly model: ModelRef;
+	readonly models: Models;
+}
 
+const refuser = (io: ChangeIo) => (text: string) => {
+	io.err(text);
+	return 2;
+};
+
+// The workspace is the config's directory, as for `agentscript-task spec`; changes live under its `changesDir`.
+const changesDirOf = (config: LoadedConfig) => resolve(config.dir, config.task.changesDir ?? DEFAULT_CHANGES_DIR);
+
+/** The database and the model, as `agentscript-task` resolves them, or why there are none. Opens nothing. */
+async function resolveTarget(command: string, dbFlag: string | undefined, config: LoadedConfig, io: ChangeIo): Promise<Target | string> {
 	const db = resolveDb(dbFlag, config, io.cwd);
-	if (db === undefined) return refuse("draft needs --db <path>, or a db in agentscript.config.json");
+	if (db === undefined) return `${command} needs --db <path>, or a db in agentscript.config.json`;
 	const model: ModelRef = {
 		provider: io.env["AGENTSCRIPT_PROVIDER"] ?? config.task.provider ?? DEFAULT_PROVIDER,
 		modelId: io.env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL,
 	};
 	const models = await io.models();
 	if (models.getProvider(model.provider) === undefined || models.getModel(model.provider, model.modelId) === undefined) {
-		return refuse(`no model "${model.modelId}" on provider "${model.provider}"`);
+		return `no model "${model.modelId}" on provider "${model.provider}"`;
 	}
-	// Only feedback answers anything, so nothing else asks git for a name.
-	const principal = args.feedback !== undefined ? resolvePrincipal(undefined, () => gitUserName(io.cwd), io.env) : undefined;
+	return { db, model, models };
+}
 
-	mkdirSync(dirname(db.path), { recursive: true });
-	const lock = lockDatabase(db.path);
+/** The run options both commands share: the model, the stages, the config's budget and escalation, and the resume hint. */
+function loopOptions(request: DraftRequest, target: Target, config: LoadedConfig, io: ChangeIo) {
+	return {
+		model: target.model,
+		stages: io.stages,
+		...(config.task.maxIterations !== undefined ? { budget: { maxIterations: config.task.maxIterations } } : {}),
+		...(config.task.escalateTo !== undefined ? { escalateTo: config.task.escalateTo } : {}),
+		// Before any model call, so a crash still leaves the way back.
+		onLoop: (loop: number) => io.err(`draft loop ${loop} — resume with: agentscript-change draft ${request.change} --db ${target.db.label}`),
+	};
+}
+
+/** Lock and open the database with the draft loop extensions, work on the harness, then close and unlock. */
+async function withHarness(request: DraftRequest, target: Target, io: ChangeIo, work: (harness: Harness) => Promise<number>): Promise<number> {
+	mkdirSync(dirname(target.db.path), { recursive: true });
+	const lock = lockDatabase(target.db.path);
 	try {
-		const storage = await openNodeSqliteStorage(db.path);
+		const storage = await openNodeSqliteStorage(target.db.path);
 		const registry = createRegistry();
 		for (const extension of draftLoopExtensions({ workspace: request.workspace, stages: io.stages })) registry.install(extension);
-		const harness = await Harness.open(storage, { models, registry }, BACKGROUND_CONTEXT);
+		const harness = await Harness.open(storage, { models: target.models, registry }, BACKGROUND_CONTEXT);
 		try {
-			const result = await runDraft(
-				harness,
-				request,
-				{
-					model,
-					stages: io.stages,
-					...(config.task.maxIterations !== undefined ? { budget: { maxIterations: config.task.maxIterations } } : {}),
-					...(config.task.escalateTo !== undefined ? { escalateTo: config.task.escalateTo } : {}),
-					...(principal !== undefined ? { principal } : {}),
-					// Before any model call, so a crash still leaves the way back.
-					onLoop: (loop) => io.err(`draft loop ${loop} — resume with: agentscript-change draft ${request.change} --db ${db.label}`),
-				},
-				BACKGROUND_CONTEXT,
-			);
-			if (result.kind === "refused") return refuse(result.message);
-			for (const line of formatDraftOutput(result, { changePath: request.changePath })) io.out(line);
-			return result.exitCode;
+			return await work(harness);
 		} finally {
 			await harness.close(BACKGROUND_CONTEXT);
 		}
 	} finally {
 		lock.release();
 	}
+}
+
+/** `draft <change> [<feedback>]`: the exit code. */
+async function draft(args: Parameters<typeof prepareDraft>[0], dbFlag: string | undefined, config: LoadedConfig, io: ChangeIo): Promise<number> {
+	const refuse = refuser(io);
+	const request = prepareDraft(args, { workspace: config.dir, changesDir: changesDirOf(config), cwd: io.cwd });
+	if (request.kind === "refused") return refuse(request.message);
+	const target = await resolveTarget("draft", dbFlag, config, io);
+	if (typeof target === "string") return refuse(target);
+	// Only feedback answers anything, so nothing else asks git for a name.
+	const principal = args.feedback !== undefined ? resolvePrincipal(undefined, () => gitUserName(io.cwd), io.env) : undefined;
+
+	return withHarness(request, target, io, async (harness) => {
+		const result = await runDraft(
+			harness,
+			request,
+			{ ...loopOptions(request, target, config, io), ...(principal !== undefined ? { principal } : {}) },
+			BACKGROUND_CONTEXT,
+		);
+		if (result.kind === "refused") return refuse(result.message);
+		for (const line of formatDraftOutput(result, { changePath: request.changePath })) io.out(line);
+		return result.exitCode;
+	});
+}
+
+/** `approve <change>`: the exit code. */
+async function approve(args: ApproveArgs, principalFlag: string | undefined, dbFlag: string | undefined, config: LoadedConfig, io: ChangeIo): Promise<number> {
+	const refuse = refuser(io);
+	const request = prepareApprove(args, { workspace: config.dir, changesDir: changesDirOf(config) });
+	if (request.kind === "refused") return refuse(request.message);
+	const target = await resolveTarget("approve", dbFlag, config, io);
+	if (typeof target === "string") return refuse(target);
+	const principal = resolvePrincipal(principalFlag, () => gitUserName(io.cwd), io.env);
+
+	return withHarness(request, target, io, async (harness) => {
+		const result = await runApprove(
+			harness,
+			request,
+			{ ...loopOptions(request, target, config, io), ...(principal !== undefined ? { principal } : {}) },
+			BACKGROUND_CONTEXT,
+		);
+		if (result.kind === "refused") return refuse(result.message);
+		const slices = result.approvedStage === "proposal" ? slicesOf(request.changeDir) : undefined;
+		for (const line of formatDraftOutput(result, { changePath: request.changePath, ...(slices !== undefined ? { slices } : {}) })) io.out(line);
+		return result.exitCode;
+	});
+}
+
+/** The entries of the change's `slices.md`, this change first; none when it is missing or has a malformed line. */
+function slicesOf(changeDir: string): readonly Slice[] | undefined {
+	const path = join(changeDir, "slices.md");
+	if (!existsSync(path)) return undefined;
+	const slices = readSlices(readFileSync(path, "utf8"));
+	return slices.malformed.length === 0 ? slices.entries : undefined;
 }
 
 // Run only as the entry point: through a bin symlink argv[1] is the link, so compare real paths.

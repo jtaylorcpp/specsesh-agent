@@ -56,16 +56,15 @@ describe("change/cli draft output", () => {
 	});
 
 	it("Scenario: A review ends with both commands", async () => {
-		const { dir, db } = workspace();
+		const { dir } = workspace();
 		const run = await change(["draft", CHANGE, "--intent", "Export a plan"], dir, [draft("=== proposal.md\n## Why\n\nPlans export.\n")], stages);
-		const [loop] = await draftLoopsIn(db);
 
 		expect(run.code).toBe(0);
 		expect(run.out.split("\n")[0]).toMatch(new RegExp(`^# ${CHANGE} — `));
 		expect(run.out).toContain("proposal.md");
 		const [revise, approve] = tail(run.out, 2);
 		expect(revise).toContain(`pnpm change draft ${CHANGE} "<what to change>"`);
-		expect(approve).toContain(`pnpm task answer ${loop!.id} --by principal --decision approve`);
+		expect(approve).toContain(`pnpm change approve ${CHANGE}`);
 	});
 
 	it("Scenario: A question exits 1", async () => {
@@ -80,10 +79,11 @@ describe("change/cli draft output", () => {
 
 	it("Scenario: A drafted change points at the next step", async () => {
 		const { dir, changeDir } = workspace();
-		approveUntil(changeDir, "tasks");
-		expect((await change(["draft", CHANGE], dir, [draft("=== tasks.md\n## 1. Code\n")], stages)).code).toBe(0);
+		mkdirSync(changeDir, { recursive: true });
+		writeFileSync(join(changeDir, "tasks.md"), "## 1. Code\n");
+		approveUntil(changeDir, "");
 
-		const run = await change(["draft", CHANGE, "approve"], dir, [], stages);
+		const run = await change(["draft", CHANGE], dir, [], stages);
 		expect(run.code).toBe(0);
 		expect(run.out.split("\n")[0]).toContain("drafted");
 		expect(tail(run.out, 1)[0]).toContain(`pnpm task ${CHANGE} --next-group`);

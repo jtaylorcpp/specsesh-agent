@@ -6,6 +6,7 @@
  *   ### <stage> draft <n>: clean|<k> issues
  *      <level> <path>: <message>
  *
+ *   then, after the approval of a sliced proposal, a draft command per later slice;
  *   then, by state: review (revise, approve), question (answer), drafted (next) or failed (retry).
  *
  * Pure: it prints nothing and reads nothing. The exit code is the result's own.
@@ -20,14 +21,19 @@ export type DraftShown = Exclude<DraftResult, DraftRefusal>;
 export interface DraftOutputContext {
 	/** The change directory as the output names it: under the config's `changesDir`. */
 	readonly changePath: string;
+	/** Every entry of `slices.md`, this change first: given only for the run that approved a sliced proposal. */
+	readonly slices?: readonly { readonly id: string; readonly intent: string }[];
 }
 
+/** `s` in double quotes, with `"`, `\`, `$` and `` ` `` escaped, so the printed command pastes safely. */
+const shellQuote = (s: string) => `"${s.replace(/["\\$`]/g, "\\$&")}"`;
+
 export const reviseCmd = (change: string) => `pnpm change draft ${change} "<what to change>"`;
-/** Takes the change too, so `add-change-approve` can drop the loop without touching a caller. */
-export const approveCmd = (_change: string, loop: number) => `pnpm task answer ${loop} --by principal --decision approve`;
+export const approveCmd = (change: string) => `pnpm change approve ${change}`;
 export const answerCmd = (change: string) => `pnpm change draft ${change} "<answer>"`;
 export const nextGroupCmd = (change: string) => `pnpm task ${change} --next-group`;
 export const retryCmd = (change: string) => `pnpm change draft ${change}`;
+export const sliceCmd = (slice: { readonly id: string; readonly intent: string }) => `pnpm change draft ${slice.id} --intent ${shellQuote(slice.intent)}`;
 
 const plural = (k: number) => `${k} issue${k === 1 ? "" : "s"}`;
 
@@ -57,13 +63,20 @@ export function formatDraftOutput(result: DraftShown, context: DraftOutputContex
 		}
 	}
 
+	// The other slices come before the ending, so the last line stays the command to run next.
+	const later = (context.slices ?? []).slice(1);
+	if (later.length > 0) {
+		lines.push("", `Sliced into ${context.slices?.length} changes. Draft the others when you're ready:`);
+		for (const slice of later) lines.push(`  ${sliceCmd(slice)}`);
+	}
+
 	lines.push("");
 	switch (result.kind) {
 		case "review": {
 			lines.push(
 				`Review ${result.files.map((file) => `${context.changePath}/${file}`).join(", ")}, then:`,
 				`  revise:   ${reviseCmd(change)}`,
-				`  approve:  ${approveCmd(change, result.loop)}`,
+				`  approve:  ${approveCmd(change)}`,
 			);
 			break;
 		}

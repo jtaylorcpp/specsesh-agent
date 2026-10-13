@@ -9,7 +9,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MemoryStorage, type Harness } from "@earendil-works/pi-durable";
 import { main } from "../../src/bin/agentscript-change.js";
 import * as task from "../../src/task/index.js";
-import { prepareDraft, runDraft, type DraftArgs, type DraftResult } from "../../src/task/cmd-draft.js";
+import { changeState } from "../../src/task/change-state.js";
+import { prepareApprove, runApprove } from "../../src/task/cmd-approve.js";
+import { isApproveFeedback, prepareDraft, runDraft, type DraftArgs, type DraftResult } from "../../src/task/cmd-draft.js";
 import { recordApproval } from "../../src/task/spec-approvals.js";
 import type { SpecStage } from "../../src/task/spec-stage.js";
 import { openHarness, setup } from "../durable/helpers.js";
@@ -181,12 +183,40 @@ describe("task/cmd-draft", () => {
 		});
 	});
 
-	it("approving through feedback moves on to the next stage", async () => {
-		await session(async ({ draft: run }) => {
+	it("refuses approve as feedback at a review, naming pnpm change approve, and answers nothing", async () => {
+		await session(async ({ workspace, changeDir, env, harness, draft: run }) => {
+			const first = await run({ intent: "Export a plan" }, [draft("=== proposal.md\n## Why\n")]);
+			const approvals = join(changeDir, "approvals.json");
+			const before = existsSync(approvals) ? readFileSync(approvals) : undefined;
+			const calls = env.requests.length;
+
+			const result = await run({ feedback: " Approve " });
+			expect(result).toMatchObject({ kind: "refused", exitCode: 2, loops: [] });
+			expect((result as { message: string }).message).toContain(`pnpm change approve ${CHANGE}`);
+			expect(existsSync(approvals) ? readFileSync(approvals) : undefined).toEqual(before);
+			expect(env.requests.length).toBe(calls);
+			const state = await changeState(harness, { change: CHANGE, changesDir: join(workspace, "openspec", "changes"), stages }, context);
+			expect(state).toMatchObject({ kind: "review", stage: "proposal", loop: (first as { loop: number }).loop });
+		});
+	});
+
+	it("isApproveFeedback matches only approve, trimmed, in any case", () => {
+		for (const feedback of ["approve", "APPROVE", "  Approve\n"]) expect(isApproveFeedback(feedback)).toBe(true);
+		for (const feedback of ["approved", "approve it", "approve but JSON only", ""]) expect(isApproveFeedback(feedback)).toBe(false);
+	});
+
+	it("approving with runApprove moves on to the next stage", async () => {
+		await session(async ({ workspace, env, harness, draft: run }) => {
 			await run({ intent: "Export a plan" }, [draft("=== proposal.md\n## Why\n")]);
-			const next = await run({ feedback: "approve" }, [draft("=== design.md\n## Context\n")]);
+			const approve = async (responses: ReturnType<typeof draft>[] = []) => {
+				env.faux.setResponses(responses);
+				const prepared = prepareApprove({ change: CHANGE }, { workspace, changesDir: join(workspace, "openspec", "changes") });
+				if (prepared.kind === "refused") return prepared;
+				return runApprove(harness, prepared, { model: env.model, principal: "jesse", stages }, context);
+			};
+			const next = await approve([draft("=== design.md\n## Context\n")]);
 			expect(next).toMatchObject({ kind: "review", stage: "design", approved: ["proposal"] });
-			const done = await run({ feedback: "approve" });
+			const done = await approve();
 			expect(done).toMatchObject({ kind: "drafted", ran: true, approved: ["proposal", "design"], exitCode: 0 });
 		});
 	});
