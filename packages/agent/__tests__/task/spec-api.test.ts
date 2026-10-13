@@ -24,6 +24,15 @@ describe("spec loop entry points", () => {
 		expect("path" in task.proposalStage.script && task.proposalStage.script.path).toMatch(/spec-proposal\.agent$/);
 	});
 
+	it("the task entry exports SPEC_STAGES, starting at the proposal, each stage after only earlier ones", () => {
+		expect(task.SPEC_STAGES).toEqual([task.proposalStage]);
+		expect(Object.isFrozen(task.SPEC_STAGES)).toBe(true);
+		task.SPEC_STAGES.forEach((stage, index) => {
+			const earlier = task.SPEC_STAGES.slice(0, index).map((s) => s.name);
+			for (const name of stage.after ?? []) expect(earlier).toContain(name);
+		});
+	});
+
 	it("a loop started with startSpecLoop over specLoopExtensions reaches review", async () => {
 		const { workspace, changeDir } = specWorkspace();
 		const stage = proposalStage();

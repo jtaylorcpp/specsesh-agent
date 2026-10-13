@@ -1,11 +1,12 @@
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Harness, createRegistry } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, groupLoopOptions, main } from "../../src/bin/agentscript-task.js";
-import { startTaskLoop, taskLoopExtensions } from "../../src/task/index.js";
+import { startTaskLoop, taskLoopExtensions, type SpecStage } from "../../src/task/index.js";
 import { cli, fauxModels, storedLoops, workdir } from "./cli-helpers.js";
+import { draft, proposalStage } from "./spec-helpers.js";
 import { JUDGE_ONLY, JUDGE_ONLY_ASSIGNING, baselineDir, cleanTemps, context, fakePnpm, temp, tinyChange, verdict } from "./helpers.js";
 
 // A met verdict with checks goes to the gate, which runs `pnpm`: a fake one that exits 0 keeps these tests offline.
@@ -270,6 +271,14 @@ describe("task/cli: answer submits an escalation answer and waits for the resume
 		expect((await cli(["answer", "1", "--db", db, "--by", "principal"])).err).toContain("answer needs --decision");
 	});
 
+	it("--principal is accepted and ignored on a task loop", async () => {
+		const b = await blocked();
+		b.env.faux.setResponses([verdict(true)]);
+		const r = await cli(["answer", String(b.id), "--db", b.db, "--by", "principal", "--decision", "go", "--principal", "alice", "--json"], b.env);
+		expect(r.code, r.err).toBe(0);
+		expect(JSON.parse(r.out).status).toBe("converged");
+	});
+
 	it("an answer to a loop that is not blocked exits 2", async () => {
 		const { script, db } = workdir();
 		const env = fauxModels();
@@ -279,6 +288,100 @@ describe("task/cli: answer submits an escalation answer and waits for the resume
 		const r = await cli(["answer", String(id), "--db", db, "--by", "principal", "--decision", "d"], env);
 		expect(r.code).toBe(2);
 		expect(r.err).toContain("has not ended blocked");
+	});
+});
+
+describe("task/cli: answer routes a spec loop to answerSpecLoop", () => {
+	const proposal = proposalStage();
+	const design: SpecStage = { name: "design", owns: ["design.md"], after: ["proposal"], script: proposal.script, gate: () => [] };
+
+	/** `main` on a faux model over test stages, in `dir`. */
+	async function spec(dir: string, argv: string[], env: Record<string, string | undefined>, responses: ReturnType<typeof draft>[] = [], stages = [proposal]) {
+		const models = fauxModels();
+		models.faux.setResponses(responses);
+		const model = models.faux.getModel();
+		const out: string[] = [];
+		const err: string[] = [];
+		const code = await main([...argv, "--db", join(dir, ".agentscript", "spec.sqlite")], {
+			models: () => models.models,
+			out: (line) => out.push(line),
+			err: (line) => err.push(line),
+			cwd: dir,
+			env: { AGENTSCRIPT_PROVIDER: model.provider, AGENTSCRIPT_MODEL: model.id, ...env },
+			stages,
+		});
+		return { code, out: out.join("\n"), err: err.join("\n") };
+	}
+
+	/** A proposal waiting for review, and its loop id. */
+	async function review(stages = [proposal]) {
+		const dir = temp("task-cli-spec-");
+		const run = await spec(dir, ["spec", "add-plan-export", "--intent", "Export a plan"], {}, [draft("=== proposal.md\n# A proposal\n")], stages);
+		expect(run.code, run.err).toBe(0);
+		const id = /^# spec loop (\d+) — blocked \(review\)/.exec(run.out)?.[1] as string;
+		return { dir, id, changeDir: join(dir, "openspec", "changes", "add-plan-export") };
+	}
+
+	const approvals = (changeDir: string) => JSON.parse(readFileSync(join(changeDir, "approvals.json"), "utf8")) as { approvals: { stage: string; principal: string }[] };
+
+	it("approves with $USER as principal and points at execution once every stage is approved", async () => {
+		const r = await review();
+		const a = await spec(r.dir, ["answer", r.id, "--by", "principal", "--decision", "approve"], { USER: "jesse" });
+		expect(a.code, a.err).toBe(0);
+		expect(approvals(r.changeDir).approvals.map((e) => [e.stage, e.principal])).toEqual([["proposal", "jesse"]]);
+		expect(a.out.split("\n").slice(-2)).toEqual([
+			"proposal approved by jesse.",
+			"Every stage of add-plan-export is approved. Execute it: pnpm task add-plan-export --next-group",
+		]);
+	});
+
+	it("--principal overrides $USER, and an approval with a stage left points at spec", async () => {
+		const r = await review([proposal, design]);
+		const a = await spec(r.dir, ["answer", r.id, "--by", "principal", "--decision", " Approve ", "--principal", "alice"], { USER: "jesse" }, [], [proposal, design]);
+		expect(a.code, a.err).toBe(0);
+		expect(approvals(r.changeDir).approvals[0]?.principal).toBe("alice");
+		expect(a.out.split("\n").at(-1)).toBe("Next: pnpm task spec add-plan-export");
+	});
+
+	it("a revision runs another draft and ends with both answer commands", async () => {
+		const r = await review();
+		const a = await spec(r.dir, ["answer", r.id, "--by", "principal", "--decision", "narrow it"], { USER: "jesse" }, [draft("=== proposal.md\n# Narrower\n")]);
+		expect(a.code, a.err).toBe(0);
+		const next = /^# spec loop (\d+) — blocked \(review\)/.exec(a.out)?.[1];
+		expect(next).not.toBe(r.id);
+		expect(a.out).toContain("## proposal draft 2: clean");
+		expect(a.out.split("\n").slice(-2)).toEqual([
+			`  approve:  pnpm task answer ${next} --by principal --decision approve`,
+			`  revise:   pnpm task answer ${next} --by principal --decision "<what to change>"`,
+		]);
+		expect(readFileSync(join(r.changeDir, "proposal.md"), "utf8")).toBe("# Narrower\n");
+	});
+
+	it("--json prints the loop id merged with the outcome", async () => {
+		const r = await review();
+		const a = await spec(r.dir, ["answer", r.id, "--by", "principal", "--decision", "approve", "--json"], { USER: "jesse" });
+		expect(a.code, a.err).toBe(0);
+		const parsed = JSON.parse(a.out);
+		expect([parsed.status, parsed.result.approved]).toEqual(["converged", true]);
+	});
+
+	it("with no principal anywhere, or --principal without a name, it refuses and records nothing", async () => {
+		const r = await review();
+		const none = await spec(r.dir, ["answer", r.id, "--by", "principal", "--decision", "approve"], {});
+		expect([none.code, none.err]).toEqual([2, "no principal; pass --principal"]);
+		const blank = await spec(r.dir, ["answer", r.id, "--by", "principal", "--decision", "approve", "--principal", " "], {});
+		expect(blank.code).toBe(2);
+		const bare = await spec(r.dir, ["answer", r.id, "--by", "principal", "--decision", "approve", "--principal"], {});
+		expect(bare.code).toBe(2);
+		expect(existsSync(join(r.changeDir, "approvals.json"))).toBe(false);
+	});
+
+	it("an agent's answer to a review is refused, exit 2", async () => {
+		const r = await review();
+		const a = await spec(r.dir, ["answer", r.id, "--by", "agent", "--decision", "approve"], { USER: "jesse" });
+		expect(a.code).toBe(2);
+		expect(a.err).toContain("only the principal answers the review");
+		expect(existsSync(join(r.changeDir, "approvals.json"))).toBe(false);
 	});
 });
 

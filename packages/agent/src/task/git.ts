@@ -1,6 +1,7 @@
 /**
  * Every git command the task runner runs, and nothing else: `status`,
- * `rev-parse`, `worktree add` and `worktree list`. It never commits, adds,
+ * `rev-parse`, `worktree add`, `worktree list` and `config user.name` (a read,
+ * never a write). It never commits, adds,
  * stashes, checks out or removes anything. `git()` refuses any other
  * subcommand, so a slip here fails loudly instead of touching the repository.
  */
@@ -11,7 +12,7 @@ import { existsSync } from "node:fs";
 export { changedBetween, repoRoot, snapshot, status, type StatusEntry } from "../node/snapshot.js";
 
 /** The only git invocations the runner may make. */
-export const ALLOWED_GIT = ["status", "rev-parse", "worktree add", "worktree list"] as const;
+export const ALLOWED_GIT = ["status", "rev-parse", "worktree add", "worktree list", "config user.name"] as const;
 
 export interface GitResult {
 	readonly code: number;
@@ -22,7 +23,12 @@ export interface GitResult {
 /** Run one allowed git command in `cwd`. Any other subcommand throws before spawning. */
 export function git(args: readonly string[], cwd: string): GitResult {
 	const [first, second] = args;
-	const allowed = first === "worktree" ? `worktree ${second ?? ""}` : (first ?? "");
+	// `config` only as the two-word read `config user.name`: a value or a flag would make it a write.
+	const allowed = first === "worktree"
+		? `worktree ${second ?? ""}`
+		: first === "config"
+			? (args.length === 2 ? `config ${second ?? ""}` : "config")
+			: (first ?? "");
 	if (!(ALLOWED_GIT as readonly string[]).includes(allowed)) {
 		throw new Error(`the task runner never runs "git ${args.join(" ")}"; it may run only ${ALLOWED_GIT.join(", ")}`);
 	}
@@ -56,6 +62,19 @@ export function worktreePaths(cwd: string): string[] {
 		.split("\n")
 		.filter((line) => line.startsWith("worktree "))
 		.map((line) => line.slice("worktree ".length));
+}
+
+/** `git config user.name` in `cwd`, trimmed; undefined when unset, empty, or `cwd` is not usable. */
+export function gitUserName(cwd: string): string | undefined {
+	if (!existsSync(cwd)) return undefined;
+	let ran: GitResult;
+	try {
+		ran = git(["config", "user.name"], cwd);
+	} catch {
+		return undefined;
+	}
+	const name = ran.stdout.trim();
+	return ran.code === 0 && name !== "" ? name : undefined;
 }
 
 /** `git worktree add -b <branch> <path> HEAD`. */

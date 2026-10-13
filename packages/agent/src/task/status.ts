@@ -13,6 +13,7 @@ import { BUNDLED_SCRIPT_NAMES } from "./config.js";
 import { GROUP_LOOP_NAME, type GroupLoopInput, type GroupLoopResult } from "./group.js";
 import type { LoopCheckpoint, TaskLoopInput, TaskLoopResult } from "./loop-input.js";
 import { TASK_LOOP } from "./loop.js";
+import { SPEC_LOOP, type SpecLoopInput, type SpecLoopResult } from "./spec-loop.js";
 
 export type LoopStatus = "running" | "converged" | "blocked" | "exhausted" | "failed";
 
@@ -73,8 +74,38 @@ function summarizeGroup(record: StoredLoop): LoopSummary {
 	};
 }
 
+/** A spec loop is listed as `spec <stage>`, or `spec ?` when its input names no stage. */
+function summarizeSpec(record: StoredLoop): LoopSummary {
+	const input = (record.input ?? {}) as Partial<SpecLoopInput>;
+	const name = typeof input.stage === "string" ? input.stage : input.stage?.name;
+	const state = record.state;
+	let status: LoopStatus = "running";
+	let iterations = 0;
+	if (state.status === "terminal" || state.status === "completing") {
+		const outcome = state.outcome as { status: string; result?: SpecLoopResult };
+		if (outcome.status === "completed" && outcome.result !== undefined) {
+			status = outcome.result.outcome.status as LoopStatus;
+			iterations = outcome.result.outcome.iterations.length;
+		} else {
+			status = "failed";
+			iterations = input.earlier?.length ?? 0;
+		}
+		if (state.status === "completing") status = "running";
+	} else {
+		iterations = (state.checkpoint as { iterations?: unknown[] } | undefined)?.iterations?.length ?? input.earlier?.length ?? 0;
+	}
+	return {
+		id: Number(record.id),
+		change: typeof input.change === "string" ? input.change : "-",
+		task: `spec ${typeof name === "string" && name !== "" ? name : "?"}`,
+		status,
+		iterations,
+	};
+}
+
 export function summarize(record: StoredLoop): LoopSummary {
 	if (record.kind === GROUP_LOOP_NAME) return summarizeGroup(record);
+	if (record.kind === SPEC_LOOP) return summarizeSpec(record);
 	const input = record.input as TaskLoopInput;
 	const state = record.state;
 	let status: LoopStatus = "running";
@@ -102,10 +133,10 @@ export function summarize(record: StoredLoop): LoopSummary {
 	};
 }
 
-/** Every task loop and group loop in the storage, newest first. */
+/** Every task loop, group loop and spec loop in the storage, newest first. */
 export async function listLoops(storage: Storage, context: Context): Promise<LoopSummary[]> {
 	const loops: LoopSummary[] = [];
-	for (const kind of [TASK_LOOP, GROUP_LOOP_NAME]) {
+	for (const kind of [TASK_LOOP, GROUP_LOOP_NAME, SPEC_LOOP]) {
 		let cursor: Cursor | undefined;
 		do {
 			const page = await storage.scanTasks({ kind, order: "descending" }, 100, cursor, context);

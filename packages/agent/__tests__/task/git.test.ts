@@ -2,7 +2,8 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { ALLOWED_GIT, git } from "../../src/task/git.js";
+import { resolvePrincipal } from "../../src/bin/agentscript-task.js";
+import { ALLOWED_GIT, git, gitUserName } from "../../src/task/git.js";
 import { FAKE_CLAUDE_CONFIG, cli, events, fakeClaude, fauxModels, gitIn, gitRepo, spawnBin, storedLoops, workdir, write } from "./cli-helpers.js";
 import { cleanTemps, temp, tinyChange, verdict } from "./helpers.js";
 
@@ -98,12 +99,30 @@ describe("task/headless: The runner never commits", () => {
 		expect(readFileSync(join(repo, "src", "a.ts"), "utf8")).toContain("// edited");
 	});
 
-	it("git() refuses every subcommand but status, rev-parse, worktree add and worktree list", () => {
+	it("git() refuses every subcommand but status, rev-parse, worktree add, worktree list and config user.name", () => {
 		const dir = temp("task-git-");
-		for (const args of [["commit", "-m", "x"], ["add", "."], ["stash"], ["checkout", "main"], ["worktree", "remove", "x"], ["reset"], []]) {
+		for (const args of [
+			["commit", "-m", "x"], ["add", "."], ["stash"], ["checkout", "main"], ["worktree", "remove", "x"], ["reset"], [],
+			["config", "user.name", "mallory"], ["config", "--global", "user.name"], ["config", "user.email"], ["config"],
+		]) {
 			expect(() => git(args, dir), args.join(" ")).toThrow(/never runs/);
 		}
-		expect(ALLOWED_GIT).toEqual(["status", "rev-parse", "worktree add", "worktree list"]);
+		expect(ALLOWED_GIT).toEqual(["status", "rev-parse", "worktree add", "worktree list", "config user.name"]);
+	});
+
+	it("gitUserName reads user.name, and is undefined where git has none", () => {
+		const repo = gitRepo();
+		gitIn(repo, "config", "user.name", "  jesse  ");
+		expect(gitUserName(repo)).toBe("jesse");
+		expect(gitUserName(join(repo, "missing"))).toBeUndefined();
+	});
+
+	it("resolvePrincipal takes --principal, then git, then $USER", () => {
+		const git = () => "jesse";
+		expect(resolvePrincipal("alice", () => { throw new Error("git consulted"); }, { USER: "bob" })).toBe("alice");
+		expect(resolvePrincipal(undefined, git, { USER: "bob" })).toBe("jesse");
+		expect(resolvePrincipal(" ", () => undefined, { USER: "bob" })).toBe("bob");
+		expect(resolvePrincipal(undefined, () => "", {})).toBeUndefined();
 	});
 
 	it("only src/task/git.ts spawns git, and every git() call in the runner is an allowed one", () => {
@@ -118,8 +137,8 @@ describe("task/headless: The runner never commits", () => {
 			if (!file.endsWith(join("task", "git.ts"))) {
 				expect(code, file).not.toMatch(/(spawn|spawnSync|exec|execFile|execFileSync|execSync)\(\s*["'`]git["'`]/);
 			}
-			for (const m of code.matchAll(/\bgit\(\s*\[\s*"([a-z-]+)"(?:\s*,\s*"([a-z-]+)")?/g)) {
-				calls.push(m[1] === "worktree" ? `worktree ${m[2]}` : (m[1] as string));
+			for (const m of code.matchAll(/\bgit\(\s*\[\s*"([a-z-]+)"(?:\s*,\s*"([a-z.-]+)")?/g)) {
+				calls.push(m[1] === "worktree" || m[1] === "config" ? `${m[1]} ${m[2]}` : (m[1] as string));
 			}
 		}
 		// Proves the scan read the calls: the runner does use git.

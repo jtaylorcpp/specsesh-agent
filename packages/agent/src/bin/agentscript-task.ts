@@ -7,8 +7,9 @@
  *                    [--check <command>]... [--allow <word>]... [--max-iterations <n>]
  *                    [--escalate-to principal|agent] [--provider <id>] [--model <id>]
  *                    [--allow-dirty] [--worktree] [--no-delegates] [--json]
+ *   agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
  *   agentscript-task resume <loop-id> [--db <path>] [--json]
- *   agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--json]
+ *   agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]
  *   agentscript-task status [--db <path>]
  *
  * Defaults come from the nearest `agentscript.config.json` (its `task` object);
@@ -17,7 +18,12 @@
  *
  * Headless by construction: it never reads stdin and never prompts. Progress
  * goes to stderr as JSON Lines after the resume hint; the outcome goes to
- * stdout. A blocked loop exits 1 and ends with the exact `answer` command.
+ * stdout. A blocked loop exits 1 and ends with the exact `answer` command;
+ * a spec loop waiting for review exits 0.
+ *
+ * `spec` runs one stage of a change's spec loop in place (`runSpec` in
+ * `task/spec-cli.ts`): it parses its own flags and, unlike `run`, never checks
+ * that the tree is clean.
  *
  * `run` refuses a dirty working tree unless `--allow-dirty`, and never commits:
  * it prints the files the loop changed. `--worktree` runs the loop in a new git
@@ -40,7 +46,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models, Provider } from "@earendil-works/pi-ai";
-import type { Cursor, Harness, ModelRef, Storage, TaskId } from "@earendil-works/pi-durable";
+import { createRegistry, Harness, type Cursor, type ModelRef, type Storage, type TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { AgentHarness } from "../durable/agent-config.js";
 import { DelegateGrantError, type DelegateGrants } from "../durable/delegation.js";
@@ -49,16 +55,24 @@ import { defaultRunners, localWorkspace } from "../node/index.js";
 import type { Escalation, GroupOutcome, LoopOutcome, Recipient, TaskOutcome } from "../openspec/index.js";
 import {
 	GroupLoop,
+	SPEC_LOOP,
+	SPEC_STAGES,
 	TASK_LOOP,
 	TaskLoop,
 	answerEscalation,
 	answerGroupEscalation,
+	answerSpecLoop,
+	specLoopExtensions,
 	startGroupLoop,
 	startTaskLoop,
 	waitForGroupLoop,
+	waitForSpecLoop,
 	waitForTaskLoopResult,
 	type GroupLoopOptions,
 	type LoopWorktree,
+	type SpecLoopInput,
+	type SpecStage,
+	type StageOutcome,
 	type TaskLoopInput,
 	type TaskLoopOptions,
 	type TaskLoopResult,
@@ -79,11 +93,13 @@ import {
 	type RunSettings,
 } from "../task/config.js";
 import { GroupWatcher, LoopWatcher, jsonLines, now, type EventSink, type TaskEvent } from "../task/events.js";
-import { changedBetween, insideGit, repoRoot, snapshot, status } from "../task/git.js";
+import { changedBetween, gitUserName, insideGit, repoRoot, snapshot, status } from "../task/git.js";
 import { DatabaseLockedError, lockDatabase, type DbLock } from "../task/lock.js";
 import { ChangeNotFoundError, nextGroup, nextTask, resolveChange } from "../task/resolve.js";
 import { GROUP_LOOP_NAME, type GroupLoopInput, type GroupLoopResult } from "../task/group.js";
 import { readResult } from "../task/group-api.js";
+import { after, formatSpecOutcome, runSpec, specExitCode } from "../task/spec-cli.js";
+import { changeDirOf } from "../task/spec-loop.js";
 import { changeOf, formatLoop, listLoops, scriptOf } from "../task/status.js";
 import { WorktreeRefusedError, checkWorktree, createWorktree, inRepo, planWorktree, rebase, runSetup } from "../task/worktree.js";
 
@@ -98,8 +114,9 @@ const USAGE = `usage:
                --max-iterations <n>  --escalate-to principal|agent  --provider <id>  --model <id>
                --allow-dirty  --worktree  --json
                --no-delegates   withdraw every delegate grant for this run
+  agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
   agentscript-task resume <loop-id> [--db <path>] [--json]
-  agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--json]
+  agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]
   agentscript-task status [--db <path>]`;
 
 export interface CliDeps {
@@ -113,6 +130,8 @@ export interface CliDeps {
 	readonly env?: Readonly<Record<string, string | undefined>>;
 	/** How often the event stream polls a running loop. */
 	readonly pollMs?: number;
+	/** The spec stages `spec` and a spec loop's `answer` run. Defaults to `SPEC_STAGES`. */
+	readonly stages?: readonly SpecStage[];
 }
 
 type LoopId = TaskId<LoopOutcome<TaskOutcome>>;
@@ -164,7 +183,20 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 		return 2;
 	};
 	const [command, ...rest] = argv;
-	if (command !== "run" && command !== "resume" && command !== "answer" && command !== "status") return usage();
+	if (command !== "run" && command !== "spec" && command !== "resume" && command !== "answer" && command !== "status") return usage();
+
+	// spec parses its own flags, and never reaches run's clean-tree guard.
+	if (command === "spec") {
+		try {
+			return await runSpec(rest, loadConfig(cwd), { out, err, cwd, env, models: deps.models ?? builtin, ...(deps.stages !== undefined ? { stages: deps.stages } : {}) });
+		} catch (error) {
+			if (isRefusal(error)) {
+				err(message(error));
+				return 2;
+			}
+			throw error;
+		}
+	}
 
 	let parsed;
 	try {
@@ -190,6 +222,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 				"no-delegates": { type: "boolean", default: false },
 				by: { type: "string" },
 				decision: { type: "string" },
+				principal: { type: "string" },
 				json: { type: "boolean", default: false },
 			},
 		});
@@ -440,14 +473,15 @@ export async function buildHarness(
 	);
 }
 
-/** A task or group loop's record by ID, read from storage before any harness is open. */
+/** A task, group or spec loop's record by ID, read from storage before any harness is open. */
 async function findLoop(storage: Storage, id: number) {
-	for (const kind of [TASK_LOOP, GROUP_LOOP_NAME]) {
+	const kinds = { [TASK_LOOP]: "task", [GROUP_LOOP_NAME]: "group", [SPEC_LOOP]: "spec" } as const;
+	for (const kind of [TASK_LOOP, GROUP_LOOP_NAME, SPEC_LOOP] as const) {
 		let cursor: Cursor | undefined;
 		do {
 			const page = await storage.scanTasks({ kind }, 100, cursor, BACKGROUND_CONTEXT);
 			const found = page.items.find((record) => Number(record.id) === id);
-			if (found !== undefined) return { kind: kind === GROUP_LOOP_NAME ? ("group" as const) : ("task" as const), record: found };
+			if (found !== undefined) return { kind: kinds[kind], record: found };
 			cursor = page.next;
 		} while (cursor !== undefined);
 	}
@@ -569,6 +603,72 @@ async function continueGroup(
 	return await settleGroup(harness, storage, next, io, db);
 }
 
+type SpecId = TaskId<LoopOutcome<StageOutcome>>;
+type SpecAnswer = { by: Recipient; decision: string; principal?: string };
+
+/**
+ * Who answers a spec loop's review: `--principal`, else `git config user.name`, else
+ * `$USER`; undefined when none names anyone. `gitName` is called only when there is no flag.
+ */
+export function resolvePrincipal(
+	flag: string | undefined,
+	gitName: () => string | undefined,
+	env: Readonly<Record<string, string | undefined>>,
+): string | undefined {
+	for (const candidate of [() => flag, gitName, () => env["USER"]]) {
+		const name = candidate()?.trim() ?? "";
+		if (name !== "") return name;
+	}
+	return undefined;
+}
+
+/**
+ * `resume` and `answer` for a spec loop, on a harness with the spec loop installed over
+ * its workspace and `stages`. An answer starts a new run, as `answerSpecLoop` does.
+ */
+async function continueSpec(
+	storage: Storage,
+	models: Models,
+	id: SpecId,
+	input: SpecLoopInput,
+	answer: SpecAnswer | undefined,
+	stages: readonly SpecStage[],
+	io: Io,
+	db: DbPath,
+): Promise<number> {
+	const registry = createRegistry();
+	for (const extension of specLoopExtensions({ workspace: input.workspace, stages })) registry.install(extension);
+	const harness = await Harness.open(storage, { models, registry }, BACKGROUND_CONTEXT);
+	try {
+		let next = id;
+		if (answer !== undefined) {
+			try {
+				next = await answerSpecLoop(harness, id, answer, BACKGROUND_CONTEXT);
+			} catch (error) {
+				io.err(message(error));
+				return 2;
+			}
+			io.err(`loop ${next} — resume with: agentscript-task resume ${next} --db ${db.label}`);
+		}
+		harness.resume();
+		let outcome: LoopOutcome<StageOutcome>;
+		try {
+			outcome = await waitForSpecLoop(harness, next, BACKGROUND_CONTEXT);
+		} catch (error) {
+			io.err(message(error));
+			return 1;
+		}
+		if (io.json === true) io.out(JSON.stringify({ loop: next, ...outcome }, null, 2));
+		else {
+			const context = { loop: String(next), change: input.change, changePath: `openspec/changes/${input.change}` };
+			for (const line of formatSpecOutcome(outcome, { ...context, ...after(outcome, stages, changeDirOf(input)) })) io.out(line);
+		}
+		return specExitCode(outcome);
+	} finally {
+		await harness.close(BACKGROUND_CONTEXT);
+	}
+}
+
 /** `resume` and `answer`: the loop's workspace, checks, allowlist, delegate and worktree come from the database. */
 async function continueLoop(
 	command: "resume" | "answer",
@@ -610,7 +710,7 @@ async function continueLoop(
 		const id = Number(target) as LoopId;
 		const found = Number.isInteger(id) ? await findLoop(storage, id) : undefined;
 		// A group's input carries the same workspace, checks, allowlist, model and delegates a task loop's does.
-		const stored = found?.record.input as unknown as (TaskLoopInput | GroupLoopInput) | undefined;
+		const stored = found?.record.input as unknown as (TaskLoopInput | GroupLoopInput | SpecLoopInput) | undefined;
 		const model: ModelRef = stored?.model ?? {
 			provider: env["AGENTSCRIPT_PROVIDER"] ?? config.task.provider ?? DEFAULT_PROVIDER,
 			modelId: env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL,
@@ -621,8 +721,27 @@ async function continueLoop(
 			io.err(found === undefined ? `no loop ${target} in ${db.label}` : `no provider "${model.provider}" for loop ${target}`);
 			return 2;
 		}
+		if (found.kind === "spec") {
+			const input = found.record.input as unknown as SpecLoopInput;
+			let answer: SpecAnswer | undefined;
+			if (command === "answer") {
+				// Only a spec loop answered by the principal needs a name, so nothing else resolves one.
+				answer = { by: by as Recipient, decision: decision as string };
+				if (by === "principal") {
+					const principal = resolvePrincipal(values["principal"] as string | undefined, () => gitUserName(cwd), env);
+					if (principal === undefined) {
+						await storage.close(BACKGROUND_CONTEXT);
+						io.err("no principal; pass --principal");
+						return 2;
+					}
+					answer = { ...answer, principal };
+				}
+			}
+			for (const warning of warnings) io.emit({ event: "warning", loop: Number(id), message: warning });
+			return await continueSpec(storage, models, id as unknown as SpecId, input, answer, deps.stages ?? SPEC_STAGES, io, db);
+		}
 		// The loop's own terms, so a resumed loop delegates and checks as it started.
-		const { harness } = await buildHarness(storage, { provider, model }, stored, named);
+		const { harness } = await buildHarness(storage, { provider, model }, stored as TaskLoopInput | GroupLoopInput, named);
 		try {
 			const record = await harness.getTask(id, BACKGROUND_CONTEXT);
 			if (record === undefined) {

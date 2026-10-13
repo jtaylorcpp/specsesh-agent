@@ -1,11 +1,11 @@
 ## 1. The command
 
-- [ ] 1.1 `packages/agent/src/task/spec-cli.ts` (new): `runSpec(args, config, io)`: stage choice, `intent.md`, refusals, and the text output
-- [ ] 1.2 `packages/agent/src/task/spec-stages.ts` (new): `SPEC_STAGES`, holding `proposalStage`
-- [ ] 1.3 `packages/agent/src/bin/agentscript-task.ts`: the `spec` command, the usage lines, and the exit codes
-- [ ] 1.4 `packages/agent/src/bin/agentscript-task.ts`: `answer` routes a spec loop to `answerSpecLoop` with `--principal`
-- [ ] 1.5 `packages/agent/src/task/status.ts`: `spec <stage>` for a spec loop
-- [ ] 1.6 `scripts/task.mjs`: `spec` joins `COMMANDS`, so `pnpm task spec …` reaches it instead of `run`
+- [x] 1.1 `packages/agent/src/task/spec-cli.ts` (new): `runSpec(args, config, io)`: stage choice, `intent.md`, refusals, and the text output
+- [x] 1.2 `packages/agent/src/task/spec-stages.ts` (new): `SPEC_STAGES`, holding `proposalStage`
+- [x] 1.3 `packages/agent/src/bin/agentscript-task.ts`: the `spec` command, the usage lines, and the exit codes
+- [x] 1.4 `packages/agent/src/bin/agentscript-task.ts`: `answer` routes a spec loop to `answerSpecLoop` with `--principal`
+- [x] 1.5 `packages/agent/src/task/status.ts`: `spec <stage>` for a spec loop
+- [x] 1.6 `scripts/task.mjs`: `spec` joins `COMMANDS`, so `pnpm task spec …` reaches it instead of `run`
 
 ## 2. Tests
 

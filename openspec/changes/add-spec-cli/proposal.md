@@ -22,7 +22,7 @@ After `add-spec-proposal-stage` the spec loop works from the library, but a user
 
 ## Capabilities
 
-- **Modified:** `task/cli`.
+- **Modified:** `task/cli`, and `task/headless` so the runner may read `git config user.name` (read only) for `--principal`.
 
 ## Impact
 

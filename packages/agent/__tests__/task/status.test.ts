@@ -52,6 +52,23 @@ describe("task/headless: status lists the loops in the database", () => {
 		expect(formatLoop(failed)).toBe("loop 4  c  2.4  failed  0 iterations");
 	});
 
+	it("Scenario: status shows the stage", () => {
+		const taskInput = { task: "1.1", tasksPath: "/r/openspec/changes/add-plan-export/tasks.md", earlier: [] };
+		const task = summarize({ id: 5, kind: "agentscript.task-loop", input: taskInput, state: { status: "waiting", checkpoint: { phase: "await", iterations: [], carried: "" } } });
+		const spec = summarize({
+			id: 6,
+			kind: "agentscript.spec-loop",
+			input: { change: "add-plan-export", stage: { name: "proposal", owns: ["proposal.md"] } },
+			state: { status: "waiting", checkpoint: { phase: "await", iterations: [{}], carried: "" } },
+		});
+		expect(formatLoop(spec)).toBe("loop 6  add-plan-export  spec proposal  running  1 iteration");
+		expect(formatLoop(task)).toBe("loop 5  add-plan-export  1.1  running  0 iterations");
+		const plain = summarize({ id: 7, kind: "agentscript.spec-loop", input: { change: "add-plan-export", stage: "proposal" }, state: { status: "waiting" } });
+		expect(plain.task).toBe("spec proposal");
+		const old = summarize({ id: 8, kind: "agentscript.spec-loop", input: { change: "add-plan-export" }, state: { status: "terminal", outcome: { status: "failed", error: { message: "x" } } } });
+		expect(formatLoop(old)).toBe("loop 8  add-plan-export  spec ?  failed  0 iterations");
+	});
+
 	it("status with no --db and no config prints usage", async () => {
 		const r = await cli(["status"]);
 		expect(r.code).toBe(2);
@@ -70,8 +87,9 @@ describe("task/cli: The CLI has four commands and prints usage otherwise", () =>
 		const r = await cli([]);
 		expect(r.err.startsWith("usage:")).toBe(true);
 		expect(r.err).toContain("agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]");
+		expect(r.err).toContain("agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]");
 		expect(r.err).toContain("agentscript-task resume <loop-id> [--db <path>] [--json]");
-		expect(r.err).toContain("agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--json]");
+		expect(r.err).toContain("agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]");
 		expect(r.err).toContain("agentscript-task status [--db <path>]");
 		expect(r.code).toBe(2);
 	});
