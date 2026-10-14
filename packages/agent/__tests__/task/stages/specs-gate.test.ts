@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type TrialFoldResult, trialFold } from "../../../src/task/cmd-close.js";
-import { type OpenspecBin, type OpenspecRun, resolveOpenspec, runOpenspec } from "../../../src/task/openspec-bin.js";
+import { type OpenspecBin, type OpenspecRun, resetOpenspecCache, resolveOpenspec, runOpenspec } from "../../../src/task/openspec-bin.js";
 import type { StageContext } from "../../../src/task/spec-stage.js";
 import type { Delta } from "../../../src/task/stages/openspec-cli.js";
 import { specsGate } from "../../../src/task/stages/specs.js";
@@ -42,6 +42,7 @@ let bin: OpenspecBin | null;
 let replies: { validate: OpenspecRun; show: OpenspecRun };
 
 beforeEach(() => {
+	resetOpenspecCache();
 	vi.mocked(trialFoldIssues).mockReset();
 	vi.mocked(trialFoldIssues).mockResolvedValue([]);
 	vi.mocked(trialFold).mockReset();
@@ -186,18 +187,15 @@ const SHOW = ["show", CHANGE, "--json", "--deltas-only"];
 
 describe("specsGate, over the resolved openspec", () => {
 	it("Scenario: An OpenSpec error reaches the next draft", async () => {
-		bin = { path: "/usr/local/bin/openspec", version: "1.9.0", source: "path" };
 		const issue = { level: "ERROR", path: "specs/plan/export/spec.md", message: "Requirement must have at least one scenario" };
 		openspec(validated([issue]), shown("plan/export"));
 		const files = { "specs/plan/export/spec.md": MODIFIED_DELTA };
 		const context = gateContext(proposal("- **Modified:** `plan/export`\n"), files);
 		const issues = await specsGate(context);
+		// The output was readable, so the issue is OpenSpec's own, with no openspec suffix.
 		expect(issues).toEqual([issue]);
 		expect(resolveOpenspec).toHaveBeenCalledWith(context.workspace);
-		expect(runOpenspec).toHaveBeenCalledWith(bin, VALIDATE, { cwd: context.workspace });
-		expect(runOpenspec).toHaveBeenCalledWith(bin, SHOW, { cwd: context.workspace });
-		// The CLI checks the minimum version up front; the gate runs what it was given.
-		expect(issues.some((i) => i.message.includes("minimum supported version"))).toBe(false);
+		expect(runOpenspec).toHaveBeenCalledWith(PROJECT_BIN, VALIDATE, { cwd: context.workspace });
 		expect(spawnedOpenspec()).toBe(false);
 	});
 
@@ -226,7 +224,7 @@ describe("specsGate, over the resolved openspec", () => {
 		expect(runOpenspec).toHaveBeenCalledOnce();
 	});
 
-	it("Scenario: Unreadable show output names the openspec run", async () => {
+	it("Scenario: show prints no parseable JSON", async () => {
 		openspec(validated(), {});
 		replies.show = { code: 0, stdout: "not json", stderr: "" };
 		const files = { "specs/task/cli/spec.md": MODIFIED_DELTA };
@@ -235,14 +233,22 @@ describe("specsGate, over the resolved openspec", () => {
 			{ level: "ERROR", path: ".", message: `\`openspec show add-plan-export --json --deltas-only\` printed no parseable JSON${PROJECT_SUFFIX}` },
 		]);
 		expect(runOpenspec).toHaveBeenCalledWith(PROJECT_BIN, SHOW, { cwd: context.workspace });
+		expect(spawnedOpenspec()).toBe(false);
+	});
 
+	it("Scenario: An old openspec is named, not refused, by the gate", async () => {
+		bin = { path: "/usr/local/bin/openspec", version: "1.9.0", source: "path" };
 		// Parseable, but without requirement names, as openspec 1.9.0 prints it.
 		openspec(validated(), { deltas: [{ spec: "task/cli", operation: "MODIFIED", requirement: { text: "It SHALL.", scenarios: [{ rawText: "S" }] } }] });
-		const issues = await specsGate(gateContext(proposal("- **Modified:** `task/cli`\n"), files));
-		expect(issues).toHaveLength(1);
-		expect(issues[0]?.level).toBe("ERROR");
-		expect(issues[0]?.message.startsWith("`openspec show add-plan-export --json --deltas-only` ")).toBe(true);
-		expect(issues[0]?.message.endsWith("(openspec 1.14.1 at /repo/node_modules/.bin/openspec)")).toBe(true);
+		const files = { "specs/task/cli/spec.md": MODIFIED_DELTA };
+		const context = gateContext(proposal("- **Modified:** `task/cli`\n"), files);
+		const gate = specsGate(context);
+		await expect(gate).resolves.toBeDefined();
+		const issues = await gate;
+		expect(runOpenspec).toHaveBeenCalledWith(bin, SHOW, { cwd: context.workspace });
+		expect(issues.some((i) => i.level === "ERROR" && i.message.endsWith("(openspec 1.9.0 at /usr/local/bin/openspec)"))).toBe(true);
+		// The CLI checks the minimum version up front; the gate runs what it was given.
+		expect(issues.some((i) => i.message.includes("below the minimum supported version"))).toBe(false);
 		expect(spawnedOpenspec()).toBe(false);
 	});
 
@@ -287,7 +293,7 @@ describe.skipIf(process.platform === "win32")("specsGate's trial fold", () => {
 		const issues = await specsGate(context);
 		// An ERROR is what sends the draft back for another iteration.
 		expect(issues).toEqual([{ level: "ERROR", path: "specs/spec/judge/spec.md", message: `trial fold: spec/judge: ${reported}` }]);
-		expect(trialFold).toHaveBeenCalledExactlyOnceWith(context.workspace, CHANGE);
+		expect(trialFold).toHaveBeenCalledExactlyOnceWith(context.workspace, CHANGE, PROJECT_BIN);
 	});
 
 	it("Scenario: A fold warning on a spec without a delta", async () => {
@@ -348,7 +354,7 @@ describe.skipIf(process.platform === "win32")("specsGate's trial fold", () => {
 		const context = foldContext();
 		// Change validation, coverage and size all report nothing, so only the fold could add an issue.
 		expect(await specsGate(context)).toEqual([]);
-		expect(trialFold).toHaveBeenCalledExactlyOnceWith(context.workspace, CHANGE);
+		expect(trialFold).toHaveBeenCalledExactlyOnceWith(context.workspace, CHANGE, PROJECT_BIN);
 	});
 
 	/** The fold `failure`s `trialFold` returns when `openspec` cannot be spawned or prints no JSON. */
@@ -359,7 +365,9 @@ describe.skipIf(process.platform === "win32")("specsGate's trial fold", () => {
 		vi.mocked(trialFold).mockResolvedValue(failed("spawn openspec ENOENT"));
 		const issues = await specsGate(foldContext());
 		// One ERROR, so the loop iterates. The gate places the pathless fold ERROR at the change directory.
-		expect(issues).toEqual([{ level: "ERROR", path: ".", message: "openspec validate --specs --strict could not run: spawn openspec ENOENT" }]);
+		expect(issues).toEqual([
+			{ level: "ERROR", path: ".", message: `openspec validate --specs --strict could not run: spawn openspec ENOENT${PROJECT_SUFFIX}` },
+		]);
 	});
 
 	it("Scenario: The fold prints no parseable JSON", async () => {
@@ -367,7 +375,7 @@ describe.skipIf(process.platform === "win32")("specsGate's trial fold", () => {
 		vi.mocked(trialFold).mockResolvedValue({ ...failed("no parseable JSON on stdout"), exit: 0 });
 		const issues = await specsGate(foldContext());
 		expect(issues).toEqual([
-			{ level: "ERROR", path: ".", message: "openspec validate --specs --strict could not run: no parseable JSON on stdout" },
+			{ level: "ERROR", path: ".", message: `openspec validate --specs --strict could not run: no parseable JSON on stdout${PROJECT_SUFFIX}` },
 		]);
 	});
 

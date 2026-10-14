@@ -9,6 +9,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveOpenspec } from "../openspec-bin.js";
 import { BUNDLED_SCRIPTS } from "../options.js";
 import type { SpecStage, StageContext, StageIssue } from "../spec-stage.js";
 import { modifiedSpecs } from "./design.js";
@@ -28,7 +29,8 @@ const validateFailed = (issues: readonly StageIssue[]): boolean =>
 	issues.length === 1 && issues[0]?.path === "." && (issues[0]?.message.startsWith("`openspec validate ") ?? false);
 
 /**
- * OpenSpec's own issues, then the trial fold's, then coverage, then size. The fold runs
+ * OpenSpec's own issues, then the trial fold's, then coverage, then size, all with one
+ * openspec resolved for the workspace and no minimum version enforced. The fold runs
  * only when `validate` reports no `ERROR`; a fold that cannot run is one `ERROR` at `.`.
  * When `validate` cannot run, its one `ERROR` stands for the command and `show` is not
  * tried; when `show` fails, its `ERROR` replaces the size check. Coverage always reads
@@ -36,10 +38,11 @@ const validateFailed = (issues: readonly StageIssue[]): boolean =>
  */
 export async function specsGate({ changeId, workspace, changeDir, files }: StageContext): Promise<StageIssue[]> {
 	const proposal = readProposalCapabilities(approvedProposal(changeDir) ?? "");
-	const validated = await openspecValidate(workspace, changeId);
+	const bin = await resolveOpenspec(workspace);
+	const validated = await openspecValidate(workspace, changeId, bin);
 	if (validateFailed(validated)) return [...validated, ...coverageIssues(proposal, [], files)];
-	const folded = validated.some((issue) => issue.level === "ERROR") ? [] : await trialFoldIssues(workspace, changeId);
-	const shown = await openspecDeltas(workspace, changeId);
+	const folded = validated.some((issue) => issue.level === "ERROR") ? [] : await trialFoldIssues(workspace, changeId, bin);
+	const shown = await openspecDeltas(workspace, changeId, bin);
 	return [
 		...validated,
 		...folded.map((issue): StageIssue => ({ ...issue, path: issue.path ?? "." })),

@@ -1,16 +1,28 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatTrialFold, type TrialFoldIssue, type TrialFoldResult, trialFold } from "../../../src/task/cmd-close.js";
+import { type OpenspecBin, resetOpenspecCache, resolveOpenspec } from "../../../src/task/openspec-bin.js";
 import { trialFoldIssues } from "../../../src/task/stages/trial-fold-issues.js";
 import { cleanTemps, temp } from "../helpers.js";
 
 vi.mock("../../../src/task/cmd-close.js", () => ({ formatTrialFold: vi.fn(), trialFold: vi.fn() }));
+/** The workspace's openspec when no bin is passed; `describeOpenspec` stays real. */
+vi.mock("../../../src/task/openspec-bin.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../../src/task/openspec-bin.js")>()),
+	resolveOpenspec: vi.fn(),
+}));
 
 // The real cmd-close imports trial-fold-issues through its graph, so loading it in the factory would bind
 // the module under test to the real `trialFold`. Loaded here, after the static imports, it cannot.
 const actual = await vi.importActual<typeof import("../../../src/task/cmd-close.js")>("../../../src/task/cmd-close.js");
 vi.mocked(formatTrialFold).mockImplementation(actual.formatTrialFold);
+
+beforeEach(() => {
+	resetOpenspecCache();
+	vi.mocked(resolveOpenspec).mockReset();
+	vi.mocked(resolveOpenspec).mockResolvedValue(null);
+});
 
 afterEach(() => {
 	cleanTemps();
@@ -18,6 +30,7 @@ afterEach(() => {
 });
 
 const CHANGE = "add-judge";
+const PROJECT_BIN: OpenspecBin = { path: "/repo/node_modules/.bin/openspec", version: "1.14.1", source: "project" };
 const COMMAND = "openspec validate --specs --strict --json" as const;
 
 /** A workspace whose change has a delta for `spec/judge`, or no `specs/` at all. */
@@ -45,7 +58,7 @@ describe("trialFoldIssues", () => {
 			{ level: "ERROR", path: "specs/spec/judge/spec.md", message: `trial fold: spec/judge: ${message}` },
 		]);
 		expect(trialFold).toHaveBeenCalledTimes(1);
-		expect(trialFold).toHaveBeenCalledWith(dir, CHANGE);
+		expect(trialFold).toHaveBeenCalledWith(dir, CHANGE, null);
 	});
 
 	it("Scenario: A fold warning on a spec without a delta", async () => {
@@ -55,7 +68,7 @@ describe("trialFoldIssues", () => {
 		expect(await trialFoldIssues(dir, CHANGE)).toEqual([
 			{ level: "WARNING", path: "openspec/specs/core/subset/spec.md", message: "trial fold: core/subset: Purpose section is too brief" },
 		]);
-		expect(trialFold).toHaveBeenCalledExactlyOnceWith(dir, CHANGE);
+		expect(trialFold).toHaveBeenCalledExactlyOnceWith(dir, CHANGE, null);
 	});
 
 	it("Scenario: A fold reporting only INFO adds no issue", async () => {
@@ -72,10 +85,18 @@ describe("trialFoldIssues", () => {
 		const dir = workspace();
 		vi.mocked(trialFold).mockResolvedValue({ ...failed("no parseable JSON on stdout"), exit: 0 });
 
-		const issues = await trialFoldIssues(dir, CHANGE);
+		const issues = await trialFoldIssues(dir, CHANGE, PROJECT_BIN);
 		expect(issues).toHaveLength(1);
-		expect(issues[0]).toEqual({ level: "ERROR", message: "openspec validate --specs --strict could not run: no parseable JSON on stdout" });
+		expect(issues[0]).toEqual({
+			level: "ERROR",
+			message: "openspec validate --specs --strict could not run: no parseable JSON on stdout (openspec 1.14.1 at /repo/node_modules/.bin/openspec)",
+		});
 		expect(issues[0]?.path).toBeUndefined();
+		// The gate never enforces the minimum version.
+		expect(issues[0]?.message).not.toContain("below the minimum supported version");
+		// The fold ran with the bin it describes, so nothing was resolved again.
+		expect(trialFold).toHaveBeenCalledExactlyOnceWith(dir, CHANGE, PROJECT_BIN);
+		expect(resolveOpenspec).not.toHaveBeenCalled();
 	});
 
 	it("Scenario: openspec is missing at the fold", async () => {
@@ -84,11 +105,15 @@ describe("trialFoldIssues", () => {
 
 		const issues = await trialFoldIssues(dir, CHANGE);
 		expect(issues).toHaveLength(1);
-		expect(issues[0]).toEqual({ level: "ERROR", message: "openspec validate --specs --strict could not run: spawn openspec ENOENT" });
 		expect(issues[0]?.path).toBeUndefined();
-		expect(issues[0]?.message).toContain("openspec validate --specs --strict");
-		// An ERROR is what sends the spec loop round again.
-		expect(issues.some((i) => i.level === "ERROR")).toBe(true);
+		expect(issues[0]?.level).toBe("ERROR");
+		expect(issues[0]?.message.startsWith("openspec validate --specs --strict could not run: ")).toBe(true);
+		expect(issues[0]?.message.endsWith(" (openspec not found)")).toBe(true);
+		expect(issues[0]?.message).not.toContain("below the minimum supported version");
+		expect(resolveOpenspec).toHaveBeenCalledExactlyOnceWith(dir);
+		expect(trialFold).toHaveBeenCalledExactlyOnceWith(dir, CHANGE, null);
+		// This file tests trialFoldIssues alone: an ERROR is what sends the spec loop round again.
+		expect(issues.filter((i) => i.level === "ERROR")).toHaveLength(1);
 	});
 
 	it("places every issue in openspec/specs/ when the change has no specs/", async () => {

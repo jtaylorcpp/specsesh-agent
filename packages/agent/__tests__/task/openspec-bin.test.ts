@@ -1,6 +1,6 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	OPENSPEC_MIN_VERSION,
@@ -14,11 +14,14 @@ import {
 let root: string;
 let savedPath: string | undefined;
 
-/** A fake `openspec` in `dir` printing `version`; each `--version` appends a line to `counter` when given. */
+/** A fake `openspec` in `dir` printing `version`; each `--version` appends its OPENSPEC_TELEMETRY as a line to `counter` when given. */
 function fakeOpenspec(dir: string, version: string, counter?: string): string {
 	mkdirSync(dir, { recursive: true });
 	const path = join(dir, "openspec");
-	const count = counter === undefined ? "" : `require("node:fs").appendFileSync(${JSON.stringify(counter)}, "x\\n");`;
+	const count =
+		counter === undefined
+			? ""
+			: `require("node:fs").appendFileSync(${JSON.stringify(counter)}, process.env.OPENSPEC_TELEMETRY + "\\n");`;
 	writeFileSync(
 		path,
 		`#!/usr/bin/env node\nif (process.argv[2] === "--version") { ${count} console.log(${JSON.stringify(version)}); }\nelse { console.log(JSON.stringify({ args: process.argv.slice(2), telemetry: process.env.OPENSPEC_TELEMETRY })); process.exit(3); }\n`,
@@ -35,6 +38,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	process.env.PATH = savedPath;
+	resetOpenspecCache();
 	rmSync(root, { recursive: true, force: true });
 });
 
@@ -43,16 +47,50 @@ function setPath(...dirs: string[]): void {
 	process.env.PATH = [...dirs, join(process.execPath, "..")].join(":");
 }
 
-describe("resolveOpenspec", () => {
+// The temp `global` dir stands in for /usr/local/bin. The fakes are node scripts; the win32 `.cmd` shim is untested.
+describe.skipIf(process.platform === "win32")("resolveOpenspec", () => {
 	it("Scenario: The project copy wins over PATH", async () => {
 		const workspace = join(root, "ws");
 		const project = fakeOpenspec(join(workspace, "node_modules", ".bin"), "1.14.1");
+		const counter = join(root, "global-calls");
+		fakeOpenspec(join(root, "global"), "1.9.0", counter);
 		setPath(join(root, "global"));
-		fakeOpenspec(join(root, "global"), "1.9.0");
-		expect(await resolveOpenspec(workspace)).toEqual({ path: project, version: "1.14.1", source: "project" });
+		const bin = await resolveOpenspec(workspace);
+		expect(bin).toEqual({ path: join(workspace, "node_modules/.bin/openspec"), version: "1.14.1", source: "project" });
+		expect(bin?.path).toBe(project);
+		expect(isAbsolute(bin!.path)).toBe(true);
+		expect(existsSync(counter)).toBe(false);
 	});
 
-	it("Scenario: Without a project copy PATH is used", async () => {
+	it("Scenario: PATH is used when the project has no copy, and resolved once", async () => {
+		const workspace = join(root, "ws");
+		mkdirSync(workspace);
+		const counter = join(root, "global-calls");
+		const global = fakeOpenspec(join(root, "global"), "1.9.0", counter);
+		setPath(join(root, "global"));
+		const expected = { path: global, version: "1.9.0", source: "path" };
+		expect(await resolveOpenspec(workspace)).toEqual(expected);
+		expect(await resolveOpenspec(workspace)).toEqual(expected);
+		expect(readFileSync(counter, "utf8")).toBe("0\n");
+		resetOpenspecCache();
+		expect(await resolveOpenspec(workspace)).toEqual(expected);
+		expect(readFileSync(counter, "utf8")).toBe("0\n0\n");
+	});
+
+	it("Scenario: The version is the first x.y.z", async () => {
+		const workspace = join(root, "ws");
+		fakeOpenspec(join(workspace, "node_modules", ".bin"), "openspec/1.14.1-rc.1 linux");
+		setPath(join(root, "global"));
+		expect((await resolveOpenspec(workspace))?.version).toBe("1.14.1");
+	});
+
+	it("a version without x.y.z is null", async () => {
+		const path = fakeOpenspec(join(root, "global"), "openspec dev build");
+		setPath(join(root, "global"));
+		expect(await resolveOpenspec(root)).toEqual({ path, version: null, source: "path" });
+	});
+
+	it("an empty PATH entry is skipped", async () => {
 		const workspace = join(root, "ws");
 		mkdirSync(workspace);
 		const global = fakeOpenspec(join(root, "global"), "1.9.0");
@@ -60,23 +98,14 @@ describe("resolveOpenspec", () => {
 		expect(await resolveOpenspec(workspace)).toEqual({ path: global, version: "1.9.0", source: "path" });
 	});
 
-	it("Scenario: A version without x.y.z is null", async () => {
-		const path = fakeOpenspec(join(root, "global"), "openspec dev build");
-		setPath(join(root, "global"));
-		expect(await resolveOpenspec(root)).toEqual({ path, version: null, source: "path" });
-	});
-
-	it("Scenario: --version runs once per process", async () => {
+	it("concurrent calls share one --version", async () => {
 		const counter = join(root, "count");
 		fakeOpenspec(join(root, "global"), "1.14.1", counter);
 		setPath(join(root, "global"));
 		const [first, second] = await Promise.all([resolveOpenspec(root), resolveOpenspec(root)]);
 		expect(await resolveOpenspec(root)).toBe(first);
 		expect(second).toBe(first);
-		expect(readFileSync(counter, "utf8")).toBe("x\n");
-		resetOpenspecCache();
-		await resolveOpenspec(root);
-		expect(readFileSync(counter, "utf8")).toBe("x\nx\n");
+		expect(readFileSync(counter, "utf8")).toBe("0\n");
 	});
 
 	it("nothing found is null", async () => {
@@ -86,7 +115,7 @@ describe("resolveOpenspec", () => {
 });
 
 describe("checkOpenspec", () => {
-	it("Scenario: 1.14.0 is below the minimum", async () => {
+	it("1.14.0 is below the minimum", async () => {
 		const workspace = join(root, "ws");
 		mkdirSync(workspace);
 		// The temp bin dir stands in for /usr/local/bin, which a test cannot write.
@@ -100,7 +129,7 @@ describe("checkOpenspec", () => {
 		});
 	});
 
-	it("Scenario: A suffix is ignored", async () => {
+	it("a suffix is ignored", async () => {
 		const workspace = join(root, "ws");
 		const project = fakeOpenspec(join(workspace, "node_modules", ".bin"), "1.14.1-rc.1");
 		setPath(join(root, "global"));
@@ -117,7 +146,7 @@ describe("checkOpenspec", () => {
 		});
 	});
 
-	it("Scenario: A missing openspec is not refused", async () => {
+	it("a missing openspec is not refused", async () => {
 		// Not `setPath`: node's own directory may hold a global openspec.
 		const workspace = join(root, "ws");
 		mkdirSync(workspace);

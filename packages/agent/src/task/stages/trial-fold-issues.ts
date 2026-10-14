@@ -7,6 +7,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { trialFold } from "../cmd-close.js";
+import { describeOpenspec, type OpenspecBin, resolveOpenspec } from "../openspec-bin.js";
 import type { StageIssue } from "../spec-stage.js";
 
 /** A gate issue whose `path` may be absent: a fold that cannot run is about no file. */
@@ -28,13 +29,15 @@ async function deltaSpecs(workspace: string, change: string): Promise<Set<string
 }
 
 /**
- * Fold `change` once and report each `ERROR` or `WARNING` as `trial fold: <spec>: <message>`,
- * at `specs/<spec>/spec.md` when the change has a delta for the spec, else at
- * `openspec/specs/<spec>/spec.md`. A `failure` is one `ERROR` with no path.
+ * Fold `change` once with `bin` (null: none found; absent: `<workspace>`'s) and report each
+ * `ERROR` or `WARNING` as `trial fold: <spec>: <message>`, at `specs/<spec>/spec.md` when the
+ * change has a delta for the spec, else at `openspec/specs/<spec>/spec.md`. A `failure` is one
+ * `ERROR` with no path, ending with the openspec that ran, e.g. `(openspec 1.14.1 at <path>)`.
  */
-export async function trialFoldIssues(workspace: string, change: string): Promise<TrialFoldStageIssue[]> {
-	const fold = await trialFold(workspace, change);
-	if (fold.failure !== undefined) return [{ level: "ERROR", message: `${COMMAND} could not run: ${fold.failure}` }];
+export async function trialFoldIssues(workspace: string, change: string, bin?: OpenspecBin | null): Promise<TrialFoldStageIssue[]> {
+	const resolved = bin === undefined ? await resolveOpenspec(workspace) : bin;
+	const fold = await trialFold(workspace, change, resolved);
+	if (fold.failure !== undefined) return [{ level: "ERROR", message: `${COMMAND} could not run: ${fold.failure} (${describeOpenspec(resolved)})` }];
 	const deltas = await deltaSpecs(workspace, change);
 	return fold.issues
 		.filter((issue) => issue.level === "ERROR" || issue.level === "WARNING")

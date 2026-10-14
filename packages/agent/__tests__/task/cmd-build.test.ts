@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MemoryStorage, type Harness, type Storage } from "@earendil-works/pi-durable";
@@ -8,6 +8,9 @@ import { CHANGE_LOOP_TASK } from "../../src/task/change-input.js";
 import { parseBuild, prepareBuild, runBuild, type BuildArgs, type BuildRequest } from "../../src/task/cmd-build.js";
 import type { LoadedConfig } from "../../src/task/config.js";
 import { changeLoopExtensions } from "../../src/task/index.js";
+import { resetOpenspecCache } from "../../src/task/openspec-bin.js";
+import { recordApproval } from "../../src/task/spec-approvals.js";
+import { SPEC_STAGES } from "../../src/task/spec-stages.js";
 import { setup } from "../durable/helpers.js";
 import { GROUP_JUDGE, JUDGE_ONLY, cleanTemps, context, loopHarness, temp, verdict } from "./helpers.js";
 import { stagedCheck } from "./staged-check.js";
@@ -48,9 +51,9 @@ function writeChange(workspace: string, groups: number, { orphan = false } = {})
 }
 
 /** A config over `workspace`: the judge scripts outside it, a passing check, and a database outside it too. */
-function configFor(workspace: string, check: string): LoadedConfig {
+function configFor(workspace: string, check: string, judge = JUDGE_ONLY): LoadedConfig {
 	const scripts = temp("cmd-build-scripts-");
-	writeFileSync(join(scripts, "judge.agent"), JUDGE_ONLY);
+	writeFileSync(join(scripts, "judge.agent"), judge);
 	writeFileSync(join(scripts, "group.agent"), GROUP_JUDGE);
 	return {
 		dir: workspace,
@@ -214,6 +217,96 @@ describe.skipIf(process.platform === "win32")("task/cmd-build: the build", () =>
 		} finally {
 			await harness.close(context);
 		}
+	});
+
+	describe("--amend runs the openspec resolved for the repository", () => {
+		const DELTA = "specs/plan/export/spec.md";
+		/** JUDGE_ONLY that also reads `amend_path` and `amend_text` back, so an `amend-spec` verdict carries an amendment. */
+		const JUDGE_AMENDING = JUDGE_ONLY.replace(
+			"            set @variables.question = @outputs.question\n",
+			"            set @variables.question = @outputs.question\n" +
+				"            set @variables.amend_path = @outputs.amend_path\n" +
+				"            set @variables.amend_text = @outputs.amend_text\n",
+		);
+
+		beforeEach(() => resetOpenspecCache());
+		afterEach(() => resetOpenspecCache());
+
+		/** A one-group build blocked on an amendment of `DELTA`, the specs stage approved; then `body`. */
+		async function blockedOnAmendment(body: (h: { harness: Harness; env: ReturnType<typeof setup>; request: BuildRequest; workspace: string; deltaPath: string; amended: string }) => Promise<void>) {
+			const workspace = temp("cmd-build-ws-");
+			const changeDir = writeChange(workspace, 1);
+			const deltaPath = join(changeDir, DELTA);
+			const amended = readFileSync(deltaPath, "utf8").replace("Thing 1 SHALL exist.", "Thing 1 SHALL exist, and be amended.");
+			const request = prepared([CHANGE], configFor(workspace, stagedCheck([true]).command, JUDGE_AMENDING));
+			const { env, harness } = await harnessFor(request);
+			try {
+				env.faux.setResponses([verdict(false, "the delta is wrong", "amend-spec", "Amend it?", { amend_path: DELTA, amend_text: amended })]);
+				const blocked = await runBuild(harness, request, { model: env.model }, context);
+				expect(blocked).toMatchObject({ kind: "waiting", to: "principal", amendment: { delta: DELTA } });
+				const specs = SPEC_STAGES.find((stage) => stage.name === "specs")!;
+				recordApproval(changeDir, specs, { principal: "jesse", notes: "", at: new Date().toISOString() }, SPEC_STAGES);
+				// The guard above ran PATH's openspec; what --amend resolves is looked up afresh.
+				resetOpenspecCache();
+				await body({ harness, env, request: { ...request, amend: true }, workspace, deltaPath, amended });
+			} finally {
+				await harness.close(context);
+			}
+		}
+
+		/** `<dir>/openspec`: logs its args, cwd and `OPENSPEC_TELEMETRY` to `log`, then runs the pinned openspec with them. */
+		function loggingOpenspec(dir: string, log: string) {
+			mkdirSync(dir, { recursive: true });
+			const script = [
+				`#!${process.execPath}`,
+				'const { appendFileSync } = require("node:fs");',
+				'const { spawnSync } = require("node:child_process");',
+				"const args = process.argv.slice(2);",
+				`appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args, cwd: process.cwd(), telemetry: process.env.OPENSPEC_TELEMETRY ?? null }) + "\\n");`,
+				`const ran = spawnSync(${JSON.stringify(join(OPENSPEC_BIN, "openspec"))}, args, { stdio: "inherit" });`,
+				"process.exit(ran.status ?? 1);",
+				"",
+			].join("\n");
+			writeFileSync(join(dir, "openspec"), script, { mode: 0o755 });
+		}
+		const calls = (log: string) =>
+			existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[]; cwd: string; telemetry: string | null }) : [];
+
+		it("validates and trial-folds with the project's copy, the temporary copy included, without telemetry", async () => {
+			await blockedOnAmendment(async ({ harness, env, request, workspace, deltaPath, amended }) => {
+				const log = join(temp("cmd-build-log-"), "calls.jsonl");
+				loggingOpenspec(join(workspace, "node_modules", ".bin"), log);
+				env.faux.setResponses([verdict(true)]);
+				const result = await runBuild(harness, request, { model: env.model, principal: "jesse" }, context);
+				expect(result).toMatchObject({ kind: "built", exitCode: 0, amended: { delta: DELTA, principal: "jesse" } });
+				expect(readFileSync(deltaPath, "utf8")).toBe(amended);
+
+				const ran = calls(log);
+				for (const call of ran) expect(call.telemetry).toBe("0");
+				const amendCalls = ran.filter((call) => call.args[0] !== "--version").slice(0, 3);
+				expect(amendCalls.map((call) => call.args.join(" "))).toEqual(["validate --all --strict", `archive ${CHANGE} --yes`, "validate --specs --strict --json"]);
+				const repo = realpathSync(workspace);
+				expect(realpathSync(amendCalls[0]!.cwd)).toBe(repo);
+				expect(amendCalls[1]!.cwd).toBe(amendCalls[2]!.cwd);
+				// The fold's copy is gone by now, so its path is compared as logged.
+				expect(amendCalls[1]!.cwd.startsWith(repo)).toBe(false);
+				// Resolved once for the repository, never for the temporary copy.
+				expect(ran.filter((call) => call.args[0] === "--version")).toHaveLength(1);
+			});
+		}, 120_000);
+
+		it("fails the validation, not on a version, when no openspec is found", async () => {
+			await blockedOnAmendment(async ({ harness, env, request, deltaPath }) => {
+				const before = readFileSync(deltaPath, "utf8");
+				process.env.PATH = temp("cmd-build-empty-path-");
+				const result = await runBuild(harness, request, { model: env.model, principal: "jesse" }, context);
+				expect(result).toMatchObject({ kind: "amend-failed", exitCode: 2, path: `openspec/changes/${CHANGE}/${DELTA}` });
+				const output = result.kind === "amend-failed" ? result.output : "";
+				expect(output).toContain("(openspec not found)");
+				expect(output).not.toContain("below the minimum");
+				expect(readFileSync(deltaPath, "utf8")).toBe(before);
+			});
+		}, 120_000);
 	});
 
 	it("a dirty tree is refused naming --allow-dirty, and --allow-dirty builds over it", async () => {

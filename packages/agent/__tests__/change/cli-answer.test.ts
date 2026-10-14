@@ -9,7 +9,7 @@
  * output requirements, so the tests are grouped by requirement.
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
@@ -219,32 +219,6 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 			for (const kind of ["changes", "groups", "tasks", "runs"] as const) {
 				expect(after[kind].map((task) => task.id)).toEqual(before[kind].map((task) => task.id));
 			}
-		}, 120_000);
-	});
-
-	describe("Commands that run openspec refuse one that is too old", () => {
-		it("Scenario: A text answer to build is not checked", async () => {
-			// Blocked with the repo's pinned openspec; only then is a fake 1.9.0 the only openspec on PATH.
-			const { dir, db, args } = await blockInGroup2("Which API?");
-			expect(existsSync(join(dir, "node_modules", ".bin", "openspec"))).toBe(false);
-			const fakebin = temp("change-answer-fakebin-");
-			const log = join(fakebin, "calls.log");
-			writeFileSync(
-				join(fakebin, "openspec"),
-				["#!/bin/sh", `printf '%s\\n' "$*" >> '${log}'`, 'case "$1" in --version) echo 1.9.0;; esac', "exit 0", ""].join("\n"),
-				{ mode: 0o755 },
-			);
-			process.env.PATH = `${fakebin}:/usr/bin:/bin`;
-			resetOpenspecCache();
-			const [blocked] = (await tasksIn(db)).changes;
-
-			const run = await change(["build", CHANGE, "Use the v2 API", ...args], dir, [verdict(true), verdict(true), verdict(true)]);
-			const calls = existsSync(log) ? readFileSync(log, "utf8").split("\n") : [];
-			expect(calls).not.toContain("--version");
-			expect(run.err).not.toContain("below the minimum supported version");
-			expect(run.err).not.toContain("openspec 1.9.0 at");
-			expect(run.code).not.toBe(2);
-			await expectAnsweredOnce(db, blocked!, "Use the v2 API");
 		}, 120_000);
 	});
 
