@@ -347,6 +347,20 @@ describe.skipIf(process.platform === "win32")("change/cli close", () => {
 			]);
 		}, 60_000);
 
+		it("fails on an ERROR even when validate exits 0", async () => {
+			fakeOpenspec(report([{ id: "task/change", type: "spec", valid: false, issues: [
+				{ level: "ERROR", path: "requirements[0]", message: "too long" },
+				{ level: "INFO", path: "requirements[1]", message: "just so you know" },
+			] }]), 0);
+			const { dir } = repo();
+			expect(await trialFold(dir, CHANGE)).toEqual({
+				ok: false,
+				command: "openspec validate --specs --strict --json",
+				exit: 0,
+				issues: [{ level: "ERROR", spec: "task/change", message: "too long" }],
+			});
+		}, 60_000);
+
 		it("passes on exit 0 with an empty report", async () => {
 			fakeOpenspec(report([]), 0);
 			const { dir } = repo();
@@ -371,12 +385,12 @@ describe.skipIf(process.platform === "win32")("change/cli close", () => {
 			expect(result.failure).toMatch(/^no parseable JSON/);
 		}, 60_000);
 
-		it("sets failure with no exit when openspec cannot be spawned", async () => {
+		it("Scenario: openspec cannot be spawned", async () => {
 			const { dir } = repo();
 			process.env.PATH = temp("empty-path-");
 			const result = await foldInEmptyTmp(dir);
 			expect(result).toMatchObject({ ok: false, exit: null, issues: [] });
-			expect(result.failure).toContain("ENOENT");
+			expect(result.failure).toContain("spawn openspec ENOENT");
 		}, 60_000);
 	});
 
@@ -459,31 +473,44 @@ describe.skipIf(process.platform === "win32")("change/cli close", () => {
 		expect(formatTrialFold(await trialFold(dir, CHANGE))).toBe(golden);
 	}, 60_000);
 
-	it("trialFold drops INFO from openspec's JSON report and removes its copy", async () => {
+	it("Scenario: INFO issues are dropped", async () => {
 		const { dir } = repo();
-		const fake = stagedOpenspec({ replies: { validateSpecs: FAILING_REPORT } });
+		const tooLong = 'Requirement "The change loop folds" text exceeds 500 characters (612)';
+		const fake = stagedOpenspec({
+			replies: {
+				validateSpecs: {
+					exit: 1,
+					stdout: JSON.stringify({
+						items: [{ id: "task/change", type: "spec", valid: false, issues: [
+							{ level: "ERROR", path: "requirements[0]", message: tooLong },
+							{ level: "INFO", path: "requirements[1]", message: "consider a scenario" },
+						] }],
+						summary: {},
+						version: "1.0",
+					}),
+				},
+			},
+		});
 
 		const result = await trialFold(dir, CHANGE);
 		expect(result).toEqual({
 			ok: false,
 			command: "openspec validate --specs --strict --json",
 			exit: 1,
-			issues: [
-				{ level: "ERROR", spec: "spec/judge", message: 'Requirement "The judge scores each draft" text exceeds 500 characters (612)' },
-				{ level: "WARNING", spec: "core/subset", message: "Purpose section is too brief" },
-			],
+			issues: [{ level: "ERROR", spec: "task/change", message: tooLong }],
 		});
-		expect(result.failure).toBeUndefined();
-		const cwds = validateCwds(fake);
-		expect(cwds).toHaveLength(1);
-		expect(existsSync(cwds[0]!)).toBe(false);
+		const validates = fake.calls().filter((call) => call.args[0] === "validate" && call.args.includes("--specs"));
+		expect(validates.map((call) => ({ args: call.args, telemetry: call.telemetry }))).toEqual([{ args: ["validate", "--specs", "--strict", "--json"], telemetry: "0" }]);
+		expect(existsSync(validates[0]!.cwd)).toBe(false);
 	}, 60_000);
 
-	it("trialFold sets failure on output with no parseable JSON and removes its copy", async () => {
+	it("Scenario: A fold with no parseable JSON", async () => {
 		const { dir } = repo();
 		const fake = stagedOpenspec({ replies: { validateSpecs: { exit: 1, stdout: "Totals: 0 passed, 1 failed\n", stderr: "openspec: boom\n" } } });
+		const before = snapshot(dir);
 
 		const result = await trialFold(dir, CHANGE);
+		expect(snapshot(dir)).toEqual(before);
 		expect(result).toMatchObject({ ok: false, exit: 1, issues: [] });
 		expect(result.failure).toMatch(/no parseable JSON/);
 		expect(result.failure).toContain("Totals: 0 passed, 1 failed");

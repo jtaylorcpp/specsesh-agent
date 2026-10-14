@@ -168,7 +168,7 @@ export interface TrialFoldIssue {
 
 /** The trial fold, as `close`, the specs gate and the change loop read it. */
 export interface TrialFoldResult {
-	/** Exit 0 and no `failure`. */
+	/** Exit 0, no issues and no `failure`. */
 	readonly ok: boolean;
 	readonly command: "openspec validate --specs --strict --json";
 	/** The validate command's exit code; null when it never ran (openspec could not be spawned, or the archive step failed). */
@@ -200,7 +200,7 @@ export async function trialFold(workspace: string, change: string): Promise<Tria
 		if (validate.kind === "spawn-failed") return failed(null, validate.message);
 		const issues = reportIssues(validate.stdout);
 		if (issues === undefined) return failed(validate.exit, `no parseable JSON\nstdout:\n${validate.stdout}\nstderr:\n${validate.stderr}`);
-		return { ok: validate.exit === 0, command: FOLD_COMMAND, exit: validate.exit, issues };
+		return { ok: validate.exit === 0 && issues.length === 0, command: FOLD_COMMAND, exit: validate.exit, issues };
 	} finally {
 		rmSync(trial, { recursive: true, force: true });
 	}
