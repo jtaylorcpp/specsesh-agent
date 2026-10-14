@@ -138,6 +138,8 @@ variables:
     rework_task: mutable string = ""
     feedback: mutable string = ""
     question: mutable string = ""
+    amend_path: mutable string = ""
+    amend_text: mutable string = ""
 
 subagent judge:
     description: "Judge the group"

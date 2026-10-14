@@ -38,7 +38,29 @@ const judgeAsk = (question: string) =>
 		stopReason: "toolUse",
 	});
 
-async function groupEnv(check: string, responses: Parameters<ReturnType<typeof setup>["faux"]["setResponses"]>[0]) {
+const QUEUE = "specs/task/queue/spec.md";
+const AMENDED = "## MODIFIED Requirements\n\n### Requirement: Empty queue\nThe queue SHALL skip ticked tasks.\n";
+/** GROUP_JUDGE that also shows `deltas` and reads `amend_path` and `amend_text` back. */
+const AMENDING_JUDGE = GROUP_JUDGE.replace(
+	"            | Check output: {!@variables.check_output}\n",
+	"            | Check output: {!@variables.check_output}\n            | Deltas: {!@variables.deltas}\n",
+).replace(
+	"            set @variables.question = @outputs.question\n",
+	"            set @variables.question = @outputs.question\n" +
+		"            set @variables.amend_path = @outputs.amend_path\n" +
+		"            set @variables.amend_text = @outputs.amend_text\n",
+);
+const judgeSays = (vars: Record<string, string>) =>
+	fauxAssistantMessage([fauxToolCall(RESULT_TOOL, { next_action: "", rework_task: "", feedback: "", question: "", amend_path: "", amend_text: "", ...vars })], {
+		stopReason: "toolUse",
+	});
+const judgeAmends = () => judgeSays({ next_action: "amend-spec", question: "Replace the queue delta?", amend_path: QUEUE, amend_text: AMENDED });
+
+async function groupEnv(
+	check: string,
+	responses: Parameters<ReturnType<typeof setup>["faux"]["setResponses"]>[0],
+	over: { dir?: string; groupScript?: string } = {},
+) {
 	const workspace = temp("group-answer-ws-");
 	writeFileSync(join(workspace, "check.js"), FLAGGED_SCRIPT);
 	const env = setup();
@@ -47,10 +69,10 @@ async function groupEnv(check: string, responses: Parameters<ReturnType<typeof s
 	const harness = await loopHarness(env, storage);
 	env.faux.setResponses(responses);
 	const options = {
-		change: { dir: tinyChange() },
+		change: { dir: over.dir ?? tinyChange() },
 		group: 1,
 		script: { text: JUDGE_ONLY },
-		groupScript: { text: GROUP_JUDGE },
+		groupScript: { text: over.groupScript ?? GROUP_JUDGE },
 		workspace,
 		checks: [check],
 		model: env.model,
@@ -134,6 +156,82 @@ describe("task/group: An answered escalation resumes the group as a new run", ()
 		expect(r.env.requests).toHaveLength(requests);
 		expect(outcome.iterations).toHaveLength(2);
 		expect(check(GroupLoopOutcome, outcome)).toBe(true);
+	});
+});
+
+describe("task/group: amendment-applied resumes the group", () => {
+	/** Group 1 over a `task/queue` delta whose tasks converge and whose check fails, the judge amending the delta. */
+	async function blockedOnAmendment() {
+		const dir = tinyChange({ capabilities: ["task/queue"] });
+		const r = await groupEnv(FLAGGED, [verdict(true), verdict(true), judgeAmends()], { dir, groupScript: AMENDING_JUDGE });
+		expect(escalationOf(r.outcome).amendment).toEqual({ delta: QUEUE, text: AMENDED });
+		// The principal applies the amendment.
+		writeFileSync(join(dir, QUEUE), AMENDED);
+		return { ...r, dir };
+	}
+	const applied = (outcome: LoopOutcome<GroupOutcome>) => answerOf(outcome, "amendment-applied");
+	const deltasOf = async (r: Awaited<ReturnType<typeof groupEnv>>, id: unknown) =>
+		((await r.harness.getTask(id as never, context))?.input as unknown as { deltas: string }).deltas;
+	const reworked = (outcome: LoopOutcome<GroupOutcome>) =>
+		outcome.iterations.filter((i) => i.feedback.some((f) => f.action === "rework-task")).length;
+
+	it("Scenario: An applied amendment converges the group", async () => {
+		const r = await blockedOnAmendment();
+		writeFileSync(join(r.workspace, "flag"), "");
+		const requests = r.env.requests.length;
+		const next = await answerGroupEscalation(r.harness, r.id, applied(r.outcome), context);
+		const deltas = await deltasOf(r, next);
+		const outcome = await waitForGroupLoop(r.harness, next, context);
+		await r.harness.close(context);
+
+		// The new run's deltas were read when it was created, so before its check.
+		expect(deltas).toContain("The queue SHALL skip ticked tasks.");
+		expect(outcome.status).toBe("converged");
+		expect(r.env.requests).toHaveLength(requests);
+		expect(outcome.result?.tasks.map((t) => [t.task, t.runs])).toEqual([["1.1", 1], ["1.2", 1]]);
+		expect(reworked(outcome)).toBe(0);
+		expect(check(GroupLoopOutcome, outcome)).toBe(true);
+	});
+
+	it("Scenario: A still-failing check after an amendment goes to the judge with the new deltas", async () => {
+		const r = await blockedOnAmendment();
+		r.env.faux.appendResponses([judgeSays({ next_action: "ask", question: "Still failing" })]);
+		const next = await answerGroupEscalation(r.harness, r.id, applied(r.outcome), context);
+		const outcome = await waitForGroupLoop(r.harness, next, context);
+		const runs = (await r.storage.scanTasks({ kind: "agentscript.run" }, 50, undefined, context)).items;
+		await r.harness.close(context);
+
+		expect(outcome).toMatchObject({ status: "blocked", escalation: { question: "Still failing" } });
+		const judged = prompts(r.env.requests).at(-1) ?? "";
+		expect(judged).toContain("The queue SHALL skip ticked tasks.");
+		expect(judged).toContain("Answer to the escalation: amendment-applied");
+		const judgeRuns = runs.filter((t) => JSON.stringify((t.input as unknown as { options: { choices?: unknown } }).options.choices).includes('"rework"'));
+		expect((judgeRuns.at(-1)?.input as unknown as { options: { choices: unknown } }).options.choices).toEqual({
+			next_action: ["rework", "ask", "amend-spec"],
+			amend_path: ["", QUEUE],
+		});
+		expect(outcome.result?.tasks.map((t) => t.runs)).toEqual([1, 1]);
+		expect(reworked(outcome)).toBe(reworked(r.outcome));
+		expect(check(GroupLoopOutcome, outcome)).toBe(true);
+	});
+
+	it("Scenario: amendment-applied on a block without an amendment is a plain judge answer", async () => {
+		const dir = tinyChange({ capabilities: ["task/queue"] });
+		const r = await groupEnv(FLAGGED, [verdict(true), verdict(true), judgeSays({ next_action: "ask", question: "Drop scenario X?" })], { dir, groupScript: AMENDING_JUDGE });
+		expect(escalationOf(r.outcome)).not.toHaveProperty("amendment");
+		writeFileSync(join(dir, QUEUE), AMENDED);
+		r.env.faux.appendResponses([judgeSays({ next_action: "ask", question: "Still failing" })]);
+		const next = await answerGroupEscalation(r.harness, r.id, applied(r.outcome), context);
+		const deltas = await deltasOf(r, next);
+		const started = await deltasOf(r, r.id);
+		const outcome = await waitForGroupLoop(r.harness, next, context);
+		await r.harness.close(context);
+
+		expect(outcome).toMatchObject({ status: "blocked", escalation: { question: "Still failing" } });
+		expect(prompts(r.env.requests).at(-1)).toContain("Answer to the escalation: amendment-applied");
+		// No amendment, so the deltas are the ones the loop started on.
+		expect(deltas).toBe(started);
+		expect(deltas).not.toContain("The queue SHALL skip ticked tasks.");
 	});
 });
 

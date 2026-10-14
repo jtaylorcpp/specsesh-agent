@@ -7,6 +7,7 @@
 import { analyze } from "../authoring/index.js";
 import { readDeclarations } from "../interpreter/compose.js";
 import type { VariableValue } from "../interpreter/index.js";
+import type { Amendment } from "../openspec/index.js";
 import type { ContractType } from "./contract.js";
 import { TaskLoopStartError } from "./errors.js";
 import type { CheckRun } from "./checks.js";
@@ -29,6 +30,12 @@ export const GROUP_READ_BACK: Readonly<Record<string, ContractType>> = {
 	rework_task: "string",
 	feedback: "string",
 	question: "string",
+};
+
+/** The amendment variables: declared by every judge script, read back only on `amend-spec`. */
+export const GROUP_AMEND: Readonly<Record<string, ContractType>> = {
+	amend_path: "string",
+	amend_text: "string",
 };
 
 /** The `next_action` values the group loop acts on. */
@@ -66,10 +73,12 @@ export function seedGroupJudge(input: GroupJudgeInput): GroupJudgeSeed {
 /** What the judge said, not what the loop does about it. */
 export type GroupVerdict =
 	| { kind: "rework"; task: string; feedback: string }
-	| { kind: "ask" | "amend-spec"; question: string }
+	| { kind: "ask"; question: string }
+	/** `amendment` when both variables are set, otherwise `amendmentNote` says which was empty. */
+	| { kind: "amend-spec"; question: string; amendment?: Amendment; amendmentNote?: string }
 	| { kind: "contract-broken"; reason: string };
 
-/** Read the judge's four variables; an empty string reads as absent. */
+/** Read the judge's four variables, and the amendment ones on `amend-spec`; an empty string reads as absent. */
 export function readGroupVerdict(vars: Readonly<Record<string, VariableValue>>, groupTaskIds: readonly string[]): GroupVerdict {
 	for (const name of Object.keys(GROUP_READ_BACK)) {
 		const value = vars[name];
@@ -78,7 +87,8 @@ export function readGroupVerdict(vars: Readonly<Record<string, VariableValue>>, 
 		}
 	}
 	const action = vars["next_action"] as string;
-	if (action === "ask" || action === "amend-spec") return { kind: action, question: vars["question"] as string };
+	if (action === "ask") return { kind: action, question: vars["question"] as string };
+	if (action === "amend-spec") return { kind: action, question: vars["question"] as string, ...readAmendment(vars) };
 	if (action === "rework") {
 		const task = vars["rework_task"] as string;
 		if (!groupTaskIds.includes(task)) {
@@ -92,11 +102,23 @@ export function readGroupVerdict(vars: Readonly<Record<string, VariableValue>>, 
 	};
 }
 
+/**
+ * The amendment, unchanged, or the note saying why it was dropped. The path is checked before
+ * the text, so one note at most, worded as the task loop's (`judge.ts`).
+ */
+function readAmendment(vars: Readonly<Record<string, VariableValue>>): { amendment: Amendment } | { amendmentNote: string } {
+	const path = typeof vars["amend_path"] === "string" ? vars["amend_path"] : "";
+	const text = typeof vars["amend_text"] === "string" ? vars["amend_text"] : "";
+	if (path === "") return { amendmentNote: "amendment dropped: amend_path is empty" };
+	if (text.trim() === "") return { amendmentNote: "amendment dropped: amend_text is empty" };
+	return { amendment: { delta: path, text } };
+}
+
 /** One line per missing or mistyped judge variable; empty when the script keeps the contract. */
 export function groupContractProblems(source: string): string[] {
 	const declarations = readDeclarations(analyze(source).parsed);
 	const problems: string[] = [];
-	for (const [name, type] of Object.entries({ ...GROUP_SEEDED, ...GROUP_READ_BACK })) {
+	for (const [name, type] of Object.entries({ ...GROUP_SEEDED, ...GROUP_READ_BACK, ...GROUP_AMEND })) {
 		const declared = declarations.get(name);
 		if (declared === undefined) problems.push(`${name} is not declared; declare it as ${type}`);
 		else if (declared.type !== type) problems.push(`${name} is declared ${declared.type}; the contract needs ${type}`);

@@ -5,6 +5,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
 	defineExtension,
 	defineTask,
@@ -34,6 +35,7 @@ import {
 import { AgentScriptRun, type DelegateGrants, type RunInput, type Workspace } from "../durable/index.js";
 import type { RunResult } from "../interpreter/index.js";
 import { checkEvidence, runLoopChecks, type CheckRun } from "./checks.js";
+import { amendPathChoices } from "./contract.js";
 import { concatDeltas } from "./deltas.js";
 import { TaskLoopStartError } from "./errors.js";
 import { GROUP_NEXT_ACTIONS, readGroupVerdict, seedGroupJudge, type GroupVerdict } from "./group-judge.js";
@@ -93,6 +95,8 @@ export interface GroupLoopInput {
 	readonly design: string;
 	/** Every delta, concatenated with capability headings. */
 	readonly deltas: string;
+	/** Absolute; set only when the change came from a directory, which an applied amendment re-reads the deltas from. */
+	readonly changeDir?: string;
 	readonly tasksText: string;
 	/** Absolute; set only when tasks.md came from a file, which only then is ticked. */
 	readonly tasksPath?: string;
@@ -177,6 +181,7 @@ export function readGroupInput(options: ResolvedGroupOptions): GroupLoopInput {
 		proposal: change.proposal,
 		design: change.design,
 		deltas: concatDeltas(change.deltas),
+		...("dir" in options.change ? { changeDir: resolve(options.change.dir) } : {}),
 		tasksText: change.tasks,
 		...(change.tasksPath !== undefined ? { tasksPath: change.tasksPath } : {}),
 		script,
@@ -561,8 +566,11 @@ export function decideJudge(verdict: GroupVerdict, cp: GroupCheckpoint, input: G
 				to: input.escalateTo,
 				reason: verdict.kind === "amend-spec" ? "spec-defect: amend-spec" : "needs-decision: ask",
 				question: verdict.question.trim() || (checkOutput.split("\n")[0] ?? "") || `How should group ${input.group} proceed?`,
+				// Only `amend-spec` carries an amendment; without one, the key is absent, not undefined.
+				...(verdict.kind === "amend-spec" && verdict.amendment !== undefined ? { amendment: verdict.amendment } : {}),
 			};
-			return { kind: "end", done: endedRound(input, cp, "blocked", [], verdict, escalation) };
+			const notes = verdict.kind === "amend-spec" && verdict.amendmentNote !== undefined ? [verdict.amendmentNote] : [];
+			return { kind: "end", done: endedRound(input, cp, "blocked", notes, verdict, escalation) };
 		}
 		case "rework": {
 			if (cp.reworks >= input.budget.maxReworks) {
@@ -702,7 +710,7 @@ export const GroupLoopTask: Task<GroupLoopInput, StoredGroupCheckpoint, GroupLoo
 					options: {
 						entry: subagentsOf(input.groupScript),
 						variables: judgeSeed(cp, input),
-						choices: { next_action: [...GROUP_NEXT_ACTIONS] },
+						choices: { next_action: [...GROUP_NEXT_ACTIONS], amend_path: amendPathChoices(input.deltas) },
 					},
 					...(input.model !== undefined ? { model: input.model } : {}),
 				};

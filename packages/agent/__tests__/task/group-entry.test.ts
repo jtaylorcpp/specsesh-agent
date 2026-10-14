@@ -1,4 +1,6 @@
 import { MemoryStorage } from "@earendil-works/pi-durable";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { GroupOutcome, LoopOutcome, check } from "../../src/openspec/index.js";
 import * as task from "../../src/task/index.js";
@@ -14,7 +16,7 @@ import {
 	type GroupLoopOptions,
 } from "../../src/task/index.js";
 import { setup } from "../durable/helpers.js";
-import { GROUP_JUDGE, JUDGE_ONLY, cleanTemps, context, loopHarness, temp, tinyChange, verdict } from "./helpers.js";
+import { COUNT_CHECK, GROUP_JUDGE, JUDGE_ONLY, cleanTemps, context, loopHarness, temp, tinyChange, verdict } from "./helpers.js";
 
 afterEach(cleanTemps);
 
@@ -36,6 +38,12 @@ function groupEnv() {
 	});
 	return { env, workspace, options };
 }
+
+/** GROUP_JUDGE with the declaration (and any `set` line) of each named variable removed. */
+const groupJudgeWithout = (...names: string[]) =>
+	GROUP_JUDGE.split("\n")
+		.filter((line) => !names.some((name) => new RegExp(`^\\s*(${name}:|set @variables\\.${name} )`).test(line)))
+		.join("\n");
 
 const groupLoops = async (storage: MemoryStorage) =>
 	(await storage.scanTasks({ kind: "agentscript.group-loop" }, 10, undefined, context)).items;
@@ -95,15 +103,38 @@ describe("task/group: refusals create nothing", () => {
 		expect(loops).toHaveLength(0);
 	});
 
-	it("Scenario: A script without rework_task is refused", async () => {
-		const { env, options } = groupEnv();
+	/** Starts with a judge missing `name`; returns the refusal, the group loops, the model requests and whether the check ran. */
+	async function refusedWithout(name: string) {
+		const { env, workspace, options } = groupEnv();
 		const storage = new MemoryStorage();
 		const harness = await loopHarness(env, storage);
-		const groupScript = { text: GROUP_JUDGE.replace('    rework_task: mutable string = ""\n', "") };
-		await expect(startGroupLoop(harness, options({ groupScript }), context)).rejects.toThrow(/rework_task/);
+		const groupScript = { text: groupJudgeWithout(name) };
+		const error = await startGroupLoop(harness, options({ groupScript, checks: [COUNT_CHECK] }), context).then(
+			() => undefined,
+			(e: unknown) => e,
+		);
 		const loops = await groupLoops(storage);
 		await harness.close(context);
+		return { error, loops, requests: env.requests.length, checked: existsSync(join(workspace, "count.txt")) };
+	}
+
+	it("Scenario: A script without rework_task is refused", async () => {
+		const { error, loops, requests, checked } = await refusedWithout("rework_task");
+		expect(error).toBeInstanceOf(Error);
+		expect((error as Error).message).toMatch(/rework_task/);
 		expect(loops).toHaveLength(0);
+		expect(requests).toBe(0);
+		expect(checked).toBe(false);
+	});
+
+	it("Scenario: A script without amend_path is refused", async () => {
+		const { error, loops, requests, checked } = await refusedWithout("amend_path");
+		expect(error).toBeInstanceOf(Error);
+		expect((error as Error).message).toMatch(/amend_path/);
+		expect((error as Error).message).not.toMatch(/amend_text/);
+		expect(loops).toHaveLength(0);
+		expect(requests).toBe(0);
+		expect(checked).toBe(false);
 	});
 });
 

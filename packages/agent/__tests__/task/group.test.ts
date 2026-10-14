@@ -805,7 +805,7 @@ const RUN_PASS = "node -e process.exit(0)";
 // is staged: the children's gate runs pass, and only the group's runs listed false fail.
 
 const judgeSays = (vars: Record<string, string>) =>
-	fauxAssistantMessage([fauxToolCall(RESULT_TOOL, { next_action: "", rework_task: "", feedback: "", question: "", ...vars })], {
+	fauxAssistantMessage([fauxToolCall(RESULT_TOOL, { next_action: "", rework_task: "", feedback: "", question: "", amend_path: "", amend_text: "", ...vars })], {
 		stopReason: "toolUse",
 	});
 const rework = (task: string, feedback = "restore the import") => judgeSays({ next_action: "rework", rework_task: task, feedback });
@@ -1129,7 +1129,40 @@ describe("task/group: a group loop on a real store", () => {
 		expect(judgeRuns).toHaveLength(1);
 		expect((judgeRuns[0]?.input as unknown as { options: { choices: unknown } }).options.choices).toEqual({
 			next_action: ["rework", "ask", "amend-spec"],
+			amend_path: ["", "specs/value/file/spec.md"],
 		});
+	});
+
+	it("Scenario: The amend_path choices list the change's deltas", async () => {
+		// Two judge runs: the first reworks 1.1, the second runs out of reworks.
+		const r = await openRun([verdict(true), verdict(true), rework("1.1"), verdict(true), rework("1.1")], {
+			checks: [stagedCheck([true, true, false, true, false]).command],
+			budget: { maxReworks: 1 },
+		});
+		const dir = tinyChange({ capabilities: ["task/queue", "task/group"] });
+		const { outcome } = await runGroup({
+			...r,
+			options: {
+				...r.options,
+				change: {
+					proposal: { path: join(dir, "proposal.md") },
+					deltas: [{ path: join(dir, "specs/task/queue/spec.md") }, { path: join(dir, "specs/task/group/spec.md") }],
+					tasks: { path: join(dir, "tasks.md") },
+				},
+			},
+		});
+		expect(outcome.status).toBe("exhausted");
+
+		const judgeRuns = (await scan(r.storage, "agentscript.run")).filter((t) =>
+			JSON.stringify((t.input as unknown as { options: { choices?: unknown } }).options.choices).includes('"rework"'),
+		);
+		expect(judgeRuns).toHaveLength(2);
+		for (const run of judgeRuns) {
+			expect((run.input as unknown as { options: { choices: unknown } }).options.choices).toEqual({
+				next_action: ["rework", "ask", "amend-spec"],
+				amend_path: ["", "specs/task/queue/spec.md", "specs/task/group/spec.md"],
+			});
+		}
 	});
 
 	it("Scenario: The bundled judge script is clean", () => {

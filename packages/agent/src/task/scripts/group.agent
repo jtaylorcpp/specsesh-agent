@@ -32,6 +32,10 @@ variables:
         description: "what the reopened task must fix"
     question: mutable string = ""
         description: "the question to escalate when next_action is ask or amend-spec"
+    amend_path: mutable string = ""
+        description: "the delta to replace when next_action is amend-spec"
+    amend_text: mutable string = ""
+        description: "the whole new text of that delta when next_action is amend-spec"
 
 subagent judge:
     description: "Choose rework, ask or amend-spec"
@@ -52,7 +56,10 @@ subagent judge:
             | Choose next_action. While reworks remain, rework the task most likely at fault with sharper feedback: say exactly what is unmet and what to change. Set rework_task to one task id from the list above and feedback to what it must fix.
             | Choose amend-spec only when the spec deltas themselves contradict each other or the code they describe. Choose ask only for a decision that no rework could settle. For ask or amend-spec, set question.
             | Answer next_action with exactly one word: rework, ask or amend-spec. Put every explanation in the other fields, never in next_action.
+            | Amending: when the spec delta itself is wrong, set `amend-spec`, the delta in `amend_path`, and the delta's whole corrected text in `amend_text`. For any other next_action, leave both empty.
             set @variables.next_action = @outputs.next_action
             set @variables.rework_task = @outputs.rework_task
             set @variables.feedback = @outputs.feedback
             set @variables.question = @outputs.question
+            set @variables.amend_path = @outputs.amend_path
+            set @variables.amend_text = @outputs.amend_text

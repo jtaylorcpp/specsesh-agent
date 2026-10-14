@@ -37,6 +37,8 @@ const judgeRework = fauxAssistantMessage(
 			rework_task: "1.1",
 			feedback: "update a.txt for b.txt",
 			question: "",
+			amend_path: "",
+			amend_text: "",
 		}),
 	],
 	{ stopReason: "toolUse" },

@@ -146,4 +146,12 @@ describe("task/group: The bundled judge prefers rework", () => {
 		expect(prompt).toContain("rework the task most likely at fault");
 		expect(prompt).not.toContain("Prefer asking");
 	});
+
+	it("Scenario: The bundled judge is told how to amend a delta", () => {
+		const { prompt } = composeJudge(read("group.agent"), { ...GROUP_VARIABLES, rework_count: 1 });
+		expect(prompt).toContain("when the spec delta itself is wrong");
+		expect(prompt).toContain("amend-spec");
+		expect(prompt).toContain("amend_path");
+		expect(prompt).toContain("amend_text");
+	});
 });
