@@ -1,6 +1,6 @@
 ## 1. Structured trial fold in close
 
-- [ ] 1.1 In `packages/agent/src/task/cmd-close.ts`, make `trialFold` run `openspec validate --specs --strict --json` and return `TrialFoldResult`, export `formatTrialFold`, and have close print its text
+- [x] 1.1 In `packages/agent/src/task/cmd-close.ts`, make `trialFold` run `openspec validate --specs --strict --json` and return `TrialFoldResult`, export `formatTrialFold`, and have close print its text
 - [ ] 1.2 Test in `packages/agent/__tests__/change/cli-close.test.ts` that close prints the same text as before this change on a failing fold, and that `trialFold` drops `INFO` and sets `failure` on unparseable output
 
 ## 2. Trial fold in the specs gate

@@ -16,7 +16,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve, sep, win32 } from "node:path";
 import { guardRun } from "./change-api.js";
-import { trialFold } from "./cmd-close.js";
+import { formatTrialFold, trialFold } from "./cmd-close.js";
 
 /** Lines of unchanged context around each hunk of `unifiedDiff`. */
 const CONTEXT = 3;
@@ -109,7 +109,7 @@ export interface ApplyAmendmentOptions {
 	readonly root: string;
 	/** Default: `openspec validate --all --strict` in `root`, with `OPENSPEC_TELEMETRY=0`. */
 	readonly validate?: AmendmentCheck;
-	/** Default: close's `trialFold(change, root)`. Runs only when `validate` passed. */
+	/** Default: close's `trialFold(root, change)`. Runs only when `validate` passed. */
 	readonly trialFold?: AmendmentCheck;
 }
 
@@ -131,8 +131,10 @@ export async function applyAmendment(options: ApplyAmendmentOptions): Promise<Am
 	const { target, text, change, root } = options;
 	const validate = options.validate ?? (() => guardRun(root)(["env", "OPENSPEC_TELEMETRY=0", "openspec", "validate", "--all", "--strict"]));
 	const fold = options.trialFold ?? (async () => {
-		const trial = await trialFold(change, root);
-		return trial.ok ? { exitCode: 0, output: trial.output } : { exitCode: trial.exitCode, output: trial.output };
+		// A reported warning fails an amendment even on exit 0.
+		const trial = await trialFold(root, change);
+		const clean = trial.ok && trial.issues.length === 0;
+		return { exitCode: clean ? 0 : trial.exit || 1, output: clean ? "" : formatTrialFold({ ...trial, ok: false }) };
 	});
 
 	const saved = savedBytes(target);

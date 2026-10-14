@@ -341,7 +341,7 @@ export interface OpenspecReply {
 	readonly stderr?: string;
 }
 
-/** The three commands `--amend` runs: `validate --all --strict`, then, in the trial copy, `archive <change> --yes` and `validate --specs --strict`. */
+/** The three commands `--amend` runs: `validate --all --strict`, then, in the trial copy, `archive <change> --yes` and `validate --specs --strict --json`. */
 export type AmendCommand = "validateAll" | "archive" | "validateSpecs";
 
 /** One call the fake took. */
@@ -360,10 +360,13 @@ export const errorTooLong = (change: string): OpenspecReply => ({
 	stdout: `✗ change/${change}\n  [ERROR] requirement "Export writes JSON" is 534 characters (max 500)\n`,
 });
 
-/** `validate --specs --strict` that exits 0 but warns about the 534-character requirement. */
+/** `validate --specs --strict --json` that exits 0 but warns about the 534-character requirement. */
 export const warningOnly: OpenspecReply = {
 	exit: 0,
-	stdout: '✓ spec/plan/export\n  [WARNING] requirement "Export writes JSON" is 534 characters; keep it under 500\n',
+	stdout: JSON.stringify({
+		items: [{ id: "plan/export", type: "spec", valid: true, issues: [{ level: "WARNING", path: "requirements[0]", message: 'requirement "Export writes JSON" is 534 characters; keep it under 500' }] }],
+		version: "1.0",
+	}),
 };
 
 /**
@@ -391,7 +394,7 @@ export function fakeOpenspec(options: { replies?: Partial<Record<AmendCommand, O
 			'if (cfg.watch !== null) { try { call.watched = fs.readFileSync(cfg.watch, "utf8"); } catch { call.watched = null; } }',
 			'fs.appendFileSync(cfg.log, JSON.stringify(call) + "\\n");',
 			'const key = args.join(" ");',
-			'const command = key === "validate --all --strict" ? "validateAll" : key === "validate --specs --strict" ? "validateSpecs" : args[0] === "archive" ? "archive" : undefined;',
+			'const command = key === "validate --all --strict" ? "validateAll" : key === "validate --specs --strict --json" ? "validateSpecs" : args[0] === "archive" ? "archive" : undefined;',
 			"const reply = command === undefined ? undefined : cfg.replies[command];",
 			"if (reply !== undefined) {",
 			'\tprocess.stdout.write(reply.stdout ?? "");',

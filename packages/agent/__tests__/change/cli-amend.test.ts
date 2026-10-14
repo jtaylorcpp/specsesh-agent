@@ -219,7 +219,7 @@ describe.skipIf(process.platform === "win32")("change/cli build --amend", () => 
 
 				// validate --all in the repo, then the trial fold in one temp copy of openspec/, all without telemetry.
 				const calls = openspec.calls().filter((call) => !(call.args[0] === "validate" && call.args[1] === "add-plan-export"));
-				expect(calls.map((call) => call.args.join(" "))).toEqual(["validate --all --strict", "archive add-plan-export --yes", "validate --specs --strict"]);
+				expect(calls.map((call) => call.args.join(" "))).toEqual(["validate --all --strict", "archive add-plan-export --yes", "validate --specs --strict --json"]);
 				for (const call of openspec.calls()) expect(call.telemetry).toBe("0");
 				const repo = realpathSync(seeded.dir);
 				expect(realpathSync(calls[0]!.cwd)).toBe(repo);
@@ -378,7 +378,7 @@ describe.skipIf(process.platform === "win32")("change/cli build --amend", () => 
 
 				const out = run.out;
 				const validation = out.indexOf("## validation: failed");
-				const warning = out.indexOf('[WARNING] requirement "Export writes JSON" is 534 characters; keep it under 500', validation);
+				const warning = out.indexOf('[WARNING] plan/export: requirement "Export writes JSON" is 534 characters; keep it under 500', validation);
 				const restored = out.indexOf("restored openspec/changes/add-plan-export/specs/plan/export/spec.md", warning);
 				const nothing = out.indexOf("nothing resumed", restored);
 				expect(validation).toBeGreaterThan(-1);
@@ -388,7 +388,7 @@ describe.skipIf(process.platform === "win32")("change/cli build --amend", () => 
 
 				// The trial fold ran, without telemetry, in a copy outside the repository.
 				const calls = openspec.calls().filter((call) => !(call.args[0] === "validate" && call.args[1] === "add-plan-export"));
-				expect(calls.map((call) => call.args.join(" "))).toEqual(["validate --all --strict", "archive add-plan-export --yes", "validate --specs --strict"]);
+				expect(calls.map((call) => call.args.join(" "))).toEqual(["validate --all --strict", "archive add-plan-export --yes", "validate --specs --strict --json"]);
 				for (const call of openspec.calls()) expect(call.telemetry).toBe("0");
 				const repo = realpathSync(seeded.dir);
 				expect(calls[1]!.cwd).toBe(calls[2]!.cwd);

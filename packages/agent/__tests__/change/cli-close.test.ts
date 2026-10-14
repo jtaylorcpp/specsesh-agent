@@ -11,12 +11,12 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { trialFold } from "../../src/task/cmd-close.js";
+import { formatTrialFold, trialFold } from "../../src/task/cmd-close.js";
 import { recordApproval } from "../../src/task/spec-approvals.js";
 import { SPEC_STAGES } from "../../src/task/spec-stages.js";
 import { commitAll, gitIn, write } from "../task/cli-helpers.js";
 import { GROUP_JUDGE, JUDGE_ONLY, cleanTemps, temp, verdict } from "../task/helpers.js";
-import { CHANGE, change } from "./helpers.js";
+import { CHANGE, change, fakeOpenspec as stagedOpenspec } from "./helpers.js";
 
 /** The repo's pinned `openspec` (1.14.1): `close` validates and archives with it. */
 const OPENSPEC_BIN = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "node_modules", ".bin");
@@ -213,7 +213,7 @@ describe.skipIf(process.platform === "win32")("change/cli close", () => {
 			const savedTmp = process.env.TMPDIR;
 			process.env.TMPDIR = tmp;
 			try {
-				return await trialFold(change, dir);
+				return await trialFold(dir, change);
 			} finally {
 				if (savedTmp === undefined) delete process.env.TMPDIR;
 				else process.env.TMPDIR = savedTmp;
@@ -227,21 +227,228 @@ describe.skipIf(process.platform === "win32")("change/cli close", () => {
 		it("passes a change that folds cleanly", async () => {
 			const { dir } = repo();
 			const result = await fold(CHANGE, dir);
-			expect(result.ok).toBe(true);
+			expect(result).toEqual({ ok: true, command: "openspec validate --specs --strict --json", exit: 0, issues: [] });
 		}, 60_000);
 
-		it("fails when validate --specs fails, with openspec's output", async () => {
+		it("fails when validate --specs fails, with openspec's issues", async () => {
 			const { dir } = repo(OVERLONG);
 			const result = await fold(CHANGE, dir);
-			expect(result).toMatchObject({ ok: false, step: "validate --specs --strict" });
-			expect(result.output).toContain("Requirement text is very long");
+			expect(result).toMatchObject({ ok: false, exit: 1, issues: [{ level: "WARNING", spec: "plan/cli" }] });
+			expect(result.issues).toHaveLength(1);
+			expect(result.issues[0]?.message).toContain("Requirement text is very long");
+			expect(result.failure).toBeUndefined();
 		}, 60_000);
 
 		it("fails when archive fails, with openspec's output", async () => {
 			const { dir } = repo();
 			const result = await fold("no-such-change", dir);
-			expect(result).toMatchObject({ ok: false, step: "archive no-such-change --yes" });
-			expect(result.output).toContain("no-such-change");
+			expect(result).toMatchObject({ ok: false, exit: null, issues: [] });
+			expect(result.failure).toContain("openspec archive no-such-change --yes failed");
+			expect(result.failure).toContain("no-such-change");
+		}, 60_000);
+
+		it("removes the copy when a step throws", async () => {
+			const dir = temp("trial-fold-no-openspec-");
+			const tmp = temp("trial-fold-tmp-");
+			const savedTmp = process.env.TMPDIR;
+			process.env.TMPDIR = tmp;
+			try {
+				// No openspec/ to copy: the copy step throws.
+				await expect(trialFold(dir, CHANGE)).rejects.toThrow();
+			} finally {
+				if (savedTmp === undefined) delete process.env.TMPDIR;
+				else process.env.TMPDIR = savedTmp;
+			}
+			expect(readdirSync(tmp)).toEqual([]);
+		});
+	});
+
+	describe("trialFold reads openspec's JSON report", () => {
+		/**
+		 * A fake `openspec` first on PATH: `archive` exits 0, `validate` prints `stdout` and
+		 * `stderr` and exits `exit`. Returns its argv log, one line per call.
+		 */
+		function fakeOpenspec(stdout: string, exit: number, stderr = "") {
+			const bin = temp("fake-openspec-");
+			const log = join(bin, "calls.log");
+			writeFileSync(
+				join(bin, "openspec"),
+				[
+					"#!/usr/bin/env node",
+					"const { appendFileSync } = require('node:fs');",
+					`appendFileSync(${JSON.stringify(log)}, JSON.stringify({ argv: process.argv.slice(2), telemetry: process.env.OPENSPEC_TELEMETRY }) + '\\n');`,
+					"if (process.argv[2] !== 'validate') process.exit(0);",
+					`process.stdout.write(${JSON.stringify(stdout)});`,
+					`process.stderr.write(${JSON.stringify(stderr)});`,
+					`process.exitCode = ${exit};`,
+				].join("\n"),
+				{ mode: 0o755 },
+			);
+			process.env.PATH = `${bin}:${process.env.PATH ?? ""}`;
+			return () => readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { argv: string[]; telemetry: string });
+		}
+
+		const report = (items: unknown[]) => JSON.stringify({ items, summary: {}, version: "1.0" });
+
+		/** `trialFold` with `tmpdir()` pointed at an empty directory, which it must leave empty. */
+		async function foldInEmptyTmp(dir: string) {
+			const tmp = temp("trial-fold-tmp-");
+			const savedTmp = process.env.TMPDIR;
+			process.env.TMPDIR = tmp;
+			try {
+				return await trialFold(dir, CHANGE);
+			} finally {
+				if (savedTmp === undefined) delete process.env.TMPDIR;
+				else process.env.TMPDIR = savedTmp;
+				expect(readdirSync(tmp)).toEqual([]);
+			}
+		}
+
+		it("adds no issue for a report holding only INFO", async () => {
+			fakeOpenspec(report([{ id: "core/subset", type: "spec", valid: true, issues: [{ level: "INFO", path: "requirements[0]", message: "consider a scenario" }] }]), 0);
+			const { dir } = repo();
+			expect(await foldInEmptyTmp(dir)).toEqual({ ok: true, command: "openspec validate --specs --strict --json", exit: 0, issues: [] });
+		}, 60_000);
+
+		it("sets failure with stdout and stderr when the output is `not json`", async () => {
+			fakeOpenspec("not json", 1, "boom");
+			const { dir } = repo();
+			const result = await foldInEmptyTmp(dir);
+			expect(result).toMatchObject({ ok: false, exit: 1, issues: [] });
+			expect(result.failure).toBe("no parseable JSON\nstdout:\nnot json\nstderr:\nboom");
+		}, 60_000);
+
+		it("keeps ERROR and WARNING issues of spec items with the spec id, and drops INFO", async () => {
+			const calls = fakeOpenspec(
+				report([
+					{ id: "task/change", type: "spec", valid: false, issues: [
+						{ level: "ERROR", path: "requirements[0]", message: "too long" },
+						{ level: "INFO", path: "requirements[1]", message: "just so you know" },
+					] },
+					{ id: "spec/judge", type: "spec", valid: false, issues: [{ level: "WARNING", path: "requirements[2]", message: "very long" }] },
+					{ id: "add-thing", type: "change", valid: false, issues: [{ level: "ERROR", path: "x", message: "not a spec" }] },
+				]),
+				1,
+			);
+			const { dir } = repo();
+			const result = await foldInEmptyTmp(dir);
+			expect(result).toEqual({
+				ok: false,
+				command: "openspec validate --specs --strict --json",
+				exit: 1,
+				issues: [
+					{ level: "ERROR", spec: "task/change", message: "too long" },
+					{ level: "WARNING", spec: "spec/judge", message: "very long" },
+				],
+			});
+			expect(calls()).toEqual([
+				{ argv: ["archive", CHANGE, "--yes"], telemetry: "0" },
+				{ argv: ["validate", "--specs", "--strict", "--json"], telemetry: "0" },
+			]);
+		}, 60_000);
+
+		it("passes on exit 0 with an empty report", async () => {
+			fakeOpenspec(report([]), 0);
+			const { dir } = repo();
+			expect(await trialFold(dir, CHANGE)).toEqual({ ok: true, command: "openspec validate --specs --strict --json", exit: 0, issues: [] });
+		}, 60_000);
+
+		it("sets failure when stdout is not JSON", async () => {
+			fakeOpenspec("Totals: 0 passed, 1 failed\n", 1, "boom\n");
+			const { dir } = repo();
+			const result = await trialFold(dir, CHANGE);
+			expect(result).toMatchObject({ ok: false, exit: 1, issues: [] });
+			expect(result.failure).toMatch(/^no parseable JSON/);
+			expect(result.failure).toContain("Totals: 0 passed, 1 failed");
+			expect(result.failure).toContain("boom");
+		}, 60_000);
+
+		it("sets failure when the report has no items array", async () => {
+			fakeOpenspec(JSON.stringify({ version: "2.0", results: [] }), 0);
+			const { dir } = repo();
+			const result = await trialFold(dir, CHANGE);
+			expect(result.ok).toBe(false);
+			expect(result.failure).toMatch(/^no parseable JSON/);
+		}, 60_000);
+
+		it("sets failure with no exit when openspec cannot be spawned", async () => {
+			const { dir } = repo();
+			process.env.PATH = temp("empty-path-");
+			const result = await foldInEmptyTmp(dir);
+			expect(result).toMatchObject({ ok: false, exit: null, issues: [] });
+			expect(result.failure).toContain("ENOENT");
 		}, 60_000);
 	});
+
+	describe("formatTrialFold", () => {
+		const base = { command: "openspec validate --specs --strict --json", issues: [] } as const;
+
+		it("prints a failure with its exit, or as could not run", () => {
+			expect(formatTrialFold({ ...base, ok: false, exit: 1, failure: "no parseable JSON\nstdout:\nx\nstderr:\n" })).toBe(
+				"folded into a copy of openspec/, openspec validate --specs --strict failed (exit 1):\nno parseable JSON\nstdout:\nx\nstderr:\nopenspec/ is unchanged",
+			);
+			expect(formatTrialFold({ ...base, ok: false, exit: null, failure: "spawn openspec ENOENT" })).toBe(
+				"folded into a copy of openspec/, openspec validate --specs --strict could not run:\nspawn openspec ENOENT\nopenspec/ is unchanged",
+			);
+		});
+
+		it("prints a pass in one line", () => {
+			expect(formatTrialFold({ ...base, ok: true, exit: 0 })).toBe("folded into a copy of openspec/, openspec validate --specs --strict passed");
+		});
+	});
+
+	it("close prints the golden text on a failing fold", async () => {
+		const { dir, changeDir, db } = repo(OVERLONG);
+		tick(changeDir);
+		const run = await change(["close", CHANGE, "--db", db], dir);
+		expect(run.code).toBe(2);
+		expect(run.out).toBe("");
+		// Before add-trial-fold-check, the middle lines were openspec's own text report
+		// (`Totals: …`, `Details: …`, `✗ spec/plan/cli`, `  ⚠ [WARNING] requirements[0]: …`);
+		// the first line, the message and the last line are unchanged.
+		expect(run.err).toBe(
+			[
+				"folded into a copy of openspec/, openspec validate --specs --strict failed (exit 1):",
+				"✗ [WARNING] plan/cli: Requirement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.",
+				"openspec/ is unchanged",
+			].join("\n"),
+		);
+	}, 60_000);
+
+	it("close prints formatTrialFold's text for openspec's JSON report, as the build does", async () => {
+		const { dir, changeDir, db } = repo();
+		tick(changeDir);
+		// `validate --specs --strict --json` as openspec 1.14.1 shapes it; the guard and the trial archive run the real one.
+		const fake = stagedOpenspec({
+			replies: {
+				validateSpecs: {
+					exit: 1,
+					stdout: JSON.stringify({
+						items: [{ id: "spec/judge", type: "spec", valid: false, issues: [
+							{ level: "ERROR", path: "requirements[0]", message: 'Requirement "The judge scores each draft" text exceeds 500 characters (612)' },
+							{ level: "INFO", path: "requirements[1]", message: "consider a scenario" },
+						] }],
+						summary: {},
+						version: "1.0",
+					}),
+				},
+			},
+		});
+		const before = snapshot(dir);
+
+		const run = await change(["close", CHANGE, "--db", db], dir);
+		expect(run.code).toBe(2);
+		expect(run.out).toBe("");
+		const golden = [
+			"folded into a copy of openspec/, openspec validate --specs --strict failed (exit 1):",
+			'✗ [ERROR] spec/judge: Requirement "The judge scores each draft" text exceeds 500 characters (612)',
+			"openspec/ is unchanged",
+		].join("\n");
+		expect(run.err).toBe(golden);
+		expect(snapshot(dir)).toEqual(before);
+		expect(existsSync(join(dir, "openspec", "changes", "archive"))).toBe(false);
+		expect(fake.calls().filter((call) => call.args.join(" ") === "validate --specs --strict --json").map((call) => call.telemetry)).toEqual(["0"]);
+
+		expect(formatTrialFold(await trialFold(dir, CHANGE))).toBe(golden);
+	}, 60_000);
 });
