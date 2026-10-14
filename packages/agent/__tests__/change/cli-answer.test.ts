@@ -9,7 +9,7 @@
  * output requirements, so the tests are grouped by requirement.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
@@ -21,9 +21,11 @@ import { readChangeResult } from "../../src/task/change-api.js";
 import { GROUP_LOOP_NAME } from "../../src/task/group.js";
 import { TASK_LOOP } from "../../src/task/index.js";
 import { recordApproval } from "../../src/task/spec-approvals.js";
+import type { SpecStage } from "../../src/task/spec-stage.js";
 import { SPEC_STAGES } from "../../src/task/spec-stages.js";
 import { commitAll, gitIn, write } from "../task/cli-helpers.js";
 import { GROUP_JUDGE, JUDGE_ONLY, cleanTemps, context, temp, verdict } from "../task/helpers.js";
+import { STAGE_SCRIPT, draft } from "../task/spec-helpers.js";
 import { stagedCheck } from "../task/staged-check.js";
 import { CHANGE, change, csvImportGroup1, fakeOpenspec, noAmendment, planExportTask22, snapshotOpenspec } from "./helpers.js";
 
@@ -49,7 +51,11 @@ const REQUIREMENTS = [
 	["Exports use the API", "An export SHALL go through the plan API.", "An export calls the API"],
 	["Exports are listed", "Every export SHALL be listed.", "An export is listed"],
 ];
-const SPEC = ["## ADDED Requirements", "", ...REQUIREMENTS.flatMap(([name, text, title]) => [`### Requirement: ${name}`, text!, "", scenario(title!)])].join("\n");
+const delta = (requirements: string[][]) =>
+	["## ADDED Requirements", "", ...requirements.flatMap(([name, text, title]) => [`### Requirement: ${name}`, text!, "", scenario(title!)])].join("\n");
+const SPEC = delta(REQUIREMENTS);
+/** The same requirements over two deltas: `plan/export` and, holding the last one, `plan/schema`. */
+const SPLIT_SPECS = { "plan/export": delta(REQUIREMENTS.slice(0, -1)), "plan/schema": delta(REQUIREMENTS.slice(-1)) };
 const TASKS = [
 	"## 1. Export",
 	"",
@@ -72,7 +78,7 @@ const TASKS = [
  * approved; the judges and the database live outside it, so they never dirty the tree.
  * `check` is the task and group check (default `true`).
  */
-function repo(check = "true") {
+function repo(check = "true", specs: Record<string, string> = { "plan/export": SPEC }) {
 	const dir = temp("change-answer-repo-");
 	const changeDir = join(dir, "openspec", "changes", CHANGE);
 	write(dir, {
@@ -80,7 +86,7 @@ function repo(check = "true") {
 		"README.md": "# plans\n",
 		[join("openspec", "changes", CHANGE, "proposal.md")]: PROPOSAL,
 		[join("openspec", "changes", CHANGE, "design.md")]: "## Context\nA design.\n",
-		[join("openspec", "changes", CHANGE, "specs", "plan", "export", "spec.md")]: SPEC,
+		...Object.fromEntries(Object.entries(specs).map(([capability, text]) => [join("openspec", "changes", CHANGE, "specs", capability, "spec.md"), text])),
 		[join("openspec", "changes", CHANGE, "tasks.md")]: TASKS,
 	});
 	mkdirSync(join(dir, "openspec", "specs"), { recursive: true });
@@ -121,14 +127,34 @@ const judgeRework = (task: string) =>
 	});
 
 /** Group 1's tasks converge, then 2.1 asks the principal `question`; `build` ends blocked, exit 1. */
-async function blockInGroup2(question: string) {
-	const fixture = repo();
+async function blockInGroup2(question: string, specs?: Record<string, string>) {
+	const fixture = repo("true", specs);
 	const blocked = await change(["build", CHANGE, ...fixture.args], fixture.dir, [verdict(true), verdict(true), verdict(false, "two APIs", "ask", question)]);
 	expect(blocked.code).toBe(1);
 	return { ...fixture, blocked };
 }
 
 const lastLines = (out: string, n: number) => out.trim().split("\n").slice(-n);
+
+/** The `SPEC_STAGES` names, files and order with the test stage script and an empty gate, so `draft` runs on the faux model. */
+const draftStages: readonly SpecStage[] = SPEC_STAGES.map((stage) => ({ ...stage, script: { text: STAGE_SCRIPT }, gate: () => [] }));
+
+/** The newest change loop's outcome status and, when blocked, its question. */
+async function latestChangeLoop(db: string) {
+	const { changes } = await tasksIn(db);
+	const newest = changes.reduce((a, b) => (Number(b.id) > Number(a.id) ? b : a));
+	const record = newest.state as unknown as { outcome: { result: unknown } };
+	const { outcome } = readChangeResult(record.outcome.result as never, Number(newest.id) as never);
+	return { status: outcome.status, question: (outcome as { escalation?: { question: string } }).escalation?.question };
+}
+
+/** The ids of every loop and run in `db`, by kind. */
+async function idsIn(db: string) {
+	const all = await tasksIn(db);
+	return Object.fromEntries(Object.entries(all).map(([kind, tasks]) => [kind, tasks.map((task) => task.id)]));
+}
+
+const STALE_REFUSAL = `${CHANGE}: approved files changed since they were approved; build refused`;
 
 describe.skipIf(process.platform === "win32")("change/cli build answers", () => {
 	describe("build with an answer continues a waiting build", () => {
@@ -175,6 +201,93 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 			for (const kind of ["changes", "groups", "tasks", "runs"] as const) {
 				expect(after[kind].map((task) => task.id)).toEqual(before[kind].map((task) => task.id));
 			}
+		}, 120_000);
+	});
+
+	describe("build refuses stale approvals before starting or continuing", () => {
+		it("Scenario: An answer to a waiting build is refused and the loop stays blocked", async () => {
+			const { dir, changeDir, db, args } = await blockInGroup2("Which API?");
+			writeFileSync(join(changeDir, "design.md"), "## Context\nA design, edited by hand.\n");
+			commitAll(dir, "edit the design by hand");
+			const before = await idsIn(db);
+
+			const run = await change(["build", CHANGE, "Use the v2 API", ...args], dir, [verdict(true), verdict(true), verdict(true)]);
+			expect(run.code).toBe(2);
+			expect(run.err).toContain(STALE_REFUSAL);
+			expect(run.err).toContain("  design: design.md (changed)");
+			expect(run.calls).toBe(0);
+
+			// Nothing answered: no new loop or run, no decision anywhere, the newest change loop still asks.
+			expect(await idsIn(db)).toEqual(before);
+			expect(JSON.stringify(await tasksIn(db))).not.toContain("Use the v2 API");
+			expect(await latestChangeLoop(db)).toEqual({ status: "blocked", question: "Which API?" });
+		}, 120_000);
+
+		it("Scenario: Ticked tasks are not a change", async () => {
+			const { dir, changeDir, db, args } = await blockInGroup2("Which API?");
+			// The build ticked 1.1 and 1.2 and touched no other approved file.
+			const ticked = TASKS.replace("- [ ] 1.1", "- [x] 1.1").replace("- [ ] 1.2", "- [x] 1.2");
+			expect(readFileSync(join(changeDir, "tasks.md"), "utf8")).toBe(ticked);
+			expect(readFileSync(join(changeDir, "proposal.md"), "utf8")).toBe(PROPOSAL);
+			expect(readFileSync(join(changeDir, "design.md"), "utf8")).toBe("## Context\nA design.\n");
+			expect(readFileSync(join(changeDir, "specs", "plan", "export", "spec.md"), "utf8")).toBe(SPEC);
+			commitAll(dir, "the build's ticks");
+
+			const run = await change(["build", CHANGE, "Use the v2 API", ...args], dir, [verdict(true), verdict(true), verdict(true)]);
+			expect(`${run.out}\n${run.err}`).not.toContain("approved files changed since they were approved");
+			expect(run.code).toBe(0);
+			const groupTwos = (await tasksIn(db)).groups.filter((task) => (task.input as unknown as { group: number }).group === 2);
+			expect(groupTwos.some((task) => JSON.stringify(task.input).includes("Use the v2 API"))).toBe(true);
+		}, 120_000);
+
+		it("Scenario: Redrafting and approving again lets the build continue", async () => {
+			const { dir, changeDir, db, args } = await blockInGroup2("Which API?");
+			const specPath = join(changeDir, "specs", "plan", "export", "spec.md");
+			const edited = SPEC.replace("Every export SHALL be listed.", "Every export SHALL be listed by name.");
+			writeFileSync(specPath, edited);
+			writeFileSync(join(changeDir, "intent.md"), "Export a plan.\n");
+			commitAll(dir, "edit the delta by hand");
+
+			// The specs stage is drafted again and approved; approving it drops tasks, which is drafted and approved in turn.
+			const drafted = await change(["draft", CHANGE, "--db", db], dir, [draft(`=== specs/plan/export/spec.md\n${edited}`)], draftStages);
+			expect(drafted.code).toBe(0);
+			const tasks = readFileSync(join(changeDir, "tasks.md"), "utf8");
+			const specs = await change(["approve", CHANGE, "--principal", "jesse", "--db", db], dir, [draft(`=== tasks.md\n${tasks}`)], draftStages);
+			expect(specs.code).toBe(0);
+			const all = await change(["approve", CHANGE, "--principal", "jesse", "--db", db], dir, [], draftStages);
+			expect(all.code).toBe(0);
+			expect(readFileSync(specPath, "utf8")).toBe(edited);
+			commitAll(dir, "approve the redraft");
+
+			const run = await change(["build", CHANGE, "Use the v2 API", ...args], dir, [verdict(true), verdict(true), verdict(true)]);
+			expect(`${run.out}\n${run.err}`).not.toContain("approved files changed since they were approved");
+			expect(run.code).toBe(0);
+			const groupTwos = (await tasksIn(db)).groups.filter((task) => (task.input as unknown as { group: number }).group === 2);
+			expect(groupTwos.some((task) => JSON.stringify(task.input).includes("Use the v2 API"))).toBe(true);
+		}, 120_000);
+	});
+
+	describe("The stale-approval refusal names each file and the next step", () => {
+		it("Scenario: Several stages and a deleted file are listed in order", async () => {
+			const { dir, changeDir, db, args } = await blockInGroup2("Which API?", SPLIT_SPECS);
+			writeFileSync(join(changeDir, "design.md"), "## Context\nA design, edited by hand.\n");
+			writeFileSync(join(changeDir, "specs", "plan", "export", "spec.md"), `${SPLIT_SPECS["plan/export"]}\nEdited by hand.\n`);
+			rmSync(join(changeDir, "specs", "plan", "schema"), { recursive: true });
+			commitAll(dir, "edit and delete approved files by hand");
+			const before = await idsIn(db);
+
+			const run = await change(["build", CHANGE, "Use the v2 API", ...args], dir, [verdict(true), verdict(true), verdict(true)]);
+			expect(run.err.replace(/\n$/, "").split("\n")).toEqual([
+				STALE_REFUSAL,
+				"  design: design.md (changed)",
+				"  specs: specs/plan/export/spec.md (changed)",
+				"  specs: specs/plan/schema/spec.md (missing)",
+				`review it with: pnpm change draft ${CHANGE}`,
+				`then approve it again: pnpm change approve ${CHANGE}`,
+			]);
+			expect(run.code).toBe(2);
+			expect(await idsIn(db)).toEqual(before);
+			expect(await latestChangeLoop(db)).toEqual({ status: "blocked", question: "Which API?" });
 		}, 120_000);
 	});
 
