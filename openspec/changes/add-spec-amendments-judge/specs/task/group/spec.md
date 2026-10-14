@@ -35,7 +35,7 @@ Every judge run the group loop starts SHALL carry, beside the `next_action` choi
 - **THEN** it SHALL reject naming `amend_path`, and no loop SHALL be created
 
 ### Requirement: ask and amend-spec block the group
-`ask` or `amend-spec` SHALL end the group `blocked`, with an escalation at `level` `"group"` to the options' `escalateTo`. Its question SHALL be the judge's `question`, or the first line of the check output when that is empty. `amend-spec` SHALL record a `spec-defect` finding and set `escalation.amendment` to `{ delta: amend_path, text: amend_text }`, unchanged. If `amend_path` is `""` or `amend_text` is blank, the loop SHALL omit `amendment` and record the note `amendment dropped: <variable> is empty`. The loop MUST NOT write the amendment.
+`ask` or `amend-spec` SHALL end the group `blocked`, escalated at `level` `"group"` to `escalateTo`, asking the judge's `question` or else the check output's first line. `amend-spec` SHALL record a `spec-defect` finding and set `escalation.amendment` to `{ delta: amend_path, text: amend_text }`, unchanged and unwritten; with `amend_path` `""` or `amend_text` blank it SHALL omit it and note `amendment dropped: <variable> is empty`.
 
 #### Scenario: The judge asks the principal
 - **WHEN** the judge sets `next_action` `"ask"` and `question` `"Drop scenario X?"`
@@ -58,7 +58,7 @@ Every judge run the group loop starts SHALL carry, beside the `next_action` choi
 - **THEN** the loop SHALL record the note `amendment dropped: amend_path is empty`, and the group SHALL end `blocked` with an escalation at level `"group"` and no `amendment` field
 
 ### Requirement: An answered escalation resumes the group as a new run
-`answerGroupEscalation` SHALL accept an `EscalationAnswer` only for a group loop that ended `blocked`, and only when `by` equals the escalation's `to`. A task block SHALL rerun that task's loop with `carried` set to the decision. A judge block SHALL rerun the check, then the judge with the decision appended to `check_output`. If a judge block carries an `amendment` and the answer is the reserved `amendment-applied`, the loop SHALL first re-read the change's deltas from disk for `deltas` and the `amend_path` choices. Doing so SHALL NOT add to `reworks`.
+`answerGroupEscalation` SHALL accept an answer only for a `blocked` group loop, from the escalation's `to`. A task block SHALL rerun that task's loop with `carried` set to the decision. A judge block SHALL rerun the check, then the judge with the decision appended to `check_output`; on `amendment-applied` to a block carrying an `amendment` it SHALL first re-read the deltas from disk, without adding to `reworks`.
 
 #### Scenario: Answering a blocked task resumes the group
 - **GIVEN** a group blocked by task `1.1`, escalated to `principal`
@@ -81,7 +81,7 @@ Every judge run the group loop starts SHALL carry, beside the `next_action` choi
 - **THEN** the answer SHALL be accepted, the check SHALL rerun, and on failure the judge SHALL run with `amendment-applied` appended to `check_output`
 
 ### Requirement: The bundled group.agent fits the contract and acts on nothing
-The package SHALL bundle `group.agent` in `src/task/scripts/`. It SHALL be one reasoning subagent that sets the six read-back variables (the four verdict variables plus `amend_path` and `amend_text`) from a structured result. It SHALL declare every seeded variable, have no actions, and lint with no diagnostic against the pinned dialect. Its judge SHALL rework first: while reworks remain, reopen the task most likely at fault with sharper feedback. It SHALL `ask` only for a decision no rework could settle, and use `amend-spec` when the spec delta itself is wrong.
+The package SHALL bundle `src/task/scripts/group.agent`: one reasoning subagent setting the six read-back variables (the four verdict variables, `amend_path`, `amend_text`) from a structured result, declaring every seeded variable, with no actions and no lint diagnostic. Its judge SHALL rework first, reopening the task most likely at fault while reworks remain; `ask` only for a decision no rework settles; and `amend-spec` when the spec delta itself is wrong.
 
 #### Scenario: The bundled judge script is clean
 - **WHEN** the bundled `group.agent` is analysed and scanned
