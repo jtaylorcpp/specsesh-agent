@@ -42,10 +42,13 @@ const CHANGE = "add-two-groups";
 const PROPOSAL = "## Why\nBecause two files have to exist, for a reason long enough to pass.\n\n## What Changes\n- Adds both files.\n";
 const scenario = (name: string) => `#### Scenario: ${name}\n- **WHEN** it runs\n- **THEN** it SHALL work\n`;
 
+/** Carried by every delta that creates a capability, so the change check's trial fold passes. */
+const PURPOSE ="## Purpose\nThings that exist, so the change-loop tests have a capability to build.\n\n";
+
 /** One requirement per scenario, so strict validation passes. */
 function delta(scenarios: readonly string[]): string {
 	const requirements = scenarios.map((name, i) => `### Requirement: Thing ${i + 1}\nThing ${i + 1} SHALL exist.\n\n${scenario(name)}`);
-	return `## ADDED Requirements\n\n${requirements.join("\n")}`;
+	return `${PURPOSE}## ADDED Requirements\n\n${requirements.join("\n")}`;
 }
 
 type GroupSpec = { title: string; tasks: { id: string; text: string; ticked?: boolean }[] };
@@ -138,7 +141,11 @@ describe.skipIf(process.platform === "win32")("task/change: the change loop", ()
 		expect(staged.calls()).toBe(5);
 		expect(outcome.iterations).toHaveLength(1);
 		expect(outcome.iterations[0]?.verdict).toEqual({ met: true, satisfied: [{ check: "change" }], unmet: [] });
-		expect(outcome.iterations[0]?.evidence).toEqual([{ kind: "check", command: staged.command, exitCode: 0, output: "" }]);
+		// The change check, then the trial fold.
+		expect(outcome.iterations[0]?.evidence).toEqual([
+			{ kind: "check", command: staged.command, exitCode: 0, output: "" },
+			{ kind: "check", command: "openspec validate --specs --strict --json", exitCode: 0, output: "folded into a copy of openspec/, openspec validate --specs --strict passed" },
+		]);
 
 		const tasks = readFileSync(join(changeDir, "tasks.md"), "utf8");
 		expect(tasks).toContain("- [x] 1.1 ");

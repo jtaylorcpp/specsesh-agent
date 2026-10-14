@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { analyze } from "../../../src/authoring/index.js";
 import { readDeclarations } from "../../../src/interpreter/compose.js";
 import { SPEC_STAGES, designStage, proposalStage } from "../../../src/task/index.js";
@@ -8,6 +8,9 @@ import { stageContractProblems, type StageContext } from "../../../src/task/spec
 import { specsStage } from "../../../src/task/stages/specs.js";
 import { cleanTemps, prompts, temp } from "../helpers.js";
 import { draft, runSpecLoop } from "../spec-helpers.js";
+
+// The trial fold has its own tests in specs-gate.test.ts; here it folds clean.
+vi.mock("../../../src/task/stages/trial-fold-issues.js", () => ({ trialFoldIssues: vi.fn(async () => []) }));
 
 afterEach(cleanTemps);
 

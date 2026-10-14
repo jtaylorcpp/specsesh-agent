@@ -217,9 +217,16 @@ describe.skipIf(process.platform === "win32")("change/cli build --amend", () => 
 				// Resumed only after recording its approval.
 				expect(atResume).toBe(recorded);
 
-				// validate --all in the repo, then the trial fold in one temp copy of openspec/, all without telemetry.
+				// validate --all in the repo, then the trial fold in one temp copy of openspec/, all without telemetry;
+				// the resumed build's change check then folds once more, in a copy of its own.
 				const calls = openspec.calls().filter((call) => !(call.args[0] === "validate" && call.args[1] === "add-plan-export"));
-				expect(calls.map((call) => call.args.join(" "))).toEqual(["validate --all --strict", "archive add-plan-export --yes", "validate --specs --strict --json"]);
+				expect(calls.map((call) => call.args.join(" "))).toEqual([
+					"validate --all --strict",
+					"archive add-plan-export --yes",
+					"validate --specs --strict --json",
+					"archive add-plan-export --yes",
+					"validate --specs --strict --json",
+				]);
 				for (const call of openspec.calls()) expect(call.telemetry).toBe("0");
 				const repo = realpathSync(seeded.dir);
 				expect(realpathSync(calls[0]!.cwd)).toBe(repo);
@@ -309,9 +316,10 @@ describe.skipIf(process.platform === "win32")("change/cli build --amend", () => 
 				expect(seeded.readDelta()).toEqual(bytes);
 				expect(approvalsOf(seeded.changeDir)).toBe(approvals);
 
-				// No validation and no trial fold: only the start guard's `validate <change>` may run.
-				const commands = openspec.calls().filter((call) => !(call.args[0] === "validate" && call.args[1] === "add-plan-export"));
-				expect(commands).toEqual([]);
+				// No validation and no trial fold of the answer's: only the start guard's `validate <change>` and,
+				// once every group converged, the change check's trial fold.
+				const commands = openspec.commands().filter((command) => !command.startsWith("validate add-plan-export"));
+				expect(commands).toEqual(["archive add-plan-export --yes", "validate --specs --strict --json"]);
 
 				// Task 2.2 reran carrying the text; nothing took amendment-applied.
 				const answers = (await seeded.answers()).filter((answer) => !answersBefore.some((old) => old.loop === answer.loop));

@@ -54,7 +54,9 @@ function writeChange(): { workspace: string; changeDir: string } {
 	const requirements = TASKS.map(
 		(t, i) => `### Requirement: Thing ${i + 1}\nThing ${i + 1} SHALL exist.\n\n#### Scenario: ${t.text}\n- **WHEN** it runs\n- **THEN** it SHALL work\n`,
 	);
-	writeFileSync(join(changeDir, "specs", "thing", "core", "spec.md"), `## ADDED Requirements\n\n${requirements.join("\n")}`);
+	// `## Purpose`, so the change check's trial fold creates the capability clean.
+	const purpose = "## Purpose\nThings that exist, so the change-loop tests have a capability to build.\n\n";
+	writeFileSync(join(changeDir, "specs", "thing", "core", "spec.md"), `${purpose}## ADDED Requirements\n\n${requirements.join("\n")}`);
 	const tasks = TASKS.flatMap((t, i) => [`## ${i + 1}. ${t.group}`, "", `- [ ] ${t.id} \`${t.id}.txt\`: "${t.text}"`, ""]);
 	writeFileSync(join(changeDir, "tasks.md"), tasks.join("\n"));
 	return { workspace, changeDir };

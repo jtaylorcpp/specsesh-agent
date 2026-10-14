@@ -415,33 +415,40 @@ describe.skipIf(process.platform === "win32")("change/cli close", () => {
 		);
 	}, 60_000);
 
+	/** `validate --specs --strict --json` as openspec 1.14.1 shapes it: an ERROR, a WARNING on another spec, and an INFO. */
+	const FAILING_REPORT = {
+		exit: 1,
+		stdout: JSON.stringify({
+			items: [
+				{ id: "spec/judge", type: "spec", valid: false, issues: [
+					{ level: "ERROR", path: "requirements[0]", message: 'Requirement "The judge scores each draft" text exceeds 500 characters (612)' },
+					{ level: "INFO", path: "requirements[1]", message: "consider a scenario" },
+				] },
+				{ id: "core/subset", type: "spec", valid: true, issues: [{ level: "WARNING", path: "purpose", message: "Purpose section is too brief" }] },
+			],
+			summary: {},
+			version: "1.0",
+		}),
+	};
+
+	/** The trial copy each validate call ran in, as the fake logged it. */
+	const validateCwds = (fake: ReturnType<typeof stagedOpenspec>) => fake.calls().filter((call) => call.args.join(" ") === "validate --specs --strict --json").map((call) => call.cwd);
+
 	it("close prints formatTrialFold's text for openspec's JSON report, as the build does", async () => {
 		const { dir, changeDir, db } = repo();
 		tick(changeDir);
-		// `validate --specs --strict --json` as openspec 1.14.1 shapes it; the guard and the trial archive run the real one.
-		const fake = stagedOpenspec({
-			replies: {
-				validateSpecs: {
-					exit: 1,
-					stdout: JSON.stringify({
-						items: [{ id: "spec/judge", type: "spec", valid: false, issues: [
-							{ level: "ERROR", path: "requirements[0]", message: 'Requirement "The judge scores each draft" text exceeds 500 characters (612)' },
-							{ level: "INFO", path: "requirements[1]", message: "consider a scenario" },
-						] }],
-						summary: {},
-						version: "1.0",
-					}),
-				},
-			},
-		});
+		// The guard and the trial archive run the real openspec.
+		const fake = stagedOpenspec({ replies: { validateSpecs: FAILING_REPORT } });
 		const before = snapshot(dir);
 
 		const run = await change(["close", CHANGE, "--db", db], dir);
 		expect(run.code).toBe(2);
 		expect(run.out).toBe("");
+		// A literal, never computed with formatTrialFold.
 		const golden = [
 			"folded into a copy of openspec/, openspec validate --specs --strict failed (exit 1):",
 			'✗ [ERROR] spec/judge: Requirement "The judge scores each draft" text exceeds 500 characters (612)',
+			"✗ [WARNING] core/subset: Purpose section is too brief",
 			"openspec/ is unchanged",
 		].join("\n");
 		expect(run.err).toBe(golden);
@@ -450,5 +457,39 @@ describe.skipIf(process.platform === "win32")("change/cli close", () => {
 		expect(fake.calls().filter((call) => call.args.join(" ") === "validate --specs --strict --json").map((call) => call.telemetry)).toEqual(["0"]);
 
 		expect(formatTrialFold(await trialFold(dir, CHANGE))).toBe(golden);
+	}, 60_000);
+
+	it("trialFold drops INFO from openspec's JSON report and removes its copy", async () => {
+		const { dir } = repo();
+		const fake = stagedOpenspec({ replies: { validateSpecs: FAILING_REPORT } });
+
+		const result = await trialFold(dir, CHANGE);
+		expect(result).toEqual({
+			ok: false,
+			command: "openspec validate --specs --strict --json",
+			exit: 1,
+			issues: [
+				{ level: "ERROR", spec: "spec/judge", message: 'Requirement "The judge scores each draft" text exceeds 500 characters (612)' },
+				{ level: "WARNING", spec: "core/subset", message: "Purpose section is too brief" },
+			],
+		});
+		expect(result.failure).toBeUndefined();
+		const cwds = validateCwds(fake);
+		expect(cwds).toHaveLength(1);
+		expect(existsSync(cwds[0]!)).toBe(false);
+	}, 60_000);
+
+	it("trialFold sets failure on output with no parseable JSON and removes its copy", async () => {
+		const { dir } = repo();
+		const fake = stagedOpenspec({ replies: { validateSpecs: { exit: 1, stdout: "Totals: 0 passed, 1 failed\n", stderr: "openspec: boom\n" } } });
+
+		const result = await trialFold(dir, CHANGE);
+		expect(result).toMatchObject({ ok: false, exit: 1, issues: [] });
+		expect(result.failure).toMatch(/no parseable JSON/);
+		expect(result.failure).toContain("Totals: 0 passed, 1 failed");
+		expect(result.failure).toContain("openspec: boom");
+		const cwds = validateCwds(fake);
+		expect(cwds).toHaveLength(1);
+		expect(existsSync(cwds[0]!)).toBe(false);
 	}, 60_000);
 });

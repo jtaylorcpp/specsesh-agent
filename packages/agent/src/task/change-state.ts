@@ -154,7 +154,7 @@ export async function changeBuildState(harness: Pick<Harness, "commit">, change:
 	const { outcome } = result;
 	if (outcome.status === "converged") return { kind: "built", loop };
 	if (outcome.status !== "blocked") return { kind: "ready", loop };
-	// The escalation is the blocked group's, raised to level "change"; its `to` is who answers.
+	// The escalation is the blocked group's, raised to level "change", or the trial fold's, with no group; its `to` is who answers.
 	const group = result.blocked?.group;
 	const entry = outcome.result?.groups.find((g) => g.group === group);
 	const task = entry === undefined ? null : blockedBy(entry.outcome as unknown as GroupLoopResult["outcome"]);

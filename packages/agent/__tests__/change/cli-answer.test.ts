@@ -51,8 +51,9 @@ const REQUIREMENTS = [
 	["Exports use the API", "An export SHALL go through the plan API.", "An export calls the API"],
 	["Exports are listed", "Every export SHALL be listed.", "An export is listed"],
 ];
+/** With `## Purpose`, so the change check's trial fold creates each capability clean. */
 const delta = (requirements: string[][]) =>
-	["## ADDED Requirements", "", ...requirements.flatMap(([name, text, title]) => [`### Requirement: ${name}`, text!, "", scenario(title!)])].join("\n");
+	["## Purpose", "Plans leave the tool as files another program can read back.", "", "## ADDED Requirements", "", ...requirements.flatMap(([name, text, title]) => [`### Requirement: ${name}`, text!, "", scenario(title!)])].join("\n");
 const SPEC = delta(REQUIREMENTS);
 /** The same requirements over two deltas: `plan/export` and, holding the last one, `plan/schema`. */
 const SPLIT_SPECS = { "plan/export": delta(REQUIREMENTS.slice(0, -1)), "plan/schema": delta(REQUIREMENTS.slice(-1)) };
@@ -413,9 +414,13 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 			try {
 				const run = await seeded.build(["Keep the order loose"], Array.from({ length: 8 }, () => verdict(true)));
 				expect(seeded.readDelta()).toEqual(bytes);
+				// The answer validates and folds nothing; the change check's trial fold is the only fold.
 				const commands = openspec.commands();
-				expect(commands.filter((command) => command.startsWith("validate --all") || command.startsWith("validate --specs"))).toEqual([]);
-				expect(commands.filter((command) => command.startsWith("archive"))).toEqual([]);
+				expect(commands.filter((command) => command.startsWith("validate --all"))).toEqual([]);
+				expect(commands.filter((command) => command.startsWith("archive") || command.startsWith("validate --specs"))).toEqual([
+					"archive add-csv-import --yes",
+					"validate --specs --strict --json",
+				]);
 
 				const judged = (await seeded.answers()).filter((answer) => answer.kind === "group" && answer.group === 1);
 				expect(judged).toHaveLength(1);

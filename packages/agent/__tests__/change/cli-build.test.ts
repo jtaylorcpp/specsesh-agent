@@ -34,7 +34,11 @@ afterEach(() => {
 
 const PROPOSAL = "## Why\nPlans have to leave the tool, for a reason long enough to pass.\n\n## What Changes\n- Exports a plan.\n";
 const scenario = (name: string) => `#### Scenario: ${name}\n- **WHEN** it runs\n- **THEN** it SHALL work\n`;
+/** With `## Purpose`, so the change check's trial fold creates the capability clean. */
 const SPEC = [
+	"## Purpose",
+	"Plans leave the tool as files another program can read back.",
+	"",
 	"## ADDED Requirements",
 	"",
 	"### Requirement: Plans export",

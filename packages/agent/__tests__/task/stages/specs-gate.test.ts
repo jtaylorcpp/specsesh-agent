@@ -1,14 +1,37 @@
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localWorkspace } from "../../../src/node/index.js";
+import { type TrialFoldResult, trialFold } from "../../../src/task/cmd-close.js";
 import type { StageContext } from "../../../src/task/spec-stage.js";
 import type { Delta } from "../../../src/task/stages/openspec-cli.js";
 import { specsGate } from "../../../src/task/stages/specs.js";
 import { asChange, coverageIssues, deltaCapabilities, notTasks, specsSizeIssues } from "../../../src/task/stages/specs-gate.js";
+import { trialFoldIssues } from "../../../src/task/stages/trial-fold-issues.js";
 import { cleanTemps, temp } from "../helpers.js";
 
-afterEach(cleanTemps);
+vi.mock("../../../src/task/stages/trial-fold-issues.js", () => ({ trialFoldIssues: vi.fn() }));
+vi.mock("../../../src/task/cmd-close.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../../src/task/cmd-close.js")>()),
+	trialFold: vi.fn(),
+}));
+
+/** The real `trialFoldIssues`, over the mocked `trialFold`: the gate's mapping end to end. */
+const { trialFoldIssues: realTrialFoldIssues } =
+	await vi.importActual<typeof import("../../../src/task/stages/trial-fold-issues.js")>("../../../src/task/stages/trial-fold-issues.js");
+/** The real `trialFold`, spawning whatever `openspec` is first on `process.env.PATH`. */
+const { trialFold: realTrialFold } = await vi.importActual<typeof import("../../../src/task/cmd-close.js")>("../../../src/task/cmd-close.js");
+
+beforeEach(() => {
+	vi.mocked(trialFoldIssues).mockReset();
+	vi.mocked(trialFoldIssues).mockResolvedValue([]);
+	vi.mocked(trialFold).mockReset();
+});
+
+afterEach(() => {
+	vi.unstubAllEnvs();
+	cleanTemps();
+});
 
 const SCENARIO = { name: "S", clauses: [] };
 const delta = (spec: string, operation: Delta["operation"], scenarios = 1): Delta => ({
@@ -189,5 +212,105 @@ describe.skipIf(process.platform === "win32")("specsGate, with a fake openspec o
 		const issues = await specsGate(gateContext(proposal("- **New:** `spec/export`\n"), { "specs/spec/export/spec.md": delta }, onPath(fake)));
 		expect(issues).toEqual([{ level: "ERROR", path: "specs/spec/export/spec.md", message: expect.stringContaining("`spec/export`") }]);
 		expect(issues[0]?.message).toContain("## Purpose");
+	});
+});
+
+describe.skipIf(process.platform === "win32")("specsGate's trial fold", () => {
+	const files = { "specs/spec/judge/spec.md": MODIFIED_DELTA };
+	const judge = proposal("- **Modified:** `spec/judge`\n");
+
+	const fold = (issues: TrialFoldResult["issues"]): TrialFoldResult => ({ ok: false, command: "openspec validate --specs --strict --json", exit: 1, issues });
+
+	/** A gate context whose change holds the `spec/judge` delta on disk, as the fold's path mapping reads it. */
+	function foldContext(): StageContext {
+		const context = gateContext(judge, files, onPath(fakeOpenspec(validated(), shown("spec/judge"))));
+		mkdirSync(join(context.changeDir, "specs", "spec", "judge"), { recursive: true });
+		writeFileSync(join(context.changeDir, "specs", "spec", "judge", "spec.md"), MODIFIED_DELTA);
+		return context;
+	}
+
+	it("Scenario: A folded MODIFIED requirement over 500 characters is sent back", async () => {
+		vi.mocked(trialFoldIssues).mockImplementation(realTrialFoldIssues);
+		const reported = 'Requirement "The judge scores each draft" text exceeds 500 characters (612)';
+		vi.mocked(trialFold).mockResolvedValue(fold([{ level: "ERROR", spec: "spec/judge", message: reported }]));
+		const context = foldContext();
+		const issues = await specsGate(context);
+		// An ERROR is what sends the draft back for another iteration.
+		expect(issues).toEqual([{ level: "ERROR", path: "specs/spec/judge/spec.md", message: `trial fold: spec/judge: ${reported}` }]);
+		expect(trialFold).toHaveBeenCalledExactlyOnceWith(context.workspace, CHANGE);
+	});
+
+	it("Scenario: A fold warning on a spec without a delta keeps the workspace path", async () => {
+		vi.mocked(trialFoldIssues).mockImplementation(realTrialFoldIssues);
+		vi.mocked(trialFold).mockResolvedValue(fold([{ level: "WARNING", spec: "core/subset", message: "Purpose section is too brief" }]));
+		// The change has a delta for spec/judge only, so the mapping is per spec.
+		const issues = await specsGate(foldContext());
+		expect(issues.filter((i) => i.message.startsWith("trial fold:"))).toEqual([
+			{ level: "WARNING", path: "openspec/specs/core/subset/spec.md", message: "trial fold: core/subset: Purpose section is too brief" },
+		]);
+	});
+
+	it("Scenario: The fold is skipped when change validation fails", async () => {
+		const issue = { level: "ERROR", path: "specs/spec/judge/spec.md", message: "Requirement must have at least one scenario" };
+		vi.mocked(trialFoldIssues).mockResolvedValue([{ level: "ERROR", path: "specs/spec/judge/spec.md", message: "trial fold: spec/judge: x" }]);
+		vi.mocked(trialFold).mockResolvedValue(fold([{ level: "ERROR", spec: "spec/judge", message: "x" }]));
+		const issues = await specsGate(gateContext(judge, files, onPath(fakeOpenspec(validated([issue]), shown("spec/judge")))));
+		expect(trialFoldIssues).not.toHaveBeenCalled();
+		expect(trialFold).toHaveBeenCalledTimes(0);
+		// The validation ERROR still stands, so an empty gate cannot pass this.
+		expect(issues).toEqual([issue]);
+		expect(issues.some((i) => i.message.startsWith("trial fold:"))).toBe(false);
+	});
+
+	it("Scenario: A fold reporting only INFO adds no issue", async () => {
+		// The real fold and mapping, over an `openspec` on the process PATH whose archive
+		// succeeds and whose `validate --specs --strict --json` exits 0 reporting one INFO.
+		vi.mocked(trialFoldIssues).mockImplementation(realTrialFoldIssues);
+		vi.mocked(trialFold).mockImplementation(realTrialFold);
+		const report = {
+			items: [{ id: "spec/judge", type: "spec", valid: true, issues: [{ level: "INFO", path: "spec.md", message: "Consider adding more scenarios" }] }],
+		};
+		const folding = temp("fold-openspec-");
+		writeFileSync(join(folding, "report.json"), JSON.stringify(report));
+		writeFileSync(
+			join(folding, "openspec"),
+			["#!/bin/sh", 'case "$1" in', "  archive) exit 0 ;;", `  validate) cat '${folding}/report.json' ;;`, "esac", ""].join("\n"),
+			{ mode: 0o755 },
+		);
+		vi.stubEnv("PATH", onPath(folding));
+		const issues = await specsGate(foldContext());
+		expect(trialFold).toHaveBeenCalledOnce();
+		await expect(vi.mocked(trialFold).mock.results[0]?.value).resolves.toEqual({
+			ok: true,
+			command: "openspec validate --specs --strict --json",
+			exit: 0,
+			issues: [],
+		});
+		expect(issues.some((i) => i.message.startsWith("trial fold:"))).toBe(false);
+		expect(issues.some((i) => i.message.startsWith("openspec validate --specs --strict could not run"))).toBe(false);
+	});
+
+	it("reports a fold that cannot run as one ERROR at the change directory", async () => {
+		const message = "openspec validate --specs --strict could not run: spawn openspec ENOENT";
+		vi.mocked(trialFoldIssues).mockResolvedValue([{ level: "ERROR", message }]);
+		const issues = await specsGate(gateContext(judge, files, onPath(fakeOpenspec(validated(), shown("spec/judge")))));
+		expect(issues).toEqual([{ level: "ERROR", path: ".", message }]);
+	});
+
+	it("puts fold issues after OpenSpec's and before coverage and size", async () => {
+		const warning = { level: "WARNING", path: "specs/spec/judge/spec.md", message: "Requirement text is brief" };
+		const fold = { level: "WARNING" as const, path: "specs/spec/judge/spec.md", message: "trial fold: spec/judge: too brief" };
+		vi.mocked(trialFoldIssues).mockResolvedValue([fold]);
+		const many = ["spec/judge", "spec/other", "spec/third"];
+		const show = { deltas: many.flatMap((spec) => shown(spec, spec, spec).deltas) };
+		const issues = await specsGate(gateContext(judge, files, onPath(fakeOpenspec(validated([warning]), show))));
+		expect(issues.map((i) => i.message)).toEqual([
+			warning.message,
+			fold.message,
+			expect.stringContaining("`spec/other`"),
+			expect.stringContaining("`spec/third`"),
+			expect.stringMatching(/^3 capabilities/),
+			expect.stringMatching(/^9 requirements/),
+		]);
 	});
 });

@@ -2,8 +2,8 @@
  * The specs stage: drafts one delta per capability under `specs/` from the
  * approved design, seeded with the spec of every capability the proposal
  * modifies. The loop seeds `approved` with the proposal's and the design's
- * files, `design/` included. The gate is `openspec validate --strict`, then
- * coverage against the proposal and the size budget over `openspec show`.
+ * files, `design/` included. The gate is `openspec validate --strict`, then the
+ * trial fold, then coverage against the proposal and the size budget over `openspec show`.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -15,6 +15,7 @@ import { modifiedSpecs } from "./design.js";
 import { openspecDeltas, openspecValidate } from "./openspec-cli.js";
 import { readProposalCapabilities } from "./proposal-md.js";
 import { coverageIssues, specsSizeIssues } from "./specs-gate.js";
+import { trialFoldIssues } from "./trial-fold-issues.js";
 
 /** The approved `proposal.md`, or undefined before there is one. */
 function approvedProposal(changeDir: string): string | undefined {
@@ -27,17 +28,21 @@ const validateFailed = (issues: readonly StageIssue[]): boolean =>
 	issues.length === 1 && issues[0]?.path === "." && (issues[0]?.message.startsWith("`openspec validate` failed") ?? false);
 
 /**
- * OpenSpec's own issues, then coverage, then size. When `validate` cannot run, its one
- * `ERROR` stands for the command and `show` is not tried; when `show` fails, its `ERROR`
- * replaces the size check. Coverage always reads the delta files.
+ * OpenSpec's own issues, then the trial fold's, then coverage, then size. The fold runs
+ * only when `validate` reports no `ERROR`; a fold that cannot run is one `ERROR` at `.`.
+ * When `validate` cannot run, its one `ERROR` stands for the command and `show` is not
+ * tried; when `show` fails, its `ERROR` replaces the size check. Coverage always reads
+ * the delta files.
  */
-export async function specsGate({ changeId, changeDir, files, run }: StageContext): Promise<StageIssue[]> {
+export async function specsGate({ changeId, workspace, changeDir, files, run }: StageContext): Promise<StageIssue[]> {
 	const proposal = readProposalCapabilities(approvedProposal(changeDir) ?? "");
 	const validated = await openspecValidate(run, changeId);
 	if (validateFailed(validated)) return [...validated, ...coverageIssues(proposal, [], files)];
+	const folded = validated.some((issue) => issue.level === "ERROR") ? [] : await trialFoldIssues(workspace, changeId);
 	const shown = await openspecDeltas(run, changeId);
 	return [
 		...validated,
+		...folded.map((issue): StageIssue => ({ ...issue, path: issue.path ?? "." })),
 		...shown.issues,
 		...coverageIssues(proposal, shown.deltas, files),
 		...(shown.issues.length === 0 ? specsSizeIssues(proposal, shown.deltas) : []),

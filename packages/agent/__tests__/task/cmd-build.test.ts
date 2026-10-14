@@ -39,7 +39,9 @@ function writeChange(workspace: string, groups: number, { orphan = false } = {})
 	const names = GROUPS.slice(0, groups).map((g) => `Group ${g.toLowerCase()} builds`);
 	const requirements = names.map((name, i) => `### Requirement: Thing ${i + 1}\nThing ${i + 1} SHALL exist.\n\n#### Scenario: ${name}\n- **WHEN** it runs\n- **THEN** it SHALL work\n`);
 	if (orphan) requirements.push("### Requirement: The orphan\nThe orphan SHALL exist.\n");
-	writeFileSync(join(changeDir, "specs", "plan", "export", "spec.md"), `## ADDED Requirements\n\n${requirements.join("\n")}`);
+	// `## Purpose`, so the change check's trial fold creates the capability clean.
+	const purpose = "## Purpose\nPlans leave the tool as files another program can read back.\n\n";
+	writeFileSync(join(changeDir, "specs", "plan", "export", "spec.md"), `${purpose}## ADDED Requirements\n\n${requirements.join("\n")}`);
 	const tasks = names.flatMap((name, i) => [`## ${i + 1}. ${GROUPS[i]}`, "", `- [ ] ${i + 1}.1 \`${i + 1}.txt\`: "${name}"`, ""]);
 	writeFileSync(join(changeDir, "tasks.md"), tasks.join("\n"));
 	return changeDir;

@@ -8,6 +8,10 @@
  *           blocked            → blocked, its escalation at level "change"
  *           exhausted | failed → failed, naming the group
  *   check   changeChecks in order, argv, no shell → one Iteration on { check: "change" }
+ *           all exit 0 → trialFold, its evidence after theirs
+ *             ok       → converged
+ *             not ok   → blocked at level "change" to the principal; an answer reruns check
+ *           any other  → failed, no fold
  */
 
 import { readFileSync } from "node:fs";
@@ -43,7 +47,8 @@ import {
 	type ChangeLoopOptions,
 	type ChangePhase,
 } from "./change-input.js";
-import { checkEvidence, runLoopChecks, type CheckRun } from "./checks.js";
+import { SPAWN_FAILED_EXIT_CODE, checkEvidence, runLoopChecks, type CheckRun } from "./checks.js";
+import { formatTrialFold, trialFold, type TrialFoldResult } from "./cmd-close.js";
 import { concatDeltas } from "./deltas.js";
 import { TaskLoopStartError } from "./errors.js";
 import { GroupLoopTask, findGroup, formatCheckOutput, resolveGroupOptions, type GroupLoopInput, type GroupLoopResult } from "./group.js";
@@ -51,6 +56,7 @@ import { loopWorkspace } from "./loop.js";
 import { BUNDLED_SCRIPTS, DEFAULT_ESCALATE_TO } from "./options.js";
 import { readChange, readScript, readSource } from "./sources.js";
 import { delegatesOf } from "./start.js";
+import { changeOf } from "./status.js";
 
 /** Any JSON value; pi-durable exports `JsonObject` but not its value type. */
 type JsonValue = JsonObject[string];
@@ -73,7 +79,7 @@ export interface ChangeLoopInput extends Omit<GroupLoopInput, "group" | "groupTi
 export interface ChangeLoopResult extends JsonObject {
 	outcome: LoopOutcome<ChangeOutcome> & JsonObject;
 	notes: string[];
-	/** When a group blocked the change: the group, and its loop, which an answer resumes; else `null`. */
+	/** When a group blocked the change: the group, and its loop, which an answer resumes; else `null`, as when the trial fold blocked it. */
 	blocked: { group: number; loop: number } | null;
 }
 
@@ -179,19 +185,50 @@ export function resumeChangeCheckpoint(
 	return { phase: "group", queue, entries, child: { group: result.blocked.group, id: groupRun } };
 }
 
+/**
+ * The checkpoint a run answering a change the trial fold blocked starts from: the entries carried,
+ * nothing queued, at `check`, so it reruns the change checks and the fold and starts no group loop.
+ */
+export function recheckChangeCheckpoint(result: ChangeLoopResult): ChangeCheckpoint {
+	if (result.blocked !== null) throw new Error(`group ${result.blocked.group} blocked the change loop, not the trial fold`);
+	return { phase: "check", queue: [], entries: (result.outcome.result?.groups ?? []) as ChangeEntry[] };
+}
+
 /** The one target the change check judges. */
 export const CHANGE_TARGET: Target = { check: "change" };
 
-/** The change check as an ontology `Iteration`: a `CheckEvidence` per command, met only when every one exits 0. */
-export function changeCheckIteration(runs: readonly CheckRun[]): Iteration {
-	const evidence = checkEvidence(runs);
+/** What a failing trial fold asks the principal: the command, then the text `close` would print. */
+export function trialFoldQuestion(fold: TrialFoldResult): string {
+	return `trial fold failed: openspec validate --specs --strict\n${formatTrialFold(fold)}`;
+}
+
+/** The fold as `CheckEvidence`. The ontology needs an exit code, so a fold that never ran records 127, as a check that could not spawn does. */
+function foldEvidence(fold: TrialFoldResult): Iteration["evidence"][number] {
+	return { kind: "check", command: fold.command, exitCode: fold.exit ?? SPAWN_FAILED_EXIT_CODE, output: formatTrialFold(fold) };
+}
+
+/**
+ * The change check as an ontology `Iteration`: a `CheckEvidence` per command, then the trial fold's
+ * when it ran. Met only when every command exits 0 and the fold, if any, is `ok`. A failing fold is a
+ * spec defect: its feedback amends the spec, so the loop blocks.
+ */
+export function changeCheckIteration(runs: readonly CheckRun[], fold?: TrialFoldResult): Iteration {
+	const evidence = [...checkEvidence(runs), ...(fold !== undefined ? [foldEvidence(fold)] : [])];
 	const base = { n: 1, plan: "", actions: [], evidence };
-	if (runs.every((r) => r.exitCode === 0)) return { ...base, verdict: { met: true, satisfied: [CHANGE_TARGET], unmet: [] }, feedback: [] };
-	const reason = `change check failed:\n${formatCheckOutput(runs)}`;
+	if (!runs.every((r) => r.exitCode === 0)) {
+		const reason = `change check failed:\n${formatCheckOutput(runs)}`;
+		return {
+			...base,
+			verdict: { met: false, satisfied: [], unmet: [{ target: CHANGE_TARGET, reason }] },
+			feedback: [feedbackFor({ kind: "code-defect", target: CHANGE_TARGET, evidence, message: reason })],
+		};
+	}
+	if (fold === undefined || fold.ok) return { ...base, verdict: { met: true, satisfied: [CHANGE_TARGET], unmet: [] }, feedback: [] };
+	const reason = trialFoldQuestion(fold);
 	return {
 		...base,
 		verdict: { met: false, satisfied: [], unmet: [{ target: CHANGE_TARGET, reason }] },
-		feedback: [feedbackFor({ kind: "code-defect", target: CHANGE_TARGET, evidence, message: reason })],
+		feedback: [feedbackFor({ kind: "spec-defect", target: CHANGE_TARGET, evidence, message: reason })],
 	};
 }
 
@@ -239,29 +276,44 @@ export function finishChange(
 	return failed;
 }
 
-/** The terminal result once the change check ran: converged only when it passed and every group was entered. */
-export function checkedChange(input: Pick<ChangeLoopInput, "groups" | "unclaimed">, entries: readonly ChangeEntry[], runs: readonly CheckRun[]): ChangeLoopResult {
-	const iteration = changeCheckIteration(runs);
+/**
+ * The terminal result once the change check ran: converged only when it passed, the trial fold
+ * passed and every group was entered; blocked, with no group, when only the fold failed.
+ */
+export function checkedChange(
+	input: Pick<ChangeLoopInput, "groups" | "unclaimed">,
+	entries: readonly ChangeEntry[],
+	runs: readonly CheckRun[],
+	fold?: TrialFoldResult,
+): ChangeLoopResult {
+	const iteration = changeCheckIteration(runs, fold);
 	const missing = input.groups.filter((g) => !entries.some((e) => e.group === g));
 	if (missing.length > 0) {
 		return finishChange("failed", entries, [iteration], { input, notes: [`no outcome for group ${missing.join(", ")}`] });
 	}
-	return iteration.verdict.met
-		? finishChange("converged", entries, [iteration], { input })
-		: finishChange("failed", entries, [iteration], { input, notes: ["the change check failed"] });
+	if (iteration.verdict.met) return finishChange("converged", entries, [iteration], { input });
+	if (!runs.every((r) => r.exitCode === 0) || fold === undefined) {
+		return finishChange("failed", entries, [iteration], { input, notes: ["the change check failed"] });
+	}
+	const escalation: Escalation = { level: "change", to: "principal", reason: "spec-defect: amend-spec", question: trialFoldQuestion(fold) };
+	return finishChange("blocked", entries, [iteration], { input, escalation });
 }
 
 type ChangePhases = TaskDefinition<ChangeLoopInput, StoredChangeCheckpoint, ChangeLoopResult, object>["phases"];
 
 /**
- * The check phase over `loopWorkspace(input, bound)`. Nothing is stored before the checks
- * finish, so a process that dies here reruns them all.
+ * The check phase over `loopWorkspace(input, bound)`, then, when every check exits 0, the trial
+ * fold of the loop's directory (a bound workspace too folds the copy on disk). Nothing is stored
+ * before both finish, so a process that dies here reruns them all.
  */
 function checkPhase(bound?: Workspace): ChangePhases["check"] {
 	return async (task, runtime, context) => {
 		const cp = decodeChangeCheckpoint(task.state.checkpoint);
 		const runs = await runLoopChecks(loopWorkspace(task.input, bound), task.input.changeChecks);
-		const done = checkedChange(task.input, cp.entries, runs);
+		const fold = runs.every((r) => r.exitCode === 0)
+			? await trialFold(task.input.worktree?.path ?? task.input.workspace, changeOf(task.input))
+			: undefined;
+		const done = checkedChange(task.input, cp.entries, runs, fold);
 		await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
 	};
 }

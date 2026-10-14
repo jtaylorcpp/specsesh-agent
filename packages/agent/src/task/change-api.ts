@@ -11,7 +11,7 @@ import { start } from "../interpreter/index.js";
 import { checkBindings } from "../durable/index.js";
 import { localWorkspace } from "../node/index.js";
 import { ChangeOutcome, EscalationAnswer, LoopOutcome, check, explain, type Escalation, type GroupOutcome } from "../openspec/index.js";
-import { CHANGE_LOOP_TASK, type ChangeLoopOptions } from "./change-input.js";
+import { CHANGE_LOOP_TASK, type ChangeCheckpoint, type ChangeLoopOptions } from "./change-input.js";
 import { buildRefusal } from "./change-guard.js";
 import {
 	ChangeLoop,
@@ -19,6 +19,7 @@ import {
 	boundChangeLoop,
 	encodeChangeCheckpoint,
 	readChangeInput,
+	recheckChangeCheckpoint,
 	resumeChangeCheckpoint,
 	type ChangeLoopInput,
 	type ChangeLoopResult,
@@ -139,7 +140,8 @@ const sameEscalation = (a: Escalation | undefined, b: Escalation) =>
  * from the escalation's recipient; otherwise rejects with `EscalationAnswerError` and
  * changes nothing. The blocked group's loop is answered with `answerGroupEscalation`, and a
  * new change run, carrying the entries, awaits that group's new run and goes on with the queue.
- * Returns the new change run's ID.
+ * A change the trial fold blocked has no group: its new run carries the entries and starts at
+ * `check`, rerunning the change checks and the fold. Returns the new change run's ID.
  */
 export async function answerChangeEscalation(
 	harness: Harness,
@@ -167,7 +169,9 @@ export async function answerChangeEscalation(
 	if (!check(EscalationAnswer, answer)) {
 		throw new EscalationAnswerError(`the answer is not an EscalationAnswer: ${explain(EscalationAnswer, answer).join("; ")}`);
 	}
-	if (result.blocked === null) throw new EscalationAnswerError(`change loop ${id} names no blocked group to answer`);
+	const input = record.input as unknown as ChangeLoopInput;
+	// No group blocked it, so the trial fold did: rerun `check`, handing the answer to no group.
+	if (result.blocked === null) return startResumed(harness, input, recheckChangeCheckpoint(result), id, context);
 
 	// The group loop ended with its own escalation, at level "group" or below: answer that one.
 	const groupLoop = result.blocked.loop as unknown as TaskId<LoopOutcome<GroupOutcome>>;
@@ -180,12 +184,18 @@ export async function answerChangeEscalation(
 		throw new EscalationAnswerError(`group loop ${String(groupLoop)} of change loop ${id} ended ${blocked.status}, not blocked`);
 	}
 	const groupRun = await answerGroupEscalation(harness, groupLoop, { ...answer, escalation: blocked.escalation }, context);
+	return startResumed(harness, input, resumeChangeCheckpoint(input, result, groupRun as unknown as TaskId), id, context);
+}
 
-	const input = record.input as unknown as ChangeLoopInput;
-	const resumed: ChangeLoopInput = {
-		...input,
-		resume: { checkpoint: encodeChangeCheckpoint(resumeChangeCheckpoint(input, result, groupRun as unknown as TaskId)), answers: id as unknown as number },
-	};
+/** Create the change run that answers loop `id`, starting from `checkpoint`. */
+async function startResumed(
+	harness: Harness,
+	input: ChangeLoopInput,
+	checkpoint: ChangeCheckpoint,
+	id: TaskId<LoopOutcome<ChangeOutcome>>,
+	context: Context,
+): Promise<TaskId<LoopOutcome<ChangeOutcome>>> {
+	const resumed: ChangeLoopInput = { ...input, resume: { checkpoint: encodeChangeCheckpoint(checkpoint), answers: id as unknown as number } };
 	const owner = await harness.root(context);
 	const created = await owner.commit((tx) => tx.createTask(ChangeLoopTask, resumed, { ownership: { kind: "conversation" } }), context);
 	return created as unknown as TaskId<LoopOutcome<ChangeOutcome>>;

@@ -28,7 +28,8 @@ afterEach(() => {
 const CHANGE = "add-thing";
 const PROPOSAL = "## Why\nBecause the thing has to exist, for a reason long enough to pass.\n\n## What Changes\n- Adds the thing.\n";
 const scenario = (name: string) => `#### Scenario: ${name}\n- **WHEN** it runs\n- **THEN** it SHALL work\n`;
-const SPEC = `## ADDED Requirements\n\n### Requirement: Things exist\nThings SHALL exist.\n\n${scenario("A thing exists")}`;
+/** With `## Purpose`, so the change check's trial fold creates the capability clean. */
+const SPEC = `## Purpose\nThings that exist, so the build guard tests have a capability to build.\n\n## ADDED Requirements\n\n### Requirement: Things exist\nThings SHALL exist.\n\n${scenario("A thing exists")}`;
 /** One group whose only task is already ticked: the loop needs no task loop and no model. */
 const TASKS = ["## 1. Build", "", '- [x] 1.1 `src/thing.ts`: "A thing exists"', ""].join("\n");
 

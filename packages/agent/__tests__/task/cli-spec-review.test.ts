@@ -33,7 +33,7 @@ const DESIGN = [
 /** One delta for the proposal's one new capability, with its `## Purpose`. */
 const SPECS = [
 	"=== specs/plan/export/spec.md",
-	"## Purpose\n\nExport a plan as JSON.\n",
+	"## Purpose\n\nExport a plan as JSON, so that CI and other tools can read it.\n",
 	"## ADDED Requirements\n",
 	"### Requirement: Export as JSON\n\nThe CLI SHALL print the plan as JSON.\n",
 	"#### Scenario: JSON on stdout\n\n- **WHEN** the plan is exported\n- **THEN** stdout is the plan as JSON\n",
@@ -51,12 +51,20 @@ const DRAFTS: Record<string, string> = { proposal: `=== proposal.md\n${PROPOSAL}
 
 const INTENT = "Export a plan as JSON so CI can read it";
 
+/** The existing capability's spec, valid enough that the specs gate's trial fold passes it. */
+const CLI_SPEC = [
+	"## Purpose\n\nThe task CLI runs one task of a change and reports how it ended.\n",
+	"## Requirements\n",
+	"### Requirement: It runs\n\nThe CLI SHALL run the task.\n",
+	"#### Scenario: A task runs\n\n- **WHEN** the CLI is run\n- **THEN** the task runs\n",
+].join("\n");
+
 /**
  * A repository with one existing capability and `user.name` `jesse` in its local
  * git config only. `$USER` is `fallback`, so a `jesse` can only come from git.
  */
 function reviewRepo(): string {
-	const repo = gitRepo({ "openspec/specs/task/cli/spec.md": "## Purpose\nCLI purpose.\n\n## Requirements\n" });
+	const repo = gitRepo({ "openspec/specs/task/cli/spec.md": CLI_SPEC });
 	gitIn(repo, "config", "user.name", "jesse");
 	return repo;
 }
