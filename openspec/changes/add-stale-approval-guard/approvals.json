@@ -1,0 +1,50 @@
+{
+  "approvals": [
+    {
+      "stage": "proposal",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-14T03:03:34.497Z",
+      "files": {
+        "proposal.md": "15cfa51bf072a829ce4840a5f4b3f3a26222054063c29ab27edb4de3eb827192"
+      }
+    },
+    {
+      "stage": "design",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-14T03:07:31.070Z",
+      "files": {
+        "design.md": "48f52ca489767f44d76b4d6b509ac1b8957be76bf845d395bc3347c5447a465b",
+        "design/examples/stale-approval-session.sh": "6f6a11840a3f2c9b5e2fa3d58b2aa19cc7ffb49b94267cf2fde5fbaaa16cf57e",
+        "design/mock.html": "164bfc9a642980766bdb0e9038767d20aec773dad729a5e874e661ece6098e42"
+      }
+    },
+    {
+      "stage": "specs",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-14T03:12:51.707Z",
+      "files": {
+        "specs/change/cli/spec.md": "c60c4ca35e48ef499ae2a8dbc08811bafd3a08845eedaf447be8786380d6de58"
+      }
+    },
+    {
+      "stage": "tasks",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-14T03:15:43.772Z",
+      "files": {
+        "tasks.md": "76b58d01aef004ff6a9ca8a83ea2d005267708c18162441ff89cb9111b7549f0"
+      }
+    }
+  ]
+}

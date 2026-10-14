@@ -1,0 +1,5 @@
+`pnpm change build <change>` refuses to start or continue a build when an approved stage's files no longer match their recorded sha256 in `approvals.json`. The refusal exits 2, starts nothing, names each changed file and its stage, and says to review it with `pnpm change draft <change>` (which redrafts from that stage) and approve it again. `pnpm change build <change> --amend` is the one sanctioned way to change an approved delta mid-build: after its validation passes, it records the amended file's new sha256 in the specs approval, as the principal, with the note `amendment-applied`, so the build continues.
+
+Why: gaps.md #16. While answering add-delete-file-grant 3.2 and add-spec-amendments-cli 4.2, a person edited approved spec deltas by hand and `build` carried on as if they were still approved, so the edits went in unreviewed.
+
+Out of scope: `close` (it already validates the fold); `draft` and `approve`, which already treat a changed file as stale; amending anything but spec deltas.

@@ -1,0 +1,52 @@
+{
+  "approvals": [
+    {
+      "stage": "proposal",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-14T03:04:47.116Z",
+      "files": {
+        "proposal.md": "dbc587bdcdd7182c55e94d402e7a9d5e6ffb7b4011f8965764d761e6a5ef18a9"
+      }
+    },
+    {
+      "stage": "design",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-14T03:08:38.595Z",
+      "files": {
+        "design.md": "0804af8de637f4594b0ac7eed94be29a9a32289217332e63ed384cff7848cc1f",
+        "design/examples/build.sh": "eb470a897545e3f049f7e1aad9112a2068f362899e53c9c356257c13c346e918",
+        "design/examples/specs-gate.ts": "9a3cc01ebf841a72df4d8486ec487c6e707b79b47f2d610280e6295955cd4f89",
+        "design/mock.html": "777bd7d4c22b49e13c232adaafa1de22979a4e098dcd9a5c83acae2515326919"
+      }
+    },
+    {
+      "stage": "specs",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-14T03:14:05.197Z",
+      "files": {
+        "specs/spec/stages/spec.md": "626f2b1bd3916280455706cbadf80260da378138cdbcfbf0446a6e7ca40bf62a",
+        "specs/task/change/spec.md": "fa2ed8af874692374c69a3d8e6dede6e21476042b3b10bfc34d171f32f18452b"
+      }
+    },
+    {
+      "stage": "tasks",
+      "approved": true,
+      "by": "principal",
+      "principal": "Jesse Taylor",
+      "notes": "",
+      "at": "2026-10-14T03:15:44.773Z",
+      "files": {
+        "tasks.md": "1fdce71dcd204354b6fce5efeae1c120fc18de36612c0b3b5ce88949fb5d0876"
+      }
+    }
+  ]
+}

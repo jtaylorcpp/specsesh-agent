@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>add-stale-approval-guard — rendered sessions</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #f4f4f2; color: #222; margin: 2rem auto; max-width: 60rem; padding: 0 1rem; }
+  h1 { font-size: 1.3rem; }
+  h2 { font-size: 1.05rem; margin-top: 2rem; }
+  p.note { color: #555; font-size: .9rem; }
+  .fake { display: inline-block; background: #ffe9a8; color: #6a4b00; font-size: .75rem; padding: .1rem .4rem; border-radius: 3px; margin-left: .5rem; }
+  pre { background: #1e1e1e; color: #ddd; padding: 1rem; border-radius: 6px; overflow-x: auto; line-height: 1.4; }
+  .cmd { color: #8fd18f; }
+  .err { color: #f08c8c; }
+  .ok { color: #9cdcfe; }
+  .new { background: #2d3b2d; }
+  .dim { color: #888; }
+</style>
+</head>
+<body>
+<h1>add-stale-approval-guard: rendered CLI sessions <span class="fake">fake data: change, files and names are examples</span></h1>
+<p class="note">Lines with a green background are new in this change. The rest is current <code>pnpm change</code> output.</p>
+
+<h2>1. Starting a build after a hand edit: refused</h2>
+<pre><span class="cmd">$ pnpm change build add-plan-export</span>
+<span class="err new">add-plan-export: approved files changed since they were approved; build refused</span>
+<span class="err new">  specs: specs/plan/export/spec.md (changed)</span>
+<span class="err new">review it with: pnpm change draft add-plan-export</span>
+<span class="err new">then approve it again: pnpm change approve add-plan-export</span>
+<span class="cmd">$ echo $?</span>
+2
+<span class="dim"># no loop started</span></pre>
+
+<h2>2. Continuing a waiting build: refused, several stages</h2>
+<pre><span class="cmd">$ pnpm change build add-plan-export "Use the v2 API"</span>
+<span class="err new">add-plan-export: approved files changed since they were approved; build refused</span>
+<span class="err new">  design: design.md (changed)</span>
+<span class="err new">  specs: specs/plan/export/spec.md (changed)</span>
+<span class="err new">  specs: specs/plan/schema/spec.md (missing)</span>
+<span class="err new">review it with: pnpm change draft add-plan-export</span>
+<span class="err new">then approve it again: pnpm change approve add-plan-export</span>
+<span class="dim"># exit 2; the loop is still blocked asking "Which API?"</span></pre>
+
+<h2>3. Recovering through review</h2>
+<pre><span class="cmd">$ pnpm change draft add-plan-export</span>
+# add-plan-export — waiting for review
+## proposal: approved
+### design draft 2
+...
+pnpm change draft add-plan-export "&lt;what to change&gt;"
+pnpm change approve add-plan-export
+<span class="cmd">$ pnpm change approve add-plan-export</span>
+<span class="dim">...  (repeat until every stage is approved)</span>
+<span class="cmd">$ pnpm change build add-plan-export "Use the v2 API"</span>
+# add-plan-export — built
+## group 1: converged (3 tasks, 0 reworks)
+## group 2: converged (4 tasks, 1 reworks)
+## change check: passed
+pnpm change close add-plan-export</pre>
+
+<h2>4. --amend passes: the approval is updated, then the build resumes</h2>
+<pre><span class="cmd">$ pnpm change build add-plan-export --amend</span>
+amended openspec/changes/add-plan-export/specs/plan/export/spec.md
+## validation: passed
+<span class="ok new">approved specs/plan/export/spec.md as jesse: amendment-applied</span>
+resumed task 2.2 with decision: amendment-applied
+# add-plan-export — built
+## group 1: converged (3 tasks, 0 reworks)
+## group 2: converged (4 tasks, 0 reworks)
+## change check: passed
+pnpm change close add-plan-export
+<span class="cmd">$ pnpm change build add-plan-export</span>
+# add-plan-export — built
+<span class="dim"># no refusal: the amended file's sha256 matches the specs approval</span></pre>
+
+<h2>5. --amend fails validation: nothing recorded</h2>
+<pre><span class="cmd">$ pnpm change build add-plan-export --amend</span>
+amended openspec/changes/add-plan-export/specs/plan/export/spec.md
+## validation: failed
+[ERROR] plan/export: requirement "Export writes JSON" is 534 characters (limit 500)
+restored openspec/changes/add-plan-export/specs/plan/export/spec.md
+nothing resumed
+<span class="dim"># exit 2; approvals.json unchanged; loop still blocked</span></pre>
+
+<h2>6. --amend over a hand-edited delta: refused before writing</h2>
+<pre><span class="cmd">$ pnpm change build add-plan-export --amend</span>
+<span class="err new">add-plan-export: approved files changed since they were approved; build refused</span>
+<span class="err new">  specs: specs/plan/export/spec.md (changed)</span>
+<span class="err new">review it with: pnpm change draft add-plan-export</span>
+<span class="err new">then approve it again: pnpm change approve add-plan-export</span>
+<span class="dim"># exit 2; no "amended" line, nothing written, no validation run</span></pre>
+</body>
+</html>
+

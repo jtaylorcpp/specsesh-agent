@@ -1,0 +1,5 @@
+The bins and gates run the project's own openspec, not whichever is first on PATH. Every place that runs `openspec` (the spec stage gates, `close`'s trial fold, `--amend`'s validation) resolves it from the project's `node_modules/.bin/openspec` first, then PATH, and checks its `--version` once per process against the minimum this package supports (1.14.1). Below the minimum, the command refuses with exit 2 before any model call, naming the version and path it found and the minimum. When a gate cannot read openspec's output, the issue names the openspec version and path, not just "`openspec show` failed".
+
+Why: gaps.md #19. Running `node packages/agent/dist/bin/agentscript-change.js` directly picked up a global openspec 1.9.0, whose `show --json` omits requirement names. The specs gate failed all eight drafts of add-spec-amendments-cli with "`openspec show` failed", and nothing said which openspec it had run.
+
+Out of scope: installing or upgrading openspec; supporting versions below the minimum; the pnpm flag-passing problem (gaps.md #14).

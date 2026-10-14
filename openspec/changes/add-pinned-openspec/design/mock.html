@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>add-pinned-openspec — terminal flow</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #f4f4f2; color: #222; margin: 2rem; max-width: 60rem; }
+  h1 { font-size: 1.3rem; }
+  h2 { font-size: 1rem; margin-top: 2rem; }
+  p.note { color: #555; font-size: .9rem; }
+  .term { background: #1e1e1e; color: #ddd; font-family: ui-monospace, Menlo, monospace; font-size: .85rem;
+          padding: 1rem; border-radius: 6px; white-space: pre-wrap; }
+  .prompt { color: #8ab4f8; }
+  .err { color: #f28b82; }
+  .ok { color: #81c995; }
+  .dim { color: #888; }
+  .tag { display: inline-block; background: #ffe08a; color: #333; font-size: .75rem; padding: 0 .4rem; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>add-pinned-openspec: rendered sessions</h1>
+<p class="note"><span class="tag">FAKE DATA</span> Paths, versions and change ids are examples, not real output.</p>
+
+<h2>1. The project's openspec is used, even when run with plain node</h2>
+<div class="term"><span class="prompt">$</span> which openspec
+/usr/local/bin/openspec
+<span class="prompt">$</span> /usr/local/bin/openspec --version
+1.9.0
+<span class="prompt">$</span> ls node_modules/.bin/openspec
+node_modules/.bin/openspec
+<span class="prompt">$</span> node packages/agent/dist/bin/agentscript-change.js draft add-spec-amendments-cli
+# add-spec-amendments-cli — waiting for review
+## proposal: approved
+## design: approved
+### specs draft 1
+<span class="ok">specs/change/cli/spec.md</span>
+
+pnpm change draft add-spec-amendments-cli "&lt;what to change&gt;"
+pnpm change approve add-spec-amendments-cli
+<span class="dim"># ran /repo/node_modules/.bin/openspec (1.14.1), not /usr/local/bin/openspec</span></div>
+
+<h2>2. Too old: refused before any model call</h2>
+<p class="note">There is no project copy, and the PATH copy is 1.9.0.</p>
+<div class="term"><span class="prompt">$</span> node packages/agent/dist/bin/agentscript-change.js draft add-spec-amendments-cli
+<span class="err">openspec 1.9.0 at /usr/local/bin/openspec is below the minimum supported version 1.14.1</span>
+<span class="prompt">$</span> echo $?
+2
+<span class="dim"># no loop started, no model called, nothing written</span></div>
+
+<h2>3. The same refusal from close and build --amend</h2>
+<div class="term"><span class="prompt">$</span> pnpm change close add-plan-export
+<span class="err">openspec 1.9.0 at /usr/local/bin/openspec is below the minimum supported version 1.14.1</span>
+<span class="dim"># exit 2, openspec/ unchanged</span>
+<span class="prompt">$</span> pnpm change build add-plan-export --amend
+<span class="err">openspec 1.9.0 at /usr/local/bin/openspec is below the minimum supported version 1.14.1</span>
+<span class="dim"># exit 2, delta not written, nothing resumed</span></div>
+
+<h2>4. A version that cannot be read</h2>
+<div class="term"><span class="prompt">$</span> pnpm change approve add-plan-export
+<span class="err">openspec (version unknown) at /opt/tools/openspec is below the minimum supported version 1.14.1</span>
+<span class="dim"># exit 2</span></div>
+
+<h2>5. A gate that cannot read openspec's output names what it ran</h2>
+<div class="term">### specs draft 3
+<span class="err">ERROR</span>  `openspec show add-plan-export --json --deltas-only` printed no parseable JSON (openspec 1.14.1 at /repo/node_modules/.bin/openspec)
+
+<span class="dim">before this change:</span>
+<span class="err">ERROR</span>  `openspec show` failed</div>
+
+<h2>6. openspec not found anywhere (behaviour unchanged, now labelled)</h2>
+<div class="term">### specs draft 1
+<span class="err">ERROR</span>  `openspec validate add-plan-export --strict --json` could not run (openspec not found)</div>
+</body>
+</html>
