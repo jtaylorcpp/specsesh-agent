@@ -2,79 +2,125 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>add-trial-fold-check: rendered flows</title>
+<title>add-trial-fold-check: rendered sessions</title>
 <style>
-  body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem auto; max-width: 60rem; color: #222; }
-  h1 { font-size: 1.4rem; }
-  h2 { font-size: 1.1rem; margin-top: 2rem; }
-  .note { color: #666; font-size: 0.9rem; }
-  pre { background: #111; color: #ddd; padding: 1rem; border-radius: 6px; overflow-x: auto; font: 13px/1.45 ui-monospace, monospace; }
-  .err { color: #ff6b6b; } .warn { color: #ffd166; } .ok { color: #7bd88f; } .dim { color: #888; } .cmd { color: #8ecbff; }
-  nav button { margin-right: .5rem; padding: .3rem .8rem; }
-  section[hidden] { display: none; }
+  body { font-family: system-ui, sans-serif; margin: 2rem; background: #f6f6f4; color: #222; max-width: 62rem; }
+  h1 { font-size: 1.3rem; }
+  h2 { font-size: 1.05rem; margin-top: 2rem; }
+  .note { font-size: .85rem; color: #765; background: #fff7e0; border: 1px solid #e8d9a8; padding: .4rem .6rem; border-radius: 4px; }
+  pre { background: #1e1f22; color: #ddd; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .85rem; line-height: 1.4; }
+  .ok { color: #7fd17f; } .err { color: #ff7b7b; } .warn { color: #f0c060; } .dim { color: #888; } .cmd { color: #8fc1ff; }
+  nav button { margin: 0 .4rem .4rem 0; padding: .3rem .7rem; border: 1px solid #bbb; background: #fff; border-radius: 4px; cursor: pointer; }
+  nav button.on { background: #222; color: #fff; }
+  section { display: none; } section.on { display: block; }
 </style>
 </head>
 <body>
-<h1>add-trial-fold-check: rendered flows</h1>
-<p class="note">All change names, requirement names, lengths and messages below are fake sample data. The openspec message wording is illustrative.</p>
+<h1>add-trial-fold-check: rendered sessions</h1>
+<p class="note">FAKE DATA: the change names, requirement text, messages, counts and layout below are illustrative only. The real messages come from openspec 1.14.1's JSON report.</p>
 <nav>
-  <button data-show="gate">1. Specs gate</button>
-  <button data-show="blocked">2. Build blocked by fold</button>
-  <button data-show="built">3. Build after answer</button>
+  <button data-s="gate-fail" class="on">Specs gate: fold issues</button>
+  <button data-s="gate-norun">Specs gate: fold cannot run</button>
+  <button data-s="gate-pass">Specs gate: fold clean</button>
+  <button data-s="build-blocked">Build: blocked by fold</button>
+  <button data-s="build-built">Build: built</button>
+  <button data-s="build-answer">Build: answer re-runs check</button>
+  <button data-s="close">close: output unchanged</button>
 </nav>
 
-<section id="gate">
-<h2>1. Specs stage: the trial fold sends the draft back</h2>
-<pre><span class="cmd">$ pnpm spec add-spec-amendments-judge</span>
-<span class="dim">stage specs · iteration 1</span>
-  openspec validate add-spec-amendments-judge --strict --json   <span class="ok">0 issues</span>
-  trial fold (openspec validate --specs --strict)                <span class="err">3 issues</span>
-  <span class="err">ERROR</span>   specs/spec/judge/spec.md
-          trial fold: spec/judge: Requirement "The judge scores each draft" is too long (612 &gt; 500 characters)
-  <span class="err">ERROR</span>   specs/spec/judge/spec.md
-          trial fold: spec/judge: Requirement "A verdict names its evidence" is too long (538 &gt; 500 characters)
-  <span class="err">ERROR</span>   specs/task/cli/spec.md
-          trial fold: task/cli: Requirement "amend takes a change and a stage" is too long (521 &gt; 500 characters)
-<span class="dim">stage specs · iteration 2</span>
-  openspec validate add-spec-amendments-judge --strict --json   <span class="ok">0 issues</span>
-  trial fold (openspec validate --specs --strict)                <span class="ok">0 issues</span>
-<span class="ok">specs drafted · waiting for review</span></pre>
-<p class="note">If the fold can't run, there is one issue instead:</p>
-<pre>  <span class="err">ERROR</span>   trial fold (openspec validate --specs --strict): openspec could not be spawned</pre>
+<section id="gate-fail" class="on">
+<h2>1. Specs stage, iteration 1: the change validates, but the folded specs do not</h2>
+<pre><span class="cmd">$ pnpm spec add-spec-amendments-judge --stage specs</span>
+<span class="dim">specs · iteration 1 · drafting…</span>
+<span class="dim">gate: openspec validate add-spec-amendments-judge --strict --json</span>   <span class="ok">✓ no issues</span>
+<span class="dim">gate: trial fold (openspec validate --specs --strict --json)</span>
+  <span class="err">ERROR</span>   specs/spec/judge/spec.md          trial fold: spec/judge: Requirement "The judge scores each draft" text exceeds 500 characters (612)
+  <span class="err">ERROR</span>   specs/spec/judge/spec.md          trial fold: spec/judge: Requirement "A judge verdict is recorded" text exceeds 500 characters (540)
+  <span class="err">ERROR</span>   specs/task/change/spec.md         trial fold: task/change: Requirement "The change check runs once after the last group" text exceeds 500 characters (533)
+  <span class="warn">WARNING</span> openspec/specs/core/subset/spec.md trial fold: core/subset: Purpose section is too brief
+<span class="dim">(paths: the change's delta when it has one; otherwise the workspace spec)</span>
+<span class="warn">4 issues → iterating</span></pre>
 </section>
 
-<section id="blocked" hidden>
-<h2>2. Build: groups converge, change check passes, the fold fails</h2>
+<section id="gate-norun">
+<h2>2. Specs stage: the fold cannot run, so there is one ERROR naming the command</h2>
+<pre><span class="dim">specs · iteration 1 · drafting…</span>
+<span class="dim">gate: openspec validate add-spec-amendments-judge --strict --json</span>   <span class="ok">✓ no issues</span>
+<span class="dim">gate: trial fold (openspec validate --specs --strict --json)</span>
+  <span class="err">ERROR</span>   openspec validate --specs --strict could not run: no parseable JSON on stdout
+<span class="warn">1 issue → iterating</span></pre>
+</section>
+
+<section id="gate-pass">
+<h2>3. Specs stage, iteration 2: the folded specs validate, so the draft waits for review</h2>
+<pre><span class="dim">specs · iteration 2 · drafting…</span>
+<span class="dim">gate: openspec validate add-spec-amendments-judge --strict --json</span>   <span class="ok">✓ no issues</span>
+<span class="dim">gate: trial fold (openspec validate --specs --strict --json)</span>           <span class="ok">✓ no issues</span>
+<span class="dim">gate: deltas cover proposal capabilities</span>                               <span class="ok">✓</span>
+<span class="dim">gate: size budget</span>                                                     <span class="ok">✓</span>
+<span class="ok">clean → waiting for review</span></pre>
+</section>
+
+<section id="build-blocked">
+<h2>4. pnpm change build: the change checks pass, the fold fails, and the build ends blocked</h2>
 <pre><span class="cmd">$ pnpm change build add-spec-amendments-judge</span>
-group 1   <span class="ok">converged</span> · runs 1
-group 2   <span class="ok">converged</span> · runs 1
-change check
-  pnpm typecheck                                          <span class="ok">exit 0</span>
-  pnpm test                                               <span class="ok">exit 0</span>
-  openspec validate --specs --strict (trial fold)         <span class="err">exit 1</span>
-<span class="warn">blocked</span> · level change · to principal
-  The folded specs fail openspec validate --specs --strict:
-    <span class="err">✗</span> spec/judge: Requirement "The judge scores each draft" is too long (612 &gt; 500 characters)
-    <span class="err">✗</span> spec/judge: Requirement "A verdict names its evidence" is too long (538 &gt; 500 characters)
-    <span class="err">✗</span> task/cli: Requirement "amend takes a change and a stage" is too long (521 &gt; 500 characters)
-  Fix the deltas through the specs stage, then answer to re-run the change check and the fold.</pre>
+group 1 <span class="ok">converged</span> (runs 1)
+group 2 <span class="ok">converged</span> (runs 1)
+group 3 <span class="ok">converged</span> (runs 1)
+check  pnpm typecheck        <span class="ok">exit 0</span>
+check  pnpm test             <span class="ok">exit 0</span>
+check  pnpm docs:check       <span class="ok">exit 0</span>
+check  openspec validate --specs --strict --json (trial fold)   <span class="err">exit 1</span>
+
+<span class="warn">blocked</span> at level change → principal
+  trial fold failed: openspec validate --specs --strict
+  ✗ [ERROR] spec/judge: Requirement "The judge scores each draft" text exceeds 500 characters (612)
+  ✗ [ERROR] spec/judge: Requirement "A judge verdict is recorded" text exceeds 500 characters (540)
+  ✗ [ERROR] task/change: Requirement "The change check runs once after the last group" text exceeds 500 characters (533)
+<span class="dim">  (lines from formatTrialFold, the same text close prints)</span>
+
+Fix the deltas under openspec/changes/add-spec-amendments-judge/specs/, then:
+  <span class="cmd">pnpm change answer add-spec-amendments-judge "deltas shortened"</span></pre>
 </section>
 
-<section id="built" hidden>
-<h2>3. After the deltas are fixed and re-approved, the principal answers</h2>
-<pre><span class="cmd">$ pnpm change answer add-spec-amendments-judge "specs shortened and re-approved"</span>
-<span class="dim">new run · groups 1, 2 already entered · phase check</span>
-change check
-  pnpm typecheck                                          <span class="ok">exit 0</span>
-  pnpm test                                               <span class="ok">exit 0</span>
-  openspec validate --specs --strict (trial fold)         <span class="ok">exit 0</span>
-<span class="ok">converged</span> · groups 1, 2 · unclaimed: none</pre>
+<section id="build-built">
+<h2>5. pnpm change build: the change checks and the fold both pass</h2>
+<pre><span class="cmd">$ pnpm change build add-trial-fold-check</span>
+group 1 <span class="ok">converged</span> (runs 1)
+group 2 <span class="ok">converged</span> (runs 1)
+check  pnpm typecheck        <span class="ok">exit 0</span>
+check  pnpm test             <span class="ok">exit 0</span>
+check  openspec validate --specs --strict --json (trial fold)   <span class="ok">exit 0</span>
+
+<span class="ok">built</span> (converged) · groups 1, 2 · unclaimed: none</pre>
+</section>
+
+<section id="build-answer">
+<h2>6. Answering a fold block re-runs only the check phase</h2>
+<pre><span class="cmd">$ pnpm change answer add-spec-amendments-judge "deltas shortened"</span>
+<span class="dim">new run · entries carried: groups 1, 2, 3 · resuming at check</span>
+check  pnpm typecheck        <span class="ok">exit 0</span>
+check  pnpm test             <span class="ok">exit 0</span>
+check  pnpm docs:check       <span class="ok">exit 0</span>
+check  openspec validate --specs --strict --json (trial fold)   <span class="ok">exit 0</span>
+
+<span class="ok">built</span> (converged) · groups 1, 2, 3 · unclaimed: none</pre>
+</section>
+
+<section id="close">
+<h2>7. close: what it prints on a failing fold is unchanged (now formatted from structured issues)</h2>
+<pre><span class="cmd">$ pnpm change close add-spec-amendments-judge</span>
+trial fold failed: openspec validate --specs --strict
+  ✗ [ERROR] spec/judge: Requirement "The judge scores each draft" text exceeds 500 characters (612)
+<span class="err">close refused: nothing archived</span></pre>
 </section>
 
 <script>
   document.querySelectorAll("nav button").forEach(function (b) {
     b.addEventListener("click", function () {
-      document.querySelectorAll("section").forEach(function (s) { s.hidden = s.id !== b.dataset.show; });
+      document.querySelectorAll("nav button, section").forEach(function (e) { e.classList.remove("on"); });
+      b.classList.add("on");
+      document.getElementById(b.dataset.s).classList.add("on");
     });
   });
 </script>

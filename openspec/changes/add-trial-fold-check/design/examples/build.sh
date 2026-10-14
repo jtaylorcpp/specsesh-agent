@@ -1,15 +1,11 @@
 #!/bin/sh
-# What a user runs. Nothing new to type: the fold runs inside the existing commands.
-
-# Draft the specs: the gate now also runs the trial fold and iterates until it is clean.
-pnpm spec add-spec-amendments-judge
-
-# Build: after the change check, the trial fold runs.
+# Build a change. After the change checks pass, the trial fold runs;
+# a failing fold ends the build blocked with the fold's output (the same text close prints).
 pnpm change build add-spec-amendments-judge
-# -> blocked · level change · to principal, with the fold's output
 
-# Fix the deltas through the specs stage (and re-approve), then answer
-# to re-run only the change check and the trial fold:
-pnpm spec add-spec-amendments-judge
-pnpm change answer add-spec-amendments-judge "specs shortened and re-approved"
-# -> converged
+# Blocked by the fold: shorten the MODIFIED requirements in the deltas...
+$EDITOR openspec/changes/add-spec-amendments-judge/specs/spec/judge/spec.md
+
+# ...then answer the escalation; a new run re-runs only the check phase
+# (the change checks, then the trial fold).
+pnpm change answer add-spec-amendments-judge "deltas shortened"

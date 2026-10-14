@@ -2,82 +2,123 @@
 
 ## Context
 
-`close` already checks a change by folding it into a temporary copy of `openspec/` and running `openspec validate --specs --strict` there. `add-spec-amendments-cli` moved that code out of `cmd-close.ts` into a shared function. This design calls it `trialFold`, though the real export name and shape are whatever that change shipped.
+`close` already runs a trial fold. It copies `openspec/` into a temporary directory, folds the change's deltas into that copy's specs, and runs `openspec validate --specs --strict` there. `add-spec-amendments-cli` moved that routine, `trialFold`, out of `close`'s command code so other code can call it. It is still exported from `src/task/cmd-close.ts`.
 
-Two places don't use the fold yet:
+In openspec 1.14.1, `validate <change> --strict` checks the length of ADDED requirements but not MODIFIED ones. So today a change can pass the specs gate, `pnpm change build` and verify, and still fail at `close` (gaps.md #17). This change calls the same `trialFold` in two more places:
 
-- **The specs stage's gate.** It runs `openspec validate <change> --strict --json` on the deltas only. In openspec 1.14.1 that command length-checks ADDED requirements but not MODIFIED ones (gaps.md #17).
-- **`pnpm change build`.** It ends after the change check. Nothing there looks at the folded specs.
+1. **The specs stage's gate** (`spec/stages`). The fold's errors and warnings go back into the spec loop as issues on the draft.
+2. **The change loop's `check` phase** (`task/change`). The fold runs after the change checks pass. A failing fold ends the build `blocked` instead of `converged`.
 
-This change adds the trial fold to both. It does not change openspec, `close`, or the other stages' gates.
+The principal made two decisions during the build (group 1 escalation):
 
-The shape this design assumes for the shared fold:
+- **(a) `trialFold` returns structured issues.** The shared `trialFold` in `src/task/cmd-close.ts` now runs `openspec validate --specs --strict --json` and returns issues as `{ level, spec, message }`. `close` formats those issues itself, and its printed output stays exactly as it is today. Neither new caller parses human-readable text.
+- **(b) The gate's wrapper lives in `src/task/stages/trial-fold-issues.ts`**, with its tests in `__tests__/task/stages/trial-fold-issues.test.ts`. Putting it under `src/spec/` would break the package's layer rule.
+
+This is the only change made to `close`'s code: the routine it shares now returns structured data. What `close` does and prints stays the same. openspec itself and the gates of the proposal, design and tasks stages do not change.
+
+The new shape of the shared routine (full version in `design/examples/trial-fold.ts`):
 
 ```ts
-// from cmd-close.ts (shared by add-spec-amendments-cli). Assumed shape.
-trialFold(workspace: string, change: string): Promise<{
-  ok: boolean;                 // validate exited 0 with no ERROR or WARNING
-  issues: { level: "ERROR" | "WARNING"; spec: string; path?: string; message: string }[];
-  output: string;              // validate's printed output, as close shows it
-}>
+// src/task/cmd-close.ts
+export interface TrialFoldIssue { level: "ERROR" | "WARNING"; spec: string; message: string }
+export interface TrialFoldResult {
+  ok: boolean;
+  command: "openspec validate --specs --strict --json";
+  exit: number | null;          // null: could not spawn
+  issues: TrialFoldIssue[];     // from the JSON report, INFO dropped
+  failure?: string;             // spawn error, or "no parseable JSON" plus raw stdout/stderr
+}
+export function trialFold(workspace: string, change: string): Promise<TrialFoldResult>;
+export function formatTrialFold(result: TrialFoldResult): string; // the lines close prints today
 ```
 
-If the real export differs, a small adapter in the new module covers the difference. It stays the only adapter, and the fold logic is not copied.
+`trialFold` builds `issues` from the JSON report. For each item of type `spec`, each of its issues becomes one `TrialFoldIssue`, with `spec` set to the item's id (for example `task/change`). `INFO` issues are dropped. The routine creates the temporary copy and removes it in a `finally`, so no caller deals with temporary directories. `formatTrialFold` is the formatting `close` used to do inline. `close` calls it, so its output is unchanged, and the build calls it too, so a blocked build shows the same text `close` would show.
 
 ## How it is used
 
-Neither place gets a new flag or command. Users see the fold through the specs loop and the build.
+### At the specs gate
 
-### At the specs stage's gate
-
-The specs gate gets one more rule, after strict validation. The rule only runs when strict validation reported no `ERROR`. A delta that is already invalid is not folded, so the same problem is not reported twice.
+The specs gate keeps strict change validation as its first rule. Then, only if that validation reported no `ERROR`, it calls `trialFoldIssues` from `src/task/stages/trial-fold-issues.ts` and adds the result:
 
 ```ts
-// src/spec/stages/specs-gate.ts (sketch)
-const strict = await strictValidationIssues(workspace, change);   // existing first rule
-const fold = strict.some(i => i.level === "ERROR")
-  ? []
-  : await trialFoldIssues(workspace, change);                     // new rule
-return [...strict, ...fold, ...coverageIssues, ...sizeIssues];
+// src/task/stages/trial-fold-issues.ts
+import { trialFold } from "../cmd-close";
+
+export async function trialFoldIssues(workspace: string, change: string): Promise<Issue[]> {
+  const fold = await trialFold(workspace, change);
+  if (fold.failure !== undefined) {
+    return [{ level: "ERROR", message: `openspec validate --specs --strict could not run: ${fold.failure}` }];
+  }
+  const deltas = await deltaSpecs(workspace, change); // e.g. Set { "task/change", "spec/judge" }
+  return fold.issues.map((i) => ({
+    level: i.level,
+    path: deltas.has(i.spec) ? `specs/${i.spec}/spec.md` : `openspec/specs/${i.spec}/spec.md`,
+    message: `trial fold: ${i.spec}: ${i.message}`,
+  }));
+}
 ```
 
-`trialFoldIssues` turns each `ERROR` or `WARNING` the fold reports into one gate issue:
+```ts
+// specs gate, after the strict change validation rule
+const issues = await strictChangeIssues(workspace, change);
+if (!issues.some((i) => i.level === "ERROR")) {
+  issues.push(...(await trialFoldIssues(workspace, change)));
+}
+issues.push(...coverageIssues(/* … */), ...sizeIssues(/* … */));
+```
 
-- **Level:** the same level the fold gave it.
-- **Message:** starts with `trial fold: ` so the drafter can tell it apart from a delta issue.
-- **Path:** the change's own delta, `specs/<area>/<name>/spec.md`, when the change has a delta for that spec. Otherwise it is the main spec, `openspec/specs/<area>/<name>/spec.md`.
-
-If the fold can't run (openspec can't be spawned, it prints nothing parseable, or the copy fails), the rule reports one `ERROR` naming `trial fold (openspec validate --specs --strict)`.
-
-The specs loop already iterates on any `ERROR` or `WARNING`, so it keeps redrafting until the folded specs validate. The full flow is in [design/examples/specs-gate.ts](design/examples/specs-gate.ts).
+Each issue keeps the fold's level. Its `path` is the change's delta for that spec, `specs/<spec>/spec.md`, which is the file the next draft has to fix. A spec with no delta keeps a workspace path, `openspec/specs/<spec>/spec.md`. A fold that could not run, or printed no parseable JSON, is one `ERROR` naming `openspec validate --specs --strict`, the same way the existing first rule handles a command that fails. The full code is in `design/examples/trial-fold-issues.ts`, and the gate is in `design/examples/specs-gate.ts`. Because every fold warning is an issue, the spec loop keeps iterating until the folded specs validate. Only then can the specs stage be approved.
 
 ### In `pnpm change build`
 
-```sh
-pnpm change build add-spec-amendments-judge
+In the `check` phase, the build runs each of `changeChecks` first, exactly as today. If any check exits non-zero, the build ends `failed` as before. If all exit `0`, the build calls `trialFold` directly from `src/task/cmd-close.ts`:
+
+- **Fold passes:** the loop ends `converged`, with `unclaimed` filled in as today.
+- **Fold fails or cannot run:** the loop ends `blocked` at `level` `"change"` and escalates to `principal`. The escalation's question is `trial fold failed: openspec validate --specs --strict` followed by `formatTrialFold(result)`. The `check` iteration also records a `CheckEvidence` for the fold command, with its exit code (or none) and that same text.
+
+```ts
+// change loop, check phase, after every change check exited 0
+const fold = await trialFold(workspace, change);
+evidence.push({ command: fold.command, exit: fold.exit, output: formatTrialFold(fold) });
+if (!fold.ok) {
+  return blocked({ level: "change", to: "principal",
+    question: `trial fold failed: openspec validate --specs --strict\n${formatTrialFold(fold)}` });
+}
+return converged({ entries, unclaimed });
 ```
 
-When every change check exits `0`, the `check` phase runs the trial fold in the same phase:
+From the command line (`design/examples/build.sh`):
 
-- **Evidence:** the fold is recorded as one more `CheckEvidence` in the same `{ check: "change" }` iteration. Its command is `openspec validate --specs --strict (trial fold)`, followed by the exit code and the fold's output.
-- **Fold passes:** the loop ends `converged`, as it does today.
-- **Fold fails:** the iteration is unmet and the loop ends `blocked`. The escalation is at `level` `"change"`, goes to `principal`, and its question holds the fold's output.
-- **Answering the escalation:** a new change run starts. It goes straight to `check`, runs the change checks and the trial fold again, and keeps the groups already entered. The principal fixes the deltas through the specs stage, then answers.
+```sh
+pnpm change build add-spec-amendments-judge
+# … groups converge, change checks pass …
+# blocked: trial fold failed: openspec validate --specs --strict
+#   ✗ [ERROR] spec/judge: Requirement "…" text exceeds 500 characters (612)
+$EDITOR openspec/changes/add-spec-amendments-judge/specs/spec/judge/spec.md
+pnpm change answer add-spec-amendments-judge "deltas shortened"   # re-runs the check phase only
+```
 
-The full session is in [design/examples/build.sh](design/examples/build.sh). [design/mock.html](design/mock.html) shows all three flows rendered: a specs gate pass, a blocked build, and a build that passes after the answer.
+The rendered sessions for the gate and the build are in `design/mock.html`.
 
 ## Decisions
 
-1. **One shared fold, wrapped once.** Both callers go through `trialFoldIssues` in a new `src/spec/trial-fold-issues.ts`. It calls the `cmd-close.ts` export and maps the result to gate issues. The build's check phase uses the same wrapper's raw result for its evidence and its escalation text. There is no second copy of the fold.
-2. **Fold after strict validation, only when it is clean.** Folding a delta that openspec already rejects either fails or repeats the same error. Skipping the fold in that case keeps the issue list short. It costs one more iteration when both kinds of problem are present.
-3. **Report every fold issue, including ones on specs the change does not touch.** The principal asked for each error or warning, so none are filtered out. Main specs are kept valid because every `close` runs this fold, so issues on untouched specs should be rare. When one does appear, it is a real blocker for `close` anyway.
-4. **Issue paths point at the delta when there is one.** The drafter can only edit the change's files, so the issue names the file the drafter has to fix.
-5. **Blocked, not failed, in the build.** The code is done and correct; only the spec text needs fixing. Ending `blocked` with the fold's output asks the principal to decide. Answering it re-runs only the `check` phase, so built groups are not rebuilt.
-6. **No new checkpoint phase or task version.** The fold runs inside `check` after the change checks. Running it again on resume is harmless because it only touches a temporary copy. The checkpoint shape `{ phase, queue, entries, child? }` and version `1` stay the same.
+- **`trialFold` returns structured issues (principal's decision a).** It runs `openspec validate --specs --strict --json` and returns `{ level, spec, message }` issues. `close` formats them with `formatTrialFold`, and its output stays the same. Neither the gate nor the build reads human-readable openspec output.
+- **One routine, no copies.** `close`, the gate wrapper and the change loop all import from `src/task/cmd-close.ts`. The build reuses `formatTrialFold` so that its blocked output matches what `close` prints.
+- **The wrapper lives in `src/task/stages/` (principal's decision b).** That is `src/task/stages/trial-fold-issues.ts`, with tests in `__tests__/task/stages/trial-fold-issues.test.ts`. `src/spec/` cannot import from `src/task/` under the layer rule.
+- **Issue paths point at the delta.** The `spec` id maps to `specs/<spec>/spec.md` inside the change when the change has a delta for it. Otherwise the path is `openspec/specs/<spec>/spec.md`. Either way the message names the spec.
+- **The fold runs at the gate only when change validation is clean.** A delta that fails `validate <change> --strict` may not fold at all, and running the fold anyway would repeat the same problem as noise.
+- **Warnings count as failures.** `--strict` makes openspec exit non-zero on warnings. At the gate each warning is a `WARNING` issue, so the loop iterates. In the build, any `ok: false` blocks. `INFO` is dropped.
+- **A failing fold blocks the build; it does not fail it.** The code is done and only the specs need editing, which the principal decides on. A fold that cannot run (for example, `openspec` is missing) also blocks, with its `failure` text as the output.
+- **Answering a fold block re-runs the `check` phase.** No group is blocked, so there is no group loop to hand the answer to. `answerChangeEscalation` starts a new change run, carrying the entries, that goes straight to `check`: the change checks, then the fold.
+- **The fold goes in the existing `check` phase.** There is no new phase, and the checkpoint version stays `1`. If the process is killed during the fold, `check` runs again. Both the change checks and the fold are safe to repeat.
+- **Every requirement stays under 500 characters.** The `task/change` behaviour goes into two new ADDED requirements, one for the fold in `check` and one for answering a fold block, instead of lengthening the existing MODIFIED ones. The same applies to the specs gate's fold rule in `spec/stages`. This change must pass its own fold.
 
 ## Risks
 
-- **Cost.** Each specs gate run and each build copies `openspec/` and runs validate once more. On this repository that should take seconds. If it grows, the copy could be limited to the specs the change touches, but that would mean changing the shared fold, which is out of scope here.
-- **Answering a fold block depends on the spec stage.** After the fix, the edited deltas no longer match `approvals.json`. The re-run `check` phase does not re-check approvals; only `startChangeLoop` does that. The principal is expected to re-approve the specs stage before answering. The alternative is to make a fold block unanswerable, so that a fresh `pnpm change build` is needed (ticked groups are not rebuilt). That would be stricter but heavier. Say if you prefer it.
-- **The shared fold's shape is assumed.** If `add-spec-amendments-cli` exports something with no structured issues (output only), the wrapper has to parse `--json` itself. That is still one place, but it is more code than the sketch above.
-- **Temporary copies left behind.** A process killed mid-fold can leave the temporary copy on disk. The shared fold is expected to clean up in `finally`. Nothing here adds cleanup of its own.
+- **Cost:** every specs gate run and every build copies `openspec/` and runs openspec one more time. This is acceptable at the current size of `openspec/`. Copying less is a later optimisation and is not part of this change.
+- **The JSON report shape:** `trialFold` depends on openspec 1.14.1's `--json` report (items with `id`, `type` and `issues`). If a later openspec changes that shape, the routine returns `failure` ("no parseable JSON"). The gate then reports one `ERROR` and the build blocks, so the problem stays visible instead of passing silently. The tests for `close` and for `trial-fold-issues` pin the shape.
+- **`close`'s output:** moving the formatting into `formatTrialFold` could change what `close` prints. A test compares `close`'s output on a failing fold before and after the change.
+- **The openspec gap may close:** if a later openspec checks MODIFIED requirements in the delta, the fold only duplicates that check. It stays correct, just redundant.
+- **Answer semantics:** re-running `check` on an answer assumes the principal fixed the deltas first. An answer given without a fix blocks again with the same output. That is safe, but it repeats the work.
+
+Files: `design/mock.html`, `design/examples/trial-fold.ts`, `design/examples/trial-fold-issues.ts`, `design/examples/specs-gate.ts`, `design/examples/build.sh`.

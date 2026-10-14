@@ -1,36 +1,38 @@
 ## ADDED Requirements
 
-### Requirement: The trial fold is the specs gate's second rule
-When strict validation reports no `ERROR`, the gate SHALL run the trial fold through `trialFoldIssues` and report, after strict validation's issues and before coverage and size, one issue per fold `ERROR` or `WARNING`: at the fold's level, its message `trial fold: <area>/<name>: <message>`, its path `specs/<area>/<name>/spec.md` when the change has that delta, else `openspec/specs/<area>/<name>/spec.md`. Issues on specs the change does not touch SHALL NOT be dropped.
+### Requirement: The specs gate runs the trial fold when change validation is clean
+When strict change validation reports no `ERROR`, the gate SHALL add `trialFoldIssues` from `src/task/stages/trial-fold-issues.ts`, which calls the shared `trialFold` of `src/task/cmd-close.ts`. Each fold `ERROR` or `WARNING` SHALL be an issue at its level, with message `trial fold: <spec>: <message>` and path `specs/<spec>/spec.md` when the change has a delta for that spec, else `openspec/specs/<spec>/spec.md`. `INFO` SHALL be dropped.
 
-#### Scenario: A MODIFIED requirement too long after folding
-- **GIVEN** a change whose delta `specs/spec/judge/spec.md` passes strict validation, and whose folded `spec/judge` has the requirement `The judge scores each draft` over 500 characters
-- **WHEN** the specs gate runs
-- **THEN** it SHALL report an `ERROR` with path `specs/spec/judge/spec.md` and a message starting `trial fold: spec/judge: `, and the spec loop SHALL iterate
+#### Scenario: A folded MODIFIED requirement over 500 characters is sent back
+- **GIVEN** a change with a delta for `spec/judge` whose strict change validation reports no issue
+- **WHEN** the trial fold reports the `ERROR` `Requirement "The judge scores each draft" text exceeds 500 characters (612)` for `spec/judge`
+- **THEN** the gate SHALL report an `ERROR` with path `specs/spec/judge/spec.md` and message `trial fold: spec/judge: Requirement "The judge scores each draft" text exceeds 500 characters (612)`
+- **AND** the spec loop SHALL iterate
 
-#### Scenario: A fold issue on a spec the change does not touch
+#### Scenario: A fold warning on a spec without a delta keeps the workspace path
 - **GIVEN** a change with no delta for `core/subset`
-- **WHEN** the trial fold reports a `WARNING` for `core/subset`
-- **THEN** the gate SHALL report a `WARNING` with path `openspec/specs/core/subset/spec.md` and a message starting `trial fold: core/subset: `
+- **WHEN** the trial fold reports the `WARNING` `Purpose section is too brief` for `core/subset`
+- **THEN** the gate SHALL report a `WARNING` with path `openspec/specs/core/subset/spec.md` and message `trial fold: core/subset: Purpose section is too brief`
 
-#### Scenario: An invalid delta is not folded
-- **WHEN** strict validation reports an `ERROR`
-- **THEN** the trial fold SHALL NOT run, and no issue's message SHALL start with `trial fold: `
+#### Scenario: The fold is skipped when change validation fails
+- **WHEN** `openspec validate <change> --strict --json` reports an `ERROR`
+- **THEN** the gate SHALL NOT call `trialFold`, and no issue SHALL have a message starting `trial fold:`
 
-#### Scenario: A clean fold adds no issue
-- **WHEN** strict validation reports no issue and the trial fold reports no `ERROR` or `WARNING`
-- **THEN** no issue's message SHALL start with `trial fold: `
+#### Scenario: A fold reporting only INFO adds no issue
+- **GIVEN** strict change validation reports no issue
+- **WHEN** the trial fold's JSON report holds only an `INFO` issue
+- **THEN** the gate SHALL report no issue whose message starts `trial fold:`
 
-### Requirement: One module wraps the shared trial fold
-`src/spec/trial-fold-issues.ts` SHALL export `trialFoldIssues(workspace, change, deltaSpecs)`, calling the trial fold `cmd-close.ts` exports, with any adapter for its shape kept there. The specs gate and the change loop's `check` SHALL reach the fold only through this module. A fold that throws (openspec not spawned, no parseable output, a failed copy) SHALL be one `ERROR` whose path is `trial fold (openspec validate --specs --strict)` and whose message starts with it.
+### Requirement: A trial fold that cannot run is one ERROR
+When `trialFold` returns a `failure`, `trialFoldIssues` SHALL return exactly one `ERROR`, with no path, whose message is `openspec validate --specs --strict could not run: ` followed by the failure text.
 
-#### Scenario: The fold cannot run
-- **GIVEN** strict validation reports no issue
-- **WHEN** the trial fold throws because the temporary copy of `openspec/` fails
-- **THEN** the gate SHALL report exactly one trial fold issue, an `ERROR` naming `trial fold (openspec validate --specs --strict)`
+#### Scenario: The fold prints no parseable JSON
+- **GIVEN** strict change validation reports no issue
+- **WHEN** the trial fold's command prints no parseable JSON
+- **THEN** the gate SHALL report exactly one fold issue, an `ERROR` whose message starts `openspec validate --specs --strict could not run:`
 
-#### Scenario: One fold serves both callers
-- **GIVEN** the trial fold exported by `cmd-close.ts` replaced by a stub
-- **WHEN** the specs gate runs on a strictly valid change, and a change loop's change checks all exit `0`
-- **THEN** the stub SHALL be called once by each, and no other module SHALL run `openspec validate --specs --strict`
+#### Scenario: openspec is missing during the fold
+- **GIVEN** strict change validation reports no issue
+- **WHEN** `openspec` cannot be spawned for the trial fold
+- **THEN** the gate SHALL report one `ERROR` naming `openspec validate --specs --strict`
 

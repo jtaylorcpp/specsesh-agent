@@ -17,12 +17,14 @@
       "by": "principal",
       "principal": "Jesse Taylor",
       "notes": "",
-      "at": "2026-10-14T03:08:38.595Z",
+      "at": "2026-10-14T05:09:47.177Z",
       "files": {
-        "design.md": "0804af8de637f4594b0ac7eed94be29a9a32289217332e63ed384cff7848cc1f",
-        "design/examples/build.sh": "eb470a897545e3f049f7e1aad9112a2068f362899e53c9c356257c13c346e918",
-        "design/examples/specs-gate.ts": "9a3cc01ebf841a72df4d8486ec487c6e707b79b47f2d610280e6295955cd4f89",
-        "design/mock.html": "777bd7d4c22b49e13c232adaafa1de22979a4e098dcd9a5c83acae2515326919"
+        "design.md": "19e5353fb9106fcaab21b19ed788767e3999eda140d75d65d27543e804e33678",
+        "design/examples/build.sh": "f665ca4e9a0180fca1fc02d992fcd7a1ed9a684cc12e86f76eb1ca03a4fcff0e",
+        "design/examples/specs-gate.ts": "c791ceb360f40ef93acdfd0b98ff21bb45a3ba28285d6b4071e8ae2c1260a967",
+        "design/examples/trial-fold-issues.ts": "8cf23626d2d6cf91703c0a841e01a6f75c065a7b9f1a29c456cc968669f38571",
+        "design/examples/trial-fold.ts": "d40cfb12790ff71faf4d43930a1f86690b69048685ab18f3fbcc8678731ec0c9",
+        "design/mock.html": "6d1ba91923b2032769676502556c6503e895378fff8af50fc1022be30390a6ce"
       }
     },
     {
@@ -31,10 +33,10 @@
       "by": "principal",
       "principal": "Jesse Taylor",
       "notes": "",
-      "at": "2026-10-14T03:14:05.197Z",
+      "at": "2026-10-14T05:11:11.063Z",
       "files": {
-        "specs/spec/stages/spec.md": "626f2b1bd3916280455706cbadf80260da378138cdbcfbf0446a6e7ca40bf62a",
-        "specs/task/change/spec.md": "fa2ed8af874692374c69a3d8e6dede6e21476042b3b10bfc34d171f32f18452b"
+        "specs/spec/stages/spec.md": "a8252a68c20d6830857485e6f4704c8667d7f16a8e9fc87eaba4b6ba9f0b5239",
+        "specs/task/change/spec.md": "1a4a3271b4ae26545f23b8519a539627e0329098a5607e702b69df3c240093d0"
       }
     },
     {
@@ -43,9 +45,9 @@
       "by": "principal",
       "principal": "Jesse Taylor",
       "notes": "",
-      "at": "2026-10-14T03:15:44.773Z",
+      "at": "2026-10-14T05:13:45.422Z",
       "files": {
-        "tasks.md": "1fdce71dcd204354b6fce5efeae1c120fc18de36612c0b3b5ce88949fb5d0876"
+        "tasks.md": "c7010c1ea335895e0dc992992724087f79a12bbff860dc5f3596e1fa3f59859d"
       }
     }
   ]
