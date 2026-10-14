@@ -13,6 +13,10 @@
  * validates and trial-folds it: a failure is restored and answers nothing (`amend-failed`,
  * exit 2); a pass answers the loop `amendment-applied`, as a text answer would.
  *
+ * Starting a loop, answering one and `--amend` are refused (exit 2) while a file of an approved
+ * stage differs from its recorded sha256, after the argument refusals and before the dirty-tree
+ * check. Showing a question, a built change or resuming a running loop checks nothing.
+ *
  * Three halves, so every refusal of the arguments comes before the database opens:
  * `parseBuild` reads the flags (the group run's, plus `--change-check`); `prepareBuild`
  * resolves them as a group run does, touching nothing; `runBuild` works the loop on a
@@ -34,9 +38,11 @@ import type { ChangeLoopResult } from "./change-loop.js";
 import { changeBuildState, type ChangeBuildState } from "./change-state.js";
 import { isChangeId } from "./cmd-draft.js";
 import { ConfigError, RUN_FLAG_OPTIONS, resolveGroupScript, resolveRunSettings, runFlagsOf, type DbPath, type LoadedConfig, type RunFlags } from "./config.js";
-import { EscalationAnswerError } from "./errors.js";
+import { formatStaleApprovalRefusal } from "./change-output.js";
+import { ApprovalsFileError, EscalationAnswerError } from "./errors.js";
 import { changedBetween, insideGit, repoRoot, snapshot, status } from "./git.js";
 import { blockedBy } from "./group.js";
+import { listStaleApprovedFiles } from "./spec-approvals.js";
 import { shownPath } from "./spec-cli.js";
 import { inRepo } from "./worktree.js";
 
@@ -289,9 +295,12 @@ export async function runBuild(harness: Harness, request: BuildRequest, options:
 		case "built":
 			if (answer !== undefined) return nothingWaits();
 			return shown(harness, request, state.loop, false, [], context);
-		case "waiting":
+		case "waiting": {
 			if (answer === undefined) return shown(harness, request, state.loop, false, [], context);
+			const stale = staleRefusal(request);
+			if (stale !== undefined) return stale;
 			return answered(harness, request, state, answer, undefined, options, context);
+		}
 		case "ready": {
 			if (state.running === true) {
 				if (answer !== undefined) return refused(`change loop ${state.loop} of ${change} is still running; run build ${change} without an answer to finish it`);
@@ -299,6 +308,9 @@ export async function runBuild(harness: Harness, request: BuildRequest, options:
 				return settle(harness, request, state.loop!, context);
 			}
 			if (answer !== undefined) return nothingWaits();
+			// Before the dirty tree: an uncommitted hand edit gets the stale refusal, which --allow-dirty cannot pass.
+			const stale = staleRefusal(request);
+			if (stale !== undefined) return stale;
 			const dirty = dirtyRefusal(request);
 			if (dirty !== undefined) return dirty;
 			let id: ChangeId;
@@ -338,6 +350,9 @@ async function amend(
 	if (waiting.escalation.to !== "principal") {
 		return refused(`the escalation of ${request.change} goes to the ${waiting.escalation.to}: only the principal applies an amendment`);
 	}
+	// On the files as they are before the write, the delta included: a hand edit is never written over.
+	const stale = staleRefusal(request);
+	if (stale !== undefined) return stale;
 	const path = `${request.changePath}/${amendment.delta}`;
 	const applied = await applyAmendment({ target: target.path, text: amendment.text, change: request.change, root: request.workspace });
 	if (!applied.passed) return { kind: "amend-failed", change: request.change, path, output: applied.output, exitCode: 2 };
@@ -366,6 +381,18 @@ async function answered(
 	options.onLoop?.(Number(id));
 	const result = await settle(harness, request, Number(id), context);
 	return amended !== undefined && result.kind !== "refused" && result.kind !== "amend-failed" ? { ...result, amended } : result;
+}
+
+/** The refusal of approved files that changed since their approval, the rule `draft` redrafts by; none when every file matches. */
+function staleRefusal(request: BuildRequest): BuildRefusal | undefined {
+	let files;
+	try {
+		files = listStaleApprovedFiles(request.changeDir);
+	} catch (error) {
+		if (error instanceof ApprovalsFileError) return refused(`${request.changePath}/${error.message}`);
+		throw error;
+	}
+	return files.length > 0 ? refused(formatStaleApprovalRefusal(request.change, files).join("\n")) : undefined;
 }
 
 /** The refusal of a dirty tree, worded and listed as `pnpm task` words it; none when clean, allowed, or outside git. */

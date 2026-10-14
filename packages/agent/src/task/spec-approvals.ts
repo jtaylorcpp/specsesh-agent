@@ -15,6 +15,7 @@ import { Approval, check, explain } from "../openspec/index.js";
 import { closed } from "../openspec/schema.js";
 import { ApprovalsFileError } from "./errors.js";
 import type { SpecStage } from "./spec-stage.js";
+import { SPEC_STAGES } from "./spec-stages.js";
 
 export const APPROVALS_FILE = "approvals.json";
 
@@ -44,6 +45,13 @@ export interface StaleApproval {
 	/** The changed or missing file, relative to the change directory; absent when the stage has no entry. */
 	readonly file?: string;
 	readonly message: string;
+}
+
+/** A recorded file of an approved stage that no longer matches; `path` is relative to the change directory. */
+export interface StaleFile {
+	readonly stage: string;
+	readonly path: string;
+	readonly state: "changed" | "missing";
 }
 
 /** The change's approvals; none when `approvals.json` does not exist. Throws `ApprovalsFileError` when it is not valid. */
@@ -126,18 +134,46 @@ export function staleApprovals(stage: ApprovalStage, changeDir: string): StaleAp
 	const change = basename(changeDir);
 	const stale: StaleApproval[] = [];
 	for (const name of stage.after ?? []) {
-		const entry = approvals.find((existing) => existing.stage === name);
-		if (entry === undefined) {
+		if (!approvals.some((existing) => existing.stage === name)) {
 			stale.push({ stage: name, message: `the ${name} stage of ${change} is not approved; run it and approve it first` });
 			continue;
 		}
-		for (const [file, hash] of Object.entries(entry.files)) {
-			const absolute = join(changeDir, file);
-			if (existsSync(absolute) && statSync(absolute).isFile() && sha256(absolute) === hash) continue;
-			stale.push({ stage: name, file, message: `${file} changed since the ${name} stage was approved; review it again` });
+		for (const { path } of staleFilesOfStage(changeDir, approvals, name)) {
+			stale.push({ stage: name, file: path, message: `${path} changed since the ${name} stage was approved; review it again` });
 		}
 	}
 	return stale;
+}
+
+/**
+ * Every recorded file of the stage's approval that no longer matches, in path order: `missing`
+ * when no file is there any more, `changed` when its sha256 differs. Empty when the stage has no
+ * entry. The one staleness rule: `staleApprovals`, and through it the draft, use it too.
+ */
+export function staleFilesOfStage(changeDir: string, approvals: readonly ApprovalEntry[], stage: string): StaleFile[] {
+	const entry = approvals.find((existing) => existing.stage === stage);
+	if (entry === undefined) return [];
+	const stale: StaleFile[] = [];
+	for (const [path, hash] of Object.entries(entry.files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+		const absolute = join(changeDir, path);
+		if (!existsSync(absolute) || !statSync(absolute).isFile()) stale.push({ stage, path, state: "missing" });
+		else if (sha256(absolute) !== hash) stale.push({ stage, path, state: "changed" });
+	}
+	return stale;
+}
+
+/**
+ * The stale files of every approved stage, stage by stage in `stages` order (default
+ * `SPEC_STAGES`), each stage's in path order; a stage with no approval is skipped. Reads
+ * `approvals.json` unless `approvals` is given, and writes nothing. Throws `ApprovalsFileError`
+ * when it is not valid.
+ */
+export function listStaleApprovedFiles(
+	changeDir: string,
+	approvals: ApprovalsFile = readApprovals(changeDir),
+	stages: readonly Pick<ApprovalStage, "name">[] = SPEC_STAGES,
+): StaleFile[] {
+	return stages.flatMap(({ name }) => staleFilesOfStage(changeDir, approvals.approvals, name));
 }
 
 /** Every stage that follows `name` through `after`, directly or through others. */

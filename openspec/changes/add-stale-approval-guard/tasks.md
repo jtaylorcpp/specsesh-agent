@@ -1,11 +1,11 @@
 ## 1. Stale-approval check in build
 
-- [ ] 1.1 In `packages/agent/src/task/spec-approvals.ts`, export a function listing stale files (stage, path, changed|missing) of every approved stage, built on the per-stage comparison `draft` uses to pick its redraft stage
-- [ ] 1.2 In `packages/agent/src/task/change-output.ts`, add the stale-approval refusal formatter: refusal line, `  <stage>: <path> (changed|missing)` in stage then path order, then the `draft` and `approve` next-step lines
+- [x] 1.1 In `packages/agent/src/task/spec-approvals.ts`, export a function listing stale files (stage, path, changed|missing) of every approved stage, built on the per-stage comparison `draft` uses to pick its redraft stage
+- [x] 1.2 In `packages/agent/src/task/change-output.ts`, add the stale-approval refusal formatter: refusal line, `  <stage>: <path> (changed|missing)` in stage then path order, then the `draft` and `approve` next-step lines
 - [ ] 1.3 In `packages/agent/src/task/cmd-build.ts`, run the stale check after argument parsing and before the dirty-tree check when starting or answering a loop, printing the refusal to stderr and exiting 2; skip it on show-question and built
 - [ ] 1.4 In `packages/agent/__tests__/change/cli-build.test.ts`, test "A hand-edited delta refuses a new build", "An uncommitted hand edit gets the stale refusal, not the dirty-tree one", "One changed delta"
 - [ ] 1.5 In `packages/agent/__tests__/change/cli-answer.test.ts`, test "Answering a waiting build is refused", "Files approved again pass the check", "Several stages and a deleted file"
-- [ ] 1.6 In `packages/agent/__tests__/change/cli-build.test.ts`, test "A blocked build still shows its question after a hand edit", "A built change still says it is built after a hand edit"
+- [ ] 1.6 In `packages/agent/__tests__/change/cli-build.test.ts`, test "A blocked build still shows its question after a hand edit", "A built change still says it is built after a hand edit", "Ticked tasks are not a change"
 
 ## 2. Approval-aware --amend
 

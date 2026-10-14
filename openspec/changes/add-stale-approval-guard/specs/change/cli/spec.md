@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: build refuses approved files that changed
-Before it starts a change loop, or answers a blocked one with an answer or `--amend`, `build <change>` SHALL compare each file of every approved stage in `approvals.json` with its recorded sha256, using the comparison `draft` uses to pick the stage to redraft from. On any mismatch or missing file it SHALL exit `2`, start no loop and answer none. The check SHALL run after argument parsing and `--amend`'s argument refusals, and before the dirty-tree check.
+Before starting or answering (with an answer or `--amend`) a change loop, `build <change>` SHALL compare every approved file with its sha256 in `approvals.json`, by `draft`'s comparison, which hashes `tasks.md` with each `- [x]` read as `- [ ]` so ticks are no change. On a mismatch or missing file it SHALL exit `2`, starting and answering nothing. It SHALL run after argument parsing and `--amend`'s refusals, before the dirty-tree check.
 
 #### Scenario: A hand-edited delta refuses a new build
 - **GIVEN** `add-plan-export` with its four stages approved, no change loop waiting, and `specs/plan/export/spec.md` edited after the specs were approved
@@ -17,6 +17,11 @@ Before it starts a change loop, or answers a blocked one with an answer or `--am
 - **GIVEN** `add-plan-export` with `specs/plan/export/spec.md` edited after approval and not committed
 - **WHEN** `build add-plan-export` runs without `--allow-dirty`, and again with `--allow-dirty`
 - **THEN** both runs SHALL print the stale-approval refusal, neither SHALL name `--allow-dirty`, and both SHALL exit `2` with no loop started
+
+#### Scenario: Ticked tasks are not a change
+- **GIVEN** `add-plan-export` blocked asking `Which API?` after its build ticked `- [x] 1.1` and `- [x] 1.2` in `tasks.md`, with no other edit since approval
+- **WHEN** `build add-plan-export "Use the v2 API"` runs
+- **THEN** no stale-approval refusal SHALL be printed and the blocked loop SHALL be answered with decision `Use the v2 API`
 
 #### Scenario: Files approved again pass the check
 - **GIVEN** `add-plan-export` blocked asking `Which API?`, `specs/plan/export/spec.md` edited, then `draft add-plan-export` and `approve add-plan-export` run until every stage is approved

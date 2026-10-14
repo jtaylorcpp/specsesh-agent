@@ -1,11 +1,12 @@
 /**
- * `formatDraftOutput` and `formatBuildOutput`: the text and its next commands, on results built by hand.
+ * `formatDraftOutput`, `formatBuildOutput` and `formatStaleApprovalRefusal`: the text and its next commands, on results built by hand.
  * The scenarios themselves are tested through the bin in `__tests__/change/cli-output.test.ts`.
  */
 
 import { describe, expect, it } from "vitest";
-import { formatBuildOutput, formatDraftOutput, type BuildShown, type DraftShown } from "../../src/task/change-output.js";
+import { formatBuildOutput, formatDraftOutput, formatStaleApprovalRefusal, type BuildShown, type DraftShown } from "../../src/task/change-output.js";
 import type { BuildGroup, ShownAmendment } from "../../src/task/cmd-build.js";
+import type { StaleFile } from "../../src/task/spec-approvals.js";
 
 const change = "add-plan-export";
 const context = { changePath: `openspec/changes/${change}` };
@@ -279,5 +280,58 @@ describe("formatBuildOutput", () => {
 		const lines = formatBuildOutput({ ...shown, kind: "failed", status: "failed", reason: "model unavailable", exitCode: 1 });
 		expect(lines[0]).toBe("# add-plan-export — failed");
 		expect(lines.slice(-2)).toEqual(["reason: model unavailable", "  retry:   pnpm change build add-plan-export"]);
+	});
+});
+
+describe("formatStaleApprovalRefusal", () => {
+	const refusal = "add-plan-export: approved files changed since they were approved; build refused";
+	const nextSteps = ["review it with: pnpm change draft add-plan-export", "then approve it again: pnpm change approve add-plan-export"];
+
+	it("names one changed delta between the refusal line and the next steps", () => {
+		expect(formatStaleApprovalRefusal(change, [{ stage: "specs", path: "specs/plan/export/spec.md", state: "changed" }])).toEqual([
+			refusal,
+			"  specs: specs/plan/export/spec.md (changed)",
+			...nextSteps,
+		]);
+	});
+
+	it("orders files by stage, then by path, and leaves its input alone", () => {
+		const files: StaleFile[] = [
+			{ stage: "specs", path: "specs/plan/schema/spec.md", state: "missing" },
+			{ stage: "design", path: "design.md", state: "changed" },
+			{ stage: "specs", path: "specs/plan/export/spec.md", state: "changed" },
+		];
+		const before = structuredClone(files);
+		expect(formatStaleApprovalRefusal(change, files)).toEqual([
+			refusal,
+			"  design: design.md (changed)",
+			"  specs: specs/plan/export/spec.md (changed)",
+			"  specs: specs/plan/schema/spec.md (missing)",
+			...nextSteps,
+		]);
+		expect(files).toEqual(before);
+	});
+
+	it("puts the proposal first and the tasks last", () => {
+		const lines = formatStaleApprovalRefusal(change, [
+			{ stage: "tasks", path: "tasks.md", state: "changed" },
+			{ stage: "specs", path: "specs/plan/export/spec.md", state: "changed" },
+			{ stage: "design", path: "design.md", state: "missing" },
+			{ stage: "proposal", path: "proposal.md", state: "changed" },
+		]);
+		expect(lines.slice(1, -2)).toEqual([
+			"  proposal: proposal.md (changed)",
+			"  design: design.md (missing)",
+			"  specs: specs/plan/export/spec.md (changed)",
+			"  tasks: tasks.md (changed)",
+		]);
+	});
+
+	it("compares paths by code unit, not locale", () => {
+		const lines = formatStaleApprovalRefusal(change, [
+			{ stage: "specs", path: "specs/plan/export/spec.md", state: "changed" },
+			{ stage: "specs", path: "specs/Plan/export/spec.md", state: "changed" },
+		]);
+		expect(lines.slice(1, -2)).toEqual(["  specs: specs/Plan/export/spec.md (changed)", "  specs: specs/plan/export/spec.md (changed)"]);
 	});
 });

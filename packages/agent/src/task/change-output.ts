@@ -24,6 +24,13 @@
  * `resumed <asker> with decision: amendment-applied` and the run; on a failure, the
  * validation output, `restored <path>` and `nothing resumed`.
  *
+ * A build refused over stale approvals:
+ *
+ *   <change>: approved files changed since they were approved; build refused
+ *     <stage>: <path> (changed|missing)              one per file, in stage then path order
+ *   review it with: pnpm change draft <change>
+ *   then approve it again: pnpm change approve <change>
+ *
  * Pure: it prints nothing and reads nothing. The exit code is the result's own.
  */
 
@@ -31,7 +38,9 @@ import { AMENDMENT_APPLIED, formatRef } from "../openspec/index.js";
 import { unifiedDiff } from "./amend.js";
 import type { AmendFailed, BuildRefusal, BuildResult } from "./cmd-build.js";
 import type { DraftRefusal, DraftResult } from "./cmd-draft.js";
+import type { StaleFile } from "./spec-approvals.js";
 import { issueLine } from "./spec-loop.js";
+import { SPEC_STAGES } from "./spec-stages.js";
 
 /** A settled draft: anything `runDraft` returns but a refusal, which is only its message. */
 export type DraftShown = Exclude<DraftResult, DraftRefusal>;
@@ -188,4 +197,28 @@ export function formatBuildOutput(result: BuildShown): string[] {
 			break;
 	}
 	return lines;
+}
+
+/** The spec stages in the order they are drafted and approved. */
+export const APPROVAL_STAGE_ORDER: readonly string[] = SPEC_STAGES.map((stage) => stage.name);
+
+/** A stage's place in `APPROVAL_STAGE_ORDER`; an unknown stage sorts after every known one. */
+const stageRank = (stage: string) => {
+	const at = APPROVAL_STAGE_ORDER.indexOf(stage);
+	return at === -1 ? APPROVAL_STAGE_ORDER.length : at;
+};
+
+/**
+ * The refusal of a change whose approved files changed: the refusal line, one
+ * `  <stage>: <path> (changed|missing)` per file in stage then path order, then the
+ * `draft` and `approve` commands. Paths compare by code unit, so the order is the same everywhere.
+ */
+export function formatStaleApprovalRefusal(change: string, files: readonly StaleFile[]): string[] {
+	const sorted = [...files].sort((a, b) => stageRank(a.stage) - stageRank(b.stage) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+	return [
+		`${change}: approved files changed since they were approved; build refused`,
+		...sorted.map((file) => `  ${file.stage}: ${file.path} (${file.state})`),
+		`review it with: ${retryCmd(change)}`,
+		`then approve it again: ${approveCmd(change)}`,
+	];
 }

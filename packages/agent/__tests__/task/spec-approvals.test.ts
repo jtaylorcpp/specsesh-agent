@@ -4,7 +4,16 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ApprovalsFileError } from "../../src/task/errors.js";
-import { hashOwnedFiles, readApprovals, recordApproval, staleApprovals } from "../../src/task/spec-approvals.js";
+import { approvedStages } from "../../src/task/change-state.js";
+import {
+	hashOwnedFiles,
+	listStaleApprovedFiles,
+	readApprovals,
+	recordApproval,
+	staleApprovals,
+	staleFilesOfStage,
+} from "../../src/task/spec-approvals.js";
+import { SPEC_STAGES } from "../../src/task/spec-stages.js";
 
 const proposal = { name: "proposal", owns: ["proposal.md"] };
 const design = { name: "design", owns: ["design.md", "design/"], after: ["proposal"] };
@@ -183,5 +192,79 @@ describe("task/spec-approvals: staleApprovals", () => {
 
 	it("throws on a malformed approvals.json", () => {
 		expect(() => staleApprovals(design, changeDir({ "approvals.json": "{}" }))).toThrow(/^approvals\.json is not valid: /);
+	});
+});
+
+describe("task/spec-approvals: listStaleApprovedFiles", () => {
+	/** A change with every spec stage approved, through the stages a draft runs. */
+	function approvedChange(): string {
+		const dir = changeDir({
+			"proposal.md": "## Why\n",
+			"design.md": "## Context\n",
+			"specs/plan/export/spec.md": "## ADDED Requirements\n",
+			"specs/plan/schema/spec.md": "## MODIFIED Requirements\n",
+			"tasks.md": "- [ ] 1.1 x\n",
+		});
+		for (const stage of SPEC_STAGES) recordApproval(dir, stage, by, SPEC_STAGES);
+		return dir;
+	}
+
+	/** The stage the draft would redraft first: the first without a current approval. */
+	const redraftStage = (dir: string) => approvedStages(SPEC_STAGES, dir).next;
+
+	it("is empty when every stage is approved and nothing was edited", () => {
+		const dir = approvedChange();
+		const before = readFileSync(join(dir, "approvals.json"));
+		expect(listStaleApprovedFiles(dir)).toEqual([]);
+		expect(redraftStage(dir)).toBeUndefined();
+		expect(readFileSync(join(dir, "approvals.json")).equals(before)).toBe(true);
+	});
+
+	it("names one edited delta, relative to the change", () => {
+		const dir = approvedChange();
+		write(dir, "specs/plan/export/spec.md", "## ADDED Requirements\nEdited.\n");
+		const stale = listStaleApprovedFiles(dir);
+		expect(stale).toEqual([{ stage: "specs", path: "specs/plan/export/spec.md", state: "changed" }]);
+		expect(redraftStage(dir)).toBe(stale[0]?.stage);
+	});
+
+	it("lists several stages in stage order, each in path order, a deleted file as missing", () => {
+		const dir = approvedChange();
+		write(dir, "specs/plan/export/spec.md", "edited\n");
+		rmSync(join(dir, "specs/plan/schema/spec.md"));
+		write(dir, "design.md", "edited\n");
+		const stale = listStaleApprovedFiles(dir);
+		expect(stale).toEqual([
+			{ stage: "design", path: "design.md", state: "changed" },
+			{ stage: "specs", path: "specs/plan/export/spec.md", state: "changed" },
+			{ stage: "specs", path: "specs/plan/schema/spec.md", state: "missing" },
+		]);
+		expect(redraftStage(dir)).toBe(stale[0]?.stage);
+	});
+
+	it("names a changed tasks.md", () => {
+		const dir = approvedChange();
+		write(dir, "tasks.md", "- [x] 1.1 x\n");
+		const stale = listStaleApprovedFiles(dir);
+		expect(stale).toEqual([{ stage: "tasks", path: "tasks.md", state: "changed" }]);
+		expect(redraftStage(dir)).toBe(stale[0]?.stage);
+	});
+
+	it("skips a stage with no approval, even when its files exist and others changed", () => {
+		const dir = changeDir({ "proposal.md": "## Why\n", "design.md": "## Context\n", "tasks.md": "t\n" });
+		recordApproval(dir, SPEC_STAGES[0]!, by, SPEC_STAGES);
+		write(dir, "proposal.md", "edited\n");
+		write(dir, "design.md", "edited\n");
+		expect(listStaleApprovedFiles(dir)).toEqual([{ stage: "proposal", path: "proposal.md", state: "changed" }]);
+		expect(staleFilesOfStage(dir, readApprovals(dir).approvals, "design")).toEqual([]);
+	});
+
+	it("uses the approvals it is given instead of reading approvals.json", () => {
+		const dir = approvedChange();
+		const approvals = readApprovals(dir);
+		write(dir, "tasks.md", "edited\n");
+		rmSync(join(dir, "approvals.json"));
+		expect(listStaleApprovedFiles(dir, approvals)).toEqual([{ stage: "tasks", path: "tasks.md", state: "changed" }]);
+		expect(listStaleApprovedFiles(dir)).toEqual([]);
 	});
 });
