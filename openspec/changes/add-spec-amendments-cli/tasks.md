@@ -2,7 +2,7 @@
 
 - [ ] 1.1 Create `packages/agent/src/task/amend.ts` exporting `amendmentTarget(changeDir, delta)`, which returns `<changeDir>/<delta>`, or a refusal when the normalised delta is absolute, has a `..` segment, or is not `specs/**/spec.md`
 - [ ] 1.2 Add `unifiedDiff(path, before, after)` to `packages/agent/src/task/amend.ts`. It prints `--- <path> (on disk)`, `+++ <path> (amended)`, `@@` hunks and `-`/`+` lines, and treats a missing file as empty
-- [ ] 1.3 Add `applyAmendment` to `packages/agent/src/task/amend.ts`: save the bytes or note absence, write `text`, run `openspec validate --all --strict` (`OPENSPEC_TELEMETRY=0`), restore or delete on non-zero exit, `[ERROR]` or `[WARNING]`
+- [ ] 1.3 Add `applyAmendment` to `packages/agent/src/task/amend.ts`: save the bytes or note absence, write `text`, validate like `close` (`--all --strict`, then `cmd-close.ts`'s trial fold), restore or delete on any failure
 
 ## 2. Showing and applying the amendment in build
 

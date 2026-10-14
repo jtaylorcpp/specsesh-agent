@@ -70,12 +70,12 @@ When the escalation a blocked change loop waits on carries `Amendment { delta, t
 - **THEN** it SHALL print `amendment delta "tasks.md" is not specs/**/spec.md`, exit `2`, leave `openspec/changes/add-bad-path/tasks.md` unchanged, and start no loop
 
 ### Requirement: build --amend writes, validates and resumes
-When not refused, `--amend` SHALL save the bytes of `openspec/changes/<change>/<delta>`, or note it is absent, write `text` there, print `amended <path>`, and run `openspec validate --all --strict` with `OPENSPEC_TELEMETRY=0`. When that exits `0` reporting no error and no warning, it SHALL print `## openspec validate --all --strict: passed`, answer the blocked loop as a text answer would with the decision `amendment-applied`, and wait for and print the new run.
+When not refused, `--amend` SHALL save the bytes of `openspec/changes/<change>/<delta>` (or note it is absent), write `text`, print `amended <path>`, then validate as `close` does: `openspec validate --all --strict`, then its trial fold into a temporary copy of `openspec/`, validated with `--specs --strict`. Passing both with no error or warning, it SHALL print `## validation: passed`, answer the blocked loop with `amendment-applied`, and print the new run.
 
 #### Scenario: A valid amendment resumes the task loop
 - **GIVEN** `add-plan-export` blocked on task `2.2`'s escalation carrying an `Amendment` with `delta` `specs/plan/export/spec.md`, and validation that passes
 - **WHEN** `build add-plan-export --amend` runs and the build converges
-- **THEN** the delta file SHALL hold `text`, and the output SHALL contain `amended openspec/changes/add-plan-export/specs/plan/export/spec.md`, `## openspec validate --all --strict: passed` and `resumed task 2.2 with decision: amendment-applied`
+- **THEN** the delta file SHALL hold `text`, and the output SHALL contain `amended openspec/changes/add-plan-export/specs/plan/export/spec.md`, `## validation: passed` and `resumed task 2.2 with decision: amendment-applied`
 - **AND** task `2.2` SHALL be answered through `answerEscalation` with `amendment-applied`, the output SHALL end with `pnpm change close add-plan-export`, and the exit code SHALL be `0`
 
 #### Scenario: A valid amendment resumes the group judge
@@ -84,18 +84,18 @@ When not refused, `--amend` SHALL save the bytes of `openspec/changes/<change>/<
 - **THEN** group `1`'s judge SHALL be answered through `answerGroupEscalation` with `amendment-applied`, and the output SHALL contain `resumed group 1 judge with decision: amendment-applied`
 
 ### Requirement: A failed --amend restores the delta
-When validation exits non-zero or its output reports any error or warning, `--amend` SHALL print `## openspec validate --all --strict: failed` and the validation output, write the saved bytes back to the delta file, or delete it if it did not exist before, print `restored <path>` and `nothing resumed`, and exit `2`. No loop SHALL be answered or started, and the change loop SHALL stay `blocked`.
+When either validation exits non-zero or reports any error or warning, `--amend` SHALL print `## validation: failed` and that output, write the saved bytes back to the delta file, or delete it if it did not exist before, print `restored <path>` and `nothing resumed`, and exit `2`. No loop SHALL be answered or started, and the change loop SHALL stay `blocked`.
 
 #### Scenario: An error restores the exact bytes
 - **GIVEN** `add-plan-export` blocked on an `Amendment` for `specs/plan/export/spec.md`, the delta file holding uncommitted edits, and validation that reports `[ERROR] requirement "Export writes JSON" is 534 characters (max 500)`
 - **WHEN** `build add-plan-export --amend` runs
-- **THEN** the output SHALL contain `## openspec validate --all --strict: failed`, that `[ERROR]` line, `restored openspec/changes/add-plan-export/specs/plan/export/spec.md` and `nothing resumed`
+- **THEN** the output SHALL contain `## validation: failed`, that `[ERROR]` line, `restored openspec/changes/add-plan-export/specs/plan/export/spec.md` and `nothing resumed`
 - **AND** the delta file SHALL hold the same bytes as before the command, no loop SHALL start, the change loop SHALL stay `blocked`, and the exit code SHALL be `2`
 
 #### Scenario: A warning alone fails the check
-- **GIVEN** `add-plan-export` blocked on an `Amendment`, and validation that exits `0` but reports `[WARNING] requirement "Export writes JSON": scenario has no THEN`
+- **GIVEN** `add-plan-export` blocked on an `Amendment` whose `text` makes a MODIFIED requirement 534 characters long, which `openspec validate --all --strict` accepts and the trial fold's `--specs --strict` reports only as a `[WARNING]`
 - **WHEN** `build add-plan-export --amend` runs
-- **THEN** the output SHALL contain `## openspec validate --all --strict: failed` and `nothing resumed`, the delta file SHALL be restored, and the exit code SHALL be `2`
+- **THEN** the output SHALL contain `## validation: failed` and `nothing resumed`, the delta file SHALL be restored, and the exit code SHALL be `2`
 
 #### Scenario: A file the amendment created is deleted
 - **GIVEN** `add-plan-export` blocked on an `Amendment` whose `delta` `specs/plan/schema/spec.md` does not exist, and validation that fails
