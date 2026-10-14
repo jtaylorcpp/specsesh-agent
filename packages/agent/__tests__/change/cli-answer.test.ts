@@ -9,7 +9,7 @@
  * output requirements, so the tests are grouped by requirement.
  */
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
@@ -17,6 +17,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RESULT_TOOL } from "../../src/durable/index.js";
 import { CHANGE_LOOP_TASK } from "../../src/task/change-input.js";
+import { resetOpenspecCache } from "../../src/task/openspec-bin.js";
 import { readChangeResult } from "../../src/task/change-api.js";
 import { GROUP_LOOP_NAME } from "../../src/task/group.js";
 import { TASK_LOOP } from "../../src/task/index.js";
@@ -36,9 +37,11 @@ let savedPath: string | undefined;
 beforeEach(() => {
 	savedPath = process.env.PATH;
 	process.env.PATH = `${OPENSPEC_BIN}:${savedPath ?? ""}`;
+	resetOpenspecCache();
 });
 afterEach(() => {
 	process.env.PATH = savedPath;
+	resetOpenspecCache();
 	cleanTemps();
 });
 
@@ -216,6 +219,32 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 			for (const kind of ["changes", "groups", "tasks", "runs"] as const) {
 				expect(after[kind].map((task) => task.id)).toEqual(before[kind].map((task) => task.id));
 			}
+		}, 120_000);
+	});
+
+	describe("Commands that run openspec refuse one that is too old", () => {
+		it("Scenario: A text answer to build is not checked", async () => {
+			// Blocked with the repo's pinned openspec; only then is a fake 1.9.0 the only openspec on PATH.
+			const { dir, db, args } = await blockInGroup2("Which API?");
+			expect(existsSync(join(dir, "node_modules", ".bin", "openspec"))).toBe(false);
+			const fakebin = temp("change-answer-fakebin-");
+			const log = join(fakebin, "calls.log");
+			writeFileSync(
+				join(fakebin, "openspec"),
+				["#!/bin/sh", `printf '%s\\n' "$*" >> '${log}'`, 'case "$1" in --version) echo 1.9.0;; esac', "exit 0", ""].join("\n"),
+				{ mode: 0o755 },
+			);
+			process.env.PATH = `${fakebin}:/usr/bin:/bin`;
+			resetOpenspecCache();
+			const [blocked] = (await tasksIn(db)).changes;
+
+			const run = await change(["build", CHANGE, "Use the v2 API", ...args], dir, [verdict(true), verdict(true), verdict(true)]);
+			const calls = existsSync(log) ? readFileSync(log, "utf8").split("\n") : [];
+			expect(calls).not.toContain("--version");
+			expect(run.err).not.toContain("below the minimum supported version");
+			expect(run.err).not.toContain("openspec 1.9.0 at");
+			expect(run.code).not.toBe(2);
+			await expectAnsweredOnce(db, blocked!, "Use the v2 API");
 		}, 120_000);
 	});
 

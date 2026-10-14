@@ -1,8 +1,9 @@
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFile, spawn } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { localWorkspace } from "../../../src/node/index.js";
 import { type TrialFoldResult, trialFold } from "../../../src/task/cmd-close.js";
+import { type OpenspecBin, type OpenspecRun, resolveOpenspec, runOpenspec } from "../../../src/task/openspec-bin.js";
 import type { StageContext } from "../../../src/task/spec-stage.js";
 import type { Delta } from "../../../src/task/stages/openspec-cli.js";
 import { specsGate } from "../../../src/task/stages/specs.js";
@@ -15,6 +16,17 @@ vi.mock("../../../src/task/cmd-close.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../../src/task/cmd-close.js")>()),
 	trialFold: vi.fn(),
 }));
+/** The gate's openspec, resolved and run per test; `describeOpenspec` stays real, so the suffix is the real formatter's. */
+vi.mock("../../../src/task/openspec-bin.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../../src/task/openspec-bin.js")>()),
+	resolveOpenspec: vi.fn(),
+	runOpenspec: vi.fn(),
+}));
+/** Real `spawn` and `execFile`, spied on, to show the gate never starts `openspec` itself. */
+vi.mock("node:child_process", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:child_process")>();
+	return { ...actual, spawn: vi.fn(actual.spawn), execFile: vi.fn(actual.execFile) };
+});
 
 /** The real `trialFoldIssues`, over the mocked `trialFold`: the gate's mapping end to end. */
 const { trialFoldIssues: realTrialFoldIssues } =
@@ -22,10 +34,25 @@ const { trialFoldIssues: realTrialFoldIssues } =
 /** The real `trialFold`, spawning whatever `openspec` is first on `process.env.PATH`. */
 const { trialFold: realTrialFold } = await vi.importActual<typeof import("../../../src/task/cmd-close.js")>("../../../src/task/cmd-close.js");
 
+const PROJECT_BIN: OpenspecBin = { path: "/repo/node_modules/.bin/openspec", version: "1.14.1", source: "project" };
+const PROJECT_SUFFIX = " (openspec 1.14.1 at /repo/node_modules/.bin/openspec)";
+
+/** The openspec `resolveOpenspec` returns, and what `runOpenspec` answers per subcommand; set per test. */
+let bin: OpenspecBin | null;
+let replies: { validate: OpenspecRun; show: OpenspecRun };
+
 beforeEach(() => {
 	vi.mocked(trialFoldIssues).mockReset();
 	vi.mocked(trialFoldIssues).mockResolvedValue([]);
 	vi.mocked(trialFold).mockReset();
+	bin = PROJECT_BIN;
+	replies = { validate: { code: 0, stdout: "{}", stderr: "" }, show: { code: 0, stdout: "{}", stderr: "" } };
+	vi.mocked(resolveOpenspec).mockReset();
+	vi.mocked(resolveOpenspec).mockImplementation(async () => bin);
+	vi.mocked(runOpenspec).mockReset();
+	vi.mocked(runOpenspec).mockImplementation(async (_bin, args) => (args[0] === "validate" ? replies.validate : replies.show));
+	vi.mocked(spawn).mockClear();
+	vi.mocked(execFile).mockClear();
 });
 
 afterEach(() => {
@@ -108,7 +135,7 @@ describe("specsSizeIssues", () => {
 	});
 });
 
-const CHANGE = "add-thing";
+const CHANGE = "add-plan-export";
 
 const proposal = (capabilities: string) =>
 	["Why", "What Changes", "Out of scope", "Capabilities", "Impact"]
@@ -124,92 +151,114 @@ function changeWorkspace(proposalMd: string): { workspace: string; changeDir: st
 	return { workspace, changeDir };
 }
 
-/**
- * A directory holding an `openspec` script that logs `$OPENSPEC_TELEMETRY $*` to `calls.log`
- * and prints the given JSON for `validate` (exiting 1 when it reports an issue, as OpenSpec
- * does) or `show`.
- */
-function fakeOpenspec(validate: unknown, show: unknown): string {
-	const dir = temp("fake-openspec-");
-	writeFileSync(join(dir, "validate.json"), JSON.stringify(validate));
-	writeFileSync(join(dir, "show.json"), JSON.stringify(show));
+/** The replies `runOpenspec` gives: `validate` exits 1 when it reports an issue, as OpenSpec does. */
+function openspec(validate: unknown, show: unknown): void {
 	const invalid = JSON.stringify(validate).includes('"valid":false') ? 1 : 0;
-	const script = [
-		"#!/bin/sh",
-		`printf '%s %s\\n' "$OPENSPEC_TELEMETRY" "$*" >> '${dir}/calls.log'`,
-		'case "$1" in',
-		`  validate) cat '${dir}/validate.json'; exit ${invalid} ;;`,
-		`  show) cat '${dir}/show.json' ;;`,
-		"esac",
-		"",
-	].join("\n");
-	writeFileSync(join(dir, "openspec"), script, { mode: 0o755 });
-	return dir;
+	replies = { validate: { code: invalid, stdout: JSON.stringify(validate), stderr: "" }, show: { code: 0, stdout: JSON.stringify(show), stderr: "" } };
 }
 
-/** A `StageContext` whose `run` is the spec loop's: `localWorkspace` exec, here with `path` as `PATH`. */
-function gateContext(proposalMd: string, files: Record<string, string>, path: string): StageContext {
+/** A `StageContext` for `CHANGE`; the gate runs openspec through `runOpenspec`, never `run`. */
+function gateContext(proposalMd: string, files: Record<string, string>): StageContext {
 	const { workspace, changeDir } = changeWorkspace(proposalMd);
-	const exec = localWorkspace(workspace).exec;
 	return {
 		changeId: CHANGE,
 		workspace,
 		changeDir,
 		files,
 		run: async (argv) => {
-			const command = argv.join(" ");
-			const ran = await exec!(argv, { timeoutMs: 30_000, env: { ...(process.env as Record<string, string>), PATH: path } });
-			if (ran.kind === "exited") return { command, exitCode: ran.code, output: ran.stdout + ran.stderr };
-			if (ran.kind === "timed-out") return { command, exitCode: -1, output: `${ran.stdout}${ran.stderr}\n(timed out)` };
-			return { command, exitCode: 127, output: `(could not start: ${ran.message})` };
+			throw new Error(`the specs gate ran ${argv.join(" ")} through context.run`);
 		},
 	};
 }
 
-const onPath = (dir: string) => `${dir}:${process.env["PATH"] ?? ""}`;
+/** True when a spied `spawn` or `execFile` started something named `openspec`. */
+const spawnedOpenspec = (): boolean =>
+	[...vi.mocked(spawn).mock.calls, ...vi.mocked(execFile).mock.calls].some(([file]) => /(^|\/)openspec$/.test(String(file)));
+
 const validated = (issues: unknown[] = []) => ({ items: [{ id: CHANGE, valid: issues.length === 0, issues }] });
 const shown = (...specs: string[]) => ({
 	deltas: specs.map((spec) => ({ spec, operation: "MODIFIED", requirement: { name: spec, text: "It SHALL.", scenarios: [{ rawText: "S" }] } })),
 });
 const MODIFIED_DELTA = "## MODIFIED Requirements\n\n### Requirement: It runs\nIt SHALL run.\n\n#### Scenario: S\n- **WHEN** x\n- **THEN** y\n";
 
-describe.skipIf(process.platform === "win32")("specsGate, with a fake openspec on PATH", () => {
+const VALIDATE = ["validate", CHANGE, "--strict", "--json"];
+const SHOW = ["show", CHANGE, "--json", "--deltas-only"];
+
+describe("specsGate, over the resolved openspec", () => {
 	it("Scenario: An OpenSpec error reaches the next draft", async () => {
+		bin = { path: "/usr/local/bin/openspec", version: "1.9.0", source: "path" };
 		const issue = { level: "ERROR", path: "specs/plan/export/spec.md", message: "Requirement must have at least one scenario" };
-		const fake = fakeOpenspec(validated([issue]), shown("plan/export"));
+		openspec(validated([issue]), shown("plan/export"));
 		const files = { "specs/plan/export/spec.md": MODIFIED_DELTA };
-		const issues = await specsGate(gateContext(proposal("- **Modified:** `plan/export`\n"), files, onPath(fake)));
+		const context = gateContext(proposal("- **Modified:** `plan/export`\n"), files);
+		const issues = await specsGate(context);
 		expect(issues).toEqual([issue]);
-		expect(readFileSync(join(fake, "calls.log"), "utf8")).toBe(`0 validate ${CHANGE} --strict --json\n0 show ${CHANGE} --json --deltas-only\n`);
+		expect(resolveOpenspec).toHaveBeenCalledWith(context.workspace);
+		expect(runOpenspec).toHaveBeenCalledWith(bin, VALIDATE, { cwd: context.workspace });
+		expect(runOpenspec).toHaveBeenCalledWith(bin, SHOW, { cwd: context.workspace });
+		// The CLI checks the minimum version up front; the gate runs what it was given.
+		expect(issues.some((i) => i.message.includes("minimum supported version"))).toBe(false);
+		expect(spawnedOpenspec()).toBe(false);
 	});
 
 	it("Scenario: openspec is missing", async () => {
-		const bin = temp("no-openspec-");
-		symlinkSync("/usr/bin/env", join(bin, "env"));
+		bin = null;
 		const files = { "specs/task/cli/spec.md": MODIFIED_DELTA };
-		const issues = await specsGate(gateContext(proposal("- **Modified:** `task/cli`\n"), files, bin));
-		expect(issues).toEqual([{ level: "ERROR", path: ".", message: expect.stringContaining("`openspec validate`") }]);
+		const issues = await specsGate(gateContext(proposal("- **Modified:** `task/cli`\n"), files));
+		expect(issues).toEqual([
+			{ level: "ERROR", path: ".", message: "`openspec validate add-plan-export --strict --json` could not run (openspec not found)" },
+		]);
+		expect(runOpenspec).not.toHaveBeenCalled();
+		expect(spawnedOpenspec()).toBe(false);
 	});
 
-	it("reports the same one ERROR when even env cannot be spawned", async () => {
+	it("reports an openspec that cannot be spawned as the same one ERROR, naming the openspec run", async () => {
+		replies.validate = { code: null, stdout: "", stderr: "spawn /repo/node_modules/.bin/openspec EACCES" };
 		const files = { "specs/task/cli/spec.md": MODIFIED_DELTA };
-		const issues = await specsGate(gateContext(proposal("- **Modified:** `task/cli`\n"), files, temp("empty-path-")));
-		expect(issues).toEqual([{ level: "ERROR", path: ".", message: expect.stringContaining("`openspec validate`") }]);
+		const issues = await specsGate(gateContext(proposal("- **Modified:** `task/cli`\n"), files));
+		expect(issues).toEqual([
+			{
+				level: "ERROR",
+				path: ".",
+				message: `\`openspec validate add-plan-export --strict --json\` could not run: spawn /repo/node_modules/.bin/openspec EACCES${PROJECT_SUFFIX}`,
+			},
+		]);
+		expect(runOpenspec).toHaveBeenCalledOnce();
+	});
+
+	it("Scenario: Unreadable show output names the openspec run", async () => {
+		openspec(validated(), {});
+		replies.show = { code: 0, stdout: "not json", stderr: "" };
+		const files = { "specs/task/cli/spec.md": MODIFIED_DELTA };
+		const context = gateContext(proposal("- **Modified:** `task/cli`\n"), files);
+		expect(await specsGate(context)).toEqual([
+			{ level: "ERROR", path: ".", message: `\`openspec show add-plan-export --json --deltas-only\` printed no parseable JSON${PROJECT_SUFFIX}` },
+		]);
+		expect(runOpenspec).toHaveBeenCalledWith(PROJECT_BIN, SHOW, { cwd: context.workspace });
+
+		// Parseable, but without requirement names, as openspec 1.9.0 prints it.
+		openspec(validated(), { deltas: [{ spec: "task/cli", operation: "MODIFIED", requirement: { text: "It SHALL.", scenarios: [{ rawText: "S" }] } }] });
+		const issues = await specsGate(gateContext(proposal("- **Modified:** `task/cli`\n"), files));
+		expect(issues).toHaveLength(1);
+		expect(issues[0]?.level).toBe("ERROR");
+		expect(issues[0]?.message.startsWith("`openspec show add-plan-export --json --deltas-only` ")).toBe(true);
+		expect(issues[0]?.message.endsWith("(openspec 1.14.1 at /repo/node_modules/.bin/openspec)")).toBe(true);
+		expect(spawnedOpenspec()).toBe(false);
 	});
 
 	it("Scenario: A delta for an unnamed capability", async () => {
-		const fake = fakeOpenspec(validated(), shown("task/cli", "task/group"));
+		openspec(validated(), shown("task/cli", "task/group"));
 		const files = { "specs/task/cli/spec.md": MODIFIED_DELTA, "specs/task/group/spec.md": MODIFIED_DELTA };
-		const issues = await specsGate(gateContext(proposal("- **Modified:** `task/cli`\n"), files, onPath(fake)));
+		const issues = await specsGate(gateContext(proposal("- **Modified:** `task/cli`\n"), files));
 		expect(issues).toEqual([{ level: "ERROR", path: "specs/task/group/spec.md", message: expect.stringContaining("`task/group`") }]);
 	});
 
 	it("Scenario: A new capability without a Purpose", async () => {
-		const fake = fakeOpenspec(validated(), {
+		openspec(validated(), {
 			deltas: [{ spec: "spec/export", operation: "ADDED", requirement: { name: "Export", text: "It SHALL export.", scenarios: [{ rawText: "S" }] } }],
 		});
 		const delta = "## ADDED Requirements\n\n### Requirement: Export\nIt SHALL export.\n\n#### Scenario: S\n- **WHEN** x\n- **THEN** y\n";
-		const issues = await specsGate(gateContext(proposal("- **New:** `spec/export`\n"), { "specs/spec/export/spec.md": delta }, onPath(fake)));
+		const issues = await specsGate(gateContext(proposal("- **New:** `spec/export`\n"), { "specs/spec/export/spec.md": delta }));
 		expect(issues).toEqual([{ level: "ERROR", path: "specs/spec/export/spec.md", message: expect.stringContaining("`spec/export`") }]);
 		expect(issues[0]?.message).toContain("## Purpose");
 	});
@@ -223,7 +272,8 @@ describe.skipIf(process.platform === "win32")("specsGate's trial fold", () => {
 
 	/** A gate context whose change holds the `spec/judge` delta on disk, as the fold's path mapping reads it. */
 	function foldContext(): StageContext {
-		const context = gateContext(judge, files, onPath(fakeOpenspec(validated(), shown("spec/judge"))));
+		openspec(validated(), shown("spec/judge"));
+		const context = gateContext(judge, files);
 		mkdirSync(join(context.changeDir, "specs", "spec", "judge"), { recursive: true });
 		writeFileSync(join(context.changeDir, "specs", "spec", "judge", "spec.md"), MODIFIED_DELTA);
 		return context;
@@ -254,7 +304,8 @@ describe.skipIf(process.platform === "win32")("specsGate's trial fold", () => {
 		const issue = { level: "ERROR", path: "specs/spec/judge/spec.md", message: "Requirement must have at least one scenario" };
 		vi.mocked(trialFoldIssues).mockResolvedValue([{ level: "ERROR", path: "specs/spec/judge/spec.md", message: "trial fold: spec/judge: x" }]);
 		vi.mocked(trialFold).mockResolvedValue(fold([{ level: "ERROR", spec: "spec/judge", message: "x" }]));
-		const issues = await specsGate(gateContext(judge, files, onPath(fakeOpenspec(validated([issue]), shown("spec/judge")))));
+		openspec(validated([issue]), shown("spec/judge"));
+		const issues = await specsGate(gateContext(judge, files));
 		expect(trialFoldIssues).not.toHaveBeenCalled();
 		expect(trialFold).toHaveBeenCalledTimes(0);
 		// The validation ERROR still stands, so an empty gate cannot pass this.
@@ -277,7 +328,8 @@ describe.skipIf(process.platform === "win32")("specsGate's trial fold", () => {
 			["#!/bin/sh", 'case "$1" in', "  archive) exit 0 ;;", `  validate) cat '${folding}/report.json' ;;`, "esac", ""].join("\n"),
 			{ mode: 0o755 },
 		);
-		vi.stubEnv("PATH", onPath(folding));
+		// `trialFold` spawns the `openspec` first on PATH itself; the gate's validate and show stay mocked.
+		vi.stubEnv("PATH", `${folding}:${process.env["PATH"] ?? ""}`);
 		const issues = await specsGate(foldContext());
 		expect(trialFold).toHaveBeenCalledOnce();
 		await expect(vi.mocked(trialFold).mock.results[0]?.value).resolves.toEqual({
@@ -322,7 +374,8 @@ describe.skipIf(process.platform === "win32")("specsGate's trial fold", () => {
 	it("reports a fold that cannot run as one ERROR at the change directory", async () => {
 		const message = "openspec validate --specs --strict could not run: spawn openspec ENOENT";
 		vi.mocked(trialFoldIssues).mockResolvedValue([{ level: "ERROR", message }]);
-		const issues = await specsGate(gateContext(judge, files, onPath(fakeOpenspec(validated(), shown("spec/judge")))));
+		openspec(validated(), shown("spec/judge"));
+		const issues = await specsGate(gateContext(judge, files));
 		expect(issues).toEqual([{ level: "ERROR", path: ".", message }]);
 	});
 
@@ -332,7 +385,8 @@ describe.skipIf(process.platform === "win32")("specsGate's trial fold", () => {
 		vi.mocked(trialFoldIssues).mockResolvedValue([fold]);
 		const many = ["spec/judge", "spec/other", "spec/third"];
 		const show = { deltas: many.flatMap((spec) => shown(spec, spec, spec).deltas) };
-		const issues = await specsGate(gateContext(judge, files, onPath(fakeOpenspec(validated([warning]), show))));
+		openspec(validated([warning]), show);
+		const issues = await specsGate(gateContext(judge, files));
 		expect(issues.map((i) => i.message)).toEqual([
 			warning.message,
 			fold.message,

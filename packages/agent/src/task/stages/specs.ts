@@ -25,7 +25,7 @@ function approvedProposal(changeDir: string): string | undefined {
 
 /** True for the one `ERROR` that says `openspec validate` itself could not run or be read. */
 const validateFailed = (issues: readonly StageIssue[]): boolean =>
-	issues.length === 1 && issues[0]?.path === "." && (issues[0]?.message.startsWith("`openspec validate` failed") ?? false);
+	issues.length === 1 && issues[0]?.path === "." && (issues[0]?.message.startsWith("`openspec validate ") ?? false);
 
 /**
  * OpenSpec's own issues, then the trial fold's, then coverage, then size. The fold runs
@@ -34,12 +34,12 @@ const validateFailed = (issues: readonly StageIssue[]): boolean =>
  * tried; when `show` fails, its `ERROR` replaces the size check. Coverage always reads
  * the delta files.
  */
-export async function specsGate({ changeId, workspace, changeDir, files, run }: StageContext): Promise<StageIssue[]> {
+export async function specsGate({ changeId, workspace, changeDir, files }: StageContext): Promise<StageIssue[]> {
 	const proposal = readProposalCapabilities(approvedProposal(changeDir) ?? "");
-	const validated = await openspecValidate(run, changeId);
+	const validated = await openspecValidate(workspace, changeId);
 	if (validateFailed(validated)) return [...validated, ...coverageIssues(proposal, [], files)];
 	const folded = validated.some((issue) => issue.level === "ERROR") ? [] : await trialFoldIssues(workspace, changeId);
-	const shown = await openspecDeltas(run, changeId);
+	const shown = await openspecDeltas(workspace, changeId);
 	return [
 		...validated,
 		...folded.map((issue): StageIssue => ({ ...issue, path: issue.path ?? "." })),

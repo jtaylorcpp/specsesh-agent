@@ -31,10 +31,10 @@
       "by": "principal",
       "principal": "Jesse Taylor",
       "notes": "",
-      "at": "2026-10-14T03:15:03.701Z",
+      "at": "2026-10-14T08:28:43.271Z",
       "files": {
-        "specs/change/cli/spec.md": "b3d402b35a57868034b4d223c6c8c4818fddac2ff2f6a88f9912dce3a9165804",
-        "specs/spec/stages/spec.md": "20564c6c4fe975c413f8a760456f703d7baacc5d5e136b6816ebc260b4a84ab5"
+        "specs/change/cli/spec.md": "4a1a4faffb25f14518c94235a86370dd15f4a2e1d98f9baaa0de538287e3c938",
+        "specs/spec/stages/spec.md": "6da68befb518812f410c50113960e545a0fb6458022bf1ba2d5864c2ae680f09"
       }
     },
     {
@@ -43,9 +43,9 @@
       "by": "principal",
       "principal": "Jesse Taylor",
       "notes": "",
-      "at": "2026-10-14T03:15:45.744Z",
+      "at": "2026-10-14T08:30:09.879Z",
       "files": {
-        "tasks.md": "2ba55b50864c2a10bfd709ae56e3625a8c66cf9d708c82a8dd158f37ec920d53"
+        "tasks.md": "bebb87c92f5a8cf98e82859fd0bcacac27879bd5918499e58b7019a2f3604896"
       }
     }
   ]

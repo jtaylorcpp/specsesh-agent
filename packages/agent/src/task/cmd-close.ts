@@ -12,22 +12,21 @@
  *
  * A change built task by task with `pnpm task` has no change loop, so the ticked tasks
  * are the evidence every route leaves; a change loop, when there is one, must have
- * converged. Every `openspec` call runs with `OPENSPEC_TELEMETRY=0`, as the build's guard
- * runs them. Two halves, as `approve`: `prepareClose` checks the change id, touching
+ * converged. Every `openspec` call runs the workspace's openspec, resolved once, through
+ * `runOpenspec` (`OPENSPEC_TELEMETRY=0`, no shell), also in the trial's copy. Two halves, as `approve`: `prepareClose` checks the change id, touching
  * nothing; `runClose` reads the database and folds. Neither prints, reads stdin, prompts
  * or commits: the result says what to print and the exit code.
  */
 
-import { spawn } from "node:child_process";
 import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import type { Harness } from "@earendil-works/pi-durable";
-import { guardRun, readChangeResult } from "./change-api.js";
+import { readChangeResult } from "./change-api.js";
 import { newestChangeLoop } from "./change-state.js";
-import { CHECK_TIMEOUT_MS } from "./checks.js";
 import { isChangeId } from "./cmd-draft.js";
+import { describeOpenspec, type OpenspecBin, resolveOpenspec, runOpenspec } from "./openspec-bin.js";
 import { shownPath } from "./spec-cli.js";
 import { openspecValidate } from "./stages/openspec-cli.js";
 import { taskLines } from "./tasks-md.js";
@@ -117,11 +116,11 @@ export async function runClose(harness: Pick<Harness, "commit"> | undefined, req
 		if (loopRefusal !== undefined) return refused(loopRefusal);
 	}
 
-	const run = guardRun(workspace);
-	const issue = (await openspecValidate(run, change)).find((i) => i.level === "ERROR" || i.level === "WARNING");
+	const bin = await resolveOpenspec(workspace);
+	const issue = (await openspecValidate(workspace, change, bin)).find((i) => i.level === "ERROR" || i.level === "WARNING");
 	if (issue !== undefined) return refused(`change ${change} is not valid: ${issue.path}: ${issue.message}`);
 
-	const trial = await trialFold(workspace, change);
+	const trial = await trialFold(workspace, change, bin);
 	if (!trial.ok) return refused(formatTrialFold(trial));
 
 	// Read before the fold moves the change and creates its new specs.
@@ -129,8 +128,9 @@ export async function runClose(harness: Pick<Harness, "commit"> | undefined, req
 	const archiveDir = join(request.changesDir, "archive");
 	const archivedBefore = new Set(archived(archiveDir, change));
 
-	const fold = await run(["env", "OPENSPEC_TELEMETRY=0", "openspec", "archive", change, "--yes"]);
-	if (fold.exitCode !== 0) return refused(`openspec archive ${change} --yes failed (exit ${fold.exitCode}):\n${tail(fold.output)}`);
+	const fold = await openspec(bin, workspace, ["archive", change, "--yes"]);
+	if (fold.kind === "spawn-failed") return refused(`openspec archive ${change} --yes could not run: ${fold.message}`);
+	if (fold.exit !== 0) return refused(`openspec archive ${change} --yes failed (exit ${fold.exit}):\n${tail(fold.stdout + fold.stderr)}`);
 	const moved = archived(archiveDir, change).filter((name) => !archivedBefore.has(name));
 	const last = moved.at(-1);
 	if (last === undefined) {
@@ -183,20 +183,21 @@ const FOLD_COMMAND = "openspec validate --specs --strict --json";
 
 /**
  * Fold `change` into a temporary copy of `<workspace>/openspec` and validate the specs there:
- * `openspec archive <change> --yes`, then `openspec validate --specs --strict --json`, each with
- * `OPENSPEC_TELEMETRY=0` and no shell. Prints nothing, leaves `<workspace>` untouched and always
- * removes the copy, even when a step throws.
+ * `openspec archive <change> --yes`, then `openspec validate --specs --strict --json`, each through
+ * `runOpenspec` with `bin` (null: none found; absent: `<workspace>`'s, never the copy's). Prints
+ * nothing, leaves `<workspace>` untouched and always removes the copy, even when a step throws.
  */
-export async function trialFold(workspace: string, change: string): Promise<TrialFoldResult> {
+export async function trialFold(workspace: string, change: string, bin?: OpenspecBin | null): Promise<TrialFoldResult> {
+	const resolved = bin === undefined ? await resolveOpenspec(workspace) : bin;
 	const trial = mkdtempSync(join(tmpdir(), "close-"));
 	const failed = (exit: number | null, failure: string): TrialFoldResult => ({ ok: false, command: FOLD_COMMAND, exit, issues: [], failure });
 	try {
 		cpSync(join(workspace, "openspec"), join(trial, "openspec"), { recursive: true });
-		const archive = await openspec(trial, ["archive", change, "--yes"]);
+		const archive = await openspec(resolved, trial, ["archive", change, "--yes"]);
 		if (archive.kind === "spawn-failed") return failed(null, archive.message);
 		if (archive.exit !== 0) return failed(null, `openspec archive ${change} --yes failed (exit ${archive.exit}):\n${archive.stdout}${archive.stderr}`);
 
-		const validate = await openspec(trial, ["validate", "--specs", "--strict", "--json"]);
+		const validate = await openspec(resolved, trial, ["validate", "--specs", "--strict", "--json"]);
 		if (validate.kind === "spawn-failed") return failed(null, validate.message);
 		const issues = reportIssues(validate.stdout);
 		if (issues === undefined) return failed(validate.exit, `no parseable JSON\nstdout:\n${validate.stdout}\nstderr:\n${validate.stderr}`);
@@ -218,21 +219,16 @@ export function formatTrialFold(result: TrialFoldResult): string {
 	return `${headline}:\n${tail(body)}\nopenspec/ is unchanged`;
 }
 
-type OpenspecRun =
+type OpenspecCall =
 	| { readonly kind: "exited"; readonly exit: number; readonly stdout: string; readonly stderr: string }
 	| { readonly kind: "spawn-failed"; readonly message: string };
 
-/** `openspec <args>` in `cwd`, no shell, `OPENSPEC_TELEMETRY=0`; killed, exit -1, after the check timeout. */
-function openspec(cwd: string, args: readonly string[]): Promise<OpenspecRun> {
-	return new Promise((resolveRun) => {
-		const child = spawn("openspec", args, { cwd, env: { ...process.env, OPENSPEC_TELEMETRY: "0" }, stdio: ["ignore", "pipe", "pipe"], timeout: CHECK_TIMEOUT_MS, killSignal: "SIGKILL" });
-		let stdout = "";
-		let stderr = "";
-		child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
-		child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
-		child.on("error", (error) => resolveRun({ kind: "spawn-failed", message: error.message }));
-		child.on("close", (code) => resolveRun({ kind: "exited", exit: code ?? -1, stdout, stderr }));
-	});
+/** `bin <args>` in `cwd` through `runOpenspec`; spawn-failed when `bin` is null or cannot start. */
+async function openspec(bin: OpenspecBin | null, cwd: string, args: readonly string[]): Promise<OpenspecCall> {
+	if (bin === null) return { kind: "spawn-failed", message: `spawn openspec ENOENT (${describeOpenspec(bin)})` };
+	const ran = await runOpenspec(bin, args, { cwd });
+	if (ran.code === null) return { kind: "spawn-failed", message: `${ran.stderr.trim()} (${describeOpenspec(bin)})` };
+	return { kind: "exited", exit: ran.code, stdout: ran.stdout, stderr: ran.stderr };
 }
 
 /** The `ERROR` and `WARNING` issues of each `spec` item in openspec's JSON report; undefined when it is not one. */

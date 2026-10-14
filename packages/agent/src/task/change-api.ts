@@ -9,7 +9,6 @@ import type { Context } from "@earendil-works/chord";
 import type { Extension, Harness, JsonObject, TaskId } from "@earendil-works/pi-durable";
 import { start } from "../interpreter/index.js";
 import { checkBindings } from "../durable/index.js";
-import { localWorkspace } from "../node/index.js";
 import { ChangeOutcome, EscalationAnswer, LoopOutcome, check, explain, type Escalation, type GroupOutcome } from "../openspec/index.js";
 import { CHANGE_LOOP_TASK, type ChangeCheckpoint, type ChangeLoopOptions } from "./change-input.js";
 import { buildRefusal } from "./change-guard.js";
@@ -24,14 +23,12 @@ import {
 	type ChangeLoopInput,
 	type ChangeLoopResult,
 } from "./change-loop.js";
-import { CHECK_TIMEOUT_MS, SPAWN_FAILED_EXIT_CODE, type CheckRun } from "./checks.js";
 import { checkContract } from "./contract.js";
 import { EscalationAnswerError, TaskLoopStartError } from "./errors.js";
 import { answerGroupEscalation } from "./group-answer.js";
 import { groupLoopExtensions, readResult } from "./group-api.js";
 import { checkGroupContract } from "./group-judge.js";
 import { OPTIONAL_TARGETS, boundWorkspace, subagentsOf, taskLoopRegistry, type TaskLoopActionOptions } from "./loop.js";
-import type { StageContext } from "./spec-stage.js";
 
 export type { ChangeLoopOptions };
 export { ChangeLoop };
@@ -44,19 +41,6 @@ export function changeLoopExtensions(options: TaskLoopActionOptions): readonly [
 	return [bound === undefined ? ChangeLoop : boundChangeLoop(bound), ...groupLoopExtensions(options)];
 }
 
-/** The guard's `run`: argv, no shell, in the directory the loop works in. `close` runs `openspec` through it too. */
-export function guardRun(dir: string): StageContext["run"] {
-	const workspace = localWorkspace(dir);
-	return async (argv): Promise<CheckRun> => {
-		const command = argv.join(" ");
-		if (workspace.exec === undefined) return { command, exitCode: SPAWN_FAILED_EXIT_CODE, output: "this workspace cannot run commands" };
-		const ran = await workspace.exec(argv, { timeoutMs: CHECK_TIMEOUT_MS });
-		if (ran.kind === "exited") return { command, exitCode: ran.code, output: ran.stdout + ran.stderr };
-		if (ran.kind === "timed-out") return { command, exitCode: -1, output: `${ran.stdout}${ran.stderr}\n(timed out after ${CHECK_TIMEOUT_MS}ms)` };
-		return { command, exitCode: SPAWN_FAILED_EXIT_CODE, output: `(could not start: ${ran.message})` };
-	};
-}
-
 /**
  * The loop's durable input, or the refusal: the guard (strict validation, then the approvals,
  * then the unclaimed scenarios), the sources, then both scripts, as `startGroupLoop` checks them.
@@ -67,7 +51,7 @@ export async function prepareChangeLoop(options: ChangeLoopOptions): Promise<Cha
 		throw new TaskLoopStartError("a change loop needs the change's directory: openspec validates it by id");
 	}
 	const changeDir = resolve(options.change.dir);
-	const guard = await buildRefusal(basename(changeDir), changeDir, guardRun(options.worktree?.path ?? options.workspace));
+	const guard = await buildRefusal(basename(changeDir), changeDir, options.worktree?.path ?? options.workspace);
 	if (!guard.ok) throw new TaskLoopStartError(`${guard.refusal}; the loop was not started`);
 
 	const input = readChangeInput(options, guard.unclaimedAtStart);

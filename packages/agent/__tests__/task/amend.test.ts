@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { amendmentTarget, applyAmendment, unifiedDiff, type AmendmentCheck } from "../../src/task/amend.js";
+import { resetOpenspecCache } from "../../src/task/openspec-bin.js";
 import { cleanTemps, temp } from "./helpers.js";
 
 afterEach(cleanTemps);
@@ -126,6 +127,69 @@ describe("applyAmendment", () => {
 		expect(existsSync(target)).toBe(false);
 		expect(existsSync(join(root, "openspec", "changes", CHANGE, "specs", "plan"))).toBe(false);
 		expect(existsSync(join(root, "openspec", "changes", CHANGE, "specs"))).toBe(true);
+	});
+
+	describe.skipIf(process.platform === "win32")("the default checks", () => {
+		/** An `openspec` in `dir` that logs each call's args, cwd and telemetry to `log`, and passes. */
+		const stub = (dir: string, log: string) => {
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(
+				join(dir, "openspec"),
+				[
+					`#!${process.execPath}`,
+					'const fs = require("node:fs");',
+					"const args = process.argv.slice(2);",
+					`fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args, cwd: process.cwd(), telemetry: process.env.OPENSPEC_TELEMETRY ?? null }) + "\\n");`,
+					'if (args[0] === "--version") process.stdout.write("1.14.1\\n");',
+					'else if (args[0] === "validate" && args[1] === "--specs") process.stdout.write(JSON.stringify({ items: [], version: "1.0" }));',
+					'else process.stdout.write("ok\\n");',
+					"",
+				].join("\n"),
+				{ mode: 0o755 },
+			);
+		};
+		const calls = (log: string) =>
+			existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[]; cwd: string; telemetry: string | null }) : [];
+
+		let savedPath: string | undefined;
+		beforeEach(() => {
+			savedPath = process.env.PATH;
+			resetOpenspecCache();
+		});
+		afterEach(() => {
+			process.env.PATH = savedPath;
+			resetOpenspecCache();
+		});
+
+		it("run the repository's own openspec, also in the trial fold's copy, without telemetry", async () => {
+			const { root, target } = setup("old\n");
+			const logs = temp("amend-logs-");
+			const projectLog = join(logs, "project.jsonl");
+			const pathLog = join(logs, "path.jsonl");
+			stub(join(root, "node_modules", ".bin"), projectLog);
+			const onPath = temp("amend-path-");
+			stub(onPath, pathLog);
+			process.env.PATH = `${onPath}:${savedPath ?? ""}`;
+
+			const result = await applyAmendment({ target, text: "new\n", change: CHANGE, root });
+			expect(result.passed).toBe(true);
+
+			const ran = calls(projectLog).filter((call) => call.args[0] !== "--version");
+			expect(ran.map((call) => call.args.join(" "))).toEqual(["validate --all --strict", `archive ${CHANGE} --yes`, "validate --specs --strict --json"]);
+			for (const call of ran) expect(call.telemetry).toBe("0");
+			expect(realpathSync(ran[0]!.cwd)).toBe(realpathSync(root));
+			expect(ran[1]!.cwd).toBe(ran[2]!.cwd);
+			expect(ran[1]!.cwd.startsWith(realpathSync(root))).toBe(false);
+			expect(calls(projectLog).filter((call) => call.args[0] === "--version")).toHaveLength(1);
+			expect(calls(pathLog)).toEqual([]);
+		});
+
+		it("fail the validation, naming none found, when there is no openspec", async () => {
+			const { root, target } = setup("before\n");
+			const result = await applyAmendment({ target, text: "amended\n", change: CHANGE, root, bin: null });
+			expect(result).toEqual({ passed: false, output: "(could not start: spawn openspec ENOENT) (openspec not found)", restored: target });
+			expect(readFileSync(target, "utf8")).toBe("before\n");
+		});
 	});
 
 	it("restores the file and rethrows when a check throws", async () => {

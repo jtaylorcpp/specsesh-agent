@@ -1,18 +1,24 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { analyze } from "../../../src/authoring/index.js";
 import { readDeclarations } from "../../../src/interpreter/compose.js";
 import { SPEC_STAGES, designStage, proposalStage } from "../../../src/task/index.js";
+import { resetOpenspecCache } from "../../../src/task/openspec-bin.js";
 import { stageContractProblems, type StageContext } from "../../../src/task/spec-stage.js";
 import { specsStage } from "../../../src/task/stages/specs.js";
-import { cleanTemps, prompts, temp } from "../helpers.js";
+import { cleanTemps, fakeOpenspecBin, type FakeOpenspecReply, openspecCalls, prompts, temp } from "../helpers.js";
 import { draft, runSpecLoop } from "../spec-helpers.js";
 
 // The trial fold has its own tests in specs-gate.test.ts; here it folds clean.
 vi.mock("../../../src/task/stages/trial-fold-issues.js", () => ({ trialFoldIssues: vi.fn(async () => []) }));
 
-afterEach(cleanTemps);
+beforeEach(resetOpenspecCache);
+
+afterEach(() => {
+	vi.unstubAllEnvs();
+	cleanTemps();
+});
 
 const CLI_SPEC = "## Purpose\nThe task CLI.\n\n## Requirements\n\n### Requirement: It runs\nIt SHALL run.\n";
 
@@ -39,29 +45,28 @@ function specsWorkspace(): { workspace: string; changeDir: string } {
 	return { workspace, changeDir };
 }
 
-type Reply = { output: string; exitCode?: number } | Error;
+/** The gates run openspec themselves; a stage's `run` is not used for it. */
+const unusedRun: StageContext["run"] = async (argv) => ({ command: argv.join(" "), exitCode: 127, output: "unexpected command" });
 
-/** A `run` answering `openspec validate` and `openspec show` with canned replies, recording each argv. */
-function fakeRun(validate: Reply, show: Reply): { run: StageContext["run"]; calls: string[][] } {
-	const calls: string[][] = [];
-	const run: StageContext["run"] = async (argv) => {
-		calls.push([...argv]);
-		const reply = argv.includes("validate") ? validate : show;
-		if (reply instanceof Error) throw reply;
-		return { command: argv.join(" "), exitCode: reply.exitCode ?? 0, output: reply.output };
-	};
-	return { run, calls };
+/**
+ * A project openspec in `workspace` answering `validate` and `show` as given; `calls()` is each
+ * call as `<OPENSPEC_TELEMETRY> <args>`, `--version` included.
+ */
+function fakeOpenspec(workspace: string, validate: FakeOpenspecReply, show: FakeOpenspecReply): { calls: () => string[] } {
+	const fake = fakeOpenspecBin(join(workspace, "node_modules", ".bin"), { validate, show });
+	return { calls: () => openspecCalls(fake.log).map((line) => line.slice(fake.path.length + 1)) };
 }
 
-const validJson = (issues: unknown[] = []) => ({ output: JSON.stringify({ items: [{ id: "add-thing", valid: issues.length === 0, issues }] }) });
-const showJson = (deltas: unknown[]) => ({ output: JSON.stringify({ deltas }) });
+const validJson = (issues: unknown[] = []) => ({ stdout: JSON.stringify({ items: [{ id: "add-thing", valid: issues.length === 0, issues }] }) });
+const showJson = (deltas: unknown[]) => ({ stdout: JSON.stringify({ deltas }) });
 const scenarios = (n: number) => Array.from({ length: n }, (_, i) => ({ rawText: `S${i}` }));
 const delta = (spec: string, operation: string, n: number) => ({ spec, operation, requirement: { name: `${spec} ${n}`, text: "It SHALL.", scenarios: scenarios(n) } });
 const COVERED = [delta("task/cli", "MODIFIED", 1), delta("spec/export", "ADDED", 1)];
 
-function context(run: StageContext["run"], files: Record<string, string> = DELTAS): StageContext {
+/** A specs workspace whose openspec answers as given. */
+function context(validate: FakeOpenspecReply, show: FakeOpenspecReply, files: Record<string, string> = DELTAS): StageContext & { calls: () => string[] } {
 	const { workspace, changeDir } = specsWorkspace();
-	return { changeId: "add-thing", workspace, changeDir, files, run };
+	return { changeId: "add-thing", workspace, changeDir, files, run: unusedRun, ...fakeOpenspec(workspace, validate, show) };
 }
 
 describe("specsStage", () => {
@@ -73,47 +78,46 @@ describe("specsStage", () => {
 	});
 
 	it("seeds base with the full spec of each modified capability only", async () => {
-		const ctx = context(fakeRun(validJson(), showJson([])).run, {});
+		const ctx = context(validJson(), showJson([]), {});
 		expect((await specsStage.seed?.(ctx))?.base).toBe(`=== openspec/specs/task/cli/spec.md\n${CLI_SPEC}`);
 	});
 
 	it("passes a clean draft, running validate then show with telemetry off", async () => {
-		const { run, calls } = fakeRun(validJson(), showJson(COVERED));
-		expect(await specsStage.gate(context(run))).toEqual([]);
-		expect(calls).toEqual([
-			["env", "OPENSPEC_TELEMETRY=0", "openspec", "validate", "add-thing", "--strict", "--json"],
-			["env", "OPENSPEC_TELEMETRY=0", "openspec", "show", "add-thing", "--json", "--deltas-only"],
-		]);
+		const ctx = context(validJson(), showJson(COVERED));
+		expect(await specsStage.gate(ctx)).toEqual([]);
+		expect(ctx.calls()).toEqual(["0 --version", "0 validate add-thing --strict --json", "0 show add-thing --json --deltas-only"]);
 	});
 
 	it("reports validate's issues at their own level and path, ahead of coverage", async () => {
 		const issue = { level: "ERROR", path: "specs/spec/export/spec.md", message: "Requirement must have at least one scenario" };
 		const files = { ...DELTAS, "specs/task/group/spec.md": "## ADDED Requirements\n" };
-		const issues = await specsStage.gate(context(fakeRun({ ...validJson([issue]), exitCode: 1 }, showJson(COVERED)).run, files));
+		const issues = await specsStage.gate(context({ ...validJson([issue]), exit: 1 }, showJson(COVERED), files));
 		expect(issues).toEqual([issue, { level: "ERROR", path: "specs/task/group/spec.md", message: expect.stringContaining("`task/group`") }]);
 	});
 
-	it("reports one ERROR naming openspec validate when it cannot spawn, and never runs show", async () => {
-		const { run, calls } = fakeRun(new Error("spawn openspec ENOENT"), showJson(COVERED));
-		const issues = await specsStage.gate(context(run));
-		expect(issues).toEqual([{ level: "ERROR", path: ".", message: expect.stringContaining("`openspec validate`") }]);
-		expect(issues[0]?.message).toContain("ENOENT");
-		expect(calls).toHaveLength(1);
+	it("reports one ERROR naming openspec validate when its output cannot be read, and never runs show", async () => {
+		const ctx = context({ stdout: "Error: change not found\n", exit: 1 }, showJson(COVERED));
+		const issues = await specsStage.gate(ctx);
+		expect(issues).toEqual([{ level: "ERROR", path: ".", message: expect.stringContaining("`openspec validate add-thing --strict --json` printed no parseable JSON") }]);
+		expect(ctx.calls()).toEqual(["0 --version", "0 validate add-thing --strict --json"]);
 	});
 
 	it("still checks coverage when validate cannot run", async () => {
-		const issues = await specsStage.gate(context(fakeRun({ output: "env: 'openspec': No such file", exitCode: 127 }, showJson([])).run, {}));
+		const { workspace, changeDir } = specsWorkspace();
+		vi.stubEnv("PATH", temp("empty-path-"));
+		const issues = await specsStage.gate({ changeId: "add-thing", workspace, changeDir, files: {}, run: unusedRun });
 		expect(issues.map((issue) => issue.path)).toEqual([".", "specs/spec/export/spec.md", "specs/task/cli/spec.md"]);
+		expect(issues[0]?.message).toBe("`openspec validate add-thing --strict --json` could not run (openspec not found)");
 	});
 
 	it("passes show's ERROR through and skips the size check when show fails", async () => {
-		const issues = await specsStage.gate(context(fakeRun(validJson(), { output: "not json" }).run));
-		expect(issues).toEqual([{ level: "ERROR", path: ".", message: expect.stringContaining("`openspec show`") }]);
+		const issues = await specsStage.gate(context(validJson(), { stdout: "not json" }));
+		expect(issues).toEqual([{ level: "ERROR", path: ".", message: expect.stringContaining("`openspec show add-thing --json --deltas-only`") }]);
 	});
 
 	it("warns on 17 scenarios against 16, with no tasks or groups issue", async () => {
 		const deltas = [delta("task/cli", "MODIFIED", 9), delta("spec/export", "ADDED", 8)];
-		const issues = await specsStage.gate(context(fakeRun(validJson(), showJson(deltas)).run));
+		const issues = await specsStage.gate(context(validJson(), showJson(deltas)));
 		expect(issues).toEqual([{ level: "WARNING", path: "specs", message: expect.stringMatching(/^17 scenarios, over the budget of 16/) }]);
 	});
 });
@@ -147,7 +151,7 @@ describe("specsStage scenarios", () => {
 	it("Scenario: The specs stage sees the mock and examples", async () => {
 		const { workspace, changeDir } = stagesWorkspace();
 		const base = `=== openspec/specs/spec/stages/spec.md\n${STAGES_SPEC}`;
-		expect((await specsStage.seed?.({ changeId: "add-thing", workspace, changeDir, files: {}, run: fakeRun(validJson(), showJson([])).run }))?.base).toBe(base);
+		expect((await specsStage.seed?.({ changeId: "add-thing", workspace, changeDir, files: {}, run: unusedRun }))?.base).toBe(base);
 
 		// `approved` is seeded by the loop from the approved stages' owned paths; `ask` ends the run before the gate.
 		const approved = [...proposalStage.owns, ...designStage.owns];
@@ -166,19 +170,16 @@ describe("specsStage scenarios", () => {
 		const { workspace, changeDir } = stagesWorkspace();
 		const requirement = (name: string, n: number) => ({ spec: "spec/stages", operation: "MODIFIED", requirement: { name, text: "It SHALL.", scenarios: scenarios(n) } });
 		const deltas = [requirement("One", 6), requirement("Two", 6), requirement("Three", 5)];
-		const { run, calls } = fakeRun(validJson(), showJson(deltas));
+		const { calls } = fakeOpenspec(workspace, validJson(), showJson(deltas));
 		const files = { "specs/spec/stages/spec.md": "## MODIFIED Requirements\n\n### Requirement: One\n" };
-		const issues = await specsStage.gate({ changeId: "add-thing", workspace, changeDir, files, run });
+		const issues = await specsStage.gate({ changeId: "add-thing", workspace, changeDir, files, run: unusedRun });
 
 		const warnings = issues.filter((issue) => issue.level === "WARNING" && issue.message.includes("scenarios"));
 		expect(warnings).toHaveLength(1);
 		expect(warnings[0]?.message).toContain("17");
 		expect(warnings[0]?.message).toContain("16");
 		expect(issues.filter((issue) => issue.path === "tasks.md" || /\b(groups?|tasks?)\b/.test(issue.message))).toEqual([]);
-		expect(calls.map((argv) => argv.slice(0, 3))).toEqual([
-			["env", "OPENSPEC_TELEMETRY=0", "openspec"],
-			["env", "OPENSPEC_TELEMETRY=0", "openspec"],
-		]);
+		expect(calls().map((call) => call.split(" ").slice(0, 2).join(" "))).toEqual(["0 --version", "0 validate", "0 show"]);
 	});
 
 	it("Scenario: The design follows the proposal", () => {

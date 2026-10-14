@@ -36,6 +36,52 @@ export function cleanTemps(): void {
 	for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 }
 
+/** What a fake `openspec` prints on stdout, and exits with, for one subcommand. */
+export interface FakeOpenspecReply {
+	readonly stdout: string;
+	readonly exit?: number;
+}
+
+/**
+ * An executable `openspec` in `dir` (a workspace's `node_modules/.bin`, or a PATH directory),
+ * printing `version` for `--version` and the given reply for `validate` or `show`. Every call,
+ * `--version` included, appends `<path> <OPENSPEC_TELEMETRY> <args>` to `log`. POSIX only.
+ */
+export function fakeOpenspecBin(
+	dir: string,
+	replies: { version?: string; validate?: FakeOpenspecReply; show?: FakeOpenspecReply } = {},
+): { path: string; log: string } {
+	const data = temp("fake-openspec-data-");
+	const log = join(data, "calls.log");
+	const reply = (name: "validate" | "show") => {
+		writeFileSync(join(data, `${name}.out`), replies[name]?.stdout ?? "");
+		return `  ${name}) cat '${join(data, `${name}.out`)}'; exit ${replies[name]?.exit ?? 0} ;;`;
+	};
+	const path = join(dir, "openspec");
+	mkdirSync(dir, { recursive: true });
+	const script = [
+		"#!/bin/sh",
+		`printf '%s %s %s\\n' "$0" "$OPENSPEC_TELEMETRY" "$*" >> '${log}'`,
+		'case "$1" in',
+		`  --version) echo '${replies.version ?? "1.14.1"}' ;;`,
+		reply("validate"),
+		reply("show"),
+		"esac",
+		"",
+	].join("\n");
+	writeFileSync(path, script, { mode: 0o755 });
+	return { path, log };
+}
+
+/** The fake's calls so far, one line each; none when it never ran. */
+export function openspecCalls(log: string): string[] {
+	try {
+		return readFileSync(log, "utf8").split("\n").filter((line) => line !== "");
+	} catch {
+		return [];
+	}
+}
+
 /** The loop's action options as the tests give them: a directory, or a `Workspace` whose `root` is the input's directory. */
 export type LoopActions = Partial<TaskLoopActionOptions>;
 

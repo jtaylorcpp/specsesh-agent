@@ -16,6 +16,7 @@ import { RESULT_TOOL } from "../../src/durable/index.js";
 import { readChangeResult } from "../../src/task/change-api.js";
 import { CHANGE_LOOP_TASK } from "../../src/task/change-input.js";
 import { DRAFT_LOOP_TASK } from "../../src/task/draft-input.js";
+import { resetOpenspecCache } from "../../src/task/openspec-bin.js";
 import type { DraftLoopInput } from "../../src/task/draft-loop.js";
 import { GROUP_LOOP_NAME } from "../../src/task/group.js";
 import { TASK_LOOP } from "../../src/task/index.js";
@@ -409,6 +410,8 @@ export function fakeOpenspec(options: { replies?: Partial<Record<AmendCommand, O
 	);
 	const saved = process.env.PATH;
 	process.env.PATH = `${bin}:${saved ?? ""}`;
+	// A workspace resolved before the fake went on PATH would keep the real openspec.
+	resetOpenspecCache();
 	return {
 		bin,
 		/** Stage a command's reply from now on; `undefined` passes it through again. */
@@ -417,14 +420,18 @@ export function fakeOpenspec(options: { replies?: Partial<Record<AmendCommand, O
 			else replies[command] = value;
 			save();
 		},
-		/** Every call so far, in order. */
-		calls: (): OpenspecCall[] => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as OpenspecCall) : []),
+		/** Every call so far, in order, but the resolver's `--version` probe. */
+		calls: (): OpenspecCall[] =>
+			(existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as OpenspecCall) : []).filter(
+				(call) => call.args[0] !== "--version",
+			),
 		/** The calls since the `n`th, as `openspec` argument strings. */
 		commands(since = 0): string[] {
 			return this.calls().slice(since).map((call) => call.args.join(" "));
 		},
 		restore() {
 			process.env.PATH = saved;
+			resetOpenspecCache();
 		},
 	};
 }

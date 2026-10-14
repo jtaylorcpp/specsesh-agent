@@ -45,6 +45,7 @@ import { formatStaleApprovalRefusal } from "./change-output.js";
 import { ApprovalsFileError, EscalationAnswerError } from "./errors.js";
 import { changedBetween, insideGit, repoRoot, snapshot, status } from "./git.js";
 import { blockedBy } from "./group.js";
+import { resolveOpenspec } from "./openspec-bin.js";
 import { listStaleApprovedFiles, recordSpecAmendment } from "./spec-approvals.js";
 import { shownPath } from "./spec-cli.js";
 import { inRepo } from "./worktree.js";
@@ -368,7 +369,9 @@ async function amend(
 	const principal = options.principal?.trim() ?? "";
 	if (principal === "") return refused("--amend needs a principal: set git config user.name or $USER");
 	const path = `${request.changePath}/${amendment.delta}`;
-	const applied = await applyAmendment({ target: target.path, text: amendment.text, change: request.change, root: request.workspace });
+	// The repository's openspec, for the validation and the trial fold's copy alike.
+	const bin = await resolveOpenspec(request.workspace);
+	const applied = await applyAmendment({ target: target.path, text: amendment.text, change: request.change, root: request.workspace, bin });
 	if (!applied.passed) return { kind: "amend-failed", change: request.change, path, output: applied.output, exitCode: 2 };
 	// The key `approvals.json` holds: the delta as `amendmentTarget` normalised it.
 	const delta = posix.normalize(amendment.delta);

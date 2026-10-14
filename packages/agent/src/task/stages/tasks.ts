@@ -39,9 +39,9 @@ export async function trackedFiles(run: StageContext["run"]): Promise<string> {
  * the scenarios no task claims, then the groups and tasks budget. When `openspec show`
  * fails, its `ERROR` stands in for the deltas and no scenario is unclaimed.
  */
-export async function tasksGate({ changeId, files, run }: StageContext): Promise<StageIssue[]> {
+export async function tasksGate({ changeId, workspace, files }: StageContext): Promise<StageIssue[]> {
 	const list = readTaskList(files["tasks.md"] ?? "");
-	const shown = await openspecDeltas(run, changeId);
+	const shown = await openspecDeltas(workspace, changeId);
 	const scenarios = scenarioNames(shown.deltas);
 	return [
 		...list.issues,

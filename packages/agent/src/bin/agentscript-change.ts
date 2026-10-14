@@ -29,6 +29,9 @@
  * the database opens, except those `runDraft`, `runApprove`, `runBuild` and `runClose` find in
  * the database or the tree. A review, a drafted, a built or a closed change exits 0; a question,
  * a waiting build or a failed draft or build exits 1.
+ *
+ * `draft`, `approve`, `close` and `build --amend` first refuse (exit 2) an openspec older than
+ * `OPENSPEC_MIN_VERSION` or of unknown version (`task/openspec-bin.ts`); a missing one is not refused.
  */
 
 import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
@@ -52,6 +55,7 @@ import { prepareDraft, runDraft, type DraftRequest } from "../task/cmd-draft.js"
 import { ConfigError, DEFAULT_CHANGES_DIR, DEFAULT_MODEL, DEFAULT_PROVIDER, loadConfig, resolveDb, resolveNamedModels, type DbPath, type LoadedConfig } from "../task/config.js";
 import { gitUserName } from "../task/git.js";
 import { DatabaseLockedError, lockDatabase } from "../task/lock.js";
+import { checkOpenspec } from "../task/openspec-bin.js";
 import type { SpecStage } from "../task/spec-stage.js";
 import { SPEC_STAGES } from "../task/spec-stages.js";
 import { readSlices, type Slice } from "../task/stages/slices-md.js";
@@ -208,6 +212,12 @@ const refuser = (io: ChangeIo) => (text: string) => {
 	return 2;
 };
 
+/** The refusal's exit code when the workspace's openspec is too old or of unknown version; undefined when it may run. */
+async function refuseOldOpenspec(workspace: string, io: ChangeIo): Promise<number | undefined> {
+	const check = await checkOpenspec(workspace);
+	return check.ok ? undefined : refuser(io)(check.message);
+}
+
 // The workspace is the config's directory, as for `agentscript-task spec`; changes live under its `changesDir`.
 const changesDirOf = (config: LoadedConfig) => resolve(config.dir, config.task.changesDir ?? DEFAULT_CHANGES_DIR);
 
@@ -260,6 +270,8 @@ async function withHarness(request: DraftRequest, target: Target, io: ChangeIo, 
 /** `draft <change> [<feedback>]`: the exit code. */
 async function draft(args: Parameters<typeof prepareDraft>[0], dbFlag: string | undefined, config: LoadedConfig, io: ChangeIo): Promise<number> {
 	const refuse = refuser(io);
+	const old = await refuseOldOpenspec(config.dir, io);
+	if (old !== undefined) return old;
 	const request = prepareDraft(args, { workspace: config.dir, changesDir: changesDirOf(config), cwd: io.cwd });
 	if (request.kind === "refused") return refuse(request.message);
 	const target = await resolveTarget("draft", dbFlag, config, io);
@@ -283,6 +295,8 @@ async function draft(args: Parameters<typeof prepareDraft>[0], dbFlag: string | 
 /** `approve <change>`: the exit code. */
 async function approve(args: ApproveArgs, principalFlag: string | undefined, dbFlag: string | undefined, config: LoadedConfig, io: ChangeIo): Promise<number> {
 	const refuse = refuser(io);
+	const old = await refuseOldOpenspec(config.dir, io);
+	if (old !== undefined) return old;
 	const request = prepareApprove(args, { workspace: config.dir, changesDir: changesDirOf(config) });
 	if (request.kind === "refused") return refuse(request.message);
 	const target = await resolveTarget("approve", dbFlag, config, io);
@@ -308,6 +322,11 @@ async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promi
 	const refuse = refuser(io);
 	const request = prepareBuild(args, { config, env: io.env, cwd: io.cwd });
 	if (request.kind === "refused") return refuse(request.message);
+	// Only `--amend` runs openspec, so a text answer never asks for its version.
+	if (request.amend) {
+		const old = await refuseOldOpenspec(request.workspace, io);
+		if (old !== undefined) return old;
+	}
 	const models = await io.models();
 	const provider = models.getProvider(request.provider);
 	if (provider === undefined || models.getModel(request.provider, request.model) === undefined) {
@@ -374,6 +393,8 @@ async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promi
 /** `close <change>`: the exit code. Needs no model; the database, when there is one, is only read for the change loop. */
 async function close(args: CloseArgs, dbFlag: string | undefined, config: LoadedConfig, io: ChangeIo): Promise<number> {
 	const refuse = refuser(io);
+	const old = await refuseOldOpenspec(config.dir, io);
+	if (old !== undefined) return old;
 	const request = prepareClose(args, { workspace: config.dir, changesDir: changesDirOf(config) });
 	if (request.kind === "refused") return refuse(request.message);
 	const db = resolveDb(dbFlag, config, io.cwd);

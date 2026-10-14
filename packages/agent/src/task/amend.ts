@@ -8,6 +8,8 @@
  *   validate  openspec validate --all --strict                          else restore
  *   trial     close's trial fold                                        else restore
  *
+ * Both checks run one openspec, resolved for the repository, through `runOpenspec`
+ * (`OPENSPEC_TELEMETRY=0`, no shell), the trial fold's copy included.
  * A check passes on exit 0 with no `[ERROR]`, no `[WARNING]` and no `✗` item in its output.
  * The restore writes back the saved bytes, or deletes the file (and any directory the write
  * created) when there were none. Nothing here prints or answers a loop: the caller does both.
@@ -15,8 +17,9 @@
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve, sep, win32 } from "node:path";
-import { guardRun } from "./change-api.js";
+import { SPAWN_FAILED_EXIT_CODE } from "./checks.js";
 import { formatTrialFold, trialFold } from "./cmd-close.js";
+import { describeOpenspec, type OpenspecBin, resolveOpenspec, runOpenspec } from "./openspec-bin.js";
 
 /** Lines of unchanged context around each hunk of `unifiedDiff`. */
 const CONTEXT = 3;
@@ -107,9 +110,11 @@ export interface ApplyAmendmentOptions {
 	readonly change: string;
 	/** The repo root, where `openspec/` lives and `openspec` runs, for the default checks. */
 	readonly root: string;
-	/** Default: `openspec validate --all --strict` in `root`, with `OPENSPEC_TELEMETRY=0`. */
+	/** The openspec the default checks run (null: none found); when absent, `root`'s is resolved. */
+	readonly bin?: OpenspecBin | null;
+	/** Default: `openspec validate --all --strict` in `root`, through `runOpenspec`. */
 	readonly validate?: AmendmentCheck;
-	/** Default: close's `trialFold(root, change)`. Runs only when `validate` passed. */
+	/** Default: close's `trialFold(root, change, bin)`. Runs only when `validate` passed. */
 	readonly trialFold?: AmendmentCheck;
 }
 
@@ -129,10 +134,12 @@ export const checkPassed = (check: CheckOutcome): boolean =>
  */
 export async function applyAmendment(options: ApplyAmendmentOptions): Promise<AmendmentResult> {
 	const { target, text, change, root } = options;
-	const validate = options.validate ?? (() => guardRun(root)(["env", "OPENSPEC_TELEMETRY=0", "openspec", "validate", "--all", "--strict"]));
+	// Resolved only when a default check runs; never again from the trial fold's copy.
+	const bin = async () => (options.bin === undefined ? resolveOpenspec(root) : options.bin);
+	const validate = options.validate ?? (async () => validateAll(root, await bin()));
 	const fold = options.trialFold ?? (async () => {
 		// A reported warning fails an amendment even on exit 0.
-		const trial = await trialFold(root, change);
+		const trial = await trialFold(root, change, await bin());
 		const clean = trial.ok && trial.issues.length === 0;
 		return { exitCode: clean ? 0 : trial.exit || 1, output: clean ? "" : formatTrialFold({ ...trial, ok: false }) };
 	});
@@ -155,6 +162,14 @@ export async function applyAmendment(options: ApplyAmendmentOptions): Promise<Am
 		if (!passed) restore(target, saved, created);
 	}
 	return passed ? { passed: true, output } : { passed: false, output, restored: target };
+}
+
+/** `openspec validate --all --strict` in `root`; one that cannot start exits 127, naming the openspec it tried. */
+async function validateAll(root: string, bin: OpenspecBin | null): Promise<CheckOutcome> {
+	if (bin === null) return { exitCode: SPAWN_FAILED_EXIT_CODE, output: `(could not start: spawn openspec ENOENT) (${describeOpenspec(bin)})` };
+	const ran = await runOpenspec(bin, ["validate", "--all", "--strict"], { cwd: root });
+	if (ran.code === null) return { exitCode: SPAWN_FAILED_EXIT_CODE, output: `(could not start: ${ran.stderr.trim()}) (${describeOpenspec(bin)})` };
+	return { exitCode: ran.code, output: ran.stdout + ran.stderr };
 }
 
 /** The file's bytes, or `null` when it does not exist; any other read error is thrown before the write. */

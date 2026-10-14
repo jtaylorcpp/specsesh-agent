@@ -341,7 +341,7 @@ describe.skipIf(process.platform === "win32")("change/cli close", () => {
 					{ level: "WARNING", spec: "spec/judge", message: "very long" },
 				],
 			});
-			expect(calls()).toEqual([
+			expect(calls().filter((call) => call.argv[0] !== "--version")).toEqual([
 				{ argv: ["archive", CHANGE, "--yes"], telemetry: "0" },
 				{ argv: ["validate", "--specs", "--strict", "--json"], telemetry: "0" },
 			]);
