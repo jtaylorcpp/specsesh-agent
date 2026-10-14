@@ -119,8 +119,10 @@ export async function runClose(harness: Pick<Harness, "commit"> | undefined, req
 	const issue = (await openspecValidate(run, change)).find((i) => i.level === "ERROR" || i.level === "WARNING");
 	if (issue !== undefined) return refused(`change ${change} is not valid: ${issue.path}: ${issue.message}`);
 
-	const trial = await trialFold(request);
-	if (trial !== undefined) return refused(`${trial}\nopenspec/ is unchanged`);
+	const trial = await trialFold(change, workspace);
+	if (!trial.ok) {
+		return refused(`folded into a copy of openspec/, openspec ${trial.step} failed (exit ${trial.exitCode}):\n${tail(trial.output)}\nopenspec/ is unchanged`);
+	}
 
 	// Read before the fold moves the change and creates its new specs.
 	const capabilities = capabilitiesOf(request);
@@ -156,20 +158,32 @@ async function changeLoopRefusal(harness: Pick<Harness, "commit">, change: strin
 	}
 }
 
-/** Fold the change into a temporary copy of `openspec/` and validate the specs there: the failing step and its output, or none. */
-async function trialFold(request: CloseRequest): Promise<string | undefined> {
-	const { change, workspace } = request;
+/**
+ * The trial fold: passed with both steps' output, or the failing step (`openspec`'s arguments),
+ * its exit code and its output.
+ */
+export type TrialFoldResult =
+	| { readonly ok: true; readonly output: string }
+	| { readonly ok: false; readonly step: string; readonly exitCode: number; readonly output: string };
+
+/**
+ * Fold `change` into a temporary copy of `<root>/openspec` and validate the specs there:
+ * `openspec archive <change> --yes`, then `openspec validate --specs --strict`, each with
+ * `OPENSPEC_TELEMETRY=0`; the first non-zero exit fails it. Prints nothing, leaves `<root>`
+ * untouched and always removes the copy.
+ */
+export async function trialFold(change: string, root: string): Promise<TrialFoldResult> {
 	const trial = mkdtempSync(join(tmpdir(), "close-"));
 	try {
-		cpSync(join(workspace, "openspec"), join(trial, "openspec"), { recursive: true });
+		cpSync(join(root, "openspec"), join(trial, "openspec"), { recursive: true });
 		const run = guardRun(trial);
+		let output = "";
 		for (const args of [["archive", change, "--yes"], ["validate", "--specs", "--strict"]]) {
 			const ran = await run(["env", "OPENSPEC_TELEMETRY=0", "openspec", ...args]);
-			if (ran.exitCode !== 0) {
-				return `folded into a copy of openspec/, openspec ${args.join(" ")} failed (exit ${ran.exitCode}):\n${tail(ran.output)}`;
-			}
+			if (ran.exitCode !== 0) return { ok: false, step: args.join(" "), exitCode: ran.exitCode, output: ran.output };
+			output += ran.output;
 		}
-		return undefined;
+		return { ok: true, output };
 	} finally {
 		rmSync(trial, { recursive: true, force: true });
 	}

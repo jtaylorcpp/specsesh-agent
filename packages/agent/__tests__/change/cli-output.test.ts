@@ -6,13 +6,13 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { recordApproval } from "../../src/task/spec-approvals.js";
 import type { SpecStage } from "../../src/task/spec-stage.js";
 import { SPEC_STAGES } from "../../src/task/spec-stages.js";
-import { cleanTemps } from "../task/helpers.js";
+import { cleanTemps, verdict } from "../task/helpers.js";
 import { STAGE_SCRIPT, draft } from "../task/spec-helpers.js";
-import { CHANGE, change, draftLoopsIn, loopsIn, workspace } from "./helpers.js";
+import { AMEND_SPEC, type AmendAsker, CHANGE, OPENSPEC_BIN, change, draftLoopsIn, loopsIn, seedBlockedOnAmendment, workspace } from "./helpers.js";
 
 afterEach(cleanTemps);
 
@@ -117,5 +117,65 @@ describe("change/cli draft output", () => {
 		expect(run.out.split("\n")[0]).toContain("drafted");
 		expect(tail(run.out, 1)[0]).toContain(`pnpm change build ${CHANGE}`);
 		expect(run.out).not.toContain("--next-group");
+	});
+});
+
+/** `add-plan-export` blocked on `asker`, asking `question`, with or without an amendment to its spec. */
+const blockedPlanExport = (asker: AmendAsker, question: string, amended: boolean) =>
+	seedBlockedOnAmendment({
+		change: CHANGE,
+		capability: "plan/export",
+		asker,
+		question,
+		...(amended ? { amendment: { delta: "specs/plan/export/spec.md", text: AMEND_SPEC.replace("An export SHALL hold every step.", "An export SHALL hold every step, in order.") } } : {}),
+	});
+
+const endsWith = (text: string) => new RegExp(`${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+
+// The seeded builds run the start guard, which validates the change with the pinned `openspec`.
+describe.skipIf(process.platform === "win32")("change/cli build output", () => {
+	let savedPath: string | undefined;
+	beforeEach(() => {
+		savedPath = process.env.PATH;
+		process.env.PATH = `${OPENSPEC_BIN}:${savedPath ?? ""}`;
+	});
+	afterEach(() => {
+		process.env.PATH = savedPath;
+	});
+
+	describe("Build output ends with the next command", () => {
+		it("Scenario: A blocked build ends with the answer command", async () => {
+			const { blocked } = await blockedPlanExport({ kind: "task", task: "2.2" }, "Which API?", false);
+
+			expect(blocked.code).toBe(1);
+			const [question, answer] = tail(blocked.out, 2);
+			expect(question).toMatch(endsWith("Which API?"));
+			expect(answer).toMatch(endsWith(`pnpm change build ${CHANGE} "<answer>"`));
+			expect(blocked.out).not.toContain("--amend");
+		}, 120_000);
+
+		// The `--amend` line follows the amendment, whoever asked: a task loop or a group's judge.
+		for (const asker of [{ kind: "task", task: "2.2" }, { kind: "group", group: 1 }] as const) {
+			it(`Scenario: A blocked build with an amendment ends with both commands (${asker.kind === "task" ? `task ${asker.task}` : `group ${asker.group} judge`})`, async () => {
+				const { blocked } = await blockedPlanExport(asker, "Amend the spec?", true);
+
+				expect(blocked.code).toBe(1);
+				const [question, amend, answer] = tail(blocked.out, 3);
+				expect(question).toMatch(endsWith("Amend the spec?"));
+				expect(amend).toMatch(endsWith(`pnpm change build ${CHANGE} --amend`));
+				expect(answer).toMatch(endsWith(`pnpm change build ${CHANGE} "<answer>"`));
+			}, 120_000);
+		}
+
+		it("Scenario: A built change points at the next step", async () => {
+			const fixture = await blockedPlanExport({ kind: "task", task: "2.2" }, "Which API?", false);
+
+			// 2.2 again with the answer, then 3.1; the group and change checks are `true`.
+			const run = await fixture.build(["Use the v2 API"], [verdict(true), verdict(true)]);
+			expect(run.code).toBe(0);
+			expect(run.out.split("\n")[0]).toBe(`# ${CHANGE} — built`);
+			expect(run.out).toContain("## change check: passed");
+			expect(tail(run.out, 1)[0]).toBe(`pnpm change close ${CHANGE}`);
+		}, 120_000);
 	});
 });

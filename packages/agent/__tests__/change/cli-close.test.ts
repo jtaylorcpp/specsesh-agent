@@ -11,6 +11,7 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { trialFold } from "../../src/task/cmd-close.js";
 import { recordApproval } from "../../src/task/spec-approvals.js";
 import { SPEC_STAGES } from "../../src/task/spec-stages.js";
 import { commitAll, gitIn, write } from "../task/cli-helpers.js";
@@ -198,6 +199,49 @@ describe.skipIf(process.platform === "win32")("change/cli close", () => {
 			expect(snapshot(dir)).toEqual(before);
 			expect(existsSync(join(dir, "openspec", "changes", CHANGE))).toBe(true);
 			expect(existsSync(join(dir, "openspec", "changes", "archive"))).toBe(false);
+		}, 60_000);
+	});
+
+	describe("trialFold folds into a temporary copy only", () => {
+		/**
+		 * `trialFold` with `tmpdir()` pointed at an empty directory, then: the repository's
+		 * `openspec/` is as it was, the change unarchived, and the temporary copy gone.
+		 */
+		async function fold(change: string, dir: string) {
+			const before = snapshot(dir);
+			const tmp = temp("trial-fold-tmp-");
+			const savedTmp = process.env.TMPDIR;
+			process.env.TMPDIR = tmp;
+			try {
+				return await trialFold(change, dir);
+			} finally {
+				if (savedTmp === undefined) delete process.env.TMPDIR;
+				else process.env.TMPDIR = savedTmp;
+				expect(snapshot(dir)).toEqual(before);
+				expect(existsSync(join(dir, "openspec", "changes", CHANGE))).toBe(true);
+				expect(existsSync(join(dir, "openspec", "changes", "archive"))).toBe(false);
+				expect(readdirSync(tmp)).toEqual([]);
+			}
+		}
+
+		it("passes a change that folds cleanly", async () => {
+			const { dir } = repo();
+			const result = await fold(CHANGE, dir);
+			expect(result.ok).toBe(true);
+		}, 60_000);
+
+		it("fails when validate --specs fails, with openspec's output", async () => {
+			const { dir } = repo(OVERLONG);
+			const result = await fold(CHANGE, dir);
+			expect(result).toMatchObject({ ok: false, step: "validate --specs --strict" });
+			expect(result.output).toContain("Requirement text is very long");
+		}, 60_000);
+
+		it("fails when archive fails, with openspec's output", async () => {
+			const { dir } = repo();
+			const result = await fold("no-such-change", dir);
+			expect(result).toMatchObject({ ok: false, step: "archive no-such-change --yes" });
+			expect(result.output).toContain("no-such-change");
 		}, 60_000);
 	});
 });

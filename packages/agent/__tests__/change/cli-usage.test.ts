@@ -14,20 +14,26 @@ import { CHANGE, change, loopsIn, workspace } from "./helpers.js";
 
 afterEach(cleanTemps);
 
+// One line per command, word for word from the scenario.
+const BUILD_USAGE =
+	"agentscript-change build <change> [<answer>|--amend] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]";
+const USAGE_LINES = [
+	"agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]",
+	"agentscript-change approve <change> [--principal <name>] [--db <path>]",
+	BUILD_USAGE,
+	"agentscript-change close <change> [--db <path>]",
+];
+/** The `build` line before `--amend`: a usage text still carrying it is stale. */
+const STALE_BUILD_USAGE = "agentscript-change build <change> [--change-check <command>]";
+
 describe("change/cli usage", () => {
 	it("Scenario: No command prints usage", async () => {
 		const { dir } = workspace();
 		const run = await change([], dir);
 		expect(run.code).toBe(2);
 		expect(run.err.startsWith("usage:")).toBe(true);
-		// One line per command, word for word from the scenario.
-		const usageLines = [
-			"agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]",
-			"agentscript-change approve <change> [--principal <name>] [--db <path>]",
-			"agentscript-change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]",
-			"agentscript-change close <change> [--db <path>]",
-		];
-		for (const line of usageLines) expect(run.err).toContain(line);
+		for (const line of USAGE_LINES) expect(run.err).toContain(line);
+		expect(run.err).not.toContain(STALE_BUILD_USAGE);
 	});
 
 	it("Scenario: An unknown command prints usage", async () => {
@@ -35,6 +41,16 @@ describe("change/cli usage", () => {
 		const run = await change(["frobnicate", CHANGE], dir);
 		expect(run.code).toBe(2);
 		expect(run.err).toContain("usage:");
+		// Both paths print the one usage text.
+		expect(run.err).toContain(BUILD_USAGE);
+	});
+
+	it("build refuses --amend with an answer before the database opens", async () => {
+		const { dir, db } = workspace();
+		const run = await change(["build", CHANGE, "--amend", "Use v2"], dir);
+		expect(run.code).toBe(2);
+		expect(run.err).toContain('--amend takes no answer: use either --amend or "<answer>"');
+		expect(existsSync(db)).toBe(false);
 	});
 
 	it("Scenario: A new change starts at the proposal", async () => {

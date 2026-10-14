@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import { formatBuildOutput, formatDraftOutput, type BuildShown, type DraftShown } from "../../src/task/change-output.js";
-import type { BuildGroup } from "../../src/task/cmd-build.js";
+import type { BuildGroup, ShownAmendment } from "../../src/task/cmd-build.js";
 
 const change = "add-plan-export";
 const context = { changePath: `openspec/changes/${change}` };
@@ -177,6 +177,77 @@ describe("formatBuildOutput", () => {
 	it("asks without a group when the build doesn't know it", () => {
 		const lines = formatBuildOutput({ ...shown, kind: "waiting", to: "principal", question: "Which API?", exitCode: 1 });
 		expect(lines.slice(-2)).toEqual(["question: Which API?", '  answer:  pnpm change build add-plan-export "<answer>"']);
+	});
+
+	const onDisk = ["## MODIFIED Requirements", "", "### Requirement: Export writes JSON", "#### Scenario: Export writes JSON", "- **WHEN** `plan export p1` runs", "- **THEN** stdout SHALL be the plan as JSON", ""].join("\n");
+	const amendedText = onDisk.replace("as JSON", "as JSON, with keys sorted");
+	const amendment = (over: Partial<ShownAmendment> = {}): ShownAmendment => ({
+		asker: { kind: "task", id: "2.2" },
+		delta: "specs/plan/export/spec.md",
+		path: `openspec/changes/${change}/specs/plan/export/spec.md`,
+		onDisk,
+		text: amendedText,
+		...over,
+	});
+	const blocked = (over: Partial<Extract<BuildShown, { kind: "waiting" }>> = {}): BuildShown => ({
+		...shown,
+		kind: "waiting",
+		groups: [converged(1), { group: 2, status: "blocked", tasks: 2, reworks: 0, blockedAt: "2.2" }],
+		to: "principal",
+		question: "Amend the spec?",
+		group: 2,
+		task: "2.2",
+		amendment: amendment(),
+		exitCode: 1,
+		...over,
+	});
+
+	it("shows a task's amendment as a diff after the groups, then the question, the amend and the answer commands", () => {
+		const result = blocked();
+		expect(formatBuildOutput(result)).toEqual([
+			"# add-plan-export — waiting for an answer",
+			"## group 1: converged (2 tasks, 0 reworks)",
+			"## group 2: blocked at 2.2",
+			"## proposed amendment (from task 2.2): specs/plan/export/spec.md",
+			"--- openspec/changes/add-plan-export/specs/plan/export/spec.md (on disk)",
+			"+++ openspec/changes/add-plan-export/specs/plan/export/spec.md (amended)",
+			"@@ -3,4 +3,4 @@",
+			" ### Requirement: Export writes JSON",
+			" #### Scenario: Export writes JSON",
+			" - **WHEN** `plan export p1` runs",
+			"-- **THEN** stdout SHALL be the plan as JSON",
+			"+- **THEN** stdout SHALL be the plan as JSON, with keys sorted",
+			"",
+			"group 2 asks: Amend the spec?",
+			"  amend:   pnpm change build add-plan-export --amend",
+			'  answer:  pnpm change build add-plan-export "<answer>"',
+		]);
+		expect(result.exitCode).toBe(1);
+	});
+
+	it("names the group judge when the amendment is its own", () => {
+		const { task: _task, ...judged } = blocked({
+			groups: [{ group: 1, status: "blocked", tasks: 2, reworks: 0 }],
+			group: 1,
+			amendment: amendment({ asker: { kind: "judge", group: 1 }, delta: "specs/plan/import/spec.md" }),
+		}) as Extract<BuildShown, { kind: "waiting" }>;
+		const lines = formatBuildOutput(judged);
+		expect(lines).toContain("## proposed amendment (from group 1 judge): specs/plan/import/spec.md");
+	});
+
+	it("shows every line of an amendment to a file that does not exist as added", () => {
+		const lines = formatBuildOutput(blocked({ amendment: amendment({ onDisk: null }) }));
+		const at = lines.indexOf("+++ openspec/changes/add-plan-export/specs/plan/export/spec.md (amended)");
+		expect(lines[at + 1]).toBe("@@ -0,0 +1,6 @@");
+		expect(lines.slice(at + 2, at + 8)).toEqual(amendedText.replace(/\n$/, "").split("\n").map((line) => `+${line}`));
+	});
+
+	it("prints a blocked build without an amendment as before, with no amend command", () => {
+		const { amendment: _amendment, ...without } = blocked({ question: "Which API?" }) as Extract<BuildShown, { kind: "waiting" }>;
+		const lines = formatBuildOutput(without);
+		expect(lines.slice(-3)).toEqual(["", "group 2 asks: Which API?", '  answer:  pnpm change build add-plan-export "<answer>"']);
+		expect(lines.join("\n")).not.toContain("--amend");
+		expect(lines.join("\n")).not.toContain("proposed amendment");
 	});
 
 	it("prints a failed change check's commands and output, and the unclaimed scenarios", () => {

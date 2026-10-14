@@ -1,5 +1,5 @@
 /**
- * `build <change> [<answer>]`: start, continue or answer a change's change loop,
+ * `build <change> [<answer>|--amend]`: start, continue or answer a change's change loop,
  * addressed by change, never by loop.
  *
  *   newest change loop             build                        build "<answer>"
@@ -8,6 +8,11 @@
  *   blocked                        shown again, exit 1          answered as the escalation's `to`
  *   converged                      built, nothing starts        refused, nothing waits
  *
+ * `--amend` is refused (exit 2, nothing written) unless the loop is blocked on an escalation
+ * carrying an `Amendment` whose delta is a `specs/**\/spec.md`. Then `applyAmendment` writes,
+ * validates and trial-folds it: a failure is restored and answers nothing (`amend-failed`,
+ * exit 2); a pass answers the loop `amendment-applied`, as a text answer would.
+ *
  * Three halves, so every refusal of the arguments comes before the database opens:
  * `parseBuild` reads the flags (the group run's, plus `--change-check`); `prepareBuild`
  * resolves them as a group run does, touching nothing; `runBuild` works the loop on a
@@ -15,17 +20,18 @@
  * prompts: the result says what to print and the exit code.
  */
 
-import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import type { Context } from "@earendil-works/chord";
 import type { Harness, ModelRef, TaskId } from "@earendil-works/pi-durable";
 import type { DelegateGrants } from "../durable/delegation.js";
-import type { ChangeOutcome, LoopOutcome, Recipient, ScenarioRef } from "../openspec/index.js";
+import { AMENDMENT_APPLIED, type Amendment, type ChangeOutcome, type LoopOutcome, type Recipient, type ScenarioRef } from "../openspec/index.js";
+import { amendmentTarget, applyAmendment } from "./amend.js";
 import { answerChangeEscalation, readChangeResult, startChangeLoop, waitForChangeLoop } from "./change-api.js";
 import type { ChangeLoopOptions } from "./change-input.js";
 import type { ChangeLoopResult } from "./change-loop.js";
-import { changeBuildState } from "./change-state.js";
+import { changeBuildState, type ChangeBuildState } from "./change-state.js";
 import { isChangeId } from "./cmd-draft.js";
 import { ConfigError, RUN_FLAG_OPTIONS, resolveGroupScript, resolveRunSettings, runFlagsOf, type DbPath, type LoadedConfig, type RunFlags } from "./config.js";
 import { EscalationAnswerError } from "./errors.js";
@@ -47,6 +53,8 @@ export interface BuildArgs {
 	readonly change: string;
 	/** The answer to what the change's build waits for. */
 	readonly answer?: string;
+	/** `--amend`: apply the waiting escalation's amendment, then answer `amendment-applied`. Never with `answer`. */
+	readonly amend?: boolean;
 	readonly flags: Omit<RunFlags, "worktree">;
 	/** `--change-check`, in order; undefined when none was given, so the checks stand in. */
 	readonly changeChecks?: readonly string[];
@@ -80,6 +88,7 @@ export interface BuildRequest {
 	/** `changeDir` as messages name it: relative to the config's directory when under it. */
 	readonly changePath: string;
 	readonly answer?: string;
+	readonly amend: boolean;
 	readonly db: DbPath;
 	readonly provider: string;
 	readonly model: string;
@@ -123,26 +132,72 @@ interface Shown {
 	/** Repository-relative files changed while this call ran the loop; empty when it ran nothing. */
 	readonly changed: readonly string[];
 	readonly notes: readonly string[];
+	/** Set when `--amend` applied an amendment that passed validation and answered the loop before this run. */
+	readonly amended?: Amended;
+}
+
+/** What `--amend` wrote and who it answered, as the output names them. */
+export interface Amended {
+	/** `<changePath>/<delta>`. */
+	readonly path: string;
+	/** `task <id>` or `group <n> judge`. */
+	readonly asker: string;
+}
+
+/** `--amend` whose validation failed: the file is back as it was and no loop was answered. */
+export interface AmendFailed {
+	readonly kind: "amend-failed";
+	readonly change: string;
+	/** `<changePath>/<delta>`, written then restored. */
+	readonly path: string;
+	/** The validation's output, then the trial fold's when it ran. */
+	readonly output: string;
+	readonly exitCode: 2;
+}
+
+/** The amendment a blocked build's escalation carries, with who asked and the file it would replace as it is on disk. */
+export interface ShownAmendment {
+	/** The task loop that escalated, or the group judge. */
+	readonly asker: { readonly kind: "task"; readonly id: string } | { readonly kind: "judge"; readonly group: number };
+	/** Relative to the change directory. */
+	readonly delta: string;
+	/** `<changePath>/<delta>`, as the diff headers name it. */
+	readonly path: string;
+	/** The file's text, or `null` when it does not exist or `delta` is not a target `--amend` would write. */
+	readonly onDisk: string | null;
+	readonly text: string;
 }
 
 export type BuildResult =
 	| BuildRefusal
+	| AmendFailed
 	| (Shown & { readonly kind: "built"; readonly exitCode: 0 })
-	| (Shown & { readonly kind: "waiting"; readonly to: Recipient; readonly question: string; readonly group?: number; readonly task?: string; readonly exitCode: 1 })
+	| (Shown & {
+			readonly kind: "waiting";
+			readonly to: Recipient;
+			readonly question: string;
+			readonly group?: number;
+			readonly task?: string;
+			readonly amendment?: ShownAmendment;
+			readonly exitCode: 1;
+	  })
 	| (Shown & { readonly kind: "failed"; readonly status: "exhausted" | "failed"; readonly reason: string; readonly exitCode: 1 });
 
 const refused = (message: string): BuildRefusal => ({ kind: "refused", message, exitCode: 2 });
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** `<change> [<answer>]` and the group run's flags, plus `--change-check <command>` (repeatable). `--worktree` is refused. */
+/**
+ * `<change> [<answer>|--amend]` and the group run's flags, plus `--change-check <command>`
+ * (repeatable). `--worktree`, and `--amend` with an answer, are refused.
+ */
 export function parseBuild(argv: readonly string[]): BuildArgs | BuildUsage | BuildRefusal {
 	let parsed;
 	try {
 		parsed = parseArgs({
 			args: [...argv],
 			allowPositionals: true,
-			options: { ...RUN_FLAG_OPTIONS, "change-check": { type: "string", multiple: true } },
+			options: { ...RUN_FLAG_OPTIONS, "change-check": { type: "string", multiple: true }, amend: { type: "boolean" } },
 		});
 	} catch (error) {
 		return { kind: "usage", message: message(error) };
@@ -151,12 +206,15 @@ export function parseBuild(argv: readonly string[]): BuildArgs | BuildUsage | Bu
 	const [change, answer, ...extra] = positionals;
 	if (change === undefined) return { kind: "usage", message: "build needs a change" };
 	if (extra.length > 0) return { kind: "usage", message: `build takes a change and at most one answer, got ${positionals.join(" ")}; quote the answer` };
+	const amend = values.amend === true;
+	if (amend && answer !== undefined) return refused('--amend takes no answer: use either --amend or "<answer>"');
 	if (values.worktree === true) return refused("build has no --worktree yet; run it in a clean checkout");
 	const flags = runFlagsOf(values);
 	if (typeof flags === "string") return { kind: "usage", message: flags };
 	return {
 		change,
 		...(answer !== undefined ? { answer } : {}),
+		...(amend ? { amend } : {}),
 		flags,
 		...(values["change-check"] !== undefined ? { changeChecks: values["change-check"] } : {}),
 		noDelegates: values["no-delegates"] === true,
@@ -191,6 +249,7 @@ export function prepareBuild(args: BuildArgs, options: BuildPrepareOptions): Bui
 		changeDir,
 		changePath,
 		...(args.answer !== undefined ? { answer: args.answer } : {}),
+		amend: args.amend === true,
 		db: settings.db,
 		provider: settings.provider,
 		model: settings.model,
@@ -221,29 +280,18 @@ export async function runBuild(harness: Harness, request: BuildRequest, options:
 	if (!existsSync(request.changeDir)) return refused(`the change ${change} does not exist in ${request.changePath}`);
 	const state = await changeBuildState(harness, change, context);
 	const nothingWaits = () => refused(`nothing of ${change} waits for an answer; run build ${change} without one`);
+	if (request.amend) {
+		if (state.kind !== "waiting" || state.escalation.amendment === undefined) return refused(`${change} is not waiting on an amendment`);
+		return amend(harness, request, { loop: state.loop, escalation: state.escalation, amendment: state.escalation.amendment }, options, context);
+	}
 
 	switch (state.kind) {
 		case "built":
 			if (answer !== undefined) return nothingWaits();
 			return shown(harness, request, state.loop, false, [], context);
-		case "waiting": {
+		case "waiting":
 			if (answer === undefined) return shown(harness, request, state.loop, false, [], context);
-			const { group: _group, task: _task, ...escalation } = state.escalation;
-			let id: ChangeId;
-			try {
-				id = await answerChangeEscalation(
-					harness,
-					state.loop as unknown as ChangeId,
-					{ escalation, by: escalation.to, decision: answer, feedback: [] },
-					context,
-				);
-			} catch (error) {
-				if (error instanceof EscalationAnswerError) return refused(error.message);
-				throw error;
-			}
-			options.onLoop?.(Number(id));
-			return settle(harness, request, Number(id), context);
-		}
+			return answered(harness, request, state, answer, undefined, options, context);
 		case "ready": {
 			if (state.running === true) {
 				if (answer !== undefined) return refused(`change loop ${state.loop} of ${change} is still running; run build ${change} without an answer to finish it`);
@@ -263,6 +311,61 @@ export async function runBuild(harness: Harness, request: BuildRequest, options:
 			return settle(harness, request, Number(id), context);
 		}
 	}
+}
+
+type Waiting = Extract<ChangeBuildState, { kind: "waiting" }>;
+
+/** The loop that asked, as the output names it: `task <id>` or `group <n> judge`. */
+function askerOf(at: { group?: number; task?: string }): string | undefined {
+	return at.task !== undefined ? `task ${at.task}` : at.group !== undefined ? `group ${at.group} judge` : undefined;
+}
+
+/**
+ * `--amend`: check the delta, write it, validate and trial-fold. A failure leaves the file as it
+ * was and answers nothing; a pass answers the waiting loop `amendment-applied`, as a text answer would.
+ */
+async function amend(
+	harness: Harness,
+	request: BuildRequest,
+	waiting: Pick<Waiting, "loop" | "escalation"> & { readonly amendment: Amendment },
+	options: BuildRunOptions,
+	context: Context,
+): Promise<BuildResult> {
+	const { amendment } = waiting;
+	const target = amendmentTarget(dirname(request.changeDir), request.change, amendment.delta);
+	if (!target.ok) return refused(target.message);
+	// `amendment-applied` is the principal's alone: refuse here, before the write, not after it.
+	if (waiting.escalation.to !== "principal") {
+		return refused(`the escalation of ${request.change} goes to the ${waiting.escalation.to}: only the principal applies an amendment`);
+	}
+	const path = `${request.changePath}/${amendment.delta}`;
+	const applied = await applyAmendment({ target: target.path, text: amendment.text, change: request.change, root: request.workspace });
+	if (!applied.passed) return { kind: "amend-failed", change: request.change, path, output: applied.output, exitCode: 2 };
+	const asker = askerOf(waiting.escalation) ?? `change loop ${waiting.loop}`;
+	return answered(harness, request, waiting, AMENDMENT_APPLIED, { path, asker }, options, context);
+}
+
+/** Answer the waiting change loop with `decision`, then run the new run to its end. */
+async function answered(
+	harness: Harness,
+	request: BuildRequest,
+	waiting: Pick<Waiting, "loop" | "escalation">,
+	decision: string,
+	amended: Amended | undefined,
+	options: BuildRunOptions,
+	context: Context,
+): Promise<BuildResult> {
+	const { group: _group, task: _task, ...escalation } = waiting.escalation;
+	let id: ChangeId;
+	try {
+		id = await answerChangeEscalation(harness, waiting.loop as unknown as ChangeId, { escalation, by: escalation.to, decision, feedback: [] }, context);
+	} catch (error) {
+		if (error instanceof EscalationAnswerError) return refused(error.message);
+		throw error;
+	}
+	options.onLoop?.(Number(id));
+	const result = await settle(harness, request, Number(id), context);
+	return amended !== undefined && result.kind !== "refused" && result.kind !== "amend-failed" ? { ...result, amended } : result;
 }
 
 /** The refusal of a dirty tree, worded and listed as `pnpm task` words it; none when clean, allowed, or outside git. */
@@ -325,6 +428,7 @@ async function shown(harness: Harness, request: BuildRequest, loop: number, ran:
 			// The group and task it waits at, as `changeBuildState` reads them.
 			const state = await changeBuildState(harness, change, context);
 			const at: { group?: number; task?: string } = state.kind === "waiting" && state.loop === loop ? state.escalation : {};
+			const amendment = shownAmendment(request, outcome.escalation.amendment, at);
 			return {
 				...base,
 				kind: "waiting",
@@ -332,11 +436,41 @@ async function shown(harness: Harness, request: BuildRequest, loop: number, ran:
 				question: outcome.escalation.question,
 				...(at.group !== undefined ? { group: at.group } : {}),
 				...(at.task !== undefined ? { task: at.task } : {}),
+				...(amendment !== undefined ? { amendment } : {}),
 				exitCode: 1,
 			};
 		}
 		default:
 			return { ...base, kind: "failed", status: outcome.status, reason: notes.at(-1) ?? outcome.status, exitCode: 1 };
+	}
+}
+
+/**
+ * The escalation's amendment as the output shows it, read against the file on disk now: what
+ * `--amend` would write over. A `delta` `--amend` would refuse is not read, so it diffs from nothing.
+ */
+function shownAmendment(request: BuildRequest, amendment: Amendment | undefined, at: { group?: number; task?: string }): ShownAmendment | undefined {
+	if (amendment === undefined) return undefined;
+	const asker: ShownAmendment["asker"] | undefined =
+		at.task !== undefined ? { kind: "task", id: at.task } : at.group !== undefined ? { kind: "judge", group: at.group } : undefined;
+	if (asker === undefined) return undefined;
+	const target = amendmentTarget(dirname(request.changeDir), request.change, amendment.delta);
+	return {
+		asker,
+		delta: amendment.delta,
+		path: `${request.changePath}/${amendment.delta}`,
+		onDisk: target.ok ? textOnDisk(target.path) : null,
+		text: amendment.text,
+	};
+}
+
+/** The file's text, or `null` when it does not exist. */
+function textOnDisk(path: string): string | null {
+	try {
+		return readFileSync(path, "utf8");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+		throw error;
 	}
 }
 

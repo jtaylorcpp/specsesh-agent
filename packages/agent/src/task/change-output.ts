@@ -15,14 +15,21 @@
  *   ## group <n>: <status> (<k> tasks, <r> reworks)    one per group entered; `blocked at <task>` when it did
  *   ## change check: passed|failed                     when it ran, a failure followed by its commands and output
  *   ## unclaimed: <n>                                  when any, then one scenario per line
+ *   ## proposed amendment (from <asker>): <delta>      when the escalation carries one, then its diff
  *
- *   then, by state: waiting (the question, answer), built (changed files, close) or failed (retry).
+ *   then, by state: waiting (the question, amend when there is an amendment, answer),
+ *   built (changed files, close) or failed (retry).
+ *
+ * After `--amend`, `amended <path>` and `## validation: passed|failed` come first: on a pass,
+ * `resumed <asker> with decision: amendment-applied` and the run; on a failure, the
+ * validation output, `restored <path>` and `nothing resumed`.
  *
  * Pure: it prints nothing and reads nothing. The exit code is the result's own.
  */
 
-import { formatRef } from "../openspec/index.js";
-import type { BuildRefusal, BuildResult } from "./cmd-build.js";
+import { AMENDMENT_APPLIED, formatRef } from "../openspec/index.js";
+import { unifiedDiff } from "./amend.js";
+import type { AmendFailed, BuildRefusal, BuildResult } from "./cmd-build.js";
 import type { DraftRefusal, DraftResult } from "./cmd-draft.js";
 import { issueLine } from "./spec-loop.js";
 
@@ -44,6 +51,7 @@ export const approveCmd = (change: string) => `pnpm change approve ${change}`;
 export const answerCmd = (change: string) => `pnpm change draft ${change} "<answer>"`;
 export const buildCmd = (change: string) => `pnpm change build ${change}`;
 export const buildAnswerCmd = (change: string) => `pnpm change build ${change} "<answer>"`;
+export const buildAmendCmd = (change: string) => `pnpm change build ${change} --amend`;
 export const closeCmd = (change: string) => `pnpm change close ${change}`;
 export const retryCmd = (change: string) => `pnpm change draft ${change}`;
 export const sliceCmd = (slice: { readonly id: string; readonly intent: string }) => `pnpm change draft ${slice.id} --intent ${shellQuote(slice.intent)}`;
@@ -116,7 +124,7 @@ const count = (k: number, noun: string) => `${k} ${noun}${k === 1 ? "" : "s"}`;
 /** The change loop's own prefix on a failed change check; the commands and their output follow it. */
 const CHECK_FAILED = "change check failed:\n";
 
-function buildHeader(result: BuildShown): string {
+function buildHeader(result: Exclude<BuildShown, AmendFailed>): string {
 	switch (result.kind) {
 		case "built":
 			return "built";
@@ -127,10 +135,18 @@ function buildHeader(result: BuildShown): string {
 	}
 }
 
-/** A settled build as text, ending with the next command. */
+/** A settled build as text, ending with the next command; after `--amend`, the amendment's lines come first. */
 export function formatBuildOutput(result: BuildShown): string[] {
 	const { change } = result;
-	const lines = [`# ${change} — ${buildHeader(result)}`];
+	if (result.kind === "amend-failed") {
+		const output = result.output.replace(/\n$/, "");
+		return [`amended ${result.path}`, "## validation: failed", ...(output === "" ? [] : output.split("\n")), `restored ${result.path}`, "nothing resumed"];
+	}
+	const lines: string[] = [];
+	if (result.amended !== undefined) {
+		lines.push(`amended ${result.amended.path}`, "## validation: passed", `resumed ${result.amended.asker} with decision: ${AMENDMENT_APPLIED}`);
+	}
+	lines.push(`# ${change} — ${buildHeader(result)}`);
 	for (const group of result.groups) {
 		lines.push(
 			group.blockedAt !== undefined
@@ -148,10 +164,18 @@ export function formatBuildOutput(result: BuildShown): string[] {
 		for (const ref of result.unclaimed) lines.push(`   ${formatRef(ref)}`);
 	}
 
+	if (result.kind === "waiting" && result.amendment !== undefined) {
+		const { asker, delta, path, onDisk, text } = result.amendment;
+		lines.push(`## proposed amendment (from ${asker.kind === "task" ? `task ${asker.id}` : `group ${asker.group} judge`}): ${delta}`);
+		lines.push(...unifiedDiff(path, onDisk, text).split("\n").slice(0, -1));
+	}
+
 	lines.push("");
 	switch (result.kind) {
 		case "waiting":
-			lines.push(`${result.group !== undefined ? `group ${result.group} asks` : "question"}: ${result.question}`, `  answer:  ${buildAnswerCmd(change)}`);
+			lines.push(`${result.group !== undefined ? `group ${result.group} asks` : "question"}: ${result.question}`);
+			if (result.amendment !== undefined) lines.push(`  amend:   ${buildAmendCmd(change)}`);
+			lines.push(`  answer:  ${buildAnswerCmd(change)}`);
 			break;
 		case "built":
 			if (result.changed.length > 0) lines.push(`Changed: ${result.changed.join(", ")}`);

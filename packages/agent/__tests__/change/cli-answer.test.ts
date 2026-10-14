@@ -25,7 +25,7 @@ import { SPEC_STAGES } from "../../src/task/spec-stages.js";
 import { commitAll, gitIn, write } from "../task/cli-helpers.js";
 import { GROUP_JUDGE, JUDGE_ONLY, cleanTemps, context, temp, verdict } from "../task/helpers.js";
 import { stagedCheck } from "../task/staged-check.js";
-import { CHANGE, change } from "./helpers.js";
+import { CHANGE, change, csvImportGroup1, fakeOpenspec, noAmendment, planExportTask22, snapshotOpenspec } from "./helpers.js";
 
 /** The repo's pinned `openspec` (1.14.1): the guard validates the change with it. */
 const OPENSPEC_BIN = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "node_modules", ".bin");
@@ -203,6 +203,129 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 			expect(run.out.trim()).toMatch(new RegExp(`pnpm change close ${CHANGE}$`));
 			expect(run.out).not.toContain("spec:archive");
 			expect(run.code).toBe(0);
+		}, 120_000);
+	});
+
+	describe("amendments", () => {
+		it("Scenario: A task loop's amendment is shown as a diff", async () => {
+			const seeded = await planExportTask22({ question: "Amend the spec?" });
+			const bytes = seeded.readDelta();
+			const files = snapshotOpenspec(seeded.dir);
+			const loops = await seeded.changeLoops();
+			const openspec = fakeOpenspec();
+			try {
+				const run = await seeded.build();
+				const out = run.out;
+				const header = out.indexOf("## proposed amendment (from task 2.2): specs/plan/export/spec.md");
+				const minus = out.indexOf("--- openspec/changes/add-plan-export/specs/plan/export/spec.md (on disk)");
+				const plus = out.indexOf("+++ openspec/changes/add-plan-export/specs/plan/export/spec.md (amended)");
+				const hunk = out.indexOf("@@", plus);
+				const removed = out.indexOf("\n-- **THEN** stdout SHALL be the plan as JSON\n", hunk);
+				const added = out.indexOf("\n+- **THEN** stdout SHALL be the plan as JSON, with keys sorted\n", removed);
+				expect(header).toBeGreaterThan(-1);
+				expect(minus).toBeGreaterThan(header);
+				expect(plus).toBeGreaterThan(minus);
+				expect(hunk).toBeGreaterThan(plus);
+				expect(removed).toBeGreaterThan(hunk);
+				expect(added).toBeGreaterThan(removed);
+
+				// The groups come first; the question, the amend and the answer commands close the output.
+				const groups = out.indexOf("## group ");
+				expect(groups).toBeGreaterThan(-1);
+				expect(groups).toBeLessThan(header);
+				const question = out.indexOf("Amend the spec?", added);
+				const amend = out.indexOf("pnpm change build add-plan-export --amend", question);
+				const answer = out.indexOf('pnpm change build add-plan-export "<answer>"', amend);
+				expect(question).toBeGreaterThan(added);
+				expect(amend).toBeGreaterThan(question);
+				expect(answer).toBeGreaterThan(amend);
+				expect(lastLines(out, 1)[0]).toContain('pnpm change build add-plan-export "<answer>"');
+
+				// Showing it changes nothing: no write, no model, no new run, no decision, no openspec.
+				expect(seeded.readDelta()).toEqual(bytes);
+				expect(snapshotOpenspec(seeded.dir)).toEqual(files);
+				expect(run.calls).toBe(0);
+				expect(await seeded.changeLoops()).toEqual(loops);
+				expect(await seeded.answers()).toEqual([]);
+				expect(openspec.calls()).toEqual([]);
+				expect(run.code).toBe(1);
+			} finally {
+				openspec.restore();
+			}
+		}, 120_000);
+
+		it("Scenario: A group judge's amendment names the judge", async () => {
+			const seeded = await csvImportGroup1();
+			expect(seeded.readDelta()).not.toBeNull();
+
+			const run = await seeded.build();
+			expect(run.out).toContain("## proposed amendment (from group 1 judge): specs/plan/import/spec.md");
+			expect(run.out).toContain("--- openspec/changes/add-csv-import/specs/plan/import/spec.md (on disk)");
+			expect(run.out).toContain("+++ openspec/changes/add-csv-import/specs/plan/import/spec.md (amended)");
+			expect(run.out).toContain("pnpm change build add-csv-import --amend");
+			expect(run.code).toBe(1);
+		}, 120_000);
+
+		it("Scenario: A text answer writes and validates nothing", async () => {
+			const seeded = await planExportTask22();
+			const bytes = seeded.readDelta();
+			const openspec = fakeOpenspec();
+			try {
+				// 2.2 again with the decision, then 3.1; passing group checks ask no judge.
+				const run = await seeded.build(["Keep JSON, drop the sort"], [verdict(true), verdict(true)]);
+				expect(seeded.readDelta()).toEqual(bytes);
+				const commands = openspec.commands();
+				expect(commands.filter((command) => command.startsWith("validate --all") || command.startsWith("validate --specs"))).toEqual([]);
+				expect(commands.filter((command) => command.startsWith("archive"))).toEqual([]);
+
+				const answers = await seeded.answers();
+				const task = answers.filter((answer) => answer.kind === "task" && answer.task === "2.2");
+				expect(task.length).toBeGreaterThan(0);
+				for (const answer of task) {
+					expect(answer.decision).toContain("Keep JSON, drop the sort");
+					expect(answer.decision).not.toContain("amendment-applied");
+				}
+				expect(answers.some((answer) => answer.decision.includes("amendment-applied"))).toBe(false);
+
+				expect(run.out).not.toMatch(/^amended /m);
+				expect(run.out).not.toContain("## validation:");
+				expect(run.code).toBe(0);
+			} finally {
+				openspec.restore();
+			}
+		}, 120_000);
+
+		it("a text answer to a group judge writes and validates nothing", async () => {
+			const seeded = await csvImportGroup1();
+			const bytes = seeded.readDelta();
+			const openspec = fakeOpenspec();
+			try {
+				const run = await seeded.build(["Keep the order loose"], Array.from({ length: 8 }, () => verdict(true)));
+				expect(seeded.readDelta()).toEqual(bytes);
+				const commands = openspec.commands();
+				expect(commands.filter((command) => command.startsWith("validate --all") || command.startsWith("validate --specs"))).toEqual([]);
+				expect(commands.filter((command) => command.startsWith("archive"))).toEqual([]);
+
+				const judged = (await seeded.answers()).filter((answer) => answer.kind === "group" && answer.group === 1);
+				expect(judged).toHaveLength(1);
+				expect(judged[0]!.decision).toBe("Keep the order loose");
+
+				expect(run.out).not.toMatch(/^amended /m);
+				expect(run.out).not.toContain("## validation:");
+			} finally {
+				openspec.restore();
+			}
+		}, 120_000);
+
+		it("prints a blocked build without an amendment as before", async () => {
+			const seeded = await noAmendment();
+			const run = await seeded.build();
+			expect(run.out).not.toContain("## proposed amendment");
+			expect(run.out).not.toContain("--amend");
+			const [question, command] = lastLines(run.out, 2);
+			expect(question).toMatch(/Which API\?$/);
+			expect(command).toContain('pnpm change build add-other-thing "<answer>"');
+			expect(run.code).toBe(1);
 		}, 120_000);
 	});
 });

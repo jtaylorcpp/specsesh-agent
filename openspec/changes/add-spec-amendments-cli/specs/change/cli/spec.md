@@ -71,7 +71,7 @@ When the blocked change loop's escalation carries an `Amendment { delta, text }`
 - **GIVEN** `add-plan-export` blocked on task `2.2`'s escalation carrying an `Amendment` for `specs/plan/export/spec.md` that passes validation
 - **WHEN** `build add-plan-export --amend` runs and the build converges
 - **THEN** the file SHALL hold `text`; `openspec validate --all --strict` SHALL have run, then `openspec archive add-plan-export --yes` and `openspec validate --specs --strict` in a temporary copy of `openspec/`, all with `OPENSPEC_TELEMETRY=0`; and `openspec/changes/add-plan-export/` SHALL not be archived in the repository
-- **AND** the output SHALL contain, in order, `amended openspec/changes/add-plan-export/specs/plan/export/spec.md`, `## validation: passed`, `resumed task 2.2 with decision: amendment-applied` and `# add-plan-export — converged`
+- **AND** the output SHALL contain, in order, `amended openspec/changes/add-plan-export/specs/plan/export/spec.md`, `## validation: passed`, `resumed task 2.2 with decision: amendment-applied` and `# add-plan-export — built`
 - **AND** task `2.2` SHALL be answered through `answerEscalation` with decision `amendment-applied`, and the exit code SHALL be `0`
 
 #### Scenario: A passing amendment resumes the group judge

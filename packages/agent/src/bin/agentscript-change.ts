@@ -6,7 +6,7 @@
  *
  *   agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
  *   agentscript-change approve <change> [--principal <name>] [--db <path>]
- *   agentscript-change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
+ *   agentscript-change build <change> [<answer>|--amend] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
  *   agentscript-change close <change> [--db <path>]
  *
  * `draft` starts, continues or answers the change's draft loop (`task/cmd-draft.ts`);
@@ -61,7 +61,7 @@ import { builtin, resolvePrincipal } from "./agentscript-task.js";
 const USAGE = `usage:
   agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
   agentscript-change approve <change> [--principal <name>] [--db <path>]
-  agentscript-change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
+  agentscript-change build <change> [<answer>|--amend] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
   agentscript-change close <change> [--db <path>]`;
 
 export interface ChangeCliDeps {
@@ -303,7 +303,7 @@ async function approve(args: ApproveArgs, principalFlag: string | undefined, dbF
 	});
 }
 
-/** `build <change> [<answer>]`: the exit code. */
+/** `build <change> [<answer>|--amend]`: the exit code. */
 async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promise<number> {
 	const refuse = refuser(io);
 	const request = prepareBuild(args, { config, env: io.env, cwd: io.cwd });

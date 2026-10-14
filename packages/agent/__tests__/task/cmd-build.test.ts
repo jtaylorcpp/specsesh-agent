@@ -95,6 +95,21 @@ describe("task/cmd-build: arguments", () => {
 		expect(args).toMatchObject({ change: CHANGE, answer: "Use the v2 API", changeChecks: ["pnpm spec:check", "pnpm test"], flags: { allowDirty: true } });
 	});
 
+	it("reads --amend before or after the change, with no answer", () => {
+		expect(parseBuild([CHANGE, "--amend"])).toMatchObject({ change: CHANGE, amend: true });
+		expect(parseBuild(["--amend", CHANGE])).toMatchObject({ change: CHANGE, amend: true });
+		expect((parseBuild([CHANGE, "--amend"]) as BuildArgs).answer).toBeUndefined();
+		const answered = parseBuild([CHANGE, "Use v2"]) as BuildArgs;
+		expect(answered).toMatchObject({ change: CHANGE, answer: "Use v2" });
+		expect(answered.amend).toBeUndefined();
+	});
+
+	it("refuses --amend with an answer", () => {
+		const message = '--amend takes no answer: use either --amend or "<answer>"';
+		expect(parseBuild([CHANGE, "--amend", "Use v2"])).toEqual({ kind: "refused", message, exitCode: 2 });
+		expect(parseBuild([CHANGE, "Use v2", "--amend"])).toEqual({ kind: "refused", message, exitCode: 2 });
+	});
+
 	it("refuses --worktree", () => {
 		expect(parseBuild([CHANGE, "--worktree"])).toEqual({ kind: "refused", message: "build has no --worktree yet; run it in a clean checkout", exitCode: 2 });
 	});
