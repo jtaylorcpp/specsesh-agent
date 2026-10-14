@@ -71,7 +71,8 @@ export function readApprovals(changeDir: string): ApprovalsFile {
 /**
  * The sha256 of every file the stage owns, by POSIX path relative to `changeDir`, in path order:
  * each owned file, and every file under an owned entry ending in "/". Missing ones are left out.
- * Raw bytes are hashed, so a binary file under an owned directory is compared exactly.
+ * Raw bytes are hashed, so a binary file under an owned directory is compared exactly; only
+ * `tasks.md` reads its ticks as unticked (`normaliseForHash`).
  */
 export function hashOwnedFiles(stage: Pick<SpecStage, "owns">, changeDir: string): Record<string, string> {
 	const found: Record<string, string> = {};
@@ -85,7 +86,7 @@ export function hashOwnedFiles(stage: Pick<SpecStage, "owns">, changeDir: string
 		}
 		if (stat.isDirectory()) {
 			for (const entry of readdirSync(absolute)) walk(relative === "" ? entry : `${relative}/${entry}`);
-		} else if (stat.isFile()) found[relative] = sha256(absolute);
+		} else if (stat.isFile()) found[relative] = sha256(changeDir, relative);
 	};
 	for (const entry of stage.owns) walk(entry.endsWith("/") ? entry.slice(0, -1) : entry);
 	return Object.fromEntries(Object.entries(found).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
@@ -157,7 +158,7 @@ export function staleFilesOfStage(changeDir: string, approvals: readonly Approva
 	for (const [path, hash] of Object.entries(entry.files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
 		const absolute = join(changeDir, path);
 		if (!existsSync(absolute) || !statSync(absolute).isFile()) stale.push({ stage, path, state: "missing" });
-		else if (sha256(absolute) !== hash) stale.push({ stage, path, state: "changed" });
+		else if (sha256(changeDir, path) !== hash) stale.push({ stage, path, state: "changed" });
 	}
 	return stale;
 }
@@ -191,6 +192,19 @@ function dependants(name: string, stages: readonly ApprovalStage[]): Set<string>
 	return found;
 }
 
-function sha256(path: string): string {
-	return createHash("sha256").update(readFileSync(path)).digest("hex");
+/** The sha256 of a file, by its path relative to `changeDir`, as `normaliseForHash` reads it. */
+function sha256(changeDir: string, relative: string): string {
+	return createHash("sha256").update(normaliseForHash(relative, readFileSync(join(changeDir, relative)))).digest("hex");
+}
+
+const TICKED = /^([ \t]*)- \[x\]/gm;
+
+/**
+ * The bytes a file is hashed as: `tasks.md` with each line's `- [x]` read as `- [ ]`, so ticking a
+ * task is not a change to an approved file; every other file as it is. An unticked `tasks.md`
+ * hashes as before, so approvals recorded earlier stay valid.
+ */
+function normaliseForHash(relative: string, bytes: Buffer): Buffer {
+	if (relative !== "tasks.md") return bytes;
+	return Buffer.from(bytes.toString("utf8").replace(TICKED, "$1- [ ]"), "utf8");
 }

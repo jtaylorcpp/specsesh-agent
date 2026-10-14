@@ -138,7 +138,7 @@ export interface BlockedOnAmendmentOptions {
 	readonly amendment?: { readonly delta: string; readonly text: string };
 	/** The capability's delta as committed. Default `AMEND_SPEC`. */
 	readonly committed?: string;
-	/** After seeding, left uncommitted: the amendment's delta as it then is on disk; `null` deletes it. Default: left as is. */
+	/** After seeding, left uncommitted: the amendment's delta as it then is on disk, approved as such; `null` deletes it. Default: left as is. */
 	readonly onDisk?: string | null;
 }
 
@@ -223,6 +223,9 @@ export async function seedBlockedOnAmendment(options: BlockedOnAmendmentOptions)
 	else if (options.onDisk !== undefined) {
 		mkdirSync(dirname(deltaPath), { recursive: true });
 		writeFileSync(deltaPath, options.onDisk);
+		// Approved as it now is, so only the tree is dirty; approving a stage drops the ones after it, so those go again too.
+		const owner = SPEC_STAGES.findIndex((stage) => stage.owns.some((path) => (path.endsWith("/") ? delta.startsWith(path) : delta === path)));
+		for (const stage of SPEC_STAGES.slice(Math.max(owner, 0))) recordApproval(changeDir, stage, { principal: "jesse", notes: "", at: "2026-10-13T00:00:00.000Z" }, SPEC_STAGES);
 	}
 
 	return {

@@ -244,7 +244,7 @@ describe("task/spec-approvals: listStaleApprovedFiles", () => {
 
 	it("names a changed tasks.md", () => {
 		const dir = approvedChange();
-		write(dir, "tasks.md", "- [x] 1.1 x\n");
+		write(dir, "tasks.md", "- [ ] 1.1 y\n");
 		const stale = listStaleApprovedFiles(dir);
 		expect(stale).toEqual([{ stage: "tasks", path: "tasks.md", state: "changed" }]);
 		expect(redraftStage(dir)).toBe(stale[0]?.stage);

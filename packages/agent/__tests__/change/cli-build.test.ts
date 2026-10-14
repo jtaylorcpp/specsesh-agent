@@ -5,7 +5,7 @@
  * the change with the repo's pinned `openspec`, so it goes first on PATH.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
@@ -17,7 +17,7 @@ import { recordApproval } from "../../src/task/spec-approvals.js";
 import { SPEC_STAGES } from "../../src/task/spec-stages.js";
 import { commitAll, gitIn, write } from "../task/cli-helpers.js";
 import { GROUP_JUDGE, JUDGE_ONLY, cleanTemps, context, temp, verdict } from "../task/helpers.js";
-import { CHANGE, change } from "./helpers.js";
+import { CHANGE, change, seedBlockedOnAmendment } from "./helpers.js";
 
 /** The repo's pinned `openspec` (1.14.1): the guard validates the change with it. */
 const OPENSPEC_BIN = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "node_modules", ".bin");
@@ -107,6 +107,20 @@ async function loopsIn(db: string) {
 /** Each task converges on its first pass; a passing group check asks no judge. */
 const converging = () => [verdict(true), verdict(true), verdict(true)];
 
+const STALE_SPEC = [
+	`${CHANGE}: approved files changed since they were approved; build refused`,
+	"  specs: specs/plan/export/spec.md (changed)",
+	`review it with: pnpm change draft ${CHANGE}`,
+	`then approve it again: pnpm change approve ${CHANGE}`,
+].join("\n");
+
+/** `repo()` with `specs/plan/export/spec.md` edited by hand after its approval. */
+function handEdited() {
+	const built = repo();
+	writeFileSync(join(built.changeDir, "specs", "plan", "export", "spec.md"), `${SPEC}\nEdited by hand.\n`);
+	return built;
+}
+
 describe.skipIf(process.platform === "win32")("change/cli build", () => {
 	it("Scenario: A build runs every group in order", async () => {
 		const { dir, args } = repo();
@@ -150,6 +164,60 @@ describe.skipIf(process.platform === "win32")("change/cli build", () => {
 		expect(run.code).toBe(0);
 		expect(run.calls).toBe(0);
 		expect(run.out).toContain("built");
+		expect(await loopsIn(db)).toEqual(before);
+	}, 60_000);
+
+	it("Scenario: A hand-edited delta refuses a new build", async () => {
+		const { dir, db, args } = handEdited();
+		commitAll(dir, "edit the delta by hand");
+
+		const run = await change(["build", CHANGE, ...args], dir, converging());
+		expect(run.code).toBe(2);
+		expect(run.err.replace(/\n$/, "")).toBe(STALE_SPEC);
+		expect(run.calls).toBe(0);
+		expect(await loopsIn(db)).toEqual([]);
+	}, 60_000);
+
+	it("Scenario: --allow-dirty does not get around the refusal", async () => {
+		const { dir, db, args } = handEdited();
+
+		for (const extra of [[], ["--allow-dirty"]]) {
+			const run = await change(["build", CHANGE, ...extra, ...args], dir, converging());
+			expect(run.code).toBe(2);
+			expect(run.err).toContain(`${CHANGE}: approved files changed since they were approved; build refused`);
+			expect(run.err).toContain("  specs: specs/plan/export/spec.md (changed)");
+			expect(run.out).not.toContain("--allow-dirty");
+			expect(run.err).not.toContain("--allow-dirty");
+			expect(run.calls).toBe(0);
+			expect(await loopsIn(db)).toEqual([]);
+		}
+	}, 60_000);
+
+	it("Scenario: Showing the question does not check", async () => {
+		const fixture = await seedBlockedOnAmendment({ change: CHANGE, capability: "plan/export", asker: { kind: "task", task: "2.2" }, question: "Which API?" });
+		writeFileSync(fixture.deltaPath, `${readFileSync(fixture.deltaPath, "utf8")}\nEdited by hand.\n`);
+		commitAll(fixture.dir, "edit the delta by hand");
+		const before = await loopsIn(fixture.db);
+
+		const run = await fixture.build();
+		expect(run.code).toBe(1);
+		expect(run.out).toContain("Which API?");
+		expect(`${run.out}\n${run.err}`).not.toContain("approved files changed since they were approved");
+		expect(run.calls).toBe(0);
+		expect(await loopsIn(fixture.db)).toEqual(before);
+	}, 120_000);
+
+	it("Scenario: A built change does not check", async () => {
+		const { dir, changeDir, db, args } = repo();
+		expect((await change(["build", CHANGE, ...args], dir, converging())).code).toBe(0);
+		writeFileSync(join(changeDir, "design.md"), "## Context\nA design, edited by hand.\n");
+		commitAll(dir, "edit the design by hand");
+		const before = await loopsIn(db);
+
+		const run = await change(["build", CHANGE, ...args], dir);
+		expect(run.out).toContain("built");
+		expect(`${run.out}\n${run.err}`).not.toContain("approved files changed since they were approved");
+		expect(run.calls).toBe(0);
 		expect(await loopsIn(db)).toEqual(before);
 	}, 60_000);
 });
