@@ -3,10 +3,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { MemoryStorage, type Storage } from "@earendil-works/pi-durable";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RESULT_TOOL } from "../../src/durable/index.js";
 import { ChangeOutcome, LoopOutcome, check, type Escalation } from "../../src/openspec/index.js";
 import { CHANGE_LOOP_TASK } from "../../src/task/change-input.js";
+import { formatTrialFold, trialFold } from "../../src/task/cmd-close.js";
 import { GROUP_LOOP_NAME } from "../../src/task/group.js";
 import {
 	EscalationAnswerError,
@@ -25,10 +26,18 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /** The repo's pinned `openspec` (1.14.1): the guard validates the change with it. */
 const OPENSPEC_BIN = join(HERE, "..", "..", "..", "..", "node_modules", ".bin");
 
+// The trial fold is stubbed to pass: its own tests are in cli-close.test.ts. `formatTrialFold` stays real,
+// loaded after the static imports: loading cmd-close in the factory would bind the loop to the real fold.
+vi.mock("../../src/task/cmd-close.js", () => ({ formatTrialFold: vi.fn(), trialFold: vi.fn() }));
+const actual = await vi.importActual<typeof import("../../src/task/cmd-close.js")>("../../src/task/cmd-close.js");
+vi.mocked(formatTrialFold).mockImplementation(actual.formatTrialFold);
+
 let savedPath: string | undefined;
 beforeEach(() => {
 	savedPath = process.env.PATH;
 	process.env.PATH = `${OPENSPEC_BIN}:${savedPath ?? ""}`;
+	vi.mocked(trialFold).mockReset();
+	vi.mocked(trialFold).mockResolvedValue({ ok: true, command: "openspec validate --specs --strict --json", exit: 0, issues: [] });
 });
 afterEach(() => {
 	process.env.PATH = savedPath;
@@ -170,6 +179,8 @@ describe.skipIf(process.platform === "win32")("task/change: groups that do not c
 			expect(iteration?.verdict.unmet.map((u) => u.target)).toEqual([{ check: "change" }]);
 			expect(iteration?.evidence).toEqual([expect.objectContaining({ kind: "check", command: "pnpm docs:check", exitCode: 1 })]);
 			expect(check(ChangeLoopOutcome, r.outcome)).toBe(true);
+			// A failing change check fails before the trial fold, which never runs.
+			expect(trialFold).not.toHaveBeenCalled();
 			// Each task's gate and each group's check used the staged check; the change check did not.
 			expect(r.staged.calls()).toBe(6);
 		} finally {

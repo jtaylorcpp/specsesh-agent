@@ -202,9 +202,13 @@ export function trialFoldQuestion(fold: TrialFoldResult): string {
 	return `trial fold failed: openspec validate --specs --strict\n${formatTrialFold(fold)}`;
 }
 
-/** The fold as `CheckEvidence`. The ontology needs an exit code, so a fold that never ran records 127, as a check that could not spawn does. */
+/**
+ * The fold as `CheckEvidence`. The ontology needs an exit code, so a fold that never ran records 127,
+ * as a check that could not spawn does, with its `failure` text as the output.
+ */
 function foldEvidence(fold: TrialFoldResult): Iteration["evidence"][number] {
-	return { kind: "check", command: fold.command, exitCode: fold.exit ?? SPAWN_FAILED_EXIT_CODE, output: formatTrialFold(fold) };
+	const output = fold.exit === null && fold.failure !== undefined ? fold.failure : formatTrialFold(fold);
+	return { kind: "check", command: fold.command, exitCode: fold.exit ?? SPAWN_FAILED_EXIT_CODE, output };
 }
 
 /**

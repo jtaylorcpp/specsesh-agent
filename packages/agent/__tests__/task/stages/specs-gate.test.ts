@@ -229,7 +229,7 @@ describe.skipIf(process.platform === "win32")("specsGate's trial fold", () => {
 		return context;
 	}
 
-	it("Scenario: A folded MODIFIED requirement over 500 characters is sent back", async () => {
+	it("Scenario: A folded requirement over 500 characters is sent back", async () => {
 		vi.mocked(trialFoldIssues).mockImplementation(realTrialFoldIssues);
 		const reported = 'Requirement "The judge scores each draft" text exceeds 500 characters (612)';
 		vi.mocked(trialFold).mockResolvedValue(fold([{ level: "ERROR", spec: "spec/judge", message: reported }]));
@@ -240,7 +240,7 @@ describe.skipIf(process.platform === "win32")("specsGate's trial fold", () => {
 		expect(trialFold).toHaveBeenCalledExactlyOnceWith(context.workspace, CHANGE);
 	});
 
-	it("Scenario: A fold warning on a spec without a delta keeps the workspace path", async () => {
+	it("Scenario: A fold warning on a spec without a delta", async () => {
 		vi.mocked(trialFoldIssues).mockImplementation(realTrialFoldIssues);
 		vi.mocked(trialFold).mockResolvedValue(fold([{ level: "WARNING", spec: "core/subset", message: "Purpose section is too brief" }]));
 		// The change has a delta for spec/judge only, so the mapping is per spec.
@@ -250,7 +250,7 @@ describe.skipIf(process.platform === "win32")("specsGate's trial fold", () => {
 		]);
 	});
 
-	it("Scenario: The fold is skipped when change validation fails", async () => {
+	it("Scenario: An invalid change skips the trial fold", async () => {
 		const issue = { level: "ERROR", path: "specs/spec/judge/spec.md", message: "Requirement must have at least one scenario" };
 		vi.mocked(trialFoldIssues).mockResolvedValue([{ level: "ERROR", path: "specs/spec/judge/spec.md", message: "trial fold: spec/judge: x" }]);
 		vi.mocked(trialFold).mockResolvedValue(fold([{ level: "ERROR", spec: "spec/judge", message: "x" }]));
@@ -288,6 +288,35 @@ describe.skipIf(process.platform === "win32")("specsGate's trial fold", () => {
 		});
 		expect(issues.some((i) => i.message.startsWith("trial fold:"))).toBe(false);
 		expect(issues.some((i) => i.message.startsWith("openspec validate --specs --strict could not run"))).toBe(false);
+	});
+
+	it("Scenario: A clean trial fold lets the draft wait for review", async () => {
+		vi.mocked(trialFoldIssues).mockImplementation(realTrialFoldIssues);
+		vi.mocked(trialFold).mockResolvedValue({ ok: true, command: "openspec validate --specs --strict --json", exit: 0, issues: [] });
+		const context = foldContext();
+		// Change validation, coverage and size all report nothing, so only the fold could add an issue.
+		expect(await specsGate(context)).toEqual([]);
+		expect(trialFold).toHaveBeenCalledExactlyOnceWith(context.workspace, CHANGE);
+	});
+
+	/** The fold `failure`s `trialFold` returns when `openspec` cannot be spawned or prints no JSON. */
+	const failed = (failure: string): TrialFoldResult => ({ ok: false, command: "openspec validate --specs --strict --json", exit: null, issues: [], failure });
+
+	it("Scenario: openspec is missing at the fold", async () => {
+		vi.mocked(trialFoldIssues).mockImplementation(realTrialFoldIssues);
+		vi.mocked(trialFold).mockResolvedValue(failed("spawn openspec ENOENT"));
+		const issues = await specsGate(foldContext());
+		// One ERROR, so the loop iterates. The gate places the pathless fold ERROR at the change directory.
+		expect(issues).toEqual([{ level: "ERROR", path: ".", message: "openspec validate --specs --strict could not run: spawn openspec ENOENT" }]);
+	});
+
+	it("Scenario: The fold prints no parseable JSON", async () => {
+		vi.mocked(trialFoldIssues).mockImplementation(realTrialFoldIssues);
+		vi.mocked(trialFold).mockResolvedValue({ ...failed("no parseable JSON on stdout"), exit: 0 });
+		const issues = await specsGate(foldContext());
+		expect(issues).toEqual([
+			{ level: "ERROR", path: ".", message: "openspec validate --specs --strict could not run: no parseable JSON on stdout" },
+		]);
 	});
 
 	it("reports a fold that cannot run as one ERROR at the change directory", async () => {

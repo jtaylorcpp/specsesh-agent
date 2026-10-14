@@ -1,11 +1,16 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type TrialFoldIssue, type TrialFoldResult, trialFold } from "../../../src/task/cmd-close.js";
+import { formatTrialFold, type TrialFoldIssue, type TrialFoldResult, trialFold } from "../../../src/task/cmd-close.js";
 import { trialFoldIssues } from "../../../src/task/stages/trial-fold-issues.js";
 import { cleanTemps, temp } from "../helpers.js";
 
-vi.mock("../../../src/task/cmd-close.js", () => ({ trialFold: vi.fn() }));
+vi.mock("../../../src/task/cmd-close.js", () => ({ formatTrialFold: vi.fn(), trialFold: vi.fn() }));
+
+// The real cmd-close imports trial-fold-issues through its graph, so loading it in the factory would bind
+// the module under test to the real `trialFold`. Loaded here, after the static imports, it cannot.
+const actual = await vi.importActual<typeof import("../../../src/task/cmd-close.js")>("../../../src/task/cmd-close.js");
+vi.mocked(formatTrialFold).mockImplementation(actual.formatTrialFold);
 
 afterEach(() => {
 	cleanTemps();
@@ -43,13 +48,14 @@ describe("trialFoldIssues", () => {
 		expect(trialFold).toHaveBeenCalledWith(dir, CHANGE);
 	});
 
-	it("Scenario: A fold warning on a spec without a delta keeps the workspace path", async () => {
+	it("Scenario: A fold warning on a spec without a delta", async () => {
 		const dir = workspace();
 		vi.mocked(trialFold).mockResolvedValue(folded([{ level: "WARNING", spec: "core/subset", message: "Purpose section is too brief" }]));
 
 		expect(await trialFoldIssues(dir, CHANGE)).toEqual([
 			{ level: "WARNING", path: "openspec/specs/core/subset/spec.md", message: "trial fold: core/subset: Purpose section is too brief" },
 		]);
+		expect(trialFold).toHaveBeenCalledExactlyOnceWith(dir, CHANGE);
 	});
 
 	it("Scenario: A fold reporting only INFO adds no issue", async () => {
@@ -64,22 +70,25 @@ describe("trialFoldIssues", () => {
 
 	it("Scenario: The fold prints no parseable JSON", async () => {
 		const dir = workspace();
-		vi.mocked(trialFold).mockResolvedValue(failed("no parseable JSON\nstdout:\n\nstderr:\nboom"));
+		vi.mocked(trialFold).mockResolvedValue({ ...failed("no parseable JSON on stdout"), exit: 0 });
 
 		const issues = await trialFoldIssues(dir, CHANGE);
 		expect(issues).toHaveLength(1);
-		expect(issues[0]).not.toHaveProperty("path");
-		expect(issues[0]).toEqual({ level: "ERROR", message: "openspec validate --specs --strict could not run: no parseable JSON\nstdout:\n\nstderr:\nboom" });
-		expect(issues[0]?.message.startsWith("openspec validate --specs --strict could not run:")).toBe(true);
+		expect(issues[0]).toEqual({ level: "ERROR", message: "openspec validate --specs --strict could not run: no parseable JSON on stdout" });
+		expect(issues[0]?.path).toBeUndefined();
 	});
 
-	it("Scenario: openspec is missing during the fold", async () => {
+	it("Scenario: openspec is missing at the fold", async () => {
 		const dir = workspace();
 		vi.mocked(trialFold).mockResolvedValue(failed("spawn openspec ENOENT"));
 
 		const issues = await trialFoldIssues(dir, CHANGE);
-		expect(issues).toEqual([{ level: "ERROR", message: "openspec validate --specs --strict could not run: spawn openspec ENOENT" }]);
-		expect(issues[0]).not.toHaveProperty("path");
+		expect(issues).toHaveLength(1);
+		expect(issues[0]).toEqual({ level: "ERROR", message: "openspec validate --specs --strict could not run: spawn openspec ENOENT" });
+		expect(issues[0]?.path).toBeUndefined();
+		expect(issues[0]?.message).toContain("openspec validate --specs --strict");
+		// An ERROR is what sends the spec loop round again.
+		expect(issues.some((i) => i.level === "ERROR")).toBe(true);
 	});
 
 	it("places every issue in openspec/specs/ when the change has no specs/", async () => {

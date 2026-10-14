@@ -4,9 +4,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MemoryStorage, type JsonObject, type Storage, type TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ChangeOutcome, LoopOutcome, check } from "../../src/openspec/index.js";
-import { CHANGE_LOOP_TASK, decodeChangeCheckpoint } from "../../src/task/change-input.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ChangeOutcome, LoopOutcome, check, type Escalation } from "../../src/openspec/index.js";
+import { CHANGE_LOOP_TASK, CHANGE_LOOP_VERSION, decodeChangeCheckpoint } from "../../src/task/change-input.js";
+import { SPAWN_FAILED_EXIT_CODE } from "../../src/task/checks.js";
+import { formatTrialFold, trialFold, type TrialFoldResult } from "../../src/task/cmd-close.js";
 import { GROUP_LOOP_NAME } from "../../src/task/group.js";
 import { TASK_LOOP, changeLoopExtensions, startChangeLoop, waitForChangeLoop, type ChangeLoopOptions } from "../../src/task/index.js";
 import { openHarness, setup } from "../durable/helpers.js";
@@ -19,11 +21,24 @@ const RUNNER = join(HERE, "fixtures", "change-crash-runner.ts");
 /** The repo's pinned `openspec` (1.14.1): the guard validates the change with it. */
 const OPENSPEC_BIN = join(HERE, "..", "..", "..", "..", "node_modules", ".bin");
 
+// The trial fold is stubbed here: its own tests are in cli-close.test.ts. `formatTrialFold` stays real,
+// loaded after the static imports: loading cmd-close in the factory would bind the loop to the real fold.
+vi.mock("../../src/task/cmd-close.js", () => ({ formatTrialFold: vi.fn(), trialFold: vi.fn() }));
+const actual = await vi.importActual<typeof import("../../src/task/cmd-close.js")>("../../src/task/cmd-close.js");
+vi.mocked(formatTrialFold).mockImplementation(actual.formatTrialFold);
+
+const FOLD_COMMAND = "openspec validate --specs --strict --json";
+const passingFold = (): TrialFoldResult => ({ ok: true, command: FOLD_COMMAND, exit: 0, issues: [] });
+const failingFold = (issues: TrialFoldResult["issues"], exit: number): TrialFoldResult => ({ ok: false, command: FOLD_COMMAND, exit, issues });
+const escalationOf = (outcome: LoopOutcome<ChangeOutcome>) => (outcome as { escalation: Escalation }).escalation;
+
 let savedPath: string | undefined;
 let runner: ChildProcess | undefined;
 beforeEach(() => {
 	savedPath = process.env.PATH;
 	process.env.PATH = `${OPENSPEC_BIN}:${savedPath ?? ""}`;
+	vi.mocked(trialFold).mockReset();
+	vi.mocked(trialFold).mockResolvedValue(passingFold());
 });
 afterEach(() => {
 	process.env.PATH = savedPath;
@@ -86,6 +101,7 @@ async function runChange(
 	responses: Parameters<ReturnType<typeof setup>["faux"]["setResponses"]>[0],
 	extraScenarios: readonly string[] = [],
 	inspect: (storage: Storage) => Promise<void> = async () => undefined,
+	changeChecks?: readonly string[],
 ) {
 	const storage = new MemoryStorage();
 	const { workspace, changeDir } = writeChange(groups, extraScenarios);
@@ -101,6 +117,7 @@ async function runChange(
 		groupScript: { text: GROUP_JUDGE },
 		workspace,
 		checks,
+		...(changeChecks !== undefined ? { changeChecks } : {}),
 		model: env.model,
 	};
 	try {
@@ -108,13 +125,48 @@ async function runChange(
 		harness.resume();
 		const outcome = await waitForChangeLoop(harness, id, context);
 		await inspect(storage);
-		return { id, outcome, env, staged, changeDir };
+		return { id, outcome, env, staged, changeDir, workspace };
 	} finally {
 		await harness.close(context);
 	}
 }
 
 const scan = async (storage: Storage, kind: string) => (await storage.scanTasks({ kind }, 100, undefined, context)).items;
+
+/**
+ * A fake `openspec` dir to put first on PATH: `validate --specs` (the trial fold's) writes
+ * `<gate>/in-fold` and hangs; anything else (the start guard, the fold's archive) runs the real one.
+ */
+function hangingFoldOpenspec(gate: string): string {
+	const bin = temp("change-fold-bin-");
+	const real = join(OPENSPEC_BIN, "openspec");
+	writeFileSync(
+		join(bin, "openspec"),
+		[
+			`#!${process.execPath}`,
+			'const { spawnSync } = require("node:child_process");',
+			"const args = process.argv.slice(2);",
+			'if (args.includes("--specs")) {',
+			`\trequire("node:fs").writeFileSync(${JSON.stringify(join(gate, "in-fold"))}, "");`,
+			"\tsetInterval(() => undefined, 1000);",
+			"} else {",
+			`\tprocess.exit(spawnSync(${JSON.stringify(real)}, args, { stdio: "inherit" }).status ?? 1);`,
+			"}",
+			"",
+		].join("\n"),
+		{ mode: 0o755 },
+	);
+	return bin;
+}
+
+/** A fake `pnpm` dir to put first on PATH: `pnpm docs:check` prints a failure and exits 1. */
+function failingDocsCheckPnpm(): string {
+	const bin = temp("change-pnpm-bin-");
+	writeFileSync(join(bin, "pnpm"), [`#!${process.execPath}`, 'process.stdout.write("docs check failed\\n");', "process.exit(1);", ""].join("\n"), {
+		mode: 0o755,
+	});
+	return bin;
+}
 
 async function until(done: () => boolean, ms: number, what: string): Promise<void> {
 	const deadline = Date.now() + ms;
@@ -247,10 +299,152 @@ describe.skipIf(process.platform === "win32")("task/change: the change loop", ()
 	}, 120_000);
 
 	it("Scenario: An unclaimed scenario is reported", async () => {
-		const { outcome } = await runChange(TWO_GROUPS, [verdict(true), verdict(true)], ["An empty plan"]);
+		vi.mocked(trialFold).mockResolvedValue(passingFold());
+		const { outcome, workspace } = await runChange(TWO_GROUPS, [verdict(true), verdict(true)], ["An empty plan"]);
 
 		expect(outcome.status).toBe("converged");
 		expect(outcome.result?.unclaimed).toEqual([{ capability: ["thing", "core"], requirement: "Thing 3", scenario: "An empty plan" }]);
+		// Every group was entered.
+		expect(outcome.result?.groups.map((g) => g.group)).toEqual([1, 2]);
+		expect(outcome.result?.groups.map((g) => g.outcome.status)).toEqual(["converged", "converged"]);
+		// The fold passed, and an unclaimed scenario does not stop the change from converging.
+		expect(trialFold).toHaveBeenCalledOnce();
+		expect(trialFold).toHaveBeenCalledWith(workspace, CHANGE);
+		expect(outcome.iterations[0]?.evidence).toContainEqual(expect.objectContaining({ command: FOLD_COMMAND, exitCode: 0 }));
 		expect(check(LoopOutcome(ChangeOutcome), outcome)).toBe(true);
 	}, 60_000);
+
+	it("Scenario: A failing change check fails the change", async () => {
+		process.env.PATH = `${failingDocsCheckPnpm()}:${process.env.PATH ?? ""}`;
+		const { outcome } = await runChange(TWO_GROUPS, [verdict(true), verdict(true)], [], undefined, ["pnpm docs:check"]);
+
+		expect(outcome.status).toBe("failed");
+		expect(outcome.result?.groups.map((g) => g.outcome.status)).toEqual(["converged", "converged"]);
+		const unmet = outcome.iterations.filter((i) => !i.verdict.met);
+		expect(unmet).toHaveLength(1);
+		expect(unmet[0]?.verdict.unmet.map((u) => u.target)).toEqual([{ check: "change" }]);
+		expect(unmet[0]?.evidence).toContainEqual(expect.objectContaining({ kind: "check", command: "pnpm docs:check", exitCode: 1 }));
+		// The trial fold SHALL NOT have run.
+		expect(trialFold).not.toHaveBeenCalled();
+		expect(check(LoopOutcome(ChangeOutcome), outcome)).toBe(true);
+	}, 60_000);
+
+	it("Scenario: A folded requirement over 500 characters blocks the build", async () => {
+		const fold = failingFold(
+			[{ level: "ERROR", spec: "spec/judge", message: 'Requirement "The judge scores each draft" text exceeds 500 characters (612)' }],
+			1,
+		);
+		vi.mocked(trialFold).mockResolvedValue(fold);
+		const { outcome, staged } = await runChange(TWO_GROUPS, [verdict(true), verdict(true)]);
+
+		expect(outcome.status).toBe("blocked");
+		expect(outcome.status).not.toBe("failed");
+		const escalation = escalationOf(outcome);
+		expect(escalation).toMatchObject({ level: "change", to: "principal" });
+		expect(escalation.question).toBe(`trial fold failed: openspec validate --specs --strict\n${formatTrialFold(fold)}`);
+		expect(escalation.question.startsWith("trial fold failed: openspec validate --specs --strict\n")).toBe(true);
+		expect(escalation.question).toContain(formatTrialFold(fold));
+		expect(escalation.question).toContain('✗ [ERROR] spec/judge: Requirement "The judge scores each draft" text exceeds 500 characters (612)');
+		expect(outcome.result?.groups.map((g) => g.outcome.status)).toEqual(["converged", "converged"]);
+		expect(outcome.iterations[0]?.verdict.met).toBe(false);
+		expect(outcome.iterations[0]?.evidence).toEqual([
+			{ kind: "check", command: staged.command, exitCode: 0, output: "" },
+			{ kind: "check", command: FOLD_COMMAND, exitCode: 1, output: formatTrialFold(fold) },
+		]);
+		expect(check(LoopOutcome(ChangeOutcome), outcome)).toBe(true);
+	}, 60_000);
+
+	it("Scenario: A fold that cannot run blocks the build", async () => {
+		vi.mocked(trialFold).mockResolvedValue({ ok: false, command: FOLD_COMMAND, exit: null, issues: [], failure: "spawn openspec ENOENT" });
+		const { outcome, staged } = await runChange(TWO_GROUPS, [verdict(true), verdict(true)]);
+
+		expect(outcome.status).toBe("blocked");
+		expect(outcome.status).not.toBe("failed");
+		const escalation = escalationOf(outcome);
+		expect(escalation).toMatchObject({ level: "change", to: "principal" });
+		expect(escalation.question.startsWith("trial fold failed: openspec validate --specs --strict\n")).toBe(true);
+		const last = outcome.iterations.at(-1);
+		expect(last?.verdict.unmet.map((u) => u.target)).toEqual([{ check: "change" }]);
+		expect(last?.evidence[0]).toMatchObject({ kind: "check", command: staged.command, exitCode: 0 });
+		// `exit: null` from the fold is recorded as the spawn-failure code, with the failure text as the output.
+		const fold = last?.evidence.find((e) => (e as { command?: string }).command === FOLD_COMMAND) as { exitCode: number; output: string } | undefined;
+		expect(fold).toEqual({ kind: "check", command: FOLD_COMMAND, exitCode: SPAWN_FAILED_EXIT_CODE, output: "spawn openspec ENOENT" });
+		expect(fold?.output).toContain("spawn openspec ENOENT");
+		expect(check(LoopOutcome(ChangeOutcome), outcome)).toBe(true);
+	}, 60_000);
+
+	it("Scenario: Killed during the trial fold", async () => {
+		const { workspace, changeDir } = writeChange(TWO_GROUPS);
+		const gate = temp("change-fold-gate-");
+		const db = join(temp("change-fold-db-"), "loops.sqlite");
+		const staged = stagedCheck([true]);
+
+		// Phase 1: a child process runs both groups and the change check, then parks inside the trial fold until it is killed.
+		let out = "";
+		runner = spawn(process.execPath, ["--import", TS_HOOK, RUNNER, db, workspace, gate, changeDir, "fold", staged.command], {
+			detached: true,
+			stdio: ["ignore", "pipe", "inherit"],
+			env: { ...process.env, PATH: `${hangingFoldOpenspec(gate)}:${process.env.PATH ?? ""}` },
+		});
+		runner.stdout?.on("data", (chunk: Buffer) => {
+			out += chunk.toString();
+		});
+		const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
+			runner!.once("exit", (code, signal) => resolve({ code, signal })),
+		);
+		const early = exited.then((e) => {
+			throw new Error(`runner exited before the trial fold started: ${JSON.stringify(e)}\n${out}`);
+		});
+		early.catch(() => undefined);
+		await Promise.race([until(() => existsSync(join(gate, "in-fold")), 60_000, "the trial fold to start"), early]);
+		expect(runner.exitCode === null && runner.signalCode === null).toBe(true);
+		process.kill(-runner.pid!, "SIGKILL");
+		expect(await exited).toEqual({ code: null, signal: "SIGKILL" });
+
+		const id = Number(/LOOP (\d+)/.exec(out)?.[1]) as TaskId<never>;
+		expect(Number.isInteger(id)).toBe(true);
+
+		// Parked in `check`: nothing of the check phase was stored. Each task's gate, each group's check, then the change check ran.
+		const storage = await openNodeSqliteStorage(db);
+		const [change] = await scan(storage, CHANGE_LOOP_TASK);
+		expect(decodeChangeCheckpoint((change?.state as unknown as { checkpoint: JsonObject }).checkpoint).phase).toBe("check");
+		expect(change?.version).toBe(CHANGE_LOOP_VERSION);
+		expect(staged.calls()).toBe(5);
+		const groupLoops = async () => (await scan(storage, GROUP_LOOP_NAME)).map((t) => t.id);
+		const before = await groupLoops();
+		expect(before).toHaveLength(2);
+
+		// Phase 2: a fresh harness on the same file reruns `check`, the change check then the fold, and no model.
+		const checksBeforeFold: number[] = [];
+		vi.mocked(trialFold).mockImplementation(async () => {
+			checksBeforeFold.push(staged.calls());
+			return passingFold();
+		});
+		const env = setup();
+		for (const extension of changeLoopExtensions({ workspace, checks: [staged.command] })) env.registry.install(extension);
+		const harness = await openHarness(storage, env);
+		harness.resume();
+		try {
+			const outcome = await waitForChangeLoop(harness, id as never, context);
+
+			expect(outcome.status).toBe("converged");
+			expect(outcome.result?.groups.map((g) => ({ group: g.group, status: g.outcome.status }))).toEqual([
+				{ group: 1, status: "converged" },
+				{ group: 2, status: "converged" },
+			]);
+			expect(staged.calls()).toBe(6);
+			expect(trialFold).toHaveBeenCalledOnce();
+			// The fold ran again, after the change check had run again.
+			expect(checksBeforeFold).toEqual([6]);
+			const [resumed] = await scan(storage, CHANGE_LOOP_TASK);
+			expect(resumed?.version).toBe(CHANGE_LOOP_VERSION);
+			expect(CHANGE_LOOP_VERSION).toBe(1);
+			expect(outcome.iterations[0]?.evidence.map((e) => (e as { command: string }).command)).toEqual([staged.command, FOLD_COMMAND]);
+			expect(await groupLoops()).toEqual(before);
+			expect(env.requests).toHaveLength(0);
+			expect(check(LoopOutcome(ChangeOutcome), outcome)).toBe(true);
+		} finally {
+			await harness.close(context).catch(() => undefined);
+		}
+	}, 120_000);
 });
