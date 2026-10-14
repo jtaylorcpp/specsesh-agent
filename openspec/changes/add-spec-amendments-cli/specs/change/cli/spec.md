@@ -12,92 +12,95 @@
 - **WHEN** the CLI runs with `frobnicate add-plan-export`
 - **THEN** stderr SHALL contain `usage:` and the exit code SHALL be `2`
 
-### Requirement: build with an answer continues a waiting build
-When the change's latest change loop ended `blocked`, `build <change> <answer>` SHALL answer it as the escalation's `to` with the answer as the decision, wait for the new run and print it. An answer SHALL NOT write the escalation's `Amendment` and SHALL NOT run any validation. Without an answer it SHALL print the question again, start nothing, and exit `1`.
+### Requirement: Build output ends with the next command
+The output SHALL start `# <change> — <state>`, then `## group <n>: <status> (<k> tasks, <r> reworks)` per group entered, then `## change check: passed` or the failing command and its output, then `## unclaimed: <n>` and each scenario when any. A blocked build SHALL end with the question, `pnpm change build <change> --amend` when its escalation carries an amendment, and `pnpm change build <change> "<answer>"`; a built one with `pnpm change close <change>`. Built SHALL exit `0`, else `1`.
 
-#### Scenario: Answering a waiting build continues it
-- **GIVEN** `add-plan-export` blocked in group `2` of three, asking `Which API?`
-- **WHEN** `build add-plan-export "Use the v2 API"` runs and the build converges
-- **THEN** the output SHALL list groups `1`, `2` and `3` as converged
+#### Scenario: A blocked build ends with the answer command
+- **WHEN** a build of `add-plan-export` ends blocked asking `Which API?`, with no amendment
+- **THEN** the output SHALL end with `Which API?` and `pnpm change build add-plan-export "<answer>"`
 
-#### Scenario: build alone shows the question
-- **GIVEN** `add-plan-export` blocked asking `Which API?`
-- **WHEN** `build add-plan-export` runs
-- **THEN** the output SHALL contain `Which API?`, no loop SHALL start, and the exit code SHALL be `1`
+#### Scenario: A blocked build with an amendment ends with both commands
+- **WHEN** a build of `add-plan-export` ends blocked on an escalation carrying an `Amendment`, asking `Amend the spec?`
+- **THEN** the output SHALL end with `Amend the spec?`, then `pnpm change build add-plan-export --amend`, then `pnpm change build add-plan-export "<answer>"`
+- **AND** the exit code SHALL be `1`
 
-#### Scenario: A text answer to an amendment writes nothing
-- **GIVEN** `add-plan-export` blocked on an escalation whose `Amendment` has `delta` `specs/plan/export/spec.md`
-- **WHEN** `build add-plan-export "Keep JSON, drop the sort"` runs
-- **THEN** `openspec/changes/add-plan-export/specs/plan/export/spec.md` SHALL be unchanged, `openspec validate` SHALL NOT run, and the blocked loop SHALL be answered with the decision `Keep JSON, drop the sort`
+#### Scenario: A built change points at the next step
+- **WHEN** a build of `add-plan-export` ends `converged`
+- **THEN** the output SHALL contain `## change check: passed` and end with `pnpm change close add-plan-export`
 
 ## ADDED Requirements
 
 ### Requirement: build shows a proposed amendment as a diff
-When the escalation a blocked change loop waits on carries `Amendment { delta, text }`, `build <change>` with no answer SHALL print, after the group lines, a `## proposed amendment` header naming the asking loop and `delta`, a unified diff from `openspec/changes/<change>/<delta>` on disk to `text`, then the question, `pnpm change build <change> --amend` and `pnpm change build <change> "<answer>"`, and exit `1`. Without an amendment the output SHALL be unchanged.
+When the blocked change loop's escalation carries an `Amendment { delta, text }`, `build <change>` without an answer SHALL print, after the groups and before the question, `## proposed amendment (from <asker>): <delta>`, where `<asker>` is `task <id>` or `group <n> judge`, then a unified diff from `openspec/changes/<change>/<delta>` as on disk, headed `(on disk)`, to `text`, headed `(amended)`. Without an amendment the output SHALL be unchanged.
 
 #### Scenario: A task loop's amendment is shown as a diff
-- **GIVEN** `add-plan-export` blocked on task `2.2`'s escalation carrying an `Amendment` with `delta` `specs/plan/export/spec.md` whose `text` changes `- **THEN** stdout SHALL be the plan as JSON` to `- **THEN** stdout SHALL be the plan as JSON, with keys sorted`
+- **GIVEN** `add-plan-export` blocked on task `2.2`'s escalation carrying `Amendment { delta: "specs/plan/export/spec.md", text }`
 - **WHEN** `build add-plan-export` runs
-- **THEN** the output SHALL contain `## proposed amendment (from task 2.2): specs/plan/export/spec.md`, `--- openspec/changes/add-plan-export/specs/plan/export/spec.md (on disk)`, `+++ openspec/changes/add-plan-export/specs/plan/export/spec.md (amended)`, the removed line prefixed `-` and the added line prefixed `+`
-- **AND** the output SHALL end with the question, `pnpm change build add-plan-export --amend` and `pnpm change build add-plan-export "<answer>"`, no loop SHALL start, no file SHALL change, and the exit code SHALL be `1`
+- **THEN** the output SHALL contain `## proposed amendment (from task 2.2): specs/plan/export/spec.md`, then `--- openspec/changes/add-plan-export/specs/plan/export/spec.md (on disk)` and `+++ openspec/changes/add-plan-export/specs/plan/export/spec.md (amended)`, then the hunks from the file on disk to `text`, then the question
+- **AND** no loop SHALL start, nothing SHALL be written, and the exit code SHALL be `1`
 
 #### Scenario: A group judge's amendment names the judge
-- **GIVEN** `add-csv-import` blocked on group `1`'s judge escalation carrying an `Amendment` with `delta` `specs/plan/import/spec.md`
+- **GIVEN** `add-csv-import` blocked on group `1`'s judge escalation carrying `Amendment { delta: "specs/plan/import/spec.md", text }`
 - **WHEN** `build add-csv-import` runs
 - **THEN** the output SHALL contain `## proposed amendment (from group 1 judge): specs/plan/import/spec.md`
 
-#### Scenario: An escalation without an amendment shows no diff
-- **GIVEN** `add-plan-export` blocked asking `Which API?` with no `Amendment`
-- **WHEN** `build add-plan-export` runs
-- **THEN** the output SHALL contain no `## proposed amendment` line and no `pnpm change build add-plan-export --amend` line
-
-### Requirement: build --amend refuses what it cannot apply
-`build <change> --amend` SHALL exit `2`, writing and starting nothing, when the latest change loop is not `blocked` or its escalation has no `Amendment`, printing `<change> is not waiting on an amendment`; when an answer is also given, printing `--amend takes no answer: use either --amend or "<answer>"`; or when `delta`, after normalising, is absolute, has a `..` segment, or does not match `specs/**/spec.md`, printing `amendment delta "<delta>" is not specs/**/spec.md`.
+### Requirement: --amend refuses what it cannot apply
+`build <change> --amend` SHALL exit `2`, changing nothing, when the change's latest change loop is not `blocked`, when the escalation it is blocked on carries no `Amendment`, printing `<change> is not waiting on an amendment`, when an answer is also given, printing `--amend takes no answer: use either --amend or "<answer>"`, or when `delta`, normalised, is absolute, has a `..` segment or does not match `specs/**/spec.md`, printing `amendment delta "<delta>" is not specs/**/spec.md`.
 
 #### Scenario: --amend with an answer is refused
 - **GIVEN** `add-plan-export` blocked on an escalation carrying an `Amendment`
 - **WHEN** `build add-plan-export --amend "Use v2"` runs
-- **THEN** it SHALL print `--amend takes no answer: use either --amend or "<answer>"`, exit `2`, write no file, and start no loop
+- **THEN** it SHALL print `--amend takes no answer: use either --amend or "<answer>"` and exit `2`
+- **AND** no file SHALL be written, no validation SHALL run, and no loop SHALL start
 
 #### Scenario: --amend with no amendment waiting is refused
-- **GIVEN** `add-other-thing` blocked on an escalation with no `Amendment`
+- **GIVEN** `add-other-thing` blocked on an escalation that carries no `Amendment`
 - **WHEN** `build add-other-thing --amend` runs
-- **THEN** it SHALL print `add-other-thing is not waiting on an amendment`, exit `2`, write no file, and start no loop
+- **THEN** it SHALL print `add-other-thing is not waiting on an amendment` and exit `2`, and no loop SHALL start
 
-#### Scenario: A delta outside specs is refused
-- **GIVEN** `add-bad-path` blocked on an escalation whose `Amendment` has `delta` `tasks.md`
+#### Scenario: A delta outside specs/ is refused
+- **GIVEN** `add-bad-path` blocked on an escalation carrying `Amendment { delta: "tasks.md", text }`
 - **WHEN** `build add-bad-path --amend` runs
-- **THEN** it SHALL print `amendment delta "tasks.md" is not specs/**/spec.md`, exit `2`, leave `openspec/changes/add-bad-path/tasks.md` unchanged, and start no loop
+- **THEN** it SHALL print `amendment delta "tasks.md" is not specs/**/spec.md` and exit `2`
+- **AND** `openspec/changes/add-bad-path/tasks.md` SHALL be unchanged and no loop SHALL start
 
-### Requirement: build --amend writes, validates and resumes
-When not refused, `--amend` SHALL save the bytes of `openspec/changes/<change>/<delta>` (or note it is absent), write `text`, print `amended <path>`, then validate as `close` does: `openspec validate --all --strict`, then its trial fold into a temporary copy of `openspec/`, validated with `--specs --strict`. Passing both with no error or warning, it SHALL print `## validation: passed`, answer the blocked loop with `amendment-applied`, and print the new run.
+### Requirement: --amend writes, validates, then resumes
+`build <change> --amend` SHALL write `text` to `openspec/changes/<change>/<delta>`, print `amended <path>`, run `openspec validate --all --strict` and, if that passes, `close`'s trial fold, with `OPENSPEC_TELEMETRY=0`, and print `## validation: passed` or `failed`. Each passes only on exit `0` with no error or warning. On pass it SHALL answer the blocked loop as an answer would, with decision `amendment-applied`, print `resumed <asker> with decision: amendment-applied`, then the new run.
 
-#### Scenario: A valid amendment resumes the task loop
-- **GIVEN** `add-plan-export` blocked on task `2.2`'s escalation carrying an `Amendment` with `delta` `specs/plan/export/spec.md`, and validation that passes
+#### Scenario: A passing amendment resumes the task loop
+- **GIVEN** `add-plan-export` blocked on task `2.2`'s escalation carrying an `Amendment` for `specs/plan/export/spec.md` that passes validation
 - **WHEN** `build add-plan-export --amend` runs and the build converges
-- **THEN** the delta file SHALL hold `text`, and the output SHALL contain `amended openspec/changes/add-plan-export/specs/plan/export/spec.md`, `## validation: passed` and `resumed task 2.2 with decision: amendment-applied`
-- **AND** task `2.2` SHALL be answered through `answerEscalation` with `amendment-applied`, the output SHALL end with `pnpm change close add-plan-export`, and the exit code SHALL be `0`
+- **THEN** the file SHALL hold `text`; `openspec validate --all --strict` SHALL have run, then `openspec archive add-plan-export --yes` and `openspec validate --specs --strict` in a temporary copy of `openspec/`, all with `OPENSPEC_TELEMETRY=0`; and `openspec/changes/add-plan-export/` SHALL not be archived in the repository
+- **AND** the output SHALL contain, in order, `amended openspec/changes/add-plan-export/specs/plan/export/spec.md`, `## validation: passed`, `resumed task 2.2 with decision: amendment-applied` and `# add-plan-export — converged`
+- **AND** task `2.2` SHALL be answered through `answerEscalation` with decision `amendment-applied`, and the exit code SHALL be `0`
 
-#### Scenario: A valid amendment resumes the group judge
-- **GIVEN** `add-csv-import` blocked on group `1`'s judge escalation carrying an `Amendment`, and validation that passes
+#### Scenario: A passing amendment resumes the group judge
+- **GIVEN** `add-csv-import` blocked on group `1`'s judge escalation carrying an `Amendment` that passes validation
 - **WHEN** `build add-csv-import --amend` runs
-- **THEN** group `1`'s judge SHALL be answered through `answerGroupEscalation` with `amendment-applied`, and the output SHALL contain `resumed group 1 judge with decision: amendment-applied`
+- **THEN** group `1`'s judge SHALL be answered through `answerGroupEscalation` with decision `amendment-applied`
+- **AND** the output SHALL contain `resumed group 1 judge with decision: amendment-applied`
+
+#### Scenario: A text answer writes and validates nothing
+- **GIVEN** `add-plan-export` blocked on an escalation carrying an `Amendment`
+- **WHEN** `build add-plan-export "Keep JSON, drop the sort"` runs
+- **THEN** `openspec/changes/add-plan-export/<delta>` SHALL be unchanged, no validation and no trial fold SHALL run, and the loop SHALL be answered with decision `Keep JSON, drop the sort`
 
 ### Requirement: A failed --amend restores the delta
-When either validation exits non-zero or reports any error or warning, `--amend` SHALL print `## validation: failed` and that output, write the saved bytes back to the delta file, or delete it if it did not exist before, print `restored <path>` and `nothing resumed`, and exit `2`. No loop SHALL be answered or started, and the change loop SHALL stay `blocked`.
+When validation fails, `build <change> --amend` SHALL print the validation output, put back the bytes `openspec/changes/<change>/<delta>` held before the write, or delete the file if it did not exist, print `restored <path>` and `nothing resumed`, answer no loop, and exit `2`. The change loop SHALL stay `blocked`. The bytes SHALL be saved in memory before the write, not taken from git.
 
-#### Scenario: An error restores the exact bytes
-- **GIVEN** `add-plan-export` blocked on an `Amendment` for `specs/plan/export/spec.md`, the delta file holding uncommitted edits, and validation that reports `[ERROR] requirement "Export writes JSON" is 534 characters (max 500)`
+#### Scenario: An error restores the uncommitted delta
+- **GIVEN** `specs/plan/export/spec.md` of `add-plan-export` with an uncommitted edit, and an `Amendment` adding a requirement 534 characters long, which `openspec validate --all --strict` reports as an `[ERROR]`
 - **WHEN** `build add-plan-export --amend` runs
-- **THEN** the output SHALL contain `## validation: failed`, that `[ERROR]` line, `restored openspec/changes/add-plan-export/specs/plan/export/spec.md` and `nothing resumed`
-- **AND** the delta file SHALL hold the same bytes as before the command, no loop SHALL start, the change loop SHALL stay `blocked`, and the exit code SHALL be `2`
+- **THEN** the output SHALL contain `## validation: failed`, the validation output naming the error, `restored openspec/changes/add-plan-export/specs/plan/export/spec.md` and `nothing resumed`, and the trial fold SHALL not run
+- **AND** the file SHALL hold exactly its bytes from before the command, including the uncommitted edit, no loop SHALL be answered, and the exit code SHALL be `2`
 
-#### Scenario: A warning alone fails the check
-- **GIVEN** `add-plan-export` blocked on an `Amendment` whose `text` makes a MODIFIED requirement 534 characters long, which `openspec validate --all --strict` accepts and the trial fold's `--specs --strict` reports only as a `[WARNING]`
+#### Scenario: A warning alone fails the validation
+- **GIVEN** an `Amendment` to `add-plan-export` with a MODIFIED requirement 534 characters long, which `openspec validate --all --strict` accepts and the trial fold's `openspec validate --specs --strict` reports as a `[WARNING]`
 - **WHEN** `build add-plan-export --amend` runs
-- **THEN** the output SHALL contain `## validation: failed` and `nothing resumed`, the delta file SHALL be restored, and the exit code SHALL be `2`
+- **THEN** the output SHALL contain `## validation: failed`, the `[WARNING]` line and `nothing resumed`, and the file SHALL be restored
+- **AND** `openspec/` in the repository SHALL be otherwise unchanged, with the change not archived, and the exit code SHALL be `2`
 
-#### Scenario: A file the amendment created is deleted
-- **GIVEN** `add-plan-export` blocked on an `Amendment` whose `delta` `specs/plan/schema/spec.md` does not exist, and validation that fails
-- **WHEN** `build add-plan-export --amend` runs
-- **THEN** `openspec/changes/add-plan-export/specs/plan/schema/spec.md` SHALL NOT exist, and the exit code SHALL be `2`
+#### Scenario: A failed amendment that created a file deletes it
+- **GIVEN** an `Amendment` whose `delta` names a `spec.md` that does not exist, and whose `text` fails validation
+- **WHEN** `build <change> --amend` runs
+- **THEN** that file SHALL not exist afterwards, the change loop SHALL still be `blocked`, and the exit code SHALL be `2`
