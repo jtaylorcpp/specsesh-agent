@@ -18,6 +18,6 @@
 
 ## 4. Tests for --amend
 
-- [ ] 4.1 Create `packages/agent/__tests__/change/cli-amend.test.ts` covering "--amend with an answer is refused", "--amend with no amendment waiting is refused", "A delta outside specs/ is refused" and "A passing amendment resumes the task loop"
-- [ ] 4.2 Extend `packages/agent/__tests__/change/cli-amend.test.ts` to cover "A passing amendment resumes the group judge" and "An error restores the uncommitted delta"
-- [ ] 4.3 Extend `packages/agent/__tests__/change/cli-amend.test.ts` to cover "A warning alone fails the validation" and "A failed amendment that created a file deletes it"
+- [x] 4.1 Create `packages/agent/__tests__/change/cli-amend.test.ts` covering "--amend with an answer is refused", "--amend with no amendment waiting is refused", "A delta outside specs/ is refused" and "A passing amendment resumes the task loop"
+- [x] 4.2 Extend `packages/agent/__tests__/change/cli-amend.test.ts` to cover "A passing amendment resumes the group judge" and "An error restores the uncommitted delta"
+- [x] 4.3 Extend `packages/agent/__tests__/change/cli-amend.test.ts` to cover "A warning alone fails the validation" and "A failed amendment that created a file deletes it"
