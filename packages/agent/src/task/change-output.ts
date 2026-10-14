@@ -21,7 +21,8 @@
  *   built (changed files, close) or failed (retry).
  *
  * After `--amend`, `amended <path>` and `## validation: passed|failed` come first: on a pass,
- * `resumed <asker> with decision: amendment-applied` and the run; on a failure, the
+ * `approved <delta> as <principal>: amendment-applied`, `resumed <asker> with decision:
+ * amendment-applied` and the run; on a failure, the
  * validation output, `restored <path>` and `nothing resumed`.
  *
  * A build refused over stale approvals:
@@ -153,7 +154,13 @@ export function formatBuildOutput(result: BuildShown): string[] {
 	}
 	const lines: string[] = [];
 	if (result.amended !== undefined) {
-		lines.push(`amended ${result.amended.path}`, "## validation: passed", `resumed ${result.amended.asker} with decision: ${AMENDMENT_APPLIED}`);
+		const { path, delta, principal, asker } = result.amended;
+		lines.push(
+			`amended ${path}`,
+			"## validation: passed",
+			`approved ${delta} as ${principal}: ${AMENDMENT_APPLIED}`,
+			`resumed ${asker} with decision: ${AMENDMENT_APPLIED}`,
+		);
 	}
 	lines.push(`# ${change} — ${buildHeader(result)}`);
 	for (const group of result.groups) {

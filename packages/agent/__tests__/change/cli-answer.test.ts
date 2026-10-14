@@ -27,7 +27,7 @@ import { commitAll, gitIn, write } from "../task/cli-helpers.js";
 import { GROUP_JUDGE, JUDGE_ONLY, cleanTemps, context, temp, verdict } from "../task/helpers.js";
 import { STAGE_SCRIPT, draft } from "../task/spec-helpers.js";
 import { stagedCheck } from "../task/staged-check.js";
-import { CHANGE, change, csvImportGroup1, fakeOpenspec, noAmendment, planExportTask22, snapshotOpenspec } from "./helpers.js";
+import { CHANGE, answersIn, change, csvImportGroup1, fakeOpenspec, noAmendment, planExportTask22, snapshotOpenspec } from "./helpers.js";
 
 /** The repo's pinned `openspec` (1.14.1): the guard validates the change with it. */
 const OPENSPEC_BIN = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "node_modules", ".bin");
@@ -156,6 +156,20 @@ async function idsIn(db: string) {
 
 const STALE_REFUSAL = `${CHANGE}: approved files changed since they were approved; build refused`;
 
+/**
+ * The build answered `blocked` once, with `decision`: one new change loop answering it, and
+ * one group run, group 2's, answering the blocked one with the decision as given.
+ */
+async function expectAnsweredOnce(db: string, blocked: { id: unknown }, decision: string) {
+	const { changes } = await tasksIn(db);
+	expect(changes).toHaveLength(2);
+	const next = changes.find((task) => task.id !== blocked.id)!;
+	expect((next.input as unknown as { resume?: { answers: number } }).resume?.answers).toBe(Number(blocked.id));
+	const groups = (await answersIn(db)).filter((answer) => answer.kind === "group");
+	expect(groups).toHaveLength(1);
+	expect(groups[0]).toMatchObject({ group: 2, decision });
+}
+
 describe.skipIf(process.platform === "win32")("change/cli build answers", () => {
 	describe("build with an answer continues a waiting build", () => {
 		it("Scenario: Answering a waiting build continues it", async () => {
@@ -232,12 +246,12 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 			expect(readFileSync(join(changeDir, "design.md"), "utf8")).toBe("## Context\nA design.\n");
 			expect(readFileSync(join(changeDir, "specs", "plan", "export", "spec.md"), "utf8")).toBe(SPEC);
 			commitAll(dir, "the build's ticks");
+			const [blocked] = (await tasksIn(db)).changes;
 
 			const run = await change(["build", CHANGE, "Use the v2 API", ...args], dir, [verdict(true), verdict(true), verdict(true)]);
 			expect(`${run.out}\n${run.err}`).not.toContain("approved files changed since they were approved");
 			expect(run.code).toBe(0);
-			const groupTwos = (await tasksIn(db)).groups.filter((task) => (task.input as unknown as { group: number }).group === 2);
-			expect(groupTwos.some((task) => JSON.stringify(task.input).includes("Use the v2 API"))).toBe(true);
+			await expectAnsweredOnce(db, blocked!, "Use the v2 API");
 		}, 120_000);
 
 		it("Scenario: Redrafting and approving again lets the build continue", async () => {
@@ -247,6 +261,17 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 			writeFileSync(specPath, edited);
 			writeFileSync(join(changeDir, "intent.md"), "Export a plan.\n");
 			commitAll(dir, "edit the delta by hand");
+			const [blocked] = (await tasksIn(db)).changes;
+			const before = await idsIn(db);
+
+			// Before the redraft, the answer is refused and the loop stays blocked on its question.
+			const refused = await change(["build", CHANGE, "Use the v2 API", ...args], dir, [verdict(true), verdict(true), verdict(true)]);
+			expect(refused.code).toBe(2);
+			expect(refused.err).toContain(STALE_REFUSAL);
+			expect(refused.err).toContain("  specs: specs/plan/export/spec.md (changed)");
+			expect(refused.calls).toBe(0);
+			expect(await idsIn(db)).toEqual(before);
+			expect(await answersIn(db)).toEqual([]);
 
 			// The specs stage is drafted again and approved; approving it drops tasks, which is drafted and approved in turn.
 			const drafted = await change(["draft", CHANGE, "--db", db], dir, [draft(`=== specs/plan/export/spec.md\n${edited}`)], draftStages);
@@ -258,12 +283,14 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 			expect(all.code).toBe(0);
 			expect(readFileSync(specPath, "utf8")).toBe(edited);
 			commitAll(dir, "approve the redraft");
+			// Still the same loop, asking the same question: redrafting started no build.
+			expect(await latestChangeLoop(db)).toEqual({ status: "blocked", question: "Which API?" });
+			expect((await tasksIn(db)).changes.map((task) => task.id)).toEqual([blocked!.id]);
 
 			const run = await change(["build", CHANGE, "Use the v2 API", ...args], dir, [verdict(true), verdict(true), verdict(true)]);
 			expect(`${run.out}\n${run.err}`).not.toContain("approved files changed since they were approved");
 			expect(run.code).toBe(0);
-			const groupTwos = (await tasksIn(db)).groups.filter((task) => (task.input as unknown as { group: number }).group === 2);
-			expect(groupTwos.some((task) => JSON.stringify(task.input).includes("Use the v2 API"))).toBe(true);
+			await expectAnsweredOnce(db, blocked!, "Use the v2 API");
 		}, 120_000);
 	});
 
@@ -377,35 +404,6 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 			expect(run.out).toContain("+++ openspec/changes/add-csv-import/specs/plan/import/spec.md (amended)");
 			expect(run.out).toContain("pnpm change build add-csv-import --amend");
 			expect(run.code).toBe(1);
-		}, 120_000);
-
-		it("Scenario: A text answer writes and validates nothing", async () => {
-			const seeded = await planExportTask22();
-			const bytes = seeded.readDelta();
-			const openspec = fakeOpenspec();
-			try {
-				// 2.2 again with the decision, then 3.1; passing group checks ask no judge.
-				const run = await seeded.build(["Keep JSON, drop the sort"], [verdict(true), verdict(true)]);
-				expect(seeded.readDelta()).toEqual(bytes);
-				const commands = openspec.commands();
-				expect(commands.filter((command) => command.startsWith("validate --all") || command.startsWith("validate --specs"))).toEqual([]);
-				expect(commands.filter((command) => command.startsWith("archive"))).toEqual([]);
-
-				const answers = await seeded.answers();
-				const task = answers.filter((answer) => answer.kind === "task" && answer.task === "2.2");
-				expect(task.length).toBeGreaterThan(0);
-				for (const answer of task) {
-					expect(answer.decision).toContain("Keep JSON, drop the sort");
-					expect(answer.decision).not.toContain("amendment-applied");
-				}
-				expect(answers.some((answer) => answer.decision.includes("amendment-applied"))).toBe(false);
-
-				expect(run.out).not.toMatch(/^amended /m);
-				expect(run.out).not.toContain("## validation:");
-				expect(run.code).toBe(0);
-			} finally {
-				openspec.restore();
-			}
 		}, 120_000);
 
 		it("a text answer to a group judge writes and validates nothing", async () => {

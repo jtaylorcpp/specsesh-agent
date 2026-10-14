@@ -11,7 +11,9 @@
  * `--amend` is refused (exit 2, nothing written) unless the loop is blocked on an escalation
  * carrying an `Amendment` whose delta is a `specs/**\/spec.md`. Then `applyAmendment` writes,
  * validates and trial-folds it: a failure is restored and answers nothing (`amend-failed`,
- * exit 2); a pass answers the loop `amendment-applied`, as a text answer would.
+ * exit 2). A pass records the delta's new sha256 in the specs approval, by the principal with
+ * the note `amendment-applied`, then answers the loop `amendment-applied`, as a text answer
+ * would. A failed recording leaves the delta written, answers nothing and exits 2.
  *
  * Starting a loop, answering one and `--amend` are refused (exit 2) while a file of an approved
  * stage differs from its recorded sha256, after the argument refusals and before the dirty-tree
@@ -24,8 +26,9 @@
  * prompts: the result says what to print and the exit code.
  */
 
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, posix, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import type { Context } from "@earendil-works/chord";
 import type { Harness, ModelRef, TaskId } from "@earendil-works/pi-durable";
@@ -42,7 +45,7 @@ import { formatStaleApprovalRefusal } from "./change-output.js";
 import { ApprovalsFileError, EscalationAnswerError } from "./errors.js";
 import { changedBetween, insideGit, repoRoot, snapshot, status } from "./git.js";
 import { blockedBy } from "./group.js";
-import { listStaleApprovedFiles } from "./spec-approvals.js";
+import { listStaleApprovedFiles, recordSpecAmendment } from "./spec-approvals.js";
 import { shownPath } from "./spec-cli.js";
 import { inRepo } from "./worktree.js";
 
@@ -111,6 +114,8 @@ export interface BuildRequest {
 
 export interface BuildRunOptions {
 	readonly model?: ModelRef;
+	/** Who records an applied amendment: `git config user.name`, else `$USER`. Without one, `--amend` is refused. */
+	readonly principal?: string;
 	/** Called once a loop exists, before any model call, so a crash still leaves its ID. */
 	readonly onLoop?: (loop: number) => void;
 }
@@ -146,6 +151,10 @@ interface Shown {
 export interface Amended {
 	/** `<changePath>/<delta>`. */
 	readonly path: string;
+	/** Relative to the change directory, as `approvals.json` records it. */
+	readonly delta: string;
+	/** Who the specs approval now names for it. */
+	readonly principal: string;
 	/** `task <id>` or `group <n> judge`. */
 	readonly asker: string;
 }
@@ -334,7 +343,9 @@ function askerOf(at: { group?: number; task?: string }): string | undefined {
 
 /**
  * `--amend`: check the delta, write it, validate and trial-fold. A failure leaves the file as it
- * was and answers nothing; a pass answers the waiting loop `amendment-applied`, as a text answer would.
+ * was and answers nothing. A pass records the written bytes' sha256 in the specs approval, then
+ * answers the waiting loop `amendment-applied`, as a text answer would; a failed recording
+ * answers nothing and leaves the delta written, so the next `--amend` is refused as stale.
  */
 async function amend(
 	harness: Harness,
@@ -353,11 +364,23 @@ async function amend(
 	// On the files as they are before the write, the delta included: a hand edit is never written over.
 	const stale = staleRefusal(request);
 	if (stale !== undefined) return stale;
+	// Known before the write, so a delta that could never be recorded is not written.
+	const principal = options.principal?.trim() ?? "";
+	if (principal === "") return refused("--amend needs a principal: set git config user.name or $USER");
 	const path = `${request.changePath}/${amendment.delta}`;
 	const applied = await applyAmendment({ target: target.path, text: amendment.text, change: request.change, root: request.workspace });
 	if (!applied.passed) return { kind: "amend-failed", change: request.change, path, output: applied.output, exitCode: 2 };
+	// The key `approvals.json` holds: the delta as `amendmentTarget` normalised it.
+	const delta = posix.normalize(amendment.delta);
+	try {
+		// `applyAmendment` wrote `text` as UTF-8, so these are the bytes on disk.
+		const sha256 = createHash("sha256").update(amendment.text, "utf8").digest("hex");
+		recordSpecAmendment(request.changeDir, delta, { sha256, principal, notes: AMENDMENT_APPLIED });
+	} catch (error) {
+		return refused(`${request.change}: could not record approval for ${delta}: ${message(error)}`);
+	}
 	const asker = askerOf(waiting.escalation) ?? `change loop ${waiting.loop}`;
-	return answered(harness, request, waiting, AMENDMENT_APPLIED, { path, asker }, options, context);
+	return answered(harness, request, waiting, AMENDMENT_APPLIED, { path, delta, principal, asker }, options, context);
 }
 
 /** Answer the waiting change loop with `decision`, then run the new run to its end. */

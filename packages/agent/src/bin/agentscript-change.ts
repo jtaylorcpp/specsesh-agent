@@ -14,8 +14,8 @@
  * `formatDraftOutput` (`task/change-output.ts`). The database comes from `--db` or
  * the nearest `agentscript.config.json`, the model from
  * `AGENTSCRIPT_PROVIDER`/`AGENTSCRIPT_MODEL` or the config, as `agentscript-task`
- * resolves them. Feedback and approvals are given as the principal: `--principal`
- * (approve only), else `git config user.name`, else `$USER`.
+ * resolves them. Feedback, approvals and `build --amend`'s recorded approval are given as the
+ * principal: `--principal` (approve only), else `git config user.name`, else `$USER`.
  *
  * `build` starts, continues or answers the change's change loop (`task/cmd-build.ts`)
  * and prints `formatBuildOutput`. It takes the group run's flags, resolved as
@@ -314,6 +314,8 @@ async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promi
 		return refuse(`no model "${request.model}" on provider "${request.provider}"`);
 	}
 	const model: ModelRef = { provider: request.provider, modelId: request.model };
+	// Only `--amend` records an approval, so nothing else asks git for a name.
+	const principal = request.amend ? resolvePrincipal(undefined, () => gitUserName(io.cwd), io.env) : undefined;
 	let named;
 	try {
 		named = resolveNamedModels(config.models, models);
@@ -352,6 +354,7 @@ async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promi
 				request,
 				{
 					model: built.models["default"] ?? model,
+					...(principal !== undefined ? { principal } : {}),
 					// Before any model call, so a crash still leaves the way back: build without an answer resumes a running loop.
 					onLoop: (loop) => io.err(`change loop ${loop} — resume with: agentscript-change build ${request.change} --db ${request.db.label}`),
 				},

@@ -9,7 +9,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { Approval, check, explain } from "../openspec/index.js";
 import { closed } from "../openspec/schema.js";
@@ -58,9 +58,14 @@ export interface StaleFile {
 export function readApprovals(changeDir: string): ApprovalsFile {
 	const path = join(changeDir, APPROVALS_FILE);
 	if (!existsSync(path)) return { approvals: [] };
+	return parseApprovals(readFileSync(path, "utf8"));
+}
+
+/** `approvals.json`'s text as an `ApprovalsFile`; throws `ApprovalsFileError` when it is not valid. */
+function parseApprovals(text: string): ApprovalsFile {
 	let value: unknown;
 	try {
-		value = JSON.parse(readFileSync(path, "utf8"));
+		value = JSON.parse(text);
 	} catch (error) {
 		throw new ApprovalsFileError(`${APPROVALS_FILE} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
 	}
@@ -116,14 +121,57 @@ export function recordApproval(
 	const at = approvals.findIndex((existing) => existing.stage === stage.name);
 	const replaced = at === -1 ? [...approvals, entry] : approvals.map((existing, i) => (i === at ? entry : existing));
 	const dropped = dependants(stage.name, stages);
-	const file: ApprovalsFile = { approvals: replaced.filter((existing) => existing === entry || !dropped.has(existing.stage)) };
+	writeApprovals(changeDir, { approvals: replaced.filter((existing) => existing === entry || !dropped.has(existing.stage)) });
+	return entry;
+}
+
+const SPEC_DELTA = /^specs\/(?:[^/]+\/)+spec\.md$/;
+
+/**
+ * Records an applied amendment: sets the sha256 of `delta` (a `specs/**\/spec.md` relative to
+ * `changeDir`) in the specs approval to `amendment.sha256`, and that approval's `principal` and
+ * `notes` to the amendment's. Every other byte of `approvals.json` stays as it was, `at` included.
+ * Throws, writing nothing, when the delta is not a spec delta, the specs stage has no approval or
+ * no entry for it, the file is not valid, or it is not as `recordApproval` writes it (so another
+ * entry's bytes could change); a failed write throws too.
+ */
+export function recordSpecAmendment(
+	changeDir: string,
+	delta: string,
+	amendment: { sha256: string; principal: string; notes: string },
+): ApprovalEntry {
+	if (!SPEC_DELTA.test(delta) || delta.split("/").includes("..")) {
+		throw new ApprovalsFileError(`amendment delta "${delta}" is not specs/**/spec.md`);
+	}
+	const path = join(changeDir, APPROVALS_FILE);
+	const text = existsSync(path) ? readFileSync(path, "utf8") : undefined;
+	const file = text === undefined ? { approvals: [] } : parseApprovals(text);
+	const entry = file.approvals.find((existing) => existing.stage === "specs");
+	if (entry === undefined) throw new ApprovalsFileError(`the specs stage has no approval in ${APPROVALS_FILE}; ${delta} cannot be recorded`);
+	if (!Object.hasOwn(entry.files, delta)) throw new ApprovalsFileError(`the specs approval in ${APPROVALS_FILE} has no entry for ${delta}`);
+	if (serialise(file) !== text) throw new ApprovalsFileError(`${APPROVALS_FILE} is not as approve writes it; approve the specs stage again`);
+	entry.files[delta] = amendment.sha256;
+	entry.principal = amendment.principal;
+	entry.notes = amendment.notes;
+	writeApprovals(changeDir, file);
+	return entry;
+}
+
+/** Checks `file` against the schema, then replaces `approvals.json` with it through a temporary file. */
+function writeApprovals(changeDir: string, file: ApprovalsFile): void {
 	if (!check(ApprovalsFile, file)) throw new ApprovalsFileError(`${APPROVALS_FILE} would not be valid: ${explain(ApprovalsFile, file)[0]}`);
 	const path = join(changeDir, APPROVALS_FILE);
 	const tmp = `${path}.${process.pid}.tmp`;
-	writeFileSync(tmp, `${JSON.stringify(file, null, 2)}\n`);
-	renameSync(tmp, path);
-	return entry;
+	try {
+		writeFileSync(tmp, serialise(file));
+		renameSync(tmp, path);
+	} catch (error) {
+		rmSync(tmp, { force: true });
+		throw error;
+	}
 }
+
+const serialise = (file: ApprovalsFile) => `${JSON.stringify(file, null, 2)}\n`;
 
 /**
  * Why `stage` may not start yet: one item per stage in its `after` with no approval, and one per

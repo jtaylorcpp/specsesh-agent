@@ -312,6 +312,15 @@ describe("formatStaleApprovalRefusal", () => {
 		expect(files).toEqual(before);
 	});
 
+	it("names a changed design and a changed delta in the answered build's refusal", () => {
+		expect(
+			formatStaleApprovalRefusal(change, [
+				{ stage: "specs", path: "specs/plan/export/spec.md", state: "changed" },
+				{ stage: "design", path: "design.md", state: "changed" },
+			]),
+		).toEqual([refusal, "  design: design.md (changed)", "  specs: specs/plan/export/spec.md (changed)", ...nextSteps]);
+	});
+
 	it("puts the proposal first and the tasks last", () => {
 		const lines = formatStaleApprovalRefusal(change, [
 			{ stage: "tasks", path: "tasks.md", state: "changed" },

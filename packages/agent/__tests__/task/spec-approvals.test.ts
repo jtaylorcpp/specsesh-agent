@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import {
 	listStaleApprovedFiles,
 	readApprovals,
 	recordApproval,
+	recordSpecAmendment,
 	staleApprovals,
 	staleFilesOfStage,
 } from "../../src/task/spec-approvals.js";
@@ -250,6 +251,21 @@ describe("task/spec-approvals: listStaleApprovedFiles", () => {
 		expect(redraftStage(dir)).toBe(stale[0]?.stage);
 	});
 
+	it("reads ticked tasks as unticked, so ticking alone is not a change", () => {
+		const dir = changeDir({ "tasks.md": "## 1. G\n\n- [ ] 1.1 a\n- [ ] 1.2 b\n  - [ ] note\n- [ ] 1.3 c\n" });
+		recordApproval(dir, tasks, by, stages);
+		write(dir, "tasks.md", "## 1. G\n\n- [x] 1.1 a\n- [x] 1.2 b\n  - [x] note\n- [ ] 1.3 c\n");
+		expect(listStaleApprovedFiles(dir, readApprovals(dir), [tasks])).toEqual([]);
+		expect(staleFilesOfStage(dir, readApprovals(dir).approvals, "tasks")).toEqual([]);
+	});
+
+	it("names tasks.md when ticking comes with an unrelated edit", () => {
+		const dir = changeDir({ "tasks.md": "## 1. G\n\n- [ ] 1.1 a\n- [ ] 1.2 b\n" });
+		recordApproval(dir, tasks, by, stages);
+		write(dir, "tasks.md", "## 1. G\n\n- [x] 1.1 a\n- [x] 1.2 b, edited\n");
+		expect(listStaleApprovedFiles(dir, readApprovals(dir), [tasks])).toEqual([{ stage: "tasks", path: "tasks.md", state: "changed" }]);
+	});
+
 	it("skips a stage with no approval, even when its files exist and others changed", () => {
 		const dir = changeDir({ "proposal.md": "## Why\n", "design.md": "## Context\n", "tasks.md": "t\n" });
 		recordApproval(dir, SPEC_STAGES[0]!, by, SPEC_STAGES);
@@ -266,5 +282,102 @@ describe("task/spec-approvals: listStaleApprovedFiles", () => {
 		rmSync(join(dir, "approvals.json"));
 		expect(listStaleApprovedFiles(dir, approvals)).toEqual([{ stage: "tasks", path: "tasks.md", state: "changed" }]);
 		expect(listStaleApprovedFiles(dir)).toEqual([]);
+	});
+});
+
+describe("task/spec-approvals: recordSpecAmendment", () => {
+	const amended = "## ADDED Requirements\nAmended.\n";
+	const amendment = { sha256: sha256(amended), principal: "sam", notes: "amendment-applied" };
+
+	/** Four stages approved, two spec deltas, each approval with its own note. */
+	function approvedChange(): string {
+		const dir = changeDir({
+			"proposal.md": "## Why\n",
+			"design.md": "## Context\n",
+			"specs/plan/export/spec.md": "## ADDED Requirements\n",
+			"specs/plan/schema/spec.md": "## MODIFIED Requirements\n",
+			"tasks.md": "- [ ] 1.1 x\n",
+		});
+		for (const stage of SPEC_STAGES) recordApproval(dir, stage, { ...by, notes: `${stage.name} ok` }, SPEC_STAGES);
+		return dir;
+	}
+
+	const approvalsText = (dir: string) => readFileSync(join(dir, "approvals.json"), "utf8");
+	const tmpFiles = (dir: string) => readdirSync(dir).filter((name) => name.endsWith(".tmp"));
+
+	it("changes only the delta's sha256 and the specs approval's principal and notes", () => {
+		const dir = approvedChange();
+		const before = approvalsText(dir);
+		const entry = recordSpecAmendment(dir, "specs/plan/export/spec.md", amendment);
+		expect(entry).toMatchObject({ stage: "specs", principal: "sam", notes: "amendment-applied", at: by.at });
+
+		const expected = before
+			.replace(sha256("## ADDED Requirements\n"), amendment.sha256)
+			.replace('"principal": "jesse",\n      "notes": "specs ok"', '"principal": "sam",\n      "notes": "amendment-applied"');
+		expect(expected).not.toBe(before);
+		expect(approvalsText(dir)).toBe(expected);
+		expect(tmpFiles(dir)).toEqual([]);
+	});
+
+	it("makes the amended delta fresh to the staleness rule", () => {
+		const dir = approvedChange();
+		write(dir, "specs/plan/export/spec.md", amended);
+		expect(listStaleApprovedFiles(dir)).toEqual([{ stage: "specs", path: "specs/plan/export/spec.md", state: "changed" }]);
+		recordSpecAmendment(dir, "specs/plan/export/spec.md", amendment);
+		expect(listStaleApprovedFiles(dir)).toEqual([]);
+		expect(approvedStages(SPEC_STAGES, dir).next).toBeUndefined();
+	});
+
+	it("refuses a delta outside specs/**/spec.md, an unknown delta, and no specs approval, writing nothing", () => {
+		const dir = approvedChange();
+		const before = approvalsText(dir);
+		for (const delta of ["design.md", "specs/spec.md", "specs/plan/export/notes.md", "specs/../specs/plan/export/spec.md", "/specs/plan/export/spec.md"]) {
+			expect(() => recordSpecAmendment(dir, delta, amendment)).toThrow(/is not specs\/\*\*\/spec\.md$/);
+		}
+		expect(() => recordSpecAmendment(dir, "specs/plan/import/spec.md", amendment)).toThrow(/has no entry for specs\/plan\/import\/spec\.md$/);
+		expect(approvalsText(dir)).toBe(before);
+
+		const proposalOnly = changeDir({ "proposal.md": "## Why\n" });
+		recordApproval(proposalOnly, SPEC_STAGES[0]!, by, SPEC_STAGES);
+		const proposalText = approvalsText(proposalOnly);
+		expect(() => recordSpecAmendment(proposalOnly, "specs/plan/export/spec.md", amendment)).toThrow(/specs stage has no approval/);
+		expect(approvalsText(proposalOnly)).toBe(proposalText);
+
+		const none = changeDir();
+		expect(() => recordSpecAmendment(none, "specs/plan/export/spec.md", amendment)).toThrow(/specs stage has no approval/);
+		expect(readdirSync(none)).toEqual([]);
+	});
+
+	it("refuses an approvals.json not as approve writes it, or not valid, writing nothing", () => {
+		const dir = approvedChange();
+		const compact = JSON.stringify(readApprovals(dir));
+		write(dir, "approvals.json", compact);
+		expect(() => recordSpecAmendment(dir, "specs/plan/export/spec.md", amendment)).toThrow(/not as approve writes it/);
+		expect(approvalsText(dir)).toBe(compact);
+
+		write(dir, "approvals.json", "{");
+		expect(() => recordSpecAmendment(dir, "specs/plan/export/spec.md", amendment)).toThrow(/^approvals\.json is not valid JSON/);
+		expect(approvalsText(dir)).toBe("{");
+	});
+
+	it("refuses an amendment that would not be valid, writing nothing", () => {
+		const dir = approvedChange();
+		const before = approvalsText(dir);
+		expect(() => recordSpecAmendment(dir, "specs/plan/export/spec.md", { ...amendment, sha256: "abc" })).toThrow(/^approvals\.json would not be valid: /);
+		expect(() => recordSpecAmendment(dir, "specs/plan/export/spec.md", { ...amendment, principal: "" })).toThrow(/^approvals\.json would not be valid: /);
+		expect(approvalsText(dir)).toBe(before);
+	});
+
+	it.skipIf(process.getuid?.() === 0)("throws when approvals.json cannot be written, leaving it intact", () => {
+		const dir = approvedChange();
+		const before = approvalsText(dir);
+		chmodSync(dir, 0o555);
+		try {
+			expect(() => recordSpecAmendment(dir, "specs/plan/export/spec.md", amendment)).toThrow(/EACCES/);
+		} finally {
+			chmodSync(dir, 0o755);
+		}
+		expect(approvalsText(dir)).toBe(before);
+		expect(tmpFiles(dir)).toEqual([]);
 	});
 });
