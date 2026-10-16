@@ -70,3 +70,16 @@ export { tasksStage } from "./stages/tasks.js";
 export { SPEC_STAGES } from "./spec-stages.js";
 export type { DraftLoopOptions, DraftOutcome } from "./draft-input.js";
 export { answerDraftLoop, draftLoopExtensions, startDraftLoop, waitForDraftLoop } from "./draft-api.js";
+export {
+	CI_TEST_PICK_SCRIPT,
+	DEFAULT_MAX_DIFF_CHARS,
+	DEFAULT_PICK_TIMEOUT_MS,
+	pickTests,
+	siblingTests,
+	testPattern,
+	type PickTestsInput,
+	type PickTestsOptions,
+	type PickTestsResult,
+	type TestPick,
+	type TestReason,
+} from "./test-pick.js";

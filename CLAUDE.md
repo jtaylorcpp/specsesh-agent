@@ -25,6 +25,16 @@ nine exports, in this order: `./authoring`, `./interpreter`, `./pi`, `./claude-c
 | `src/task` → `./task` | The task loop (`agentscript.task-loop`): an Agent Script run once per iteration as an `agentscript.run` child until the task converges, blocks, exhausts or fails; ticks tasks.md. Also the spec loop (see below). Bundled scripts in `src/task/scripts/` (copied into `dist/` by the build). Adds `src/node`. |
 | `src/bin` | The `agentscript-pi`, `agentscript-durable` and `agentscript-task` bins. |
 
+The CI test picker (`src/task/test-pick.ts`, exported from `./task`): `pickTests(input, options)` runs the
+bundled `ci-test-pick.agent` once to pick the tests that cover one closed task, for Specsesh CI's
+`{!@ci.selected_tests}` and `{!@ci.test_pattern}`. Input `{ task_id, task_text, scenarios, changed_files,
+test_files, diff? }` (lists newline-separated); options `{ port?, provider?, model?, models?, timeoutMs?
+(120000), script?, maxDiffChars? (20000) }`. `siblingTests` adds every test beside a changed file first; the
+model's `pick` JSON is checked against `TestPick`, paths outside `test_files` are dropped, all is deduped. It
+answers `{ ok: true, pick }` or `{ ok: false, reason }` and never throws. `TestPick`, `TestReason` and
+`testPattern` live in `src/openspec/pipeline.ts` (`./openspec`, Worker-safe) until `@specsesh/ontology/pipeline`
+is published; `./task` re-exports `testPattern`.
+
 The spec loop (`agentscript.spec-loop`, version 1) is a durable task in which an agent drafts one
 stage of an OpenSpec change (proposal, design, specs or tasks), a gate with no model checks it, and
 the loop iterates until the gate is clean, then blocks for the principal's review. Module by module
@@ -193,6 +203,8 @@ pnpm durable run <file> --db runs.sqlite [--provider --model --entry --var --jso
 pnpm durable resume <task-id> --db runs.sqlite                                      # finish a crashed run
 pnpm durable run <file> --db runs.sqlite --provider claude-code                     # durable, on your subscription
 pnpm task <change-id> <task-id>                      # see "Running a task"
+node packages/agent/dist/bin/agentscript-task.js pick-tests --input in.json [--provider --model --timeout <ms>]
+                                # pickTests once; prints { ok, pick, pattern } or { ok, reason }; exit 0/1/2
 pnpm --filter hello-world-example start [name]                                      # the example app, on Haiku
 pnpm --filter cloudflare-worker-example dev    # wrangler dev; add --var AGENTSCRIPT_FAUX:1 without an account
 pnpm test:cloudflare            # opt-in, not in `pnpm test`: crash/resume (kill -9 mid-step) + route scripts, local DO storage

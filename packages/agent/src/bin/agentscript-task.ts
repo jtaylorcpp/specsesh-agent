@@ -11,6 +11,7 @@
  *   agentscript-task resume <loop-id>|--all [--db <path>] [--json]
  *   agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]
  *   agentscript-task status [--db <path>]
+ *   agentscript-task pick-tests --input <file.json> [--provider <id>] [--model <id>] [--timeout <ms>]
  *
  * Defaults come from the nearest `agentscript.config.json` (its `task` object);
  * each value resolves flag → environment → config → default. `<change>` is an
@@ -29,6 +30,11 @@
  * `task/spec-cli.ts`): it parses its own flags and, unlike `run`, never checks
  * that the tree is clean.
  *
+ * `pick-tests` runs `pickTests` (`task/test-pick.ts`) once on the input file's
+ * `{ task_id, task_text, scenarios, changed_files, test_files, diff? }` and prints
+ * `{ ok: true, pick, pattern }` (exit 0) or `{ ok: false, reason }` (exit 1) as JSON
+ * on stdout; a missing `--input` or an unreadable file exits 2. It opens no database.
+ *
  * `run` refuses a dirty working tree unless `--allow-dirty`, and never commits:
  * it prints the files the loop changed. `--worktree` runs the loop in a new git
  * worktree on `task/<change-id>/<task-id>` (a group: `task/<change-id>/<group>`,
@@ -44,8 +50,8 @@
  * config's `delegates` (none under `--no-delegates`).
  */
 
-import { existsSync, mkdirSync, realpathSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -67,14 +73,17 @@ import {
 	answerEscalation,
 	answerGroupEscalation,
 	answerSpecLoop,
+	pickTests,
 	specLoopExtensions,
 	startGroupLoop,
 	startTaskLoop,
+	testPattern,
 	waitForGroupLoop,
 	waitForSpecLoop,
 	waitForTaskLoopResult,
 	type GroupLoopOptions,
 	type LoopWorktree,
+	type PickTestsInput,
 	type SpecLoopInput,
 	type SpecStage,
 	type StageOutcome,
@@ -126,7 +135,8 @@ const USAGE = `usage:
   agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
   agentscript-task resume <loop-id>|--all [--db <path>] [--json]
   agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]
-  agentscript-task status [--db <path>]`;
+  agentscript-task status [--db <path>]
+  agentscript-task pick-tests --input <file.json> [--provider <id>] [--model <id>] [--timeout <ms>]`;
 
 export interface CliDeps {
 	/** The pi-ai model collection. Defaults to every built-in provider plus claude-code. */
@@ -193,7 +203,10 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 		return 2;
 	};
 	const [command, ...rest] = argv;
-	if (command !== "run" && command !== "spec" && command !== "resume" && command !== "answer" && command !== "status") return usage();
+	if (command !== "run" && command !== "spec" && command !== "resume" && command !== "answer" && command !== "status" && command !== "pick-tests") return usage();
+
+	// pick-tests needs no database and no loop: one script run, JSON out.
+	if (command === "pick-tests") return await pickTestsCommand(rest, { out, err, cwd, env, models: deps.models ?? builtin }, usage);
 
 	// spec parses its own flags, and never reaches run's clean-tree guard.
 	if (command === "spec") {
@@ -254,6 +267,58 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 		}
 		throw error;
 	}
+}
+
+/** `pick-tests`: run `pickTests` on `--input`'s JSON; 0 on a pick, 1 on `ok: false`, 2 on usage or unreadable input. */
+async function pickTestsCommand(
+	args: readonly string[],
+	io: {
+		readonly out: (line: string) => void;
+		readonly err: (line: string) => void;
+		readonly cwd: string;
+		readonly env: Readonly<Record<string, string | undefined>>;
+		readonly models: () => Promise<Models> | Models;
+	},
+	usage: (text?: string) => number,
+): Promise<number> {
+	let values;
+	try {
+		({ values } = parseArgs({
+			args: [...args],
+			options: { input: { type: "string" }, provider: { type: "string" }, model: { type: "string" }, timeout: { type: "string" } },
+		}));
+	} catch (error) {
+		return usage(message(error));
+	}
+	if (values.input === undefined) return usage("pick-tests needs --input <file.json>");
+	const timeoutMs = values.timeout !== undefined ? Number(values.timeout) : undefined;
+	if (timeoutMs !== undefined && !(Number.isInteger(timeoutMs) && timeoutMs > 0)) return usage(`--timeout expects a positive whole number of milliseconds, got "${values.timeout}"`);
+	let input: PickTestsInput;
+	try {
+		input = JSON.parse(readFileSync(resolve(io.cwd, values.input), "utf8")) as PickTestsInput;
+	} catch (error) {
+		io.err(`could not read ${values.input}: ${message(error)}`);
+		return 2;
+	}
+	if (typeof input !== "object" || input === null || Array.isArray(input)) {
+		io.err(`${values.input} must hold a JSON object`);
+		return 2;
+	}
+	let config: LoadedConfig;
+	try {
+		config = loadConfig(io.cwd);
+	} catch (error) {
+		if (error instanceof ConfigError) {
+			io.err(error.message);
+			return 2;
+		}
+		throw error;
+	}
+	const provider = values.provider ?? io.env["AGENTSCRIPT_PROVIDER"] ?? config.task.provider ?? DEFAULT_PROVIDER;
+	const model = values.model ?? io.env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL;
+	const result = await pickTests(input, { provider, model, models: await io.models(), ...(timeoutMs !== undefined ? { timeoutMs } : {}) });
+	io.out(JSON.stringify(result.ok ? { ...result, pattern: testPattern(result.pick.names) } : result));
+	return result.ok ? 0 : 1;
 }
 
 interface Io {
