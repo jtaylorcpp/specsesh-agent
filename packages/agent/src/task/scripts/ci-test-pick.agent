@@ -1,0 +1,52 @@
+config:
+    agent_name: "ci-test-pick"
+    description: "Picks the tests that cover one closed task of a change, for a narrow CI run"
+
+system:
+    instructions: |
+        You pick which tests CI should run now that one small task of a change has closed. You see
+        the task, the spec scenarios it is linked to, the files it changed and every test file in
+        the repository. Pick the few tests that cover the change: prefer tests that import or sit
+        beside a changed file, and tests whose names match the scenarios. Never invent a path: a
+        test path you pick must appear exactly in the list of test files. When unsure, pick fewer
+        tests rather than more; CI runs the full suite when your pick fails.
+
+variables:
+    task_id: mutable string = ""
+        description: "the task's id, e.g. 2.4"
+    task_text: mutable string = ""
+        description: "the task's text from tasks.md"
+    scenarios: mutable string = ""
+        description: "the task's linked scenarios, as text"
+    changed_files: mutable string = ""
+        description: "the files the task changed, one path per line"
+    test_files: mutable string = ""
+        description: "every test file in the repository, one path per line"
+    diff: mutable string = ""
+        description: "the task's diff, truncated, or empty"
+    siblings: mutable string = ""
+        description: "tests beside a changed file, already picked, one path per line"
+    pick: mutable string = ""
+        description: "the pick, as one JSON object with tests, names and reasons"
+
+subagent pick:
+    description: "Pick the tests that cover the closed task"
+
+    reasoning:
+        instructions: ->
+            | Task {!@variables.task_id}: {!@variables.task_text}
+            | Linked scenarios:
+            | {!@variables.scenarios}
+            | Changed files:
+            | {!@variables.changed_files}
+            | Test files in the repository (pick paths only from this list):
+            | {!@variables.test_files}
+            if @variables.siblings != "":
+                | Already picked, because they sit beside a changed file:
+                | {!@variables.siblings}
+            if @variables.diff != "":
+                | Diff (may be truncated):
+                | {!@variables.diff}
+            | Answer pick with one JSON object and nothing else: {"tests": [...], "names": [...], "reasons": [{"test": "...", "why": "..."}]}.
+            | tests: repository paths copied exactly from the test files above. names: the test functions or it()/test() titles you expect to cover the change, as they appear in the code. reasons: one entry per test, saying why it covers the change.
+            set @variables.pick = @outputs.pick
