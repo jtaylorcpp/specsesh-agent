@@ -66,7 +66,9 @@ subagent orient:
             | Spec deltas:
             | {!@variables.deltas}
             if @variables.iteration > 1:
-                | This is iteration {!@variables.iteration}. Still unmet from before: {!@variables.carried}
+                | This is iteration {!@variables.iteration}.
+            if @variables.carried != "":
+                | Carried in (still unmet from an earlier iteration, or the principal's answer): {!@variables.carried}
                 | If the carried feedback names a check that already failed before, the last approach did not work; choose a different one rather than repeating it.
             | Write a short, concrete plan for this iteration: which files, which changes, which scenarios it satisfies.
             if @variables.delete_granted:

@@ -58,7 +58,9 @@ subagent orient:
             | Spec deltas:
             | {!@variables.deltas}
             if @variables.iteration > 1:
-                | This is iteration {!@variables.iteration}. Still unmet from before: {!@variables.carried}
+                | This is iteration {!@variables.iteration}.
+            if @variables.carried != "":
+                | Carried in (still unmet from an earlier iteration, or the principal's answer): {!@variables.carried}
             if @variables.delete_granted:
                 | If the task retires a file, delete it with delete_file; do not empty it.
             | Write a short, concrete plan for this iteration: which files, which changes, which scenarios it satisfies.

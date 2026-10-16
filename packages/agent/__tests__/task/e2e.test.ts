@@ -54,6 +54,7 @@ describe("task/agent: end to end", () => {
 		expect(first?.evidence).toContainEqual(expect.objectContaining({ kind: "check", command: check, exitCode: 1 }));
 		expect(second?.evidence).toContainEqual(expect.objectContaining({ kind: "check", command: check, exitCode: 0 }));
 		const orient2 = JSON.stringify(env.requests[4]);
-		expect(orient2).toContain("This is iteration 2. Still unmet from before: the check wants 2, the file says 1");
+		expect(orient2).toContain("This is iteration 2.");
+		expect(orient2).toContain("Carried in (still unmet from an earlier iteration, or the principal's answer): the check wants 2, the file says 1");
 	}, 60_000);
 });
