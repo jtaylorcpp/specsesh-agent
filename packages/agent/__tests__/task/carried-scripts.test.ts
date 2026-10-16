@@ -1,5 +1,6 @@
 // The bundled task scripts show `carried` whenever it is non-empty: on the first iteration of a
 // run resumed by an answer (which starts with no earlier iterations), and never on a fresh run.
+// The judge sees it too, so it does not ask again a question the principal's answer settled.
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -18,6 +19,9 @@ const TASK_SCRIPT = fileURLToPath(BUNDLED_SCRIPTS.task);
 const DELEGATE_SCRIPT = fileURLToPath(BUNDLED_SCRIPTS.delegate);
 const ANSWER = "Use the v2 API";
 const ORIENT = "Write a short, concrete plan for this iteration";
+const JUDGE = "Is the task done against the spec deltas?";
+const JUDGE_CARRIED = "The principal's answer or earlier feedback";
+const NO_REASK = "do not choose ask for that question again";
 
 /** A fake `claude` that changes no file. */
 function idleClaude(): string {
@@ -60,7 +64,8 @@ async function resumedLoop(
 	harness.resume();
 	const { outcome } = await waitForTaskLoopResult(harness, id, context);
 	await harness.close(context);
-	return { outcome, orients: prompts(env.requests).filter((p) => p.includes(ORIENT)) };
+	const all = prompts(env.requests);
+	return { outcome, orients: all.filter((p) => p.includes(ORIENT)), judges: all.filter((p) => p.includes(JUDGE)) };
 }
 
 describe("task/agent: The bundled task scripts show carried feedback whenever it is non-empty", () => {
@@ -115,6 +120,38 @@ describe("task/agent: The bundled task scripts show carried feedback whenever it
 			expect(orients).toHaveLength(1);
 			expect(orients[0]).not.toContain("Carried in");
 			expect(orients[0]).not.toContain("This is iteration");
+			const judges = prompts(r.env.requests).filter((p) => p.includes(JUDGE));
+			expect(judges).toHaveLength(1);
+			expect(judges[0]).not.toContain(JUDGE_CARRIED);
 		}
+	});
+
+	it("Scenario: task.agent's judge sees an answer on a resumed run's first iteration", async () => {
+		const r = await resumedLoop(
+			[plan("call v2"), text("Done."), verdict(true)],
+			{ script: { path: TASK_SCRIPT }, workspace: gitRepo(), checks: [COUNT_CHECK], allow: ["pnpm", "node"] },
+			{},
+			ANSWER,
+		);
+
+		expect(r.outcome.status).toBe("converged");
+		expect(r.judges).toHaveLength(1);
+		expect(r.judges[0]).toContain(`${JUDGE_CARRIED}: ${ANSWER}`);
+		expect(r.judges[0]).toContain(NO_REASK);
+	});
+
+	it("Scenario: task-delegate.agent's judge sees an answer on a resumed run's first iteration", async () => {
+		const grant = granted();
+		const r = await resumedLoop(
+			[plan("call v2"), verdict(true)],
+			{ script: { path: DELEGATE_SCRIPT }, workspace: gitRepo(), budget: { maxIterations: 1 }, ...grant.overrides },
+			grant.actions,
+			ANSWER,
+		);
+
+		expect(r.outcome.status).toBe("converged");
+		expect(r.judges).toHaveLength(1);
+		expect(r.judges[0]).toContain(`${JUDGE_CARRIED}: ${ANSWER}`);
+		expect(r.judges[0]).toContain(NO_REASK);
 	});
 });

@@ -146,6 +146,9 @@ subagent judge:
             | Checks passed: {!@variables.checks_passed}
             | Check output:
             | {!@variables.check_output}
+            if @variables.carried != "":
+                | The principal's answer or earlier feedback: {!@variables.carried}
+                | If it answers a question about this task, follow it: it overrides the task text where they differ, and do not choose ask for that question again. The checks still decide whether the task is done.
             | Is the task done against the spec deltas? It is done only when the checks pass. If not, say exactly what is unmet.
             | Choose next_action. Default to retry: keep iterating until the checks pass. A change outside this task's files is allowed when the spec deltas already require it and the checks need it.
             | Choose amend-spec only when the spec deltas themselves contradict each other or the code they describe. Choose ask only for a decision that no passing check could settle.
