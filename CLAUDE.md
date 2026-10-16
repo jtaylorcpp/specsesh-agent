@@ -298,7 +298,7 @@ pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop pr
 - `pnpm test:live` (opt-in, never in `pnpm test`) runs it for real on a copy of this repo, on your
   subscription; it skips when `claude` is missing or not logged in.
 
-## Specs (OpenSpec 1.14.1, pinned)
+## Specs (OpenSpec 1.14.2, pinned; 1.14.1 is the minimum the agent supports)
 
 `openspec/specs/<area>/<capability>/spec.md` is the contract: `core/{authoring,subset,composition,
 reasoning-port,step-machine}`, `pi/{port,cli,claude-code}`, `durable/{run-task,host,cli,cloudflare}` and

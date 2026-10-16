@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@fission-ai/openspec':
-        specifier: 1.14.1
-        version: 1.14.1(@types/node@22.20.5)
+        specifier: 1.14.2
+        version: 1.14.2(@types/node@22.20.5)
 
   examples/cloudflare-worker:
     dependencies:
@@ -536,8 +536,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@fission-ai/openspec@1.14.1':
-    resolution: {integrity: sha512-IU9ggB7UYMDU47S0R59NH2ngJp+CK2X/r1B8+QU2Fm8LLBPFatQRO1Ia7B8nO3FHbTE7xRXAIs9NcuUF8Beeag==}
+  '@fission-ai/openspec@1.14.2':
+    resolution: {integrity: sha512-GgCphpZD5FHfk6IGjQPkUtz+pfeztWAz2yqODlSGqOzYHRPqfYQkSds1uY783AP0S5Kx0+HiyrISlJ5LqDcsrw==}
     engines: {node: '>=20.19.0'}
     hasBin: true
 
@@ -2855,7 +2855,7 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@fission-ai/openspec@1.14.1(@types/node@22.20.5)':
+  '@fission-ai/openspec@1.14.2(@types/node@22.20.5)':
     dependencies:
       '@inquirer/core': 12.0.4(@types/node@22.20.5)
       '@inquirer/prompts': 8.7.3(@types/node@22.20.5)
