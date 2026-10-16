@@ -109,7 +109,7 @@ describe("task/agent: A run ended by a failed action is retried within budget", 
 		expect(first?.verdict.unmet[0]?.reason).toContain(TIMED_OUT);
 		expect(first?.feedback[0]).toMatchObject({ action: "retry", from: { kind: "environment" } });
 		expect((runs[1]?.input as { options: { variables: { carried: string } } }).options.variables.carried).toContain("timed out after 900000ms");
-		expect(prompts(r.env.requests)[1]).toContain(`Still unmet from before: ${TIMED_OUT}`);
+		expect(prompts(r.env.requests)[1]).toContain(`Carried in (still unmet from an earlier iteration, or the principal's answer): ${TIMED_OUT}`);
 	});
 
 	it("Scenario: A failed action on the last iteration exhausts", async () => {

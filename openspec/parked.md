@@ -62,6 +62,7 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 - **`spec` could check for `openspec` on `PATH` up front.** Without it the specs and tasks gates report one `ERROR` per draft until the loop exhausts.
 - **Task order is not checked.** The plan script is told to order tasks so each leaves the code working; no gate rule can see that.
 - **"No command prints usage" is tested twice** (`__tests__/task/status.test.ts` and `resolve.test.ts`). `add-spec-cli` 2.1 names one; the other must follow.
+- **The spec-stage scripts show carried feedback only from iteration 2** (from show-carried-on-first-iteration). `spec-proposal`, `spec-design`, `spec-specify` and `spec-plan.agent` gate `carried` on `iteration > 1`, beside the current files. Investigate whether any re-draft (an answered question, a revision) can start a run at iteration 1 with feedback that is then dropped, as the task scripts did.
 
 ## Draft and build (from add-draft-loop, add-build-loop and the add-change-* changes)
 

@@ -58,7 +58,9 @@ subagent orient:
             | Spec deltas:
             | {!@variables.deltas}
             if @variables.iteration > 1:
-                | This is iteration {!@variables.iteration}. Still unmet from before: {!@variables.carried}
+                | This is iteration {!@variables.iteration}.
+            if @variables.carried != "":
+                | Carried in (still unmet from an earlier iteration, or the principal's answer): {!@variables.carried}
             if @variables.delete_granted:
                 | If the task retires a file, delete it with delete_file; do not empty it.
             | Write a short, concrete plan for this iteration: which files, which changes, which scenarios it satisfies.
@@ -144,6 +146,9 @@ subagent judge:
             | Checks passed: {!@variables.checks_passed}
             | Check output:
             | {!@variables.check_output}
+            if @variables.carried != "":
+                | The principal's answer or earlier feedback: {!@variables.carried}
+                | If it answers a question about this task, follow it: it overrides the task text where they differ, and do not choose ask for that question again. The checks still decide whether the task is done.
             | Is the task done against the spec deltas? It is done only when the checks pass. If not, say exactly what is unmet.
             | Choose next_action. Default to retry: keep iterating until the checks pass. A change outside this task's files is allowed when the spec deltas already require it and the checks need it.
             | Choose amend-spec only when the spec deltas themselves contradict each other or the code they describe. Choose ask only for a decision that no passing check could settle.
