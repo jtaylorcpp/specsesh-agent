@@ -1,0 +1,3 @@
+Publish the agent harness as a CLI on public npm, as one command named `specsesh` whose subcommands wrap today's bins: `specsesh change draft|approve|build|close` (agentscript-change), `specsesh task …` (agentscript-task), `specsesh durable run|resume` (agentscript-durable) and `specsesh agent run|models` (agentscript-pi), with `--version` and `--help`. `npx specsesh change build <change>` should work in any repository.
+
+This first slice adds the command itself, inside `@specsesh/agent`, as a new `./cli` entry exporting `main(argv, deps)`. The package that puts `specsesh` on PATH, the release workflow, the `specsesh` wording in the sub-CLIs' output and the move to `@specsesh/ontology` follow as their own changes (slices.md).

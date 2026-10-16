@@ -1,0 +1,32 @@
+# .github/workflows/release.yml — draft. SHAs are placeholders; pin the real ones.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # npm trusted publishing (OIDC) and provenance
+      contents: read
+    steps:
+      - uses: actions/checkout@0000000000000000000000000000000000000000 # v5
+      - uses: pnpm/action-setup@0000000000000000000000000000000000000000 # v4, version from packageManager
+      - uses: actions/setup-node@0000000000000000000000000000000000000000 # v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm pack:check
+      - id: check
+        run: echo "dist_tag=$(node scripts/release-check.mjs "$GITHUB_REF_NAME")" >> "$GITHUB_OUTPUT"
+      - run: |
+          pnpm --filter @specsesh/agent pack --pack-destination ../../release
+          pnpm --filter specsesh pack --pack-destination ../../release
+      - run: node scripts/release-check.mjs "$GITHUB_REF_NAME" --packed "release/specsesh-${GITHUB_REF_NAME#v}.tgz"
+      - run: npm publish "release/specsesh-agent-${GITHUB_REF_NAME#v}.tgz" --access public --provenance --tag "${{ steps.check.outputs.dist_tag }}"
+      - run: npm publish "release/specsesh-${GITHUB_REF_NAME#v}.tgz" --access public --provenance --tag "${{ steps.check.outputs.dist_tag }}"

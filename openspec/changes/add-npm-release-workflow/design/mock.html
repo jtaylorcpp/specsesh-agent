@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>add-npm-release-workflow — a release</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #f4f4f2; color: #222; margin: 2rem; max-width: 60rem; }
+  h1 { font-size: 1.3rem; } h2 { font-size: 1rem; margin-top: 2rem; }
+  p.note { color: #555; font-size: .9rem; } code { font-family: ui-monospace, Menlo, monospace; }
+  .term { background: #1e1e1e; color: #ddd; font-family: ui-monospace, Menlo, monospace; font-size: .85rem;
+          padding: 1rem; border-radius: 6px; white-space: pre-wrap; }
+  .prompt { color: #8ab4f8; } .err { color: #f28b82; } .ok { color: #81c995; } .dim { color: #888; }
+  .tag { display: inline-block; background: #ffe08a; color: #333; font-size: .75rem; padding: 0 .4rem; border-radius: 3px; }
+  ol.steps li { margin: .3rem 0; } .step { font-family: ui-monospace, Menlo, monospace; font-size: .85rem; }
+  .pass { color: #1a7f37; } .fail { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>add-npm-release-workflow: from tag to npm</h1>
+<p class="note"><span class="tag">FAKE DATA</span> Versions, timings and output are examples.</p>
+
+<h2>1. Cutting a release</h2>
+<div class="term"><span class="prompt">$</span> git tag v0.2.0 &amp;&amp; git push origin v0.2.0
+<span class="dim">To github.com:jtaylorcpp/specsesh-agent.git
+ * [new tag]         v0.2.0 -&gt; v0.2.0</span></div>
+
+<h2>2. The release job (permissions: id-token write, contents read)</h2>
+<ol class="steps">
+<li class="step"><span class="pass">✓</span> pnpm install --frozen-lockfile</li>
+<li class="step"><span class="pass">✓</span> pnpm check</li>
+<li class="step"><span class="pass">✓</span> pnpm test</li>
+<li class="step"><span class="pass">✓</span> pnpm pack:check</li>
+<li class="step"><span class="pass">✓</span> release-check v0.2.0 → <code>latest</code></li>
+<li class="step"><span class="pass">✓</span> pnpm pack × 2 → release/specsesh-agent-0.2.0.tgz, release/specsesh-0.2.0.tgz</li>
+<li class="step"><span class="pass">✓</span> release-check v0.2.0 --packed release/specsesh-0.2.0.tgz</li>
+<li class="step"><span class="pass">✓</span> npm publish specsesh-agent-0.2.0.tgz --access public --provenance --tag latest</li>
+<li class="step"><span class="pass">✓</span> npm publish specsesh-0.2.0.tgz --access public --provenance --tag latest</li>
+</ol>
+
+<h2>3. A refused release</h2>
+<div class="term"><span class="prompt">$</span> node scripts/release-check.mjs v0.2.1
+<span class="err">tag v0.2.1 is not v0.2.0</span>
+<span class="prompt">$</span> echo $?
+1
+<span class="prompt">$</span> node scripts/release-check.mjs v0.3.0-rc.1
+<span class="ok">next</span></div>
+
+<h2>4. After</h2>
+<div class="term"><span class="prompt">$</span> npm view specsesh@0.2.0 dependencies
+{ '@specsesh/agent': '0.2.0', '@earendil-works/pi-ai': '1.1.0', ... }
+<span class="prompt">$</span> npx specsesh@0.2.0 --version
+<span class="ok">specsesh 0.2.0</span>
+<span class="dim"># npmjs.com shows "Built and signed on GitHub Actions" with the commit and release.yml</span></div>
+</body>
+</html>
