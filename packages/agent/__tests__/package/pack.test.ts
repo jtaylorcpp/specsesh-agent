@@ -134,10 +134,14 @@ afterAll(() => {
 
 describe("pack:check proves the tarball installs and runs", () => {
 	it("Scenario: A clean tarball passes", () => {
-		// The tarball: only the build, the readme and the license.
-		expect(packedPaths).toEqual(expect.arrayContaining(["package.json", "README.md", "LICENSE"]));
+		// The tarball: the build, the CLI's assets (the `agent new` template, the `agent language` docs),
+		// the readme and the license.
+		expect(packedPaths).toEqual(expect.arrayContaining(["package.json", "README.md", "LICENSE", "templates/new.agent"]));
+		expect(packedPaths.some((path) => path.startsWith("docs/language/")), "no docs/language/ in the tarball").toBe(true);
+		expect(packedPaths.some((path) => path.startsWith("dist/task/scripts/") && path.endsWith(".agent"))).toBe(true);
 		for (const path of packedPaths) {
-			expect(["package.json", "README.md", "LICENSE"].includes(path) || path.startsWith("dist/"), path).toBe(true);
+			const allowed = ["package.json", "README.md", "LICENSE"].includes(path) || /^(dist|docs|templates)\//.test(path);
+			expect(allowed, path).toBe(true);
 			expect(path.endsWith(".ts") && !path.endsWith(".d.ts"), `${path} is TypeScript source`).toBe(false);
 		}
 		// Installed with the Node peers, every entry but ./cloudflare (workerd only) imports.

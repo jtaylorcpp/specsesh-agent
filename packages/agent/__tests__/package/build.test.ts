@@ -50,10 +50,12 @@ describe("The tarball holds only the build, the readme and the license", () => {
 			execFileSync("npm", ["pack", "--dry-run", "--json"], { cwd: PKG_DIR, encoding: "utf8" }),
 		) as { files: { path: string }[] }[];
 		const paths = report[0]!.files.map((file) => file.path);
-		expect(paths).toEqual(expect.arrayContaining(["package.json", "README.md", "LICENSE"]));
+		expect(paths).toEqual(expect.arrayContaining(["package.json", "README.md", "LICENSE", "templates/new.agent"]));
 		expect(paths.filter((path) => path.startsWith("dist/")).length).toBeGreaterThan(0);
+		expect(paths.some((path) => path.startsWith("docs/language/")), "no docs/language/ in the tarball").toBe(true);
 		for (const path of paths) {
-			expect(["package.json", "README.md", "LICENSE"].includes(path) || path.startsWith("dist/"), path).toBe(true);
+			const allowed = ["package.json", "README.md", "LICENSE"].includes(path) || /^(dist|docs|templates)\//.test(path);
+			expect(allowed, path).toBe(true);
 			expect(path.endsWith(".ts") && !path.endsWith(".d.ts"), `${path} is TypeScript source`).toBe(false);
 		}
 	});

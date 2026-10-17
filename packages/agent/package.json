@@ -62,11 +62,13 @@
   },
   "files": [
     "dist",
+    "docs",
+    "templates",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && mkdir -p dist/task/scripts && cp src/task/scripts/*.agent dist/task/scripts/ && node scripts/chmod-bins.mjs",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && mkdir -p dist/task/scripts && cp src/task/scripts/*.agent dist/task/scripts/ && node scripts/chmod-bins.mjs && node scripts/check-assets.mjs",
     "check": "tsc --noEmit && tsc -p tsconfig.build.json && node scripts/chmod-bins.mjs",
     "test": "node scripts/check-subset-conformance.mjs && vitest run",
     "test:live": "vitest run --config vitest.live.config.ts",

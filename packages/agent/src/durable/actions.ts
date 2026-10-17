@@ -32,6 +32,8 @@ export interface ActionContext {
 
 interface HostActionBase {
 	readonly name: string;
+	/** One line on what it does, for `specsesh agent actions`. */
+	readonly description?: string;
 	/** `read` changes nothing; the rest are the ontology's Action kinds. */
 	readonly kind: "read" | "edit" | "command" | "delegate";
 	readonly inputs: Readonly<Record<string, ActionParameterType>>;
@@ -214,6 +216,7 @@ export const OPTIONAL_TARGETS: Readonly<Record<string, string>> = { delete_file:
 export function deleteActions(workspace: Workspace): ExecutedHostAction[] {
 	const deleteFileAction: ExecutedHostAction = {
 		name: "delete_file",
+		description: "delete one file in the workspace; granted only by the host",
 		kind: "edit",
 		inputs: { path: "string" },
 		outputs: { ok: "boolean" },

@@ -20,6 +20,8 @@ pi-ai, pi-durable and chord are optional peers. For the command line, install `s
 
 - [A script](#a-script)
 - [Run it once](#run-it-once) (CLI, or from code on any pi provider, or on your Claude subscription)
+- [Discover from the CLI](#discover-from-the-cli) (the bundled agents, the language, the actions, check, new)
+- [Write your own agent](#write-your-own-agent) (the starter, the language reference, the tour, the examples)
 - [Durable runs on Node](#durable-runs-on-node)
 - [Actions: let a script do work](#actions-let-a-script-do-work)
 - [The OpenSpec task loop](#the-openspec-task-loop)
@@ -117,6 +119,110 @@ console.log(result.kind, result.variables.greeting);   // "completed", "Hello, A
 Swap in `claudeCodeProvider()` from `@specsesh/agent/claude-code` (model provider
 `claude-code`) to run each step through `claude -p` on your subscription. It never uses
 `--bare`, strips `ANTHROPIC_API_KEY`, and never reads Claude Code's OAuth token.
+
+## Discover from the CLI
+
+Each command below prints Markdown, or JSON with `--json`, so a person or an agent like Claude
+can read it. `specsesh agent` (exit `2`) or `specsesh agent --help` (exit `0`) prints the full usage:
+
+```
+usage:
+  specsesh agent run <file> [options]
+  specsesh agent models [provider]
+  specsesh agent list [--json]
+  specsesh agent show <name> [--json]
+  specsesh agent new <name> [--out <path>]
+  specsesh agent check <file.agent>… [--json]
+  specsesh agent language [topic] [--json]
+  specsesh agent actions [--json]
+```
+
+`run` and `models` work exactly as before (they are `agentscript-pi run` and `agentscript-pi models`).
+An unknown name, topic or option exits `2`.
+
+**`specsesh agent list [--json]`** lists the bundled scripts (`task`, `task-delegate`, `group`,
+`spec-proposal`, `spec-design`, `spec-specify`, `spec-plan`, `ci-test-pick`) and the delegate
+scripts (`read`, `edit`). Each row shows the script's description, the command that runs it, and
+the variables it reads and writes. The list is read from the shipped `.agent` files, so it can't
+drift from them:
+
+```
+| name | description | runs via | reads | writes |
+|---|---|---|---|---|
+| `read` | A delegate that reads in the caller's workspace | a delegate grant with "runner": "agent", "script": "read" | `instructions` | `ok`, `summary` |
+…
+```
+
+**`specsesh agent show <name> [--json]`** prints a script's source byte for byte, as shipped, ready
+to copy: `specsesh agent show task > my-task.agent`. An unknown name exits `2` and lists the known
+names. `--json` prints `{ name, path?, source }`.
+
+**`specsesh agent language [topic] [--json]`** is the language reference. With no topic it prints
+the table of contents, one line per topic: `overview`, `config`, `system`, `variables`,
+`subagents`, `prompts`, `interpolation`, `logic`, `outputs`, `actions`, `run`, `refused` and
+`subset`. `specsesh agent language subset` is generated from the interpreter's
+`SUPPORTED_CONSTRUCTS` (`src/interpreter/subset.ts`), so it always matches what runs. A topic whose
+text hasn't shipped in this version prints the subset table and a pointer to this README instead.
+
+**`specsesh agent actions [--json]`** lists the built-in actions, which a script calls with `run`
+or offers the model under `reasoning.actions`: name, description, inputs, outputs, and whether
+each writes to the workspace. For example:
+
+```
+| name | description | input | output | writes |
+|---|---|---|---|---|
+| `delete_file` | delete one file in the workspace; granted only by the host | `path` | `ok` | yes |
+| `read_file` | read one file in the workspace | `path` | `content` | no |
+…
+```
+
+**`specsesh agent check <file.agent>… [--json]`** parses each file and runs the interpreter's
+pre-execution scan, without calling a model. It prints one `file:line:col  message` line per
+problem, naming the subset construct when the problem is one:
+
+```console
+$ specsesh agent check triage.agent
+triage.agent:15:5  before_reasoning, in subagent "answer", is unsupported by this runtime (see `specsesh agent language subset`) [construct: before_reasoning]
+```
+
+It exits `0` when every file would run, `1` otherwise, and `2` with no files
+(`usage: specsesh agent check <file.agent>…`).
+
+**`specsesh agent new <name> [--out <path>]`** writes `<name>.agent` (or the `--out` path) from a
+commented starter: one subagent, one prompt, one structured output, with `agent_name` set to the
+name. It never overwrites a file (exit `1`), and the file it writes passes `check`.
+
+From nothing to a run:
+
+```bash
+specsesh agent new triage               # writes triage.agent
+$EDITOR triage.agent                    # see specsesh agent language <topic>
+specsesh agent check triage.agent       # no model, exit 0 when it would run
+specsesh agent run triage.agent         # on a pi provider, or --provider claude-code
+```
+
+## Write your own agent
+
+Start from the starter, learn the language a topic at a time, and copy from the examples:
+
+```sh
+specsesh agent new triage           # writes triage.agent, a starter that passes check
+specsesh agent language             # the table of contents, one summary line per topic
+specsesh agent language outputs     # one topic
+specsesh agent check triage.agent   # no model; exit 0 when it would run
+specsesh agent run triage.agent
+```
+
+- **Topics:** `overview`, `config`, `system`, `variables`, `subagents`, `prompts`,
+  `interpolation`, `logic`, `outputs`, `actions`, `run`, `refused` (and the generated `subset`).
+  The same text ships in this package as [`docs/language/`](docs/language/).
+- **Actions need a host.** A script that uses `run` or `reasoning.actions` runs only where a host
+  provides those actions, such as `specsesh task` or a durable host with `builtinActions`.
+- **[The language tour](https://github.com/jtaylorcpp/specsesh-agent/blob/main/guides/00-language-tour.md)**
+  walks through every construct in one sitting.
+- **[The examples](https://github.com/jtaylorcpp/specsesh-agent/tree/main/examples/agents)**, from
+  `01-hello.agent` to `06-custom-task-agent.agent`. The last one replaces the bundled `task` agent
+  through `"task": { "script": … }` in `agentscript.config.json`.
 
 ## Durable runs on Node
 
@@ -444,7 +550,22 @@ no files and runs no loop.
 
 To run the CLI, use `npx specsesh <command>` (for example `npx specsesh change build <change>`),
 or `npm install --save-dev specsesh`, which installs the Node peers as ordinary dependencies. See
-[`specsesh`](https://www.npmjs.com/package/specsesh).
+[`specsesh`](https://www.npmjs.com/package/specsesh). `specsesh --help` prints:
+
+```
+usage:
+  specsesh change <draft|approve|build|close> <change> [options]
+  specsesh task <change> <task-id>|<group>|--next|--next-group [options]
+  specsesh task <run|spec|resume|answer|status> [options]
+  specsesh durable <run|resume> [options]
+  specsesh agent <run|models|list|show|new|check|language|actions> [options]
+  specsesh --version
+  specsesh --help
+Run a command with no arguments for its own usage.
+```
+
+`specsesh agent run` and `models` are `agentscript-pi`; the other `agent` commands are described in
+[Discover from the CLI](#discover-from-the-cli).
 
 The four bins below are the lower-level tools behind it. They are only available when
 `@specsesh/agent` is installed with its optional peers; `npx @specsesh/agent` doesn't work.

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -25,7 +25,10 @@ const importsOf = (file: string) =>
 
 describe("The examples consume the package like any other project", () => {
 	it("Scenario: Examples import only public entries", () => {
-		const examples = readdirSync(EXAMPLES, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+		// The consumer projects; `examples/agents` holds only `.agent` files and imports nothing.
+		const examples = readdirSync(EXAMPLES, { withFileTypes: true }).filter(
+			(entry) => entry.isDirectory() && existsSync(join(EXAMPLES, entry.name, "package.json")),
+		);
 		expect(examples.map((entry) => entry.name).sort()).toEqual(["cloudflare-worker", "hello-world"]);
 		let packageImports = 0;
 		for (const example of examples) {
