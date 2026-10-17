@@ -67,4 +67,10 @@ The npm org `specsesh` already exists (created by the principal), so `@specsesh/
 ## Open questions
 
 - A GitHub environment (`environment: npm`, with required reviewers) would add a manual approval before each publish; it then has to be named in the trusted publisher too. Not included; easy to add.
-- The action SHAs to pin are chosen at implementation time (latest `actions/checkout`, `actions/setup-node`, `pnpm/action-setup` majors).
+## Action pins
+
+Chosen 2026-10-16 from each action's latest release (`gh api repos/<action>/releases/latest`, then the tag's commit):
+
+- `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1` # v7.0.1
+- `pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413` # v6.1.0 (reads the version from `packageManager`)
+- `actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1` # v7.1.0
