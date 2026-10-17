@@ -66,8 +66,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && mkdir -p dist/task/scripts && cp src/task/scripts/*.agent dist/task/scripts/",
-    "check": "tsc --noEmit && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && mkdir -p dist/task/scripts && cp src/task/scripts/*.agent dist/task/scripts/ && node scripts/chmod-bins.mjs",
+    "check": "tsc --noEmit && tsc -p tsconfig.build.json && node scripts/chmod-bins.mjs",
     "test": "node scripts/check-subset-conformance.mjs && vitest run",
     "test:live": "vitest run --config vitest.live.config.ts",
     "conformance": "node scripts/check-subset-conformance.mjs",

@@ -7,10 +7,16 @@ checks) in a workspace you confine them to. On top of that sits an OpenSpec **ta
 works a change's tasks until the checks pass.
 
 ```bash
+# the command line: specsesh brings the Node peers with it
+npm install -g specsesh        # or run it without installing: npx specsesh --help
+# the library:
 npm install @specsesh/agent
 # then the peers for the layers you use, e.g. for durable runs on Node:
 npm install @earendil-works/pi-ai @earendil-works/pi-durable @earendil-works/chord
 ```
+
+Installing `@specsesh/agent` on its own, globally or not, gives bins that fail on import:
+pi-ai, pi-durable and chord are optional peers. For the command line, install `specsesh`.
 
 - [A script](#a-script)
 - [Run it once](#run-it-once) (CLI, or from code on any pi provider, or on your Claude subscription)
