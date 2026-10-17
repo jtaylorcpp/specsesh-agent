@@ -353,6 +353,7 @@ peer dependencies, so a consumer of the interpreter alone installs none of them.
 | `@specsesh/agent/cloudflare` | `AgentScriptHost`, a Durable Object class for a Worker to re-export (workerd only); `defineAgentHost<Env>(config)`, a Durable Object built from an `AgentConfig` on `AgentScriptHost`'s routes, whose POST body may name a `model`; `workersAI(binding, modelId)`, a model on the `AI` binding; the Sandbox and Artifacts workspace: `sandboxWorkspace(sandbox, { dir, secrets? })`, `artifactsSandboxWorkspace(artifacts, sandbox, { repo, fork, dir })` and the types `SandboxLike` and `ArtifactsLike`. Its only runner is `agent`, so a `claude-code` grant is refused | the durable peers and `agents` |
 | `@specsesh/agent/openspec` | The OpenSpec ontology: typed schemas for a change, its lifecycle steps, its execution loops and their evidence | none (uses the `typebox` dependency) |
 | `@specsesh/agent/task` | The task and group loops (`startTaskLoop`, `startGroupLoop`, `answerEscalation`, …), `taskLoopExtensions`, and the bundled `task.agent`, `task-delegate.agent` and `group.agent` (Node only) | the durable peers |
+| `@specsesh/agent/cli` | `main(argv)`, the dispatcher behind `specsesh agent\|durable\|task\|change`, which resolves to the exit code, and its `USAGE` (Node only) | `@earendil-works/pi-ai`, `@earendil-works/pi-durable`, `@earendil-works/chord` |
 
 The authoring, interpreter and openspec entries run on Node and on Workers.
 
@@ -434,6 +435,13 @@ no files and runs no loop.
   `ReviewEvidence`, `Finding`; `satisfies(target, evidence)`.
 
 ## Command-line tools
+
+To run the CLI, use `npx specsesh <command>` (for example `npx specsesh change build <change>`),
+or `npm install --save-dev specsesh`, which installs the Node peers as ordinary dependencies. See
+[`specsesh`](https://www.npmjs.com/package/specsesh).
+
+The four bins below are the lower-level tools behind it. They are only available when
+`@specsesh/agent` is installed with its optional peers; `npx @specsesh/agent` doesn't work.
 
 - `agentscript-pi run <file> [--provider <id>] [--model <id>] [--entry <subagent>]... [--var name=value]... [--json]`
   runs a script once, on any pi provider or with `--provider claude-code`; `agentscript-pi models [provider]`

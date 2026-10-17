@@ -8,10 +8,26 @@ flow does **not** apply here.
 
 ## Layout (pnpm workspace)
 
-One npm package, `@specsesh/agent` (`packages/agent`, Apache-2.0), with an entry point per layer:
-ten exports, in this order: `./authoring`, `./interpreter`, `./pi`, `./claude-code`, `./durable`,
-`./node`, `./cloudflare`, `./openspec`, `./task`, `./cli`. The layer boundaries are directories, enforced by
-`__tests__/package/layers.test.ts`.
+Two npm packages publish from this workspace:
+
+- `packages/agent` → `@specsesh/agent`, the library, with an entry point per layer and the four
+  `agentscript-*` bins. Ten exports, in this order: `./authoring`, `./interpreter`, `./pi`,
+  `./claude-code`, `./durable`, `./node`, `./cloudflare`, `./openspec`, `./task`, `./cli`. Built
+  by `tsc` into `dist/`, tested from `__tests__/`. The layer boundaries are directories, enforced
+  by `__tests__/package/layers.test.ts`.
+- `packages/specsesh` → `specsesh`, the `specsesh` command that `npx specsesh` runs. Plain
+  JavaScript (`bin/specsesh.js`), no build and no `scripts`: it only calls `main` from
+  `@specsesh/agent/cli`. Its dependencies are `@specsesh/agent` at `workspace:*` plus `pi-ai`,
+  `pi-durable` and `chord` pinned to the exact versions in the agent's `devDependencies`.
+  `pnpm -r check` and `pnpm -r test` skip it; its tests live in `packages/agent/__tests__/package/`
+  (`manifest.test.ts`, `specsesh.test.ts`, `pack.test.ts`).
+
+Both packages publish at the same `version`, `license` (Apache-2.0), Node engine (`>=22.19.0`) and
+`repository` (with its `directory`); every other workspace package is `private`. `specsesh` is
+packed with `pnpm pack`, which rewrites `workspace:*` to the exact version, and `pnpm pack:check`
+checks both tarballs.
+
+The rest of this section is `packages/agent`:
 
 | Directory → entry | What it is |
 |---|---|
@@ -128,10 +144,11 @@ Nothing here deploys. No code or script in this package runs `wrangler deploy`; 
 and `examples/cloudflare-worker` on `wrangler dev --local` (routes covered by `test/routes.sh`).
 The real binding shapes are checked at the first deploy, outside `add-cloudflare-workspace`.
 
-pi-ai, pi-durable, chord and `agents` are optional peers (dev dependencies here); only the four
-`@sf-agentscript/*` packages and `typebox` (exact `1.3.27`, the version pi-ai pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
-(the Worker, with `FauxAgentScriptHost` adding `AGENTSCRIPT_FAUX=1` for local tests) consume the
-package through `workspace:*` and its public entries only.
+In `@specsesh/agent`, pi-ai, pi-durable, chord and `agents` are optional peers (dev dependencies
+there); only the four `@sf-agentscript/*` packages and `typebox` (exact `1.3.27`, the version pi-ai
+pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
+(the Worker, with `FauxAgentScriptHost` adding `AGENTSCRIPT_FAUX=1` for local tests) consume
+`@specsesh/agent` through `workspace:*` and its public entries only.
 
 ## Where it stands
 

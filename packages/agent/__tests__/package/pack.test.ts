@@ -6,7 +6,7 @@
 // dependencies and peers. No live model: the durable run goes through the claude-code provider
 // to a fake `claude` on PATH. dist/ is built by the global setup (`pnpm build`).
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -302,6 +302,89 @@ console.log("done");
 		);
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout.trim()).toBe("done");
+	});
+});
+
+describe("specsesh tarball", () => {
+	const SPECSESH_DIR = join(PKG_DIR, "..", "specsesh");
+	let specseshTarball: string;
+	let specsesh: string;
+	let expectedVersion: string;
+
+	/** Installs the packed agent and specsesh into an empty project; npm must take the agent from its tarball. */
+	function specseshProject(sequential: boolean): string {
+		const dir = temp(sequential ? "specsesh-sequential" : "specsesh");
+		writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "pack-specsesh", private: true }));
+		const install = (...tarballs: string[]) =>
+			sh("npm", ["install", "--no-audit", "--no-fund", "--loglevel=error", ...tarballs], dir);
+		if (sequential) {
+			install(tarball);
+			install(specseshTarball);
+		} else {
+			install(tarball, specseshTarball);
+		}
+		return dir;
+	}
+
+	/** True when the installed @specsesh/agent is the packed tarball, with no registry copy beside it. */
+	function agentFromTarball(dir: string): boolean {
+		const lock = JSON.parse(readFileSync(join(dir, "package-lock.json"), "utf8"));
+		const resolved = lock.packages?.["node_modules/@specsesh/agent"]?.resolved as string | undefined;
+		return (
+			resolved !== undefined &&
+			resolved.startsWith("file:") &&
+			!existsSync(join(dir, "node_modules", "specsesh", "node_modules", "@specsesh", "agent"))
+		);
+	}
+
+	beforeAll(() => {
+		expectedVersion = manifest.version;
+		const specseshManifest = JSON.parse(readFileSync(join(SPECSESH_DIR, "package.json"), "utf8"));
+		if (specseshManifest.version !== expectedVersion) {
+			throw new Error(`specsesh is ${specseshManifest.version}, @specsesh/agent is ${expectedVersion}`);
+		}
+
+		const packDir = temp("specsesh-tarball");
+		const out = sh("pnpm", ["pack", "--pack-destination", packDir], SPECSESH_DIR);
+		const last = out.trim().split("\n").at(-1)?.trim() ?? "";
+		if (last.endsWith(".tgz")) {
+			specseshTarball = last.startsWith("/") ? last : join(packDir, last);
+		} else {
+			const found = readdirSync(packDir).filter((file) => /^specsesh-.*\.tgz$/.test(file));
+			if (found.length !== 1) throw new Error(`pnpm pack left ${found.length} specsesh tarballs in ${packDir}: ${out.trim()}`);
+			specseshTarball = join(packDir, found[0]!);
+		}
+
+		let dir: string;
+		try {
+			dir = specseshProject(false);
+		} catch {
+			dir = specseshProject(true);
+		}
+		if (!agentFromTarball(dir)) dir = specseshProject(true);
+		if (!existsSync(join(dir, "node_modules", "@specsesh", "agent", "package.json"))) {
+			throw new Error(`@specsesh/agent is not installed in ${dir}: npm did not dedupe it from the tarball`);
+		}
+		if (!agentFromTarball(dir)) throw new Error(`npm installed a registry copy of @specsesh/agent in ${dir}`);
+		specsesh = dir;
+	}, 2 * INSTALL_TIMEOUT);
+
+	it("Scenario: The installed specsesh prints its version", () => {
+		const bin = join(specsesh, "node_modules", ".bin", "specsesh");
+		const version = spawnSync(bin, ["--version"], { cwd: specsesh, encoding: "utf8" });
+		expect(version.status, `specsesh --version: ${version.stderr}`).toBe(0);
+		expect(version.stdout.trim(), `specsesh --version: ${version.stderr}`).toBe(`specsesh ${expectedVersion}`);
+		const task = spawnSync(bin, ["task"], { cwd: specsesh, encoding: "utf8" });
+		expect(task.status, `specsesh task: ${task.stderr}`).toBe(2);
+		expect(task.stderr, "specsesh task").toMatch(/^usage:/);
+	});
+
+	it("Scenario: The packed specsesh pins the agent exactly", () => {
+		const packed = JSON.parse(sh("tar", ["-xzOf", specseshTarball, "package/package.json"], specsesh));
+		const pin = packed.dependencies?.["@specsesh/agent"];
+		expect(pin).toBe(expectedVersion);
+		expect(String(pin).startsWith("workspace:")).toBe(false);
+		expect(packed.bin?.specsesh).toBe("./bin/specsesh.js");
 	});
 });
 
