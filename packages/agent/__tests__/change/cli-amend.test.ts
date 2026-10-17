@@ -178,8 +178,8 @@ describe.skipIf(process.platform === "win32")("change/cli build --amend", () => 
 
 				const refusal = run.err.indexOf("add-plan-export: approved files changed since they were approved; build refused");
 				const changed = run.err.indexOf("  specs: specs/plan/export/spec.md (changed)", refusal);
-				const draft = run.err.indexOf("review it with: pnpm change draft add-plan-export", changed);
-				const approve = run.err.indexOf("then approve it again: pnpm change approve add-plan-export", draft);
+				const draft = run.err.indexOf("review it with: specsesh change draft add-plan-export", changed);
+				const approve = run.err.indexOf("then approve it again: specsesh change approve add-plan-export", draft);
 				expect(refusal).toBeGreaterThan(-1);
 				expect(changed).toBeGreaterThan(refusal);
 				expect(draft).toBeGreaterThan(changed);

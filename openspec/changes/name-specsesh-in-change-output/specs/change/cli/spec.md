@@ -51,7 +51,7 @@ The output SHALL start `# <change> — <state>`, then `## <stage>: approved` per
 - **THEN** the output SHALL end with `specsesh change build add-plan-export`
 
 ### Requirement: approve approves the stage under review
-`approve <change>` SHALL answer the change's draft loop waiting for review with `approve`, by `principal`, recording `--principal` (default `git config user.name`, then `$USER`), wait for the new run and print it as `draft` does. A change waiting on a question SHALL exit `2` naming `specsesh change draft <change> "<answer>"`; one with nothing under review SHALL exit `2`. The run that approves a proposal with `slices.md` SHALL list `specsesh change draft <id> --intent "<intent>"` per later slice.
+`approve <change>` SHALL answer the change's draft loop waiting for review with `approve`, by `principal`, recording `--principal` (default `git config user.name`, then `$USER`), and print the new run as `draft` does. A change waiting on a question SHALL exit `2` naming `specsesh change draft <change> "<answer>"`; one with nothing under review SHALL exit `2`. The run that approves a proposal with `slices.md` SHALL list `specsesh change draft <id> --intent "<intent>"` per later slice.
 
 #### Scenario: Approving the proposal drafts the design
 - **GIVEN** `add-plan-export` waiting for review of `proposal.md`, and `git config user.name` `jesse`
@@ -74,7 +74,7 @@ The output SHALL start `# <change> — <state>`, then `## <stage>: approved` per
 - **THEN** the output SHALL list `specsesh change draft add-plan-export-schema --intent "…"` then `specsesh change draft add-plan-export-ci --intent "…"`
 
 ### Requirement: Build output ends with the next command
-The output SHALL start `# <change> — <state>`, then `## group <n>: <status> (<k> tasks, <r> reworks)` per group entered, then `## change check: passed` or the failing command and its output, then `## unclaimed: <n>` and each scenario when any. A blocked build SHALL end with the question, `specsesh change build <change> --amend` when its escalation carries an amendment, and `specsesh change build <change> "<answer>"`; a built one with `specsesh change close <change>`. Built SHALL exit `0`, else `1`.
+The output SHALL start `# <change> — <state>`, then `## group <n>: <status> (<k> tasks, <r> reworks)` per group entered, then `## change check: passed` or the failing command and its output, then `## unclaimed: <n>` and each scenario when any. A blocked build SHALL end with the question, `specsesh change build <change> --amend` when it carries an amendment, and `specsesh change build <change> "<answer>"`; a built one with `specsesh change close <change>`. Built SHALL exit `0`, else `1`.
 
 #### Scenario: A blocked build ends with the answer command
 - **WHEN** a build of `add-plan-export` ends blocked asking `Which API?`, with no amendment

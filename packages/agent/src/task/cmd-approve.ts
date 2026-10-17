@@ -4,7 +4,7 @@
  *
  *   change state            approve
  *   review                  answered `approve` by the principal; the new run printed as draft's
- *   question                refused, naming `pnpm change draft <change> "<answer>"`
+ *   question                refused, naming `specsesh change draft <change> "<answer>"`
  *   anything else           refused: nothing is under review
  *
  * Two halves, as `draft`: `prepareApprove` checks the change id, touching nothing;
@@ -82,7 +82,7 @@ export async function runApprove(harness: Harness, request: DraftRequest, option
 		throw error;
 	}
 	if (state.kind === "question") {
-		return refused(`${change} is waiting on a question, not a review:\n${state.question}\nanswer: pnpm change draft ${change} "<answer>"`);
+		return refused(`${change} is waiting on a question, not a review:\n${state.question}\nanswer: specsesh change draft ${change} "<answer>"`);
 	}
 	if (state.kind !== "review") return refused(`nothing in ${change} is under review`);
 	const principal = options.principal?.trim() ?? "";

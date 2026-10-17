@@ -144,17 +144,17 @@ async function changeLoopRefusal(harness: Pick<Harness, "commit">, change: strin
 	const record = await newestChangeLoop(harness, change, context);
 	if (record === undefined) return undefined;
 	const loop = Number(record.id);
-	if (record.state.status !== "terminal") return `change loop ${loop} of ${change} is still running; finish it with pnpm change build ${change}`;
+	if (record.state.status !== "terminal") return `change loop ${loop} of ${change} is still running; finish it with specsesh change build ${change}`;
 	const ended = record.state.outcome;
-	if (ended.status !== "completed") return `change loop ${loop} of ${change} ended ${ended.status}, not converged; build it again with pnpm change build ${change}`;
+	if (ended.status !== "completed") return `change loop ${loop} of ${change} ended ${ended.status}, not converged; build it again with specsesh change build ${change}`;
 	const { outcome } = readChangeResult(ended.result, loop);
 	switch (outcome.status) {
 		case "converged":
 			return undefined;
 		case "blocked":
-			return `the build of ${change} is waiting for an answer (change loop ${loop}):\n${outcome.escalation.question}\nanswer: pnpm change build ${change} "<answer>"`;
+			return `the build of ${change} is waiting for an answer (change loop ${loop}):\n${outcome.escalation.question}\nanswer: specsesh change build ${change} "<answer>"`;
 		default:
-			return `change loop ${loop} of ${change} ended ${outcome.status}, not converged; build it again with pnpm change build ${change}`;
+			return `change loop ${loop} of ${change} ended ${outcome.status}, not converged; build it again with specsesh change build ${change}`;
 	}
 }
 

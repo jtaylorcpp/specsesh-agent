@@ -106,7 +106,7 @@ describe("task/cmd-approve", () => {
 			// No principal: the state refuses first.
 			const result = await approve(undefined);
 			expect(result).toMatchObject({ kind: "refused", exitCode: 2, loops: [] });
-			expect((result as { message: string }).message).toBe(`${CHANGE} is waiting on a question, not a review:\nCSV too?\nanswer: pnpm change draft ${CHANGE} "<answer>"`);
+			expect((result as { message: string }).message).toBe(`${CHANGE} is waiting on a question, not a review:\nCSV too?\nanswer: specsesh change draft ${CHANGE} "<answer>"`);
 			expect(await draftRuns()).toBe(1);
 			expect(env.faux.state.callCount).toBe(calls);
 		});

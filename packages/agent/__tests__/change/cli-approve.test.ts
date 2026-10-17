@@ -104,8 +104,8 @@ describe("change/cli approve", () => {
 		expect(await draftLoopsIn(db)).toHaveLength(2);
 		expect(run.out).toContain("design.md");
 		const [revise, approve] = tail(run.out, 2);
-		expect(revise).toContain(`pnpm change draft ${CHANGE} "<what to change>"`);
-		expect(approve).toContain(`pnpm change approve ${CHANGE}`);
+		expect(revise).toContain(`specsesh change draft ${CHANGE} "<what to change>"`);
+		expect(approve).toContain(`specsesh change approve ${CHANGE}`);
 	});
 
 	it("Scenario: A question cannot be approved", async () => {
@@ -117,7 +117,7 @@ describe("change/cli approve", () => {
 		const run = await changeAsGitUser(["approve", CHANGE], dir);
 		expect(run.code).toBe(2);
 		expect(run.calls).toBe(0);
-		expect(`${run.err}\n${run.out}`).toContain(`pnpm change draft ${CHANGE} "<answer>"`);
+		expect(`${run.err}\n${run.out}`).toContain(`specsesh change draft ${CHANGE} "<answer>"`);
 		expect(`${run.err}\n${run.out}`).toContain("CSV too?");
 		expect(await allLoops(db)).toEqual(before);
 		expect(approvalsBytes(changeDir)).toBe(approvals);
@@ -143,7 +143,7 @@ describe("change/cli approve", () => {
 		const run = await changeAsGitUser(["draft", CHANGE, " Approve "], dir);
 		expect(run.code).toBe(2);
 		expect(run.calls).toBe(0);
-		expect(`${run.err}\n${run.out}`).toContain(`pnpm change approve ${CHANGE}`);
+		expect(`${run.err}\n${run.out}`).toContain(`specsesh change approve ${CHANGE}`);
 		expect(approvalsBytes(changeDir)).toBe(approvals);
 		expect(await allLoops(db)).toEqual(before);
 	});

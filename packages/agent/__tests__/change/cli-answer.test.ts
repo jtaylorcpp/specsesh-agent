@@ -313,8 +313,8 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 				"  design: design.md (changed)",
 				"  specs: specs/plan/export/spec.md (changed)",
 				"  specs: specs/plan/schema/spec.md (missing)",
-				`review it with: pnpm change draft ${CHANGE}`,
-				`then approve it again: pnpm change approve ${CHANGE}`,
+				`review it with: specsesh change draft ${CHANGE}`,
+				`then approve it again: specsesh change approve ${CHANGE}`,
 			]);
 			expect(run.code).toBe(2);
 			expect(await idsIn(db)).toEqual(before);
@@ -332,7 +332,7 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 			expect(two).toBeGreaterThan(one);
 			const [question, command] = lastLines(blocked.out, 2);
 			expect(question).toMatch(/Which API\?$/);
-			expect(command).toContain(`pnpm change build ${CHANGE} "<answer>"`);
+			expect(command).toContain(`specsesh change build ${CHANGE} "<answer>"`);
 		}, 120_000);
 
 		it("Scenario: A built change points at the next step", async () => {
@@ -344,7 +344,7 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 			expect(run.out.split("\n")[0]).toBe(`# ${CHANGE} — built`);
 			expect(run.out).toMatch(/## group 1: converged \(\d+ tasks?, 1 rework\)/);
 			expect(run.out).toContain("## change check: passed");
-			expect(run.out.trim()).toMatch(new RegExp(`pnpm change close ${CHANGE}$`));
+			expect(run.out.trim()).toMatch(new RegExp(`specsesh change close ${CHANGE}$`));
 			expect(run.out).not.toContain("spec:archive");
 			expect(run.code).toBe(0);
 		}, 120_000);
@@ -378,12 +378,12 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 				expect(groups).toBeGreaterThan(-1);
 				expect(groups).toBeLessThan(header);
 				const question = out.indexOf("Amend the spec?", added);
-				const amend = out.indexOf("pnpm change build add-plan-export --amend", question);
-				const answer = out.indexOf('pnpm change build add-plan-export "<answer>"', amend);
+				const amend = out.indexOf("specsesh change build add-plan-export --amend", question);
+				const answer = out.indexOf('specsesh change build add-plan-export "<answer>"', amend);
 				expect(question).toBeGreaterThan(added);
 				expect(amend).toBeGreaterThan(question);
 				expect(answer).toBeGreaterThan(amend);
-				expect(lastLines(out, 1)[0]).toContain('pnpm change build add-plan-export "<answer>"');
+				expect(lastLines(out, 1)[0]).toContain('specsesh change build add-plan-export "<answer>"');
 
 				// Showing it changes nothing: no write, no model, no new run, no decision, no openspec.
 				expect(seeded.readDelta()).toEqual(bytes);
@@ -406,7 +406,7 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 			expect(run.out).toContain("## proposed amendment (from group 1 judge): specs/plan/import/spec.md");
 			expect(run.out).toContain("--- openspec/changes/add-csv-import/specs/plan/import/spec.md (on disk)");
 			expect(run.out).toContain("+++ openspec/changes/add-csv-import/specs/plan/import/spec.md (amended)");
-			expect(run.out).toContain("pnpm change build add-csv-import --amend");
+			expect(run.out).toContain("specsesh change build add-csv-import --amend");
 			expect(run.code).toBe(1);
 		}, 120_000);
 
@@ -443,7 +443,7 @@ describe.skipIf(process.platform === "win32")("change/cli build answers", () => 
 			expect(run.out).not.toContain("--amend");
 			const [question, command] = lastLines(run.out, 2);
 			expect(question).toMatch(/Which API\?$/);
-			expect(command).toContain('pnpm change build add-other-thing "<answer>"');
+			expect(command).toContain('specsesh change build add-other-thing "<answer>"');
 			expect(run.code).toBe(1);
 		}, 120_000);
 	});

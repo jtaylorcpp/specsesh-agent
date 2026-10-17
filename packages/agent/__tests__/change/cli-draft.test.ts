@@ -88,6 +88,13 @@ describe("change/cli draft", () => {
 		expect(prompts[0]).toContain(`Stage proposal of ${CHANGE}`);
 		expect(prompts[0]).toContain("The principal asked for: JSON only");
 		expect(run.out).toContain("### proposal draft 2");
+		const [revise, approve] = run.out
+			.trimEnd()
+			.split("\n")
+			.slice(-2)
+			.map((line) => line.trim());
+		expect(revise).toContain(`specsesh change draft ${CHANGE} "<what to change>"`);
+		expect(approve).toContain(`specsesh change approve ${CHANGE}`);
 	});
 
 	it("Scenario: Feedback answers a stage's question", async () => {

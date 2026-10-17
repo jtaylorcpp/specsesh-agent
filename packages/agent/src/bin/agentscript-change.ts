@@ -63,10 +63,10 @@ import { builtin, resolvePrincipal } from "./agentscript-task.js";
 
 /** One line per command. */
 const USAGE = `usage:
-  agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
-  agentscript-change approve <change> [--principal <name>] [--db <path>]
-  agentscript-change build <change> [<answer>|--amend] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
-  agentscript-change close <change> [--db <path>]`;
+  specsesh change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
+  specsesh change approve <change> [--principal <name>] [--db <path>]
+  specsesh change build <change> [<answer>|--amend] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
+  specsesh change close <change> [--db <path>]`;
 
 export interface ChangeCliDeps {
 	/** The pi-ai model collection. Defaults to every built-in provider plus claude-code. */
@@ -244,7 +244,7 @@ function loopOptions(request: DraftRequest, target: Target, config: LoadedConfig
 		...(config.task.maxIterations !== undefined ? { budget: { maxIterations: config.task.maxIterations } } : {}),
 		...(config.task.escalateTo !== undefined ? { escalateTo: config.task.escalateTo } : {}),
 		// Before any model call, so a crash still leaves the way back.
-		onLoop: (loop: number) => io.err(`draft loop ${loop} — resume with: agentscript-change draft ${request.change} --db ${target.db.label}`),
+		onLoop: (loop: number) => io.err(`draft loop ${loop} — resume with: specsesh change draft ${request.change} --db ${target.db.label}`),
 	};
 }
 
@@ -375,7 +375,7 @@ async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promi
 					model: built.models["default"] ?? model,
 					...(principal !== undefined ? { principal } : {}),
 					// Before any model call, so a crash still leaves the way back: build without an answer resumes a running loop.
-					onLoop: (loop) => io.err(`change loop ${loop} — resume with: agentscript-change build ${request.change} --db ${request.db.label}`),
+					onLoop: (loop) => io.err(`change loop ${loop} — resume with: specsesh change build ${request.change} --db ${request.db.label}`),
 				},
 				BACKGROUND_CONTEXT,
 			);

@@ -114,8 +114,8 @@ const converging = () => [verdict(true), verdict(true), verdict(true)];
 const STALE_SPEC = [
 	`${CHANGE}: approved files changed since they were approved; build refused`,
 	"  specs: specs/plan/export/spec.md (changed)",
-	`review it with: pnpm change draft ${CHANGE}`,
-	`then approve it again: pnpm change approve ${CHANGE}`,
+	`review it with: specsesh change draft ${CHANGE}`,
+	`then approve it again: specsesh change approve ${CHANGE}`,
 ].join("\n");
 
 /** `repo()` with `specs/plan/export/spec.md` edited by hand after its approval. */
