@@ -238,7 +238,7 @@ git tag v0.2.0 && git push origin v0.2.0
 - **A pushed `v<version>` tag is the only trigger.** No branch, PR or manual dispatch publishes.
 - **The workflow.** `.github/workflows/release.yml` runs `pnpm install --frozen-lockfile`,
   `pnpm check`, `pnpm test`, `pnpm pack:check`, the release check, then
-  `pnpm --filter <pkg> pack --pack-destination ../../release` for both packages, the release check
+  `pnpm --filter <pkg> pack --pack-destination release` for both packages, the release check
   again with `--packed release/specsesh-<v>.tgz`, and finally
   `npm publish <tarball> --access public --provenance --tag <dist-tag>`, first
   `release/specsesh-agent-<v>.tgz`, then `release/specsesh-<v>.tgz`. It publishes through npm

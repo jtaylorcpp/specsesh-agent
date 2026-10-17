@@ -88,3 +88,13 @@ describe("package/release: A version tag runs the release workflow", () => {
 		expect(publishes[1]).not.toContain("specsesh-agent-");
 	});
 });
+
+describe("release workflow: the tarballs land where it publishes them from", () => {
+	// pnpm resolves --pack-destination against the working directory (the repo root), not the
+	// filtered package, so `release` is <root>/release, the directory the publish steps read.
+	it("packs both packages into release/ at the repo root", () => {
+		const packs = runCommands(WORKFLOW).filter((command) => /\bpnpm\b.*\bpack\s/.test(command));
+		expect(packs).toHaveLength(2);
+		for (const command of packs) expect(command).toMatch(/--pack-destination release(\s|$)/);
+	});
+});
