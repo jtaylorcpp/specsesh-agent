@@ -2,7 +2,8 @@
  * The OpenSpec ontology: the taxonomy of a change (`openspec/model`), its
  * lifecycle as typed steps (`openspec/process`), executing it as three nested
  * feedback loops (`openspec/loops`), and what a verdict may rest on
- * (`openspec/evidence`).
+ * (`openspec/evidence`), plus the shape Specsesh CI is handed when a task
+ * closes (`pipeline`: `TestPick`, `testPattern`).
  *
  * Every type is one TypeBox schema exported under the type's own name, with the
  * static type `Static` of it, so a value can be checked wherever it crosses a
@@ -15,6 +16,7 @@
 export * from "./evidence.js";
 export * from "./loops.js";
 export * from "./model.js";
+export * from "./pipeline.js";
 export * from "./process.js";
 export * from "./size.js";
 export { check, explain, toJSONSchema } from "./schema.js";
