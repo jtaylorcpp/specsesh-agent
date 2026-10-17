@@ -9,8 +9,8 @@ flow does **not** apply here.
 ## Layout (pnpm workspace)
 
 One npm package, `@specsesh/agent` (`packages/agent`, Apache-2.0), with an entry point per layer:
-nine exports, in this order: `./authoring`, `./interpreter`, `./pi`, `./claude-code`, `./durable`,
-`./node`, `./cloudflare`, `./openspec`, `./task`. The layer boundaries are directories, enforced by
+ten exports, in this order: `./authoring`, `./interpreter`, `./pi`, `./claude-code`, `./durable`,
+`./node`, `./cloudflare`, `./openspec`, `./task`, `./cli`. The layer boundaries are directories, enforced by
 `__tests__/package/layers.test.ts`.
 
 | Directory → entry | What it is |
@@ -23,7 +23,8 @@ nine exports, in this order: `./authoring`, `./interpreter`, `./pi`, `./claude-c
 | `src/cloudflare` → `./cloudflare` | `AgentScriptHost`, the Durable Object class (via Cloudflare's `PiHarness`, `agents` 0.28.0), Workers AI by default; `defineAgentHost`, `workersAI` and the Sandbox/Artifacts workspaces (see below). |
 | `src/openspec` → `./openspec` | The OpenSpec ontology (`openspec/{model,process,loops,evidence}`): TypeBox schemas (each a JSON Schema) with `Static` types and refinements, plus pure rules. Imports only `typebox`; no parser, no loop runner. |
 | `src/task` → `./task` | The task loop (`agentscript.task-loop`): an Agent Script run once per iteration as an `agentscript.run` child until the task converges, blocks, exhausts or fails; ticks tasks.md. Also the spec loop (see below). Bundled scripts in `src/task/scripts/` (copied into `dist/` by the build). Adds `src/node`. |
-| `src/bin` | The `agentscript-pi`, `agentscript-durable` and `agentscript-task` bins. |
+| `src/cli` → `./cli` | The `specsesh` command: `main(argv, deps)` and `USAGE` route `agent \| durable \| task \| change` to `agentscript-pi \| -durable \| -task \| -change`. `task` implies `run`. `--help` and `--version` are handled here. Importing it runs nothing. Like `src/bin`, not a layer that `__tests__/package/layers.test.ts` constrains. |
+| `src/bin` | The `agentscript-pi`, `agentscript-durable`, `agentscript-task` and `agentscript-change` bins. The four `agentscript-*` bins stay for 0.x; `specsesh` reaches them in-process. |
 
 The spec loop (`agentscript.spec-loop`, version 1) is a durable task in which an agent drafts one
 stage of an OpenSpec change (proposal, design, specs or tasks), a gate with no model checks it, and

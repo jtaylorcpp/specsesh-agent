@@ -43,6 +43,10 @@
     "./task": {
       "types": "./dist/task/index.d.ts",
       "import": "./dist/task/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli/index.d.ts",
+      "import": "./dist/cli/index.js"
     }
   },
   "bin": {
