@@ -6,12 +6,12 @@ The change CLI: `agentscript-change`, run as `pnpm change`, whose commands are w
 ## Requirements
 
 ### Requirement: agentscript-change takes a command and a change
-`agentscript-change` SHALL take a command and a change id under the config's `changesDir`. Any other command, or none, MUST print usage to stderr and exit `2`, one line per command as the scenario "No command prints usage" lists them. It SHALL resolve the database, provider and model as `agentscript-task` does, read no stdin, never prompt, and exit `2` on a refusal.
+`agentscript-change`, and `specsesh change`, which runs it, SHALL take a command and a change id under the config's `changesDir`. Any other command, or none, MUST print usage to stderr and exit `2`, one `specsesh change` line per command as the scenario "No command prints usage" lists them. It SHALL resolve the database, provider and model as `agentscript-task` does, read no stdin, never prompt, and exit `2` on a refusal.
 
 #### Scenario: No command prints usage
 - **WHEN** the CLI runs with no arguments
 - **THEN** stderr SHALL begin with `usage:` and the exit code SHALL be `2`
-- **AND** stderr SHALL list `agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]`, `agentscript-change approve <change> [--principal <name>] [--db <path>]`, `agentscript-change build <change> [<answer>|--amend] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]` and `agentscript-change close <change> [--db <path>]`
+- **AND** stderr SHALL list `specsesh change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]`, `specsesh change approve <change> [--principal <name>] [--db <path>]`, `specsesh change build <change> [<answer>|--amend] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]` and `specsesh change close <change> [--db <path>]`
 
 #### Scenario: An unknown command prints usage
 - **WHEN** the CLI runs with `frobnicate add-plan-export`
@@ -39,7 +39,7 @@ With no draft loop of the change waiting for an answer, `draft <change>` SHALL s
 - **THEN** no loop SHALL start, the output SHALL say every stage is approved, and the exit code SHALL be `0`
 
 ### Requirement: draft with feedback answers what is waiting
-When the change's latest draft loop ended `blocked`, `draft <change> <feedback>` SHALL answer it with the feedback as the principal's decision, wait for the new run and print it. Feedback that is `approve`, trimmed and in any case, SHALL exit `2` naming `pnpm change approve <change>`. Without feedback it SHALL print what is waiting again, start nothing, and exit as that loop did.
+When the change's latest draft loop ended `blocked`, `draft <change> <feedback>` SHALL answer it with the feedback as the principal's decision, wait for the new run and print it. Feedback that is `approve`, trimmed and in any case, SHALL exit `2` naming `specsesh change approve <change>`. Without feedback it SHALL print what is waiting again, start nothing, and exit as that loop did.
 
 #### Scenario: Feedback redrafts the stage under review
 - **GIVEN** `add-plan-export` waiting for review of `proposal.md`
@@ -59,25 +59,25 @@ When the change's latest draft loop ended `blocked`, `draft <change> <feedback>`
 #### Scenario: approve is not feedback
 - **GIVEN** `add-plan-export` waiting for review of `proposal.md`
 - **WHEN** `draft add-plan-export " Approve "` runs
-- **THEN** it SHALL exit `2` naming `pnpm change approve add-plan-export`, and `approvals.json` SHALL be unchanged
+- **THEN** it SHALL exit `2` naming `specsesh change approve add-plan-export`, and `approvals.json` SHALL be unchanged
 
 ### Requirement: Draft output ends with the next command
-The output SHALL start `# <change> — <state>`, then `## <stage>: approved` per approved stage, then the current stage's `### <stage> draft <n>` lines. A review SHALL end with its files, `pnpm change draft <change> "<what to change>"` and `pnpm change approve <change>`; a question with it and `pnpm change draft <change> "<answer>"`, exiting `1`; a drafted change with `pnpm change build <change>`.
+The output SHALL start `# <change> — <state>`, then `## <stage>: approved` per approved stage, then the current stage's `### <stage> draft <n>` lines. A review SHALL end with its files, `specsesh change draft <change> "<what to change>"` and `specsesh change approve <change>`; a question with it and `specsesh change draft <change> "<answer>"`, exiting `1`; a drafted change with `specsesh change build <change>`.
 
 #### Scenario: A review ends with both commands
 - **WHEN** a draft of `add-plan-export` ends waiting for review of `proposal.md`
-- **THEN** the output SHALL end with `pnpm change draft add-plan-export "<what to change>"` and `pnpm change approve add-plan-export`
+- **THEN** the output SHALL end with `specsesh change draft add-plan-export "<what to change>"` and `specsesh change approve add-plan-export`
 
 #### Scenario: A question exits 1
 - **WHEN** a draft ends waiting on the question `CSV too?`
-- **THEN** the output SHALL end with `CSV too?` and `pnpm change draft add-plan-export "<answer>"`, and the exit code SHALL be `1`
+- **THEN** the output SHALL end with `CSV too?` and `specsesh change draft add-plan-export "<answer>"`, and the exit code SHALL be `1`
 
 #### Scenario: A drafted change points at the next step
 - **WHEN** a draft of `add-plan-export` ends `converged`
-- **THEN** the output SHALL end with `pnpm change build add-plan-export`
+- **THEN** the output SHALL end with `specsesh change build add-plan-export`
 
 ### Requirement: approve approves the stage under review
-`approve <change>` SHALL answer the change's draft loop waiting for review with `approve`, by `principal`, recording `--principal` (default `git config user.name`, then `$USER`), wait for the new run and print it as `draft` does. A change waiting on a question SHALL exit `2` naming `pnpm change draft <change> "<answer>"`; one with nothing under review SHALL exit `2`. The run that approves a proposal with `slices.md` SHALL list `pnpm change draft <id> --intent "<intent>"` per later slice.
+`approve <change>` SHALL answer the change's draft loop waiting for review with `approve`, by `principal`, recording `--principal` (default `git config user.name`, then `$USER`), and print the new run as `draft` does. A change waiting on a question SHALL exit `2` naming `specsesh change draft <change> "<answer>"`; one with nothing under review SHALL exit `2`. The run that approves a proposal with `slices.md` SHALL list `specsesh change draft <id> --intent "<intent>"` per later slice.
 
 #### Scenario: Approving the proposal drafts the design
 - **GIVEN** `add-plan-export` waiting for review of `proposal.md`, and `git config user.name` `jesse`
@@ -87,7 +87,7 @@ The output SHALL start `# <change> — <state>`, then `## <stage>: approved` per
 #### Scenario: A question cannot be approved
 - **GIVEN** `add-plan-export` waiting on a question
 - **WHEN** `approve add-plan-export` runs
-- **THEN** it SHALL exit `2` naming `pnpm change draft add-plan-export "<answer>"`, and nothing SHALL start
+- **THEN** it SHALL exit `2` naming `specsesh change draft add-plan-export "<answer>"`, and nothing SHALL start
 
 #### Scenario: Nothing to approve is refused
 - **GIVEN** `add-plan-export` with no draft loop waiting
@@ -97,7 +97,7 @@ The output SHALL start `# <change> — <state>`, then `## <stage>: approved` per
 #### Scenario: Approving a sliced proposal lists draft commands
 - **GIVEN** `slices.md` with `add-plan-export`, `add-plan-export-schema` and `add-plan-export-ci`
 - **WHEN** `approve add-plan-export` approves the proposal
-- **THEN** the output SHALL list `pnpm change draft add-plan-export-schema --intent "…"` then `pnpm change draft add-plan-export-ci --intent "…"`
+- **THEN** the output SHALL list `specsesh change draft add-plan-export-schema --intent "…"` then `specsesh change draft add-plan-export-ci --intent "…"`
 
 ### Requirement: build starts a change's build
 With no change loop of the change waiting for an answer, `build <change>` SHALL start a change loop and wait for it, mapping the flags a group run takes, plus `--change-check <command>` (repeatable), onto its options. A dirty tree without `--allow-dirty`, a refusal by the loop's guard, `--worktree`, or an answer with nothing waiting SHALL exit `2` and start nothing. A change whose latest change loop converged SHALL start nothing.
@@ -135,20 +135,20 @@ When the change's latest change loop ended `blocked`, `build <change> <answer>` 
 - **THEN** the output SHALL contain `Which API?`, no loop SHALL start, and the exit code SHALL be `1`
 
 ### Requirement: Build output ends with the next command
-The output SHALL start `# <change> — <state>`, then `## group <n>: <status> (<k> tasks, <r> reworks)` per group entered, then `## change check: passed` or the failing command and its output, then `## unclaimed: <n>` and each scenario when any. A blocked build SHALL end with the question, `pnpm change build <change> --amend` when its escalation carries an amendment, and `pnpm change build <change> "<answer>"`; a built one with `pnpm change close <change>`. Built SHALL exit `0`, else `1`.
+The output SHALL start `# <change> — <state>`, then `## group <n>: <status> (<k> tasks, <r> reworks)` per group entered, then `## change check: passed` or the failing command and its output, then `## unclaimed: <n>` and each scenario when any. A blocked build SHALL end with the question, `specsesh change build <change> --amend` when it carries an amendment, and `specsesh change build <change> "<answer>"`; a built one with `specsesh change close <change>`. Built SHALL exit `0`, else `1`.
 
 #### Scenario: A blocked build ends with the answer command
 - **WHEN** a build of `add-plan-export` ends blocked asking `Which API?`, with no amendment
-- **THEN** the output SHALL end with `Which API?` and `pnpm change build add-plan-export "<answer>"`
+- **THEN** the output SHALL end with `Which API?` and `specsesh change build add-plan-export "<answer>"`
 
 #### Scenario: A blocked build with an amendment ends with both commands
 - **WHEN** a build of `add-plan-export` ends blocked on an escalation carrying an `Amendment`, asking `Amend the spec?`
-- **THEN** the output SHALL end with `Amend the spec?`, then `pnpm change build add-plan-export --amend`, then `pnpm change build add-plan-export "<answer>"`
+- **THEN** the output SHALL end with `Amend the spec?`, then `specsesh change build add-plan-export --amend`, then `specsesh change build add-plan-export "<answer>"`
 - **AND** the exit code SHALL be `1`
 
 #### Scenario: A built change points at the next step
 - **WHEN** a build of `add-plan-export` ends `converged`
-- **THEN** the output SHALL contain `## change check: passed` and end with `pnpm change close add-plan-export`
+- **THEN** the output SHALL contain `## change check: passed` and end with `specsesh change close add-plan-export`
 
 ### Requirement: close refuses an unfinished change
 `close <change>` SHALL exit `2`, changing nothing, for a change with an unticked task in `tasks.md`, listing them; one whose newest change loop in the database ended other than `converged`, naming that loop's state; and one that fails `openspec validate <change> --strict`, naming the first issue.
@@ -257,7 +257,7 @@ Before `build <change>` starts a change loop, or an answer or `--amend` answers 
 #### Scenario: A hand-edited delta refuses a new build
 - **GIVEN** `add-plan-export` with its four stages approved, no change loop waiting, and `specs/plan/export/spec.md` edited after the specs approval
 - **WHEN** `build add-plan-export` runs
-- **THEN** stderr SHALL be `add-plan-export: approved files changed since they were approved; build refused`, `  specs: specs/plan/export/spec.md (changed)`, `review it with: pnpm change draft add-plan-export` and `then approve it again: pnpm change approve add-plan-export`, in that order
+- **THEN** stderr SHALL be `add-plan-export: approved files changed since they were approved; build refused`, `  specs: specs/plan/export/spec.md (changed)`, `review it with: specsesh change draft add-plan-export` and `then approve it again: specsesh change approve add-plan-export`, in that order
 - **AND** the exit code SHALL be `2`, and no change loop SHALL exist
 
 #### Scenario: An answer to a waiting build is refused and the loop stays blocked
@@ -292,12 +292,12 @@ Before `build <change>` starts a change loop, or an answer or `--amend` answers 
 - **THEN** no stale-approval refusal SHALL be printed, and the loop SHALL be answered with decision `Use the v2 API`
 
 ### Requirement: The stale-approval refusal names each file and the next step
-The refusal SHALL be `<change>: approved files changed since they were approved; build refused`, then one line `  <stage>: <path> (changed|missing)` per stale file, `<path>` relative to the change directory and `missing` when the recorded file no longer exists, grouped in the order proposal, design, specs, tasks and sorted by path within a stage, then `review it with: pnpm change draft <change>` and `then approve it again: pnpm change approve <change>`.
+The refusal SHALL be `<change>: approved files changed since they were approved; build refused`, then one line `  <stage>: <path> (changed|missing)` per stale file, `<path>` relative to the change directory and `missing` when the recorded file no longer exists, grouped in the order proposal, design, specs, tasks and sorted by path within a stage, then `review it with: specsesh change draft <change>` and `then approve it again: specsesh change approve <change>`.
 
 #### Scenario: Several stages and a deleted file are listed in order
 - **GIVEN** `add-plan-export` blocked asking `Which API?`, with `design.md` and `specs/plan/export/spec.md` edited and `specs/plan/schema/spec.md` deleted after their approvals
 - **WHEN** `build add-plan-export "Use the v2 API"` runs
-- **THEN** stderr SHALL be, in order, `add-plan-export: approved files changed since they were approved; build refused`, `  design: design.md (changed)`, `  specs: specs/plan/export/spec.md (changed)`, `  specs: specs/plan/schema/spec.md (missing)`, `review it with: pnpm change draft add-plan-export` and `then approve it again: pnpm change approve add-plan-export`
+- **THEN** stderr SHALL be, in order, `add-plan-export: approved files changed since they were approved; build refused`, `  design: design.md (changed)`, `  specs: specs/plan/export/spec.md (changed)`, `  specs: specs/plan/schema/spec.md (missing)`, `review it with: specsesh change draft add-plan-export` and `then approve it again: specsesh change approve add-plan-export`
 - **AND** the exit code SHALL be `2`
 
 ### Requirement: --amend refuses a hand-edited change before writing
@@ -377,3 +377,35 @@ Before any model call or write, `draft`, `approve`, `close` and `build --amend` 
 - **GIVEN** neither the project's `node_modules/.bin` nor PATH has `openspec`
 - **WHEN** `close add-plan-export` runs
 - **THEN** stderr SHALL NOT contain `below the minimum supported version`, the exit code SHALL be `2`, and `openspec/` SHALL be unchanged
+
+### Requirement: Change hints name specsesh change
+Every command line the change CLI prints for a person to run SHALL begin `specsesh change`: the resume hints of `draft` and `build` (`draft loop <n> — resume with: specsesh change draft <change> --db <path>`, `change loop <n> — resume with: specsesh change build <change> --db <path>`) and `close`'s refusals. No usage, refusal, hint or next-command line SHALL contain `agentscript-change` or `pnpm change`.
+
+#### Scenario: The draft resume hint names specsesh change
+- **WHEN** `draft add-plan-export --intent "Export a plan"` starts a draft loop
+- **THEN** stderr SHALL contain a line matching `^draft loop \d+ — resume with: specsesh change draft add-plan-export --db `
+
+#### Scenario: The build resume hint names specsesh change
+- **WHEN** `build add-plan-export` starts a change loop
+- **THEN** stderr SHALL contain a line matching `^change loop \d+ — resume with: specsesh change build add-plan-export --db `
+
+#### Scenario: close names the build to run again
+- **GIVEN** `add-plan-export` whose newest change loop ended exhausted
+- **WHEN** `close add-plan-export` runs
+- **THEN** it SHALL exit `2` and stderr SHALL contain `build it again with specsesh change build add-plan-export`
+
+#### Scenario: The usage names no old command
+- **WHEN** the CLI runs with no arguments
+- **THEN** stderr SHALL contain neither `agentscript-change` nor `pnpm change`
+
+### Requirement: The old bin and pnpm change run the same command
+The `agentscript-change` bin SHALL keep working, with the same arguments, exit codes and output as `specsesh change`. The root `package.json` `change` script SHALL be `node packages/specsesh/bin/specsesh.js change`, so `pnpm change` in this repository runs `specsesh change`.
+
+#### Scenario: The old bin prints the specsesh usage
+- **GIVEN** a build of `packages/agent`
+- **WHEN** `node packages/agent/dist/bin/agentscript-change.js` runs with no arguments
+- **THEN** it SHALL exit `2` and stderr SHALL equal what `node packages/specsesh/bin/specsesh.js change` prints
+
+#### Scenario: pnpm change runs specsesh change
+- **WHEN** the root `package.json` is read
+- **THEN** `scripts.change` SHALL be `node packages/specsesh/bin/specsesh.js change`
