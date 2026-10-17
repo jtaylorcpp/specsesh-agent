@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: specsesh routes four commands to their CLIs
-`@specsesh/agent/cli` SHALL export `main(argv, deps)` and `USAGE`. `main` SHALL route a first argument of `agent`, `durable`, `task` or `change` to the `main` of `agentscript-pi`, `agentscript-durable`, `agentscript-task` or `agentscript-change`, passing the remaining arguments, and `deps` to the three that take them, and SHALL return that `main`'s exit code. Under `agent`, the subcommands `list`, `show`, `new`, `check`, `language` and `actions` (`package/explain`) and the agent usage (no further argument, `--help`, `-h` or `help`) SHALL be handled by `main` itself before `agent` is handed to `agentscript-pi`; every other `agent` argument, including `run` and `models`, SHALL reach `agentscript-pi` unchanged. Importing the entry SHALL print nothing and exit nothing.
+`@specsesh/agent/cli` SHALL export `main(argv, deps)` and `USAGE`. `main` SHALL route `agent`, `durable`, `task` or `change` to the `main` of `agentscript-pi`, `agentscript-durable`, `agentscript-task` or `agentscript-change` with the remaining arguments (and `deps` for the last three), and return its exit code. `agent` SHALL reach `agentscript-pi` only after `main` has taken out `package/explain`'s subcommands and the agent usage. Importing the entry SHALL print nothing and exit nothing.
 
 #### Scenario: change routes to the change CLI
 - **WHEN** `main(["change"])` runs
