@@ -333,6 +333,7 @@ export function workspaceActions(workspace: Workspace, options: WorkspaceActionO
 
 	const readFileAction: ExecutedHostAction = {
 		name: "read_file",
+		description: "read one file in the workspace",
 		kind: "read",
 		inputs: { path: "string" },
 		outputs: { content: "string" },
@@ -349,6 +350,7 @@ export function workspaceActions(workspace: Workspace, options: WorkspaceActionO
 
 	const editFileAction: ExecutedHostAction = {
 		name: "edit_file",
+		description: "create or replace one file in the workspace with the given content",
 		kind: "edit",
 		inputs: { path: "string", content: "string" },
 		outputs: { ok: "boolean" },
@@ -383,6 +385,7 @@ export function workspaceActions(workspace: Workspace, options: WorkspaceActionO
 
 	const runCommandAction: ExecutedHostAction = {
 		name: "run_command",
+		description: "run one command whose first word is on the allowlist, without a shell",
 		kind: "command",
 		inputs: { command: "string" },
 		outputs: { exit_code: "number", output: "string" },
@@ -415,6 +418,7 @@ export function workspaceActions(workspace: Workspace, options: WorkspaceActionO
 
 	const runChecksAction: ExecutedHostAction = {
 		name: "run_checks",
+		description: "run the configured checks in order and report whether all passed",
 		kind: "command",
 		inputs: { task_id: "string" },
 		outputs: { passed: "boolean", output: "string" },
@@ -454,6 +458,7 @@ export function searchActions(workspace: Workspace): ExecutedHostAction[] {
 
 	const listFilesAction: ExecutedHostAction = {
 		name: "list_files",
+		description: "list the workspace's files matching a glob, one path per line",
 		kind: "read",
 		inputs: { glob: "string" },
 		outputs: { paths: "string" },
@@ -466,6 +471,7 @@ export function searchActions(workspace: Workspace): ExecutedHostAction[] {
 
 	const searchFilesAction: ExecutedHostAction = {
 		name: "search_files",
+		description: "search the workspace's files for a regular expression, one `path:line: text` per match",
 		kind: "read",
 		inputs: { pattern: "string", glob: "string" },
 		outputs: { matches: "string" },
