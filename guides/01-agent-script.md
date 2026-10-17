@@ -9,6 +9,13 @@ Agent Script is Salesforce's agent language. `@specsesh/agent` uses it as an aut
 runs **an enumerated subset** of it with its own interpreter. Nothing is compiled. A script that is
 valid Agent Script but outside the subset is refused before the run starts, by name and position.
 
+> **The rules live in the reference topics.** This guide explains why each piece exists and how
+> the pieces fit together. The syntax, the rules and the full examples are in
+> [`packages/agent/docs/language/`](../packages/agent/docs/language/), one file per topic. Those
+> files are the single source: they ship with the package, their examples are checked, and
+> `specsesh agent language <topic>` prints them (`specsesh agent language` lists the topics).
+> New to the language? The [language tour](00-language-tour.md) builds one script step by step.
+
 ## Prerequisites
 
 ```bash
@@ -18,16 +25,14 @@ npm install @specsesh/agent
 The authoring API needs no peers and no credentials. Running a script needs a model; that is the
 next guide, [Running a script](02-running-scripts.md). Node 22.19 or newer.
 
-Every Agent Script block below is checked: it parses with no error diagnostics and passes the
-runtime's subset scan.
-
 ## The shape of a script
 
-A script is four kinds of top-level block, in this order by convention: `config`, `system`,
-`variables`, and one or more `subagent` blocks. Anything else at the top level (`topic`, `start_agent`,
-`connection` and so on) is outside the subset.
+A script is four kinds of top-level block: `config` names the agent, `system` sets its standing
+character, `variables` declares the state the run carries, and one or more `subagent` blocks do the
+work. Each `subagent` is one step, or one deterministic program. A run walks the subagents the host
+names, in order, and there is no routing between them: the host picks the order.
 
-```
+```agent
 config:
     agent_name: "greeter"
 
@@ -47,441 +52,91 @@ subagent greet:
             | Write a one-line greeting for {!@variables.name}.
 ```
 
-Indentation is four spaces and is significant. This script has one step. Running it sends one
-request to the model and finishes.
-
-A **subagent** is one step (or one deterministic program). A run walks the subagents you name, in
-the order you name them. By default it runs only the first subagent in the file. There is no
-routing between subagents in the subset: the host picks the order, with the `entry` option.
+This script has one step. Running it sends one request to the model and finishes. What a run does,
+from the checks to the end state, is in [overview](../packages/agent/docs/language/overview.md).
 
 ## config
 
-`config` names the agent. The dialect requires `agent_name` or `developer_name`. `agent_type` and
-`description` are also accepted.
-
-```
-config:
-    agent_name: "spec-author"
-    description: "Drafts specs"
-```
-
-Nothing in the runtime reads `config`. It is identity for the author and for whatever else handles
-the file.
+`config` is identity for the author and for whatever else handles the file. Nothing in the run
+reads it. The fields it takes are in [config](../packages/agent/docs/language/config.md).
 
 ## system.instructions
 
-`system.instructions` is the agent's standing character. It travels to the model as its own
-channel (the system prompt), never mixed into a step's prompt. Use a multiline block with `|`.
-
-```
-system:
-    instructions: |
-        You help the author write specs.
-        Be brief. Never invent requirements.
-```
-
-System instructions are fixed text. They are not composed against run state, so
-`{!@variables.x}` in them is passed through as written, not filled in. Put anything that depends on
-state in a step's prompt lines.
-
-A subagent cannot carry its own `system:` block. It is refused.
+`system.instructions` is the agent's standing character. It travels in its own channel, the system
+prompt, so a step's prompt never has to repeat it. Because it is fixed text, anything that depends on
+run state belongs in a step's prompt lines instead. See
+[system](../packages/agent/docs/language/system.md).
 
 ## variables
 
-Variables are the run's state. Each has a type, a literal default and, usually, a description.
+Variables are the run's state: typed, each with a literal starting value, and the only thing a step
+can write. The host can override a declared variable when it starts the run (see
+[Running a script](02-running-scripts.md)), but it cannot invent new ones, so the file states the
+whole shape of the state up front. Types, defaults and spelling are in
+[variables](../packages/agent/docs/language/variables.md).
 
-```
-variables:
-    stage: mutable string = "proposal"
-        description: "which stage is live"
-    attempts: mutable number = 0
-        description: "how many tries so far"
-    approved: mutable boolean = False
-        description: "set once the author signs off"
-    change_id: string = "OS-1"
-```
+## subagent
 
-- **Types** are `string`, `number` and `boolean`.
-- **Defaults** are literals only: a quoted string, a number, `True` or `False`. A default that
-  reads another variable is refused. So is a variable with no default.
-- **Booleans are `True` and `False`**, capitalised. `true` is a lint error: *"'true' is not a valid
-  value in AgentScript. Did you mean 'True' (capitalized)?"*
-- **`description`** is optional, goes on the line below, and is the only property a variable may
-  carry.
-- **`mutable`** marks a variable your script sets. The bare form (`change_id: string = "OS-1"`) is
-  also accepted.
+A subagent is the unit the host schedules. Its `description` says what the step is for, its
+`reasoning` holds the procedure, and its `actions` declare what the host may do for it. Which
+subagents run, and how state carries between them, is in
+[subagents](../packages/agent/docs/language/subagents.md).
 
-The default is the run's starting value. The host can override any declared variable when it starts
-the run (see [Running a script](02-running-scripts.md)); it cannot create a new one.
+## Prompt lines
 
-## subagent and description
-
-```
-subagent draft:
-    description: "Fill the proposal"
-```
-
-`description` is required: the dialect reports a subagent without it as an error. A subagent may
-carry `description`, `reasoning` and `actions`. Nothing else.
-
-## reasoning.instructions and prompt lines
-
-`reasoning.instructions: ->` opens a procedure: a list of lines that run top to bottom. A line that
-starts with `|` is a **prompt line**: text the model is asked to act on.
-
-```
-subagent draft:
-    description: "Fill the proposal"
-
-    reasoning:
-        instructions: ->
-            | Read the change description.
-            | Write a short proposal for it.
-```
-
-Prompt lines are joined with newlines, in source order, into one prompt. One subagent makes at most
-one model request. A subagent with no prompt line that survives its conditions makes no request.
+A procedure mixes two kinds of line. Lines starting with `|` are **prompt lines**, the text the
+model is asked to act on. The ones that survive are joined into a single request, so one subagent
+costs at most one model turn. See [prompts](../packages/agent/docs/language/prompts.md).
 
 ## Interpolation
 
-`{!@variables.name}` inside a prompt line is replaced by the variable's current value when the step
-is composed.
-
-```
-variables:
-    stage: mutable string = "proposal"
-    change_id: string = "OS-1"
-
-subagent draft:
-    description: "Fill the current stage"
-
-    reasoning:
-        instructions: ->
-            | Draft the {!@variables.stage} for change {!@variables.change_id}.
-```
-
-The `!` is part of the syntax. `{@variables.stage}` is not an error in the runtime's eyes: the
-dialect reports it only as an information-level diagnostic, the run proceeds, and the model sees
-the braces and the text literally. Lint your scripts and read the diagnostics.
-
-Only `@variables` can be interpolated. `{!@context.user}` and other namespaces are refused.
+`{!@variables.name}` in a prompt line puts a variable's current value into the text, which is how
+state reaches the model. The `!` matters: without it the dialect raises only an information-level
+diagnostic, the run proceeds, and the model sees the braces literally, so read your diagnostics.
+See [interpolation](../packages/agent/docs/language/interpolation.md).
 
 ## Logic lines
 
-Lines that do not start with `|` are **logic lines**. The program evaluates them on every run, in
-code. They never reach the model and cost no model turn.
-
-```
-variables:
-    attempts: mutable number = 0
-    approved: mutable boolean = False
-    stage: mutable string = "proposal"
-    note: mutable string = ""
-
-subagent route:
-    description: "Pick the next stage, without the model"
-
-    reasoning:
-        instructions: ->
-            if not @variables.approved and @variables.attempts >= 2:
-                set @variables.stage = "review"
-            else:
-                set @variables.stage = "proposal"
-            if @variables.stage == "review" or @variables.attempts > 5:
-                set @variables.note = "escalate"
-```
-
-What is supported:
-
-| Construct | Notes |
-|---|---|
-| `if <condition>:` / `else:` | An `else` branch is optional. |
-| `set @variables.x = <value>` | The target must be a declared variable. |
-| `==`, `!=`, `<`, `<=`, `>`, `>=` | Equality is strict: `1 == "1"` is false. Nothing is coerced. |
-| `and`, `or`, `not` | Both sides of `and` are always evaluated. |
-| literals | `"text"`, `42`, `True`, `False`. |
-| `@variables.x` | The only namespace an expression can read. |
-
-A bare string, number or variable works as a condition. Strings are true when non-empty, numbers
-when non-zero.
-
-Not supported: `elif`, and an `if` nested inside another `if` (the dialect reports that as an
-error). Combine conditions with `and` and `or`, or put the second decision in the next subagent.
-
-A logic line can sit between prompt lines. Because `set` runs in order, a later line sees what an
-earlier one wrote:
-
-```
-variables:
-    name: mutable string = "World"
-    excited: mutable boolean = False
-
-subagent sign_off:
-    description: "Close the program"
-
-    reasoning:
-        instructions: ->
-            if @variables.name == "World":
-                set @variables.excited = True
-            if @variables.excited:
-                | Write an enthusiastic one-line sign-off.
-            else:
-                | Write a calm one-line sign-off.
-```
-
-A subagent made only of logic lines does its whole job inside the interpreter. The run moves on to
-the next one without a model call.
+Every other line is a **logic line**: `if`, `else` and `set`, evaluated by the interpreter in code.
+Logic lines cost no model turn. They decide which prompt text the model sees, and a subagent made only
+of logic lines does its whole job without a model. The supported constructs, and why there is no
+`elif`, are in [logic](../packages/agent/docs/language/logic.md).
 
 ## Structured output
 
-A prompt line plus `set @variables.x = @outputs.field` makes the step answer with a structured
-result. The model's reply is a JSON object, and the named fields are copied into variables.
+`set @variables.x = @outputs.field` is how the model writes state. You don't write a schema. The
+interpreter derives one from the `set` lines and the variables' types, and the reply is applied
+whole or not at all. Prose is never parsed for a value. See
+[outputs](../packages/agent/docs/language/outputs.md).
 
-```
-variables:
-    severity: mutable string = ""
-        description: "low, medium or high"
-    urgent: mutable boolean = False
-        description: "whether someone should be paged"
-    score: mutable number = 0
+## Actions
 
-subagent triage:
-    description: "Judge the report"
+An action is something the **host** does for the script: read a file, run the tests. The script
+only declares it, with typed inputs and outputs and an `mcpTool://` target. The host maps each
+target to code and checks every binding before anything runs; [Host actions](04-actions.md) covers
+that side. A declared action can be used in two ways:
 
-    reasoning:
-        instructions: ->
-            | Judge this bug report: it crashes on save.
-            set @variables.severity = @outputs.severity
-            set @variables.urgent = @outputs.urgent
-            set @variables.score = @outputs.score
-```
+- **From the program**, with `run @actions.x`. The call is deterministic, the model has no part in
+  it, and the subagent holding it is a program with no prompt. See
+  [run](../packages/agent/docs/language/run.md).
+- **By the model**, offered as a tool under `reasoning.actions`. The model decides whether and when
+  to call it, and fills the inputs you leave open. See
+  [actions](../packages/agent/docs/language/actions.md).
 
-You do not write the result schema. It is derived from the `set` lines: each field takes the
-declared type of the variable it feeds, every field is required, and no other fields are allowed.
-The script above makes the step ask for this:
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "severity": { "type": "string" },
-    "urgent": { "type": "boolean" },
-    "score": { "type": "number" }
-  },
-  "required": ["severity", "urgent", "score"],
-  "additionalProperties": false
-}
-```
-
-The rules:
-
-- The structured result is the **only** way the model writes a variable. The text of its reply is
-  never parsed for a value.
-- `@outputs` is plural. `@output` is a lint error.
-- `@outputs.field` is allowed in exactly one position: the whole value of a `set`. You cannot test
-  it in an `if`, because the field does not exist until the step has run.
-- If the result is missing, or a field is missing or not a string, number or boolean, the step
-  fails and **no** variable is set. Values are applied together, never half.
-- A step that asks for a structured result needs a prompt. If every prompt line sits behind a
-  condition that did not hold, the run stops with `EmptyPromptError` rather than ask the model
-  nothing and pay for the answer.
-
-The host can limit a string variable to a set of values with the `choices` option of `run` and
-`start`. It becomes an `enum` in the schema and is checked on the way back.
-
-## subagent.actions
-
-An action is something the **host** does for the script: read a file, run the tests. You declare
-it with typed inputs and outputs and bind it to a host tool with an `mcpTool://` target.
-
-```
-subagent check:
-    description: "Run the checks, without the model"
-
-    actions:
-        run_checks:
-            description: "Run the configured checks"
-            inputs:
-                task_id: string
-            outputs:
-                passed: boolean
-                output: string
-            target: "mcpTool://run_checks"
-```
-
-- Inputs and outputs are `<name>: <type>` and nothing else. Types are `string`, `number` and
-  `boolean`. No defaults, no descriptions.
-- `target` must be `mcpTool://<name>`. That scheme is the only one the runtime executes. `flow://`,
-  `apex://` and the rest are refused.
-- The action's key (`run_checks`) is how the script refers to it: `@actions.run_checks`. It only
-  declares; calling it is the next two sections.
-
-The script never runs an action itself. The host maps each tool name to code, and checks every
-binding before anything runs. [Host actions](04-actions.md) covers that side.
-
-## run: a deterministic call
-
-`run @actions.x` calls an action **from the program**. The model has no part in it. `with` binds an
-input from an expression, and `set … = @outputs.field` copies an output into a variable.
-
-```
-variables:
-    task_id: mutable string = "2.4"
-    checks_passed: mutable boolean = False
-    report: mutable string = ""
-
-subagent check:
-    description: "Run the checks, without the model"
-
-    actions:
-        run_checks:
-            description: "Run the configured checks"
-            inputs:
-                task_id: string
-            outputs:
-                passed: boolean
-                output: string
-            target: "mcpTool://run_checks"
-
-    reasoning:
-        instructions: ->
-            run @actions.run_checks
-                with task_id = @variables.task_id
-                set @variables.checks_passed = @outputs.passed
-                set @variables.report = @outputs.output
-```
-
-Rules for `run`:
-
-- Give every declared input exactly one `with`. A missing, repeated or unknown input is refused.
-- A `set` under a `run` takes `@outputs.<field>` and the field must be a declared output.
-- Inputs are type-checked when the call is made, with no coercion. A string given to a `number`
-  input fails the run and the call is never sent to the host.
-- A subagent that holds a `run` is a **program**: only logic lines and `run` statements. No prompt
-  line, no `set` from `@outputs` outside a `run`, no `reasoning.actions`. Split model work and
-  action work into separate subagents.
-- You may `run` only actions the same subagent defines.
-
-If the call fails, or the host's reply lacks an output a `set` needs, the run ends `failed` and the
-subagent's variables roll back to what they were before it began.
-
-## reasoning.actions: model-callable tools
-
-`reasoning.actions` offers an action to the model as a tool. The model decides whether and when to
-call it, and fills the inputs you mark with `...`.
-
-```
-variables:
-    edited: mutable boolean = False
-
-subagent fix:
-    description: "Edit the file"
-
-    actions:
-        edit_file:
-            description: "Replace a file's content"
-            inputs:
-                path: string
-                content: string
-            outputs:
-                ok: boolean
-            target: "mcpTool://edit_file"
-
-    reasoning:
-        instructions: ->
-            | Make src/greet.ts export greet(name) returning "Hello, <name>!".
-        actions:
-            edit: @actions.edit_file
-                with path = ...
-                with content = ...
-                set @variables.edited = @outputs.ok
-```
-
-- The entry's key (`edit`) is the tool name the model sees. It cannot be `run`, which is a keyword.
-- `with p = ...` leaves the input to the model. `with p = @variables.x` (or any expression) binds
-  it; the model does not see bound inputs.
-- A `set` under an entry takes the output of the **last successful call** to that tool. If the
-  model never called it, nothing is set, and that is not a failure.
-- The step needs at least one prompt line. Tools offered with nothing to do are refused.
-
-A tool loop needs a host that runs the calls. The plain ports in
-[Running a script](02-running-scripts.md) make one request and refuse a step that offers tools. The
-durable host runs them: see [Host actions](04-actions.md) and
-[Durable agents](03-durable-agents.md).
+Both need a host that runs the calls. The plain ports in [Running a script](02-running-scripts.md)
+make one request per step and have no action host. The durable host has one: see
+[Host actions](04-actions.md) and [Durable agents](03-durable-agents.md).
 
 ## What is refused, and how
 
-Everything that can refuse does so **before the first model call**. A run that reaches the model
-has already been checked whole. The checks run in this order:
-
-1. **Error diagnostics.** Any error-severity diagnostic from the dialect throws
-   `UnparsedDocumentError`. It carries `diagnostics` and a message with one line per error and a
-   1-based position. The parser recovers from syntax errors instead of throwing, so running anyway
-   would execute whatever the recovery invented. Warnings and hints never refuse.
-2. **No readable root.** `UnreadableDocumentError`.
-3. **Unsupported constructs.** `UnsupportedConstructError`, carrying every finding, not just the
-   first. Each has `construct`, `range`, `where` and a `message`.
-4. **Undeclared variables.** A reference to an undeclared `@variables.x` is normally an error
-   diagnostic from the dialect (*"'nope' is not defined in variables"*), so it arrives as step 1.
-   `UndeclaredVariableError` is the backstop. Nothing resolves an undeclared name to an empty
-   value. It is checked on every branch, including ones a run would never take.
-5. **Bad options.** `UndeclaredOverrideError` for a starting value on a name the script never
-   declared, `UnknownSubagentError` and `NoEntrySubagentError` for a bad `entry`,
-   `InvalidChoicesError` for bad `choices`.
-
-Every unsupported-construct message says the construct is *unsupported by this runtime* and that it
-may well be valid Agent Script. It is a statement about what the runtime implements, not about your
-file. Typical refusals:
-
-```text
-topic t:
-    description: "d"
-```
-
-A top-level `topic` (or `start_agent`, `connection`, and so on) is refused: *"topic at 7:1, in the
-document, is unsupported by this runtime."*
-
-```text
-            | hi {!@context.user}
-```
-
-Reading any namespace but `@variables`, here `@context`, is refused.
-
-```text
-            target: "flow://Do"
-```
-
-Any action target scheme but `mcpTool` is refused: *"target flow:// at 16:21, in subagent "a", …"*
-
-```text
-variables:
-    ok: mutable string
-```
-
-A variable with no default is refused: *"ok (a variable with no declared value) …"*
-
-Also refused: a non-literal variable default, an action input typed other than string, number or
-boolean, a `with` for an input the action does not have, a `run` of an action the subagent does not
-define, a prompt line beside a `run`, `reasoning.actions` with no prompt line, `@outputs` anywhere
-but the whole value of a `set`, and a `set` to any namespace but `@variables`.
-
-## The dialect's spelling
-
-The interpreter follows the dialect. A script it runs is one your editor can save without errors.
-Where the two could disagree, the dialect wins.
-
-| Write this | Not this |
-|---|---|
-| `True`, `False` | `true`, `false` (error) |
-| `{!@variables.x}` | `{@variables.x}` (text goes to the model unsubstituted) |
-| `@outputs.field` | `@output.field` (error: not a recognized namespace) |
-| `subagent name:` | `topic name:` (deprecated by the dialect, refused by the runtime) |
-| `if … : … else: …` | `elif`, or an `if` inside an `if` (error) |
-| `description: "…"` on every subagent | no description (error) |
-
-`SUPPORTED_CONSTRUCTS` is the one list of what the runtime runs, exported from
-`@specsesh/agent/authoring` and `@specsesh/agent/interpreter`. Each entry has an `id`, a `summary`
-and a `probe` script. The refusal messages, the README and the conformance check all read it.
+Everything that can refuse does so **before the first model call**, so a run that reaches the model
+has already been checked whole, every branch included. A refusal of a construct is a statement
+about what this runtime implements, not about your file: it may well be valid Agent Script. The
+interpreter follows the dialect's spelling, so a script it runs is one your editor can save without
+errors. A top-level `topic`, for one, is deprecated by the dialect and refused here: write
+`subagent` instead. The order of the checks, the common refusals and their rewrites are in
+[refused](../packages/agent/docs/language/refused.md). `specsesh agent check <file>` runs the same
+checks with no model.
 
 ## The authoring API
 
@@ -557,6 +212,22 @@ try {
 
 `scanDocument` answers only "is every construct one the runtime implements". It does not say the
 document is well formed. That is what the diagnostics are for, and `start` checks both.
+
+What the refusals carry:
+
+- `UnparsedDocumentError` has `diagnostics`, and a message with one line per error and a 1-based
+  position.
+- `UnsupportedConstructError` carries every finding, not just the first. Each has `construct`,
+  `range`, `where` and a `message`, such as *"topic at 7:1, in the document, is unsupported by this
+  runtime."*
+- A reference to an undeclared `@variables.x` normally arrives as an error diagnostic from the
+  dialect (*"'nope' is not defined in variables"*), so as `UnparsedDocumentError`.
+  `UndeclaredVariableError` is the backstop.
+
+`SUPPORTED_CONSTRUCTS` is the one list of what the runtime runs, exported from
+`@specsesh/agent/authoring` and `@specsesh/agent/interpreter`. Each entry has an `id`, a `summary`
+and a `probe` script. The refusal messages, the README and the conformance check all read it, and
+`specsesh agent language subset` prints it.
 
 ## Next
 

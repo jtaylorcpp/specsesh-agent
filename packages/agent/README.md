@@ -21,6 +21,7 @@ pi-ai, pi-durable and chord are optional peers. For the command line, install `s
 - [A script](#a-script)
 - [Run it once](#run-it-once) (CLI, or from code on any pi provider, or on your Claude subscription)
 - [Discover from the CLI](#discover-from-the-cli) (the bundled agents, the language, the actions, check, new)
+- [Write your own agent](#write-your-own-agent) (the starter, the language reference, the tour, the examples)
 - [Durable runs on Node](#durable-runs-on-node)
 - [Actions: let a script do work](#actions-let-a-script-do-work)
 - [The OpenSpec task loop](#the-openspec-task-loop)
@@ -199,6 +200,29 @@ $EDITOR triage.agent                    # see specsesh agent language <topic>
 specsesh agent check triage.agent       # no model, exit 0 when it would run
 specsesh agent run triage.agent         # on a pi provider, or --provider claude-code
 ```
+
+## Write your own agent
+
+Start from the starter, learn the language a topic at a time, and copy from the examples:
+
+```sh
+specsesh agent new triage           # writes triage.agent, a starter that passes check
+specsesh agent language             # the table of contents, one summary line per topic
+specsesh agent language outputs     # one topic
+specsesh agent check triage.agent   # no model; exit 0 when it would run
+specsesh agent run triage.agent
+```
+
+- **Topics:** `overview`, `config`, `system`, `variables`, `subagents`, `prompts`,
+  `interpolation`, `logic`, `outputs`, `actions`, `run`, `refused` (and the generated `subset`).
+  The same text ships in this package as [`docs/language/`](docs/language/).
+- **Actions need a host.** A script that uses `run` or `reasoning.actions` runs only where a host
+  provides those actions, such as `specsesh task` or a durable host with `builtinActions`.
+- **[The language tour](https://github.com/jtaylorcpp/specsesh-agent/blob/main/guides/00-language-tour.md)**
+  walks through every construct in one sitting.
+- **[The examples](https://github.com/jtaylorcpp/specsesh-agent/tree/main/examples/agents)**, from
+  `01-hello.agent` to `06-custom-task-agent.agent`. The last one replaces the bundled `task` agent
+  through `"task": { "script": … }` in `agentscript.config.json`.
 
 ## Durable runs on Node
 

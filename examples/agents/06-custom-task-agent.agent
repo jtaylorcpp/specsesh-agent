@@ -1,0 +1,151 @@
+# 06: a custom task agent, a trimmed copy of the bundled `task` script that `specsesh task` runs
+# once per iteration. It keeps the task-script contract: the loop seeds the variables under
+# "Seeded" before each iteration and reads back the ones under "Read back" after it, so each must
+# be declared with exactly that type. Everything else is yours to change.
+#
+# Use it for every task in a repo, from `agentscript.config.json` (the path is relative to the
+# config file):
+#
+#   { "task": { "script": "examples/agents/06-custom-task-agent.agent" } }
+#
+# or for one run (the path is relative to the current directory):
+#
+#   specsesh task <change> <task-id> --script examples/agents/06-custom-task-agent.agent
+#
+# The loop runs every subagent, in source order, and registers the built-in actions they call.
+#
+#   specsesh agent check examples/agents/06-custom-task-agent.agent
+
+config:
+    agent_name: "custom-task-agent"
+    description: "One iteration of an OpenSpec task loop: act, check, judge"
+
+# The standing instructions every step sees.
+system:
+    instructions: |
+        You implement one task of an OpenSpec change, in a real workspace, one iteration at a time.
+        The spec deltas are the contract. Change only what the task needs; never tick boxes, never
+        edit the spec.
+
+# Seeded: task_id, task_text, proposal, design, deltas, iteration, carried.
+# Read back: met, unmet, next_action, question, amend_path, amend_text.
+# checks_passed and check_output are this script's own.
+variables:
+    task_id: mutable string = ""
+        description: "seeded: the task's id, e.g. 2.4"
+    task_text: mutable string = ""
+        description: "seeded: the task's text from tasks.md"
+    proposal: mutable string = ""
+        description: "seeded: the change's proposal.md"
+    design: mutable string = ""
+        description: "seeded: the change's design.md, or empty"
+    deltas: mutable string = ""
+        description: "seeded: every spec delta of the change, concatenated"
+    iteration: mutable number = 1
+        description: "seeded: which iteration of the task loop this is"
+    carried: mutable string = ""
+        description: "seeded: feedback from earlier iterations, or the principal's answer"
+    checks_passed: mutable boolean = False
+        description: "whether the task's checks passed"
+    check_output: mutable string = ""
+        description: "the checks' output"
+    met: mutable boolean = False
+        description: "read back: the judge's verdict"
+    unmet: mutable string = ""
+        description: "read back: what is still unmet, carried into the next iteration"
+    next_action: mutable string = "retry"
+        description: "read back: retry, amend-spec or ask; the default must be one of them"
+    question: mutable string = ""
+        description: "read back: the question to escalate when next_action is ask or amend-spec"
+    amend_path: mutable string = ""
+        description: "read back: the delta to replace when next_action is amend-spec"
+    amend_text: mutable string = ""
+        description: "read back: the whole new text of that delta when next_action is amend-spec"
+
+# act: the model works in the workspace through the built-in file and command actions.
+subagent act:
+    description: "Implement the task in the workspace"
+
+    actions:
+        read_file:
+            description: "Read one file in the workspace"
+            inputs:
+                path: string
+            outputs:
+                content: string
+            target: "mcpTool://read_file"
+        edit_file:
+            description: "Create or replace one file in the workspace"
+            inputs:
+                path: string
+                content: string
+            outputs:
+                ok: boolean
+            target: "mcpTool://edit_file"
+        run_command:
+            description: "Run one allowed command in the workspace"
+            inputs:
+                command: string
+            outputs:
+                exit_code: number
+                output: string
+            target: "mcpTool://run_command"
+
+    reasoning:
+        instructions: ->
+            | Task {!@variables.task_id}: {!@variables.task_text}
+            | Spec deltas:
+            | {!@variables.deltas}
+            if @variables.carried != "":
+                | Still unmet from an earlier iteration, or the principal's answer: {!@variables.carried}
+            | Implement the task, using the tools. When done, summarise what you changed.
+        actions:
+            read: @actions.read_file
+                with path = ...
+            edit: @actions.edit_file
+                with path = ...
+                with content = ...
+            shell: @actions.run_command
+                with command = ...
+
+# check: runs the configured checks with no model. The loop runs them again in its own gate,
+# so a met verdict converges only when they pass.
+subagent check:
+    description: "Run the task's checks, without the model"
+
+    actions:
+        run_checks:
+            description: "Run the configured checks in order"
+            inputs:
+                task_id: string
+            outputs:
+                passed: boolean
+                output: string
+            target: "mcpTool://run_checks"
+
+    reasoning:
+        instructions: ->
+            run @actions.run_checks
+                with task_id = @variables.task_id
+                set @variables.checks_passed = @outputs.passed
+                set @variables.check_output = @outputs.output
+
+# judge: sets every read-back variable. next_action must be exactly retry, amend-spec or ask.
+subagent judge:
+    description: "Decide whether the task is done"
+
+    reasoning:
+        instructions: ->
+            | Task {!@variables.task_id}: {!@variables.task_text}
+            | Checks passed: {!@variables.checks_passed}
+            | Check output:
+            | {!@variables.check_output}
+            | Is the task done against the spec deltas? It is done only when the checks pass. If not, say exactly what is unmet.
+            | Answer next_action with exactly one word: retry, amend-spec or ask. Default to retry. Choose amend-spec only when the deltas contradict each other or the code, and ask only for a decision no passing check could settle.
+            | When next_action is amend-spec, set amend_path to the delta that is wrong, exactly as listed, and amend_text to its whole new text. Otherwise leave both empty.
+            set @variables.met = @outputs.met
+            set @variables.unmet = @outputs.unmet
+            set @variables.next_action = @outputs.next_action
+            set @variables.question = @outputs.question
+            set @variables.amend_path = @outputs.amend_path
+            set @variables.amend_text = @outputs.amend_text

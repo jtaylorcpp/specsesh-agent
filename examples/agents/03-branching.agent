@@ -1,0 +1,30 @@
+# 03: branching. Lines that don't start with `|` are logic: `if`, `else` and `set`, evaluated
+# by the interpreter in code. This subagent has no prompt lines, so the run makes no model request.
+# There is no `elif` and no nested `if`; booleans are `True` and `False`.
+#
+#   specsesh agent check examples/agents/03-branching.agent
+#   specsesh agent run examples/agents/03-branching.agent --var severity=high
+
+config:
+    agent_name: "branching"
+    description: "Route a report by its severity, without the model"
+
+variables:
+    severity: mutable string = "low"
+        description: "low | medium | high"
+    urgent: mutable boolean = False
+        description: "whether to page someone"
+    queue: mutable string = ""
+        description: "where the report goes"
+
+subagent route:
+    description: "Route the report, without the model"
+
+    reasoning:
+        instructions: ->
+            if @variables.severity == "high":
+                set @variables.urgent = True
+                set @variables.queue = "on-call"
+            else:
+                set @variables.urgent = False
+                set @variables.queue = "backlog"

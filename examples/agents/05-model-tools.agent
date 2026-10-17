@@ -1,0 +1,60 @@
+# 05: actions the model can call. `reasoning.actions` offers declared actions to the model as
+# tools, and the model decides whether and how often to call them. `with x = ...` leaves an input
+# to the model; `with x = <expression>` binds it, and the model doesn't see it, so `files` below
+# takes no input at all. A `set` under an entry takes the output of the last successful call.
+# The declarations match what `specsesh agent actions` lists for `run_command` and `read_file`.
+#
+# `specsesh agent run` has no action host and no tool loop, so it fails a step that offers tools.
+# Run it from a durable host that registers the built-ins, `builtinActions` from
+# `@specsesh/agent/node` with `runScript` from `@specsesh/agent/durable`, as guides/04-actions.md
+# shows. `run_command` runs only commands whose first word is allowed, so this script needs
+# `builtinActions({ workspace, allow: ["git"] })`.
+#
+#   specsesh agent check examples/agents/05-model-tools.agent
+
+config:
+    agent_name: "model-tools"
+    description: "Find where a function is defined and explain it"
+
+system:
+    instructions: |
+        You answer questions about a codebase. Read the code before you answer.
+
+variables:
+    symbol: mutable string = "main"
+        description: "the function to explain"
+    files: mutable string = ""
+        description: "the repository's files, as the model last listed them"
+    source: mutable string = ""
+        description: "the last file the model read"
+
+subagent explain:
+    description: "Find the function and explain it"
+
+    actions:
+        run_command:
+            description: "Run one allowed command in the workspace, without a shell"
+            inputs:
+                command: string
+            outputs:
+                exit_code: number
+                output: string
+            target: "mcpTool://run_command"
+        read_file:
+            description: "Read one file in the workspace"
+            inputs:
+                path: string
+            outputs:
+                content: string
+            target: "mcpTool://read_file"
+
+    reasoning:
+        instructions: ->
+            | Find where the function {!@variables.symbol} is defined: list the files, read the likely ones, then explain in three sentences what the function does.
+        actions:
+            files: @actions.run_command
+                with command = "git ls-files"
+                set @variables.files = @outputs.output
+            read: @actions.read_file
+                with path = ...
+                set @variables.source = @outputs.content

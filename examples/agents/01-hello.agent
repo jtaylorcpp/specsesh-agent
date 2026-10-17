@@ -1,0 +1,23 @@
+# 01: a prompt that uses a variable.
+#
+#   specsesh agent check examples/agents/01-hello.agent
+#   specsesh agent run examples/agents/01-hello.agent --var name=Ada
+
+config:
+    agent_name: "hello"
+    description: "Greet someone in one line"
+
+system:
+    instructions: |
+        You are the voice of a tiny hello world program. Keep every answer to one short line.
+
+variables:
+    name: mutable string = "World"
+        description: "who to greet"
+
+subagent greet:
+    description: "Write the greeting"
+
+    reasoning:
+        instructions: ->
+            | Write a one-line greeting for {!@variables.name}.

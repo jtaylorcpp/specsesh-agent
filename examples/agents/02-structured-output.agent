@@ -1,0 +1,44 @@
+# 02: structured output. `set @variables.x = @outputs.x` asks the model for a typed field and
+# stores it; the interpreter derives the schema from the `set` lines and the variables' types.
+# A second subagent then uses those values in its prompt. A run starts with the first subagent
+# only, so name both with `--entry`.
+#
+#   specsesh agent check examples/agents/02-structured-output.agent
+#   specsesh agent run examples/agents/02-structured-output.agent --entry estimate --entry advise
+
+config:
+    agent_name: "structured-output"
+    description: "Estimate a task, then advise on it"
+
+system:
+    instructions: |
+        You help a developer plan small tasks. Be brief and concrete.
+
+variables:
+    task: mutable string = "Add a --json flag to a CLI that prints a table."
+        description: "the task to estimate"
+    title: mutable string = ""
+        description: "a short title for the task"
+    hours: mutable number = 0
+        description: "the estimate, in hours"
+    risky: mutable boolean = False
+        description: "whether the task could break existing users"
+
+subagent estimate:
+    description: "Estimate the task"
+
+    reasoning:
+        instructions: ->
+            | Estimate this task: {!@variables.task}
+            | Give it a short title, an estimate in hours, and say whether it could break existing users.
+            set @variables.title = @outputs.title
+            set @variables.hours = @outputs.hours
+            set @variables.risky = @outputs.risky
+
+subagent advise:
+    description: "Advise on the estimated task"
+
+    reasoning:
+        instructions: ->
+            | "{!@variables.title}" is estimated at {!@variables.hours} hours; risky: {!@variables.risky}.
+            | In two sentences, say how to start it.

@@ -1,0 +1,46 @@
+# 04: a `run` action. `run @actions.read_file` calls the host's built-in `read_file` from the
+# program, deterministically, with no model: `with` binds each input, `set` takes each output.
+# The declaration matches what `specsesh agent actions` lists for it: `path` in, `content` out.
+#
+# `specsesh agent run` has no action host, so it refuses this script before anything runs.
+# Run it from a host that registers the built-ins, `builtinActions` from `@specsesh/agent/node`
+# with `runScript` from `@specsesh/agent/durable`, as guides/04-actions.md shows, with
+# `entry: ["load", "summarise"]`.
+#
+#   specsesh agent check examples/agents/04-run-action.agent
+
+config:
+    agent_name: "run-action"
+    description: "Read a file, then summarise it"
+
+variables:
+    path: mutable string = "README.md"
+        description: "the file to read, relative to the workspace"
+    content: mutable string = ""
+        description: "the file's content"
+
+subagent load:
+    description: "Read the file, without the model"
+
+    actions:
+        read_file:
+            description: "Read one file in the workspace"
+            inputs:
+                path: string
+            outputs:
+                content: string
+            target: "mcpTool://read_file"
+
+    reasoning:
+        instructions: ->
+            run @actions.read_file
+                with path = @variables.path
+                set @variables.content = @outputs.content
+
+subagent summarise:
+    description: "Summarise the file"
+
+    reasoning:
+        instructions: ->
+            | Summarise {!@variables.path} in three sentences:
+            | {!@variables.content}
