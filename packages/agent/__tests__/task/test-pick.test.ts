@@ -234,7 +234,7 @@ describe("task/test-pick: agentscript-task pick-tests", () => {
 		const r = await cli(["pick-tests"]);
 		expect(r.code).toBe(2);
 		expect(r.err).toContain("usage:");
-		expect(r.err).toContain("agentscript-task pick-tests --input <file.json>");
+		expect(r.err).toContain("specsesh task pick-tests --input <file.json>");
 	});
 
 	it("exits 2 on an unreadable input file", async () => {

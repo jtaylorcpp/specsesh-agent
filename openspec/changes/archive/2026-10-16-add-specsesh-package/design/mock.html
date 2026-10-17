@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>add-specsesh-package — install and pack check</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #f4f4f2; color: #222; margin: 2rem; max-width: 60rem; }
+  h1 { font-size: 1.3rem; } h2 { font-size: 1rem; margin-top: 2rem; }
+  p.note { color: #555; font-size: .9rem; } code { font-family: ui-monospace, Menlo, monospace; }
+  .term { background: #1e1e1e; color: #ddd; font-family: ui-monospace, Menlo, monospace; font-size: .85rem;
+          padding: 1rem; border-radius: 6px; white-space: pre-wrap; }
+  .prompt { color: #8ab4f8; } .err { color: #f28b82; } .ok { color: #81c995; } .dim { color: #888; }
+  .tag { display: inline-block; background: #ffe08a; color: #333; font-size: .75rem; padding: 0 .4rem; border-radius: 3px; }
+  .tree { background: #fff; border: 1px solid #ccc; padding: 1rem; border-radius: 6px; font-family: ui-monospace, Menlo, monospace; font-size: .85rem; white-space: pre; }
+</style>
+</head>
+<body>
+<h1>add-specsesh-package: <code>npx specsesh</code> with nothing else installed</h1>
+<p class="note"><span class="tag">FAKE DATA</span> Paths, versions and timings are examples.</p>
+
+<h2>What npx installs</h2>
+<div class="tree">specsesh@0.1.0               bin: specsesh
+├── @specsesh/agent@0.1.0     exact, same version (workspace:* packed by pnpm)
+├── @earendil-works/pi-ai@1.1.0       exact; optional peer of the agent, a dependency here
+├── @earendil-works/pi-durable@1.1.0
+└── @earendil-works/chord@1.1.0</div>
+
+<h2>1. In an empty directory</h2>
+<div class="term"><span class="prompt">$</span> npx specsesh --version
+<span class="dim">Need to install the following packages:
+specsesh@0.1.0
+Ok to proceed? (y)</span>
+<span class="ok">specsesh 0.1.0</span>
+<span class="prompt">$</span> npx specsesh task
+<span class="err">usage:
+  agentscript-task run &lt;change&gt; &lt;task-id&gt;|&lt;group&gt;|--next|--next-group [--db &lt;path&gt;] [options]
+  ...</span>
+<span class="prompt">$</span> echo $?
+2</div>
+
+<h2>2. pnpm pack:check, the new part</h2>
+<div class="term"><span class="prompt">$</span> pnpm pack:check
+ <span class="ok">✓</span> pack check &gt; pack:check proves the tarball installs and runs &gt; Scenario: The installed specsesh prints its version
+ <span class="ok">✓</span> pack check &gt; pack:check proves the tarball installs and runs &gt; Scenario: The packed specsesh pins the agent exactly
+<span class="dim">   tar -xzO -f specsesh-0.1.0.tgz package/package.json → "@specsesh/agent": "0.1.0"</span></div>
+</body>
+</html>

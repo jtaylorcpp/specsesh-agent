@@ -8,10 +8,26 @@ flow does **not** apply here.
 
 ## Layout (pnpm workspace)
 
-One npm package, `@specsesh/agent` (`packages/agent`, Apache-2.0), with an entry point per layer:
-nine exports, in this order: `./authoring`, `./interpreter`, `./pi`, `./claude-code`, `./durable`,
-`./node`, `./cloudflare`, `./openspec`, `./task`. The layer boundaries are directories, enforced by
-`__tests__/package/layers.test.ts`.
+Two npm packages publish from this workspace:
+
+- `packages/agent` → `@specsesh/agent`, the library, with an entry point per layer and the four
+  `agentscript-*` bins. Ten exports, in this order: `./authoring`, `./interpreter`, `./pi`,
+  `./claude-code`, `./durable`, `./node`, `./cloudflare`, `./openspec`, `./task`, `./cli`. Built
+  by `tsc` into `dist/`, tested from `__tests__/`. The layer boundaries are directories, enforced
+  by `__tests__/package/layers.test.ts`.
+- `packages/specsesh` → `specsesh`, the `specsesh` command that `npx specsesh` runs. Plain
+  JavaScript (`bin/specsesh.js`), no build and no `scripts`: it only calls `main` from
+  `@specsesh/agent/cli`. Its dependencies are `@specsesh/agent` at `workspace:*` plus `pi-ai`,
+  `pi-durable` and `chord` pinned to the exact versions in the agent's `devDependencies`.
+  `pnpm -r check` and `pnpm -r test` skip it; its tests live in `packages/agent/__tests__/package/`
+  (`manifest.test.ts`, `specsesh.test.ts`, `pack.test.ts`).
+
+Both packages publish at the same `version`, `license` (Apache-2.0), Node engine (`>=22.19.0`) and
+`repository` (with its `directory`); every other workspace package is `private`. `specsesh` is
+packed with `pnpm pack`, which rewrites `workspace:*` to the exact version, and `pnpm pack:check`
+checks both tarballs.
+
+The rest of this section is `packages/agent`:
 
 | Directory → entry | What it is |
 |---|---|
@@ -23,7 +39,8 @@ nine exports, in this order: `./authoring`, `./interpreter`, `./pi`, `./claude-c
 | `src/cloudflare` → `./cloudflare` | `AgentScriptHost`, the Durable Object class (via Cloudflare's `PiHarness`, `agents` 0.28.0), Workers AI by default; `defineAgentHost`, `workersAI` and the Sandbox/Artifacts workspaces (see below). |
 | `src/openspec` → `./openspec` | The OpenSpec ontology (`openspec/{model,process,loops,evidence}`): TypeBox schemas (each a JSON Schema) with `Static` types and refinements, plus pure rules. Imports only `typebox`; no parser, no loop runner. |
 | `src/task` → `./task` | The task loop (`agentscript.task-loop`): an Agent Script run once per iteration as an `agentscript.run` child until the task converges, blocks, exhausts or fails; ticks tasks.md. Also the spec loop (see below). Bundled scripts in `src/task/scripts/` (copied into `dist/` by the build). Adds `src/node`. |
-| `src/bin` | The `agentscript-pi`, `agentscript-durable` and `agentscript-task` bins. |
+| `src/cli` → `./cli` | The `specsesh` command: `main(argv, deps)` and `USAGE` route `agent \| durable \| task \| change` to `agentscript-pi \| -durable \| -task \| -change`. `task` implies `run`. `--help` and `--version` are handled here. Importing it runs nothing. Like `src/bin`, not a layer that `__tests__/package/layers.test.ts` constrains. |
+| `src/bin` | The `agentscript-pi`, `agentscript-durable`, `agentscript-task` and `agentscript-change` bins. The four `agentscript-*` bins stay for 0.x; `specsesh` reaches them in-process. |
 
 The CI test picker (`src/task/test-pick.ts`, exported from `./task`): `pickTests(input, options)` runs the
 bundled `ci-test-pick.agent` once to pick the tests that cover one closed task, for Specsesh CI's
@@ -137,10 +154,11 @@ Nothing here deploys. No code or script in this package runs `wrangler deploy`; 
 and `examples/cloudflare-worker` on `wrangler dev --local` (routes covered by `test/routes.sh`).
 The real binding shapes are checked at the first deploy, outside `add-cloudflare-workspace`.
 
-pi-ai, pi-durable, chord and `agents` are optional peers (dev dependencies here); only the four
-`@sf-agentscript/*` packages and `typebox` (exact `1.3.27`, the version pi-ai pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
-(the Worker, with `FauxAgentScriptHost` adding `AGENTSCRIPT_FAUX=1` for local tests) consume the
-package through `workspace:*` and its public entries only.
+In `@specsesh/agent`, pi-ai, pi-durable, chord and `agents` are optional peers (dev dependencies
+there); only the four `@sf-agentscript/*` packages and `typebox` (exact `1.3.27`, the version pi-ai
+pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
+(the Worker, with `FauxAgentScriptHost` adding `AGENTSCRIPT_FAUX=1` for local tests) consume
+`@specsesh/agent` through `workspace:*` and its public entries only.
 
 ## Where it stands
 
@@ -217,6 +235,39 @@ pnpm docs:check                 # docs/ concept pages: front matter, ids, README
 Provider/model also come from `AGENTSCRIPT_PROVIDER` / `AGENTSCRIPT_MODEL`; credentials are pi's
 env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...). The bins are compiled JavaScript;
 nothing needs `tsx`.
+
+## Releasing
+
+```bash
+node scripts/release-check.mjs v0.2.0   # run it locally before tagging; prints latest or next
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+- **Lockstep versions.** `@specsesh/agent` and `specsesh` always share one exact semver version.
+  To release, set `version` in `packages/agent/package.json` and `packages/specsesh/package.json`
+  to the same value and commit on `main`. A prerelease (`0.2.0-rc.1`) goes to the `next`
+  dist-tag, anything else to `latest`. Build metadata is not allowed.
+- **A pushed `v<version>` tag is the only trigger.** No branch, PR or manual dispatch publishes.
+- **The workflow.** `.github/workflows/release.yml` runs `pnpm install --frozen-lockfile`,
+  `pnpm check`, `pnpm test`, `pnpm pack:check`, the release check, then
+  `pnpm --filter <pkg> pack --pack-destination release` for both packages, the release check
+  again with `--packed release/specsesh-<v>.tgz`, and finally
+  `npm publish <tarball> --access public --provenance --tag <dist-tag>`, first
+  `release/specsesh-agent-<v>.tgz`, then `release/specsesh-<v>.tgz`. It publishes through npm
+  trusted publishing (OIDC). Its only permissions are `id-token: write` and `contents: read`, and
+  every action is pinned to a commit SHA. It uses no npm token or `secrets.`. Don't add any.
+- **`scripts/release-check.mjs <tag> [--packed <specsesh.tgz>]`**, no dependencies: both versions
+  equal and semver, the tag `v<version>`, npm 11.5.1 or newer, and with `--packed`, the packed
+  `specsesh` depending on exactly that `@specsesh/agent` version. It prints the dist-tag on stdout,
+  exits 1 with one stderr line per problem and 2 on usage (no tag). `RELEASE_CHECK_ROOT` sets the
+  repo root (the tests use it).
+- **Partial failure.** If the agent publishes but `specsesh` fails, re-run only the `specsesh`
+  publish step or cut the next patch. Never re-tag an existing version.
+- **Never `npm publish` by hand after the first.** Each package's first version is published
+  manually only because a trusted publisher can't be attached until the package exists
+  (`openspec/changes/archive/2026-10-16-add-npm-release-workflow/design.md`, "Manual steps"). Every later version
+  goes through the tag and the workflow so it carries provenance. Publishing access requires 2FA
+  and disallows tokens.
 
 ## Running a task
 

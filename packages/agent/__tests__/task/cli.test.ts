@@ -185,7 +185,7 @@ describe("task/cli: run prints the loop id before any model call", () => {
 			},
 		});
 		expect(code).toBe(0);
-		expect(err[0]).toMatch(/^loop \d+ — resume with: agentscript-task resume \d+ --db /);
+		expect(err[0]).toMatch(/^loop \d+ — resume with: specsesh task resume \d+ --db /);
 		expect(err[0]).toContain(`--db ${db}`);
 		expect(callsAtHint).toBe(0);
 	});
@@ -287,11 +287,11 @@ async function expectNothingResumed(db: string, before: Awaited<ReturnType<typeo
 }
 
 const USAGE_LINES = [
-	"agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]",
-	"agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]",
-	"agentscript-task resume <loop-id>|--all [--db <path>] [--json]",
-	"agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]",
-	"agentscript-task status [--db <path>]",
+	"specsesh task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]",
+	"specsesh task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]",
+	"specsesh task resume <loop-id>|--all [--db <path>] [--json]",
+	"specsesh task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]",
+	"specsesh task status [--db <path>]",
 ] as const;
 
 describe("usage and argument refusals", () => {
@@ -362,7 +362,7 @@ describe("task/cli: resume --all", () => {
 		const r = await cli(["resume", "--all", "--db", db], env);
 		expect(r.out.split("\n")).toEqual([
 			`loop ${refused} tiny 1.1 — refused: worktree ${gone} does not exist`,
-			`loop ${asks} tiny 1.1 — blocked: agentscript-task answer ${asks} --db ${db} --by principal --decision "…"`,
+			`loop ${asks} tiny 1.1 — blocked: specsesh task answer ${asks} --db ${db} --by principal --decision "…"`,
 		]);
 		expect(r.code).toBe(1);
 		// Progress events still reach stderr.
@@ -415,7 +415,7 @@ describe("task/cli: answer submits an escalation answer and waits for the resume
 		expect(parsed.loop).not.toBe(b.id);
 		expect(parsed.status).toBe("converged");
 		expect(parsed.iterations).toHaveLength(2);
-		expect(r.errLines[0]).toMatch(new RegExp(`^loop ${parsed.loop} — resume with: agentscript-task resume ${parsed.loop} --db `));
+		expect(r.errLines[0]).toMatch(new RegExp(`^loop ${parsed.loop} — resume with: specsesh task resume ${parsed.loop} --db `));
 	});
 
 	it("a missing --by or --decision prints usage, exit 2", async () => {
@@ -485,7 +485,7 @@ describe("task/cli: answer routes a spec loop to answerSpecLoop", () => {
 		expect(approvals(r.changeDir).approvals.map((e) => [e.stage, e.principal])).toEqual([["proposal", "jesse"]]);
 		expect(a.out.split("\n").slice(-2)).toEqual([
 			"proposal approved by jesse.",
-			"Every stage of add-plan-export is approved. Execute it: pnpm task add-plan-export --next-group",
+			"Every stage of add-plan-export is approved. Execute it: specsesh task add-plan-export --next-group",
 		]);
 	});
 
@@ -494,7 +494,7 @@ describe("task/cli: answer routes a spec loop to answerSpecLoop", () => {
 		const a = await spec(r.dir, ["answer", r.id, "--by", "principal", "--decision", " Approve ", "--principal", "alice"], { USER: "jesse" }, [], [proposal, design]);
 		expect(a.code, a.err).toBe(0);
 		expect(approvals(r.changeDir).approvals[0]?.principal).toBe("alice");
-		expect(a.out.split("\n").at(-1)).toBe("Next: pnpm task spec add-plan-export");
+		expect(a.out.split("\n").at(-1)).toBe("Next: specsesh task spec add-plan-export");
 	});
 
 	it("a revision runs another draft and ends with both answer commands", async () => {
@@ -505,8 +505,8 @@ describe("task/cli: answer routes a spec loop to answerSpecLoop", () => {
 		expect(next).not.toBe(r.id);
 		expect(a.out).toContain("## proposal draft 2: clean");
 		expect(a.out.split("\n").slice(-2)).toEqual([
-			`  approve:  pnpm task answer ${next} --by principal --decision approve`,
-			`  revise:   pnpm task answer ${next} --by principal --decision "<what to change>"`,
+			`  approve:  specsesh task answer ${next} --by principal --decision approve`,
+			`  revise:   specsesh task answer ${next} --by principal --decision "<what to change>"`,
 		]);
 		expect(readFileSync(join(r.changeDir, "proposal.md"), "utf8")).toBe("# Narrower\n");
 	});
@@ -560,7 +560,7 @@ describe("task/cli: Text output reports each iteration and the outcome", () => {
 		const r = await cli(["run", tinyChange(), "1.1", "--db", "loops.sqlite", "--script", script, ...env.args], env, { cwd: dir });
 		expect(r.code).toBe(1);
 		const id = /^loop (\d+)/.exec(r.errLines[0] ?? "")?.[1];
-		expect(r.out.split("\n").at(-1)).toBe(`agentscript-task answer ${id} --db loops.sqlite --by principal --decision "…"`);
+		expect(r.out.split("\n").at(-1)).toBe(`specsesh task answer ${id} --db loops.sqlite --by principal --decision "…"`);
 	});
 
 	it("a blocked loop prints the escalation's recipient and question", async () => {

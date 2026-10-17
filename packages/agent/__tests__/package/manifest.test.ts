@@ -11,6 +11,8 @@ const MANIFEST_TEXT = readFileSync(join(PKG_DIR, "package.json"), "utf8");
 const manifest = JSON.parse(MANIFEST_TEXT);
 
 const ENTRIES = ["authoring", "interpreter", "pi", "claude-code", "durable", "node", "cloudflare", "openspec", "task"];
+// One entry per layer, then the command.
+const EXPORTS = [...ENTRIES, "cli"];
 const SF = {
 	"@sf-agentscript/agentforce-dialect": "2.53.0",
 	"@sf-agentscript/agentscript-dialect": "3.4.0",
@@ -24,6 +26,18 @@ const PEERS = {
 	agents: "^0.28.0",
 };
 
+// [directory under packages/, package name]: the two that publish.
+const PACKAGES = [
+	["agent", "@specsesh/agent"],
+	["specsesh", "specsesh"],
+] as const;
+const REPO_URL = "git+https://github.com/jtaylorcpp/specsesh-agent.git";
+const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+function readJson(path: string) {
+	return JSON.parse(readFileSync(path, "utf8"));
+}
+
 function filesUnder(dir: string): string[] {
 	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
 		const path = join(dir, entry.name);
@@ -31,43 +45,52 @@ function filesUnder(dir: string): string[] {
 	});
 }
 
-describe("The package is @specsesh/agent 0.1.0 under Apache-2.0", () => {
-	it("Scenario: The manifest identifies the package", () => {
-		expect(manifest.name).toBe("@specsesh/agent");
-		expect(manifest.version).toBe("0.1.0");
-		expect(manifest.license).toBe("Apache-2.0");
-		expect(manifest.type).toBe("module");
-		expect(manifest.engines?.node).toBe(">=22.19.0");
-		expect(manifest.private === undefined || manifest.private === false).toBe(true);
-	});
-
-	it("Scenario: The license file is Apache 2.0", () => {
-		const license = readFileSync(join(PKG_DIR, "LICENSE"), "utf8");
-		expect(license).toContain("Apache License");
-		expect(license).toContain("Version 2.0, January 2004");
-		// The full text, not a stub naming it.
-		expect(license).toContain("END OF TERMS AND CONDITIONS");
-	});
-
-	it("Scenario: Only one package publishes", () => {
-		const others = [
-			join(ROOT, "package.json"),
-			...readdirSync(join(ROOT, "examples"), { withFileTypes: true })
-				.filter((entry) => entry.isDirectory())
-				.map((entry) => join(ROOT, "examples", entry.name, "package.json")),
-		];
-		expect(others.length).toBeGreaterThan(2);
-		for (const path of others) {
-			expect(JSON.parse(readFileSync(path, "utf8")).private, `${path} is publishable`).toBe(true);
+describe("Two packages publish at one version under Apache-2.0", () => {
+	it("Scenario: Both manifests identify their package", () => {
+		for (const [dir, name] of PACKAGES) {
+			const pkg = readJson(join(ROOT, "packages", dir, "package.json"));
+			expect(pkg.name).toBe(name);
+			expect(pkg.license, name).toBe("Apache-2.0");
+			expect(pkg.type, name).toBe("module");
+			expect(pkg.engines?.node, name).toBe(">=22.19.0");
+			expect(pkg.repository, name).toEqual({ type: "git", url: REPO_URL, directory: `packages/${dir}` });
+			expect(pkg.private === undefined || pkg.private === false, `${name} is private`).toBe(true);
 		}
-		// And packages/ holds this package alone.
-		expect(readdirSync(join(ROOT, "packages"))).toEqual(["agent"]);
+		const agent = readJson(join(ROOT, "packages", "agent", "package.json"));
+		const specsesh = readJson(join(ROOT, "packages", "specsesh", "package.json"));
+		expect(agent.version).toMatch(SEMVER);
+		expect(specsesh.version).toBe(agent.version);
+	});
+
+	it("Scenario: The license files are Apache 2.0", () => {
+		for (const [dir] of PACKAGES) {
+			const license = readFileSync(join(ROOT, "packages", dir, "LICENSE"), "utf8");
+			expect(license, dir).toContain("Apache License");
+			expect(license, dir).toContain("Version 2.0, January 2004");
+			// The full text, not a stub naming it.
+			expect(license, dir).toContain("END OF TERMS AND CONDITIONS");
+		}
+	});
+
+	it("Scenario: Only the two packages publish", () => {
+		const examples = readdirSync(join(ROOT, "examples"), { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => join(ROOT, "examples", entry.name, "package.json"))
+			.filter((path) => existsSync(path));
+		expect(examples.length).toBeGreaterThan(0);
+		for (const path of [join(ROOT, "package.json"), ...examples]) {
+			expect(readJson(path).private, `${path} is publishable`).toBe(true);
+		}
+		// And packages/ holds only the two that publish.
+		expect(readdirSync(join(ROOT, "packages")).sort()).toEqual(PACKAGES.map(([dir]) => dir).sort());
 	});
 });
 
-describe("The package exports exactly nine entry points", () => {
+describe("The package exports one entry per layer and the command", () => {
 	it("Scenario: The exports map is exact", () => {
-		expect(Object.keys(manifest.exports)).toEqual(ENTRIES.map((entry) => `./${entry}`));
+		expect(Object.keys(manifest.exports)).toEqual(EXPORTS.map((entry) => `./${entry}`));
+		expect(manifest.exports["."]).toBeUndefined();
+		expect(manifest.exports["./package.json"]).toBeUndefined();
 		expect(manifest.exports["./durable"]).toEqual({
 			types: "./dist/durable/index.d.ts",
 			import: "./dist/durable/index.js",
@@ -84,7 +107,11 @@ describe("The package exports exactly nine entry points", () => {
 			types: "./dist/task/index.d.ts",
 			import: "./dist/task/index.js",
 		});
-		for (const entry of ENTRIES) {
+		expect(manifest.exports["./cli"]).toEqual({
+			types: "./dist/cli/index.d.ts",
+			import: "./dist/cli/index.js",
+		});
+		for (const entry of EXPORTS) {
 			expect(manifest.exports[`./${entry}`]).toEqual({
 				types: `./dist/${entry}/index.d.ts`,
 				import: `./dist/${entry}/index.js`,
@@ -166,11 +193,14 @@ describe("The readme lists the entry points", () => {
 	it("Scenario: Every entry is documented", () => {
 		const readme = readFileSync(join(PKG_DIR, "README.md"), "utf8");
 		expect(readme).toContain("npm install @specsesh/agent");
-		for (const entry of ENTRIES) expect(readme).toContain(`@specsesh/agent/${entry}`);
+		const entries = Object.keys(manifest.exports).filter((key) => key !== "./package.json");
+		expect(entries).toHaveLength(10);
+		for (const entry of entries) expect(readme).toContain(`@specsesh/agent/${entry.slice(2)}`);
 		expect(readme).toContain("agentscript-pi");
 		expect(readme).toContain("agentscript-durable");
 		expect(readme).toContain("agentscript-task");
 		expect(readme).toContain("agentscript-change");
+		expect(readme).toContain("npx specsesh");
 	});
 });
 

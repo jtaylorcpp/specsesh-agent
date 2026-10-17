@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>add-specsesh-command — terminal flow</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #f4f4f2; color: #222; margin: 2rem; max-width: 60rem; }
+  h1 { font-size: 1.3rem; } h2 { font-size: 1rem; margin-top: 2rem; }
+  p.note { color: #555; font-size: .9rem; }
+  table { border-collapse: collapse; font-size: .9rem; } td, th { border: 1px solid #ccc; padding: .3rem .6rem; text-align: left; }
+  code { font-family: ui-monospace, Menlo, monospace; }
+  .term { background: #1e1e1e; color: #ddd; font-family: ui-monospace, Menlo, monospace; font-size: .85rem;
+          padding: 1rem; border-radius: 6px; white-space: pre-wrap; }
+  .prompt { color: #8ab4f8; } .err { color: #f28b82; } .ok { color: #81c995; } .dim { color: #888; }
+  .tag { display: inline-block; background: #ffe08a; color: #333; font-size: .75rem; padding: 0 .4rem; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>add-specsesh-command: one command over four CLIs</h1>
+<p class="note"><span class="tag">FAKE DATA</span> Versions and change ids are examples. <code>npx specsesh</code> works once add-specsesh-package lands; this change ships the <code>@specsesh/agent/cli</code> entry it runs.</p>
+
+<h2>Routes</h2>
+<table>
+<tr><th>specsesh …</th><th>runs the main of</th><th>today in this repo</th></tr>
+<tr><td><code>change draft|approve|build|close</code></td><td><code>agentscript-change</code></td><td><code>pnpm change</code></td></tr>
+<tr><td><code>task &lt;change&gt; &lt;id&gt;</code> (run implied), <code>task run|spec|resume|answer|status</code></td><td><code>agentscript-task</code></td><td><code>pnpm task</code></td></tr>
+<tr><td><code>durable run|resume</code></td><td><code>agentscript-durable</code></td><td><code>pnpm durable</code></td></tr>
+<tr><td><code>agent run|models</code></td><td><code>agentscript-pi</code></td><td><code>pnpm agent</code></td></tr>
+<tr><td><code>--help</code>, <code>-h</code>, <code>help</code></td><td colspan="2">usage on stdout, exit 0</td></tr>
+<tr><td><code>--version</code>, <code>-v</code></td><td colspan="2"><code>specsesh &lt;version&gt;</code> on stdout, exit 0</td></tr>
+<tr><td>nothing, or anything else</td><td colspan="2">usage on stderr, exit 2</td></tr>
+</table>
+
+<h2>1. Version and help</h2>
+<div class="term"><span class="prompt">$</span> npx specsesh --version
+<span class="ok">specsesh 0.1.0</span>
+<span class="prompt">$</span> npx specsesh frobnicate
+<span class="err">usage:
+  specsesh change &lt;draft|approve|build|close&gt; &lt;change&gt; [options]
+  specsesh task &lt;change&gt; &lt;task-id&gt;|&lt;group&gt;|--next|--next-group [options]
+  specsesh task &lt;run|spec|resume|answer|status&gt; [options]
+  specsesh durable &lt;run|resume&gt; [options]
+  specsesh agent &lt;run|models&gt; [options]
+  specsesh --version
+  specsesh --help
+Run a command with no arguments for its own usage.</span>
+<span class="prompt">$</span> echo $?
+2</div>
+
+<h2>2. A change, end to end</h2>
+<div class="term"><span class="prompt">$</span> npx specsesh change draft add-plan-export --intent "Export a plan as JSON"
+# add-plan-export — waiting for review
+### proposal draft 1
+proposal.md
+<span class="dim">pnpm change draft add-plan-export "&lt;what to change&gt;"   # old name until slice 4</span>
+<span class="dim">pnpm change approve add-plan-export</span>
+<span class="prompt">$</span> npx specsesh change approve add-plan-export
+<span class="prompt">$</span> npx specsesh change build add-plan-export
+<span class="prompt">$</span> npx specsesh task status
+<span class="prompt">$</span> npx specsesh change close add-plan-export</div>
+</body>
+</html>

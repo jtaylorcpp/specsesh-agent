@@ -155,8 +155,12 @@ describe("task/cli: resume --all prints one outcome line per root", () => {
 		const db = await database([group(13, "add-plan-export", 1, { startedAt: 1000 }), task(14, "add-plan-export", "1.3", { owner: 13, startedAt: 1100 })]);
 		const r = await resumeWith(db, () => ({ status: "blocked", to: "principal" }));
 		expect(r.lines).toContain(
-			'loop 13 add-plan-export group 1 (via 14) — blocked: agentscript-task answer 13 --db .agentscript/task-loops.sqlite --by principal --decision "…"',
+			'loop 13 add-plan-export group 1 (via 14) — blocked: specsesh task answer 13 --db .agentscript/task-loops.sqlite --by principal --decision "…"',
 		);
+		for (const line of r.lines) {
+			expect(line).not.toContain("agentscript-task");
+			expect(line).not.toContain("pnpm task");
+		}
 		expect(r.exitCode).toBe(1);
 	});
 
@@ -172,7 +176,7 @@ describe("task/cli: resume --all prints one outcome line per root", () => {
 		const db = await database([spec(40, "add-plan-export", "proposal", { startedAt: 1000 })]);
 		const r = await resumeWith(db, () => ({ status: "blocked", to: "principal", reason: "review" }));
 		expect(r.lines).toEqual([
-			'loop 40 add-plan-export spec proposal — blocked: agentscript-task answer 40 --db .agentscript/task-loops.sqlite --by principal --decision "…"',
+			'loop 40 add-plan-export spec proposal — blocked: specsesh task answer 40 --db .agentscript/task-loops.sqlite --by principal --decision "…"',
 		]);
 		expect(r.exitCode).toBe(0);
 	});

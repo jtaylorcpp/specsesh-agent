@@ -1,5 +1,5 @@
 /**
- * `agentscript-task resume --all`: every interrupted loop in one database,
+ * `specsesh task resume --all`: every interrupted loop in one database,
  * resumed once through its root — the outermost loop up its parent links that
  * is still running — one root after another in start order, one outcome line
  * per root. The caller holds `<db>.lock` and says how one root resumes.
@@ -129,7 +129,7 @@ export type ResumeOne = (root: Root) => Promise<RootResult>;
 
 /** The command that answers a blocked loop. */
 export function answerCommand(id: number, dbLabel: string, to: string): string {
-	return `agentscript-task answer ${id} --db ${dbLabel} --by ${to} --decision "…"`;
+	return `specsesh task answer ${id} --db ${dbLabel} --by ${to} --decision "…"`;
 }
 
 /** `loop <id> <change> <task>[ (via <ids>)] — <status>`. */

@@ -7,6 +7,11 @@
   "engines": {
     "node": ">=22.19.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jtaylorcpp/specsesh-agent.git",
+    "directory": "packages/agent"
+  },
   "exports": {
     "./authoring": {
       "types": "./dist/authoring/index.d.ts",
@@ -43,6 +48,10 @@
     "./task": {
       "types": "./dist/task/index.d.ts",
       "import": "./dist/task/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli/index.d.ts",
+      "import": "./dist/cli/index.js"
     }
   },
   "bin": {
@@ -57,8 +66,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && mkdir -p dist/task/scripts && cp src/task/scripts/*.agent dist/task/scripts/",
-    "check": "tsc --noEmit && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && mkdir -p dist/task/scripts && cp src/task/scripts/*.agent dist/task/scripts/ && node scripts/chmod-bins.mjs",
+    "check": "tsc --noEmit && tsc -p tsconfig.build.json && node scripts/chmod-bins.mjs",
     "test": "node scripts/check-subset-conformance.mjs && vitest run",
     "test:live": "vitest run --config vitest.live.config.ts",
     "conformance": "node scripts/check-subset-conformance.mjs",

@@ -29,8 +29,8 @@ describe("formatDraftOutput", () => {
 		const lines = formatDraftOutput(review(), context);
 		expect(lines.slice(-3)).toEqual([
 			"Review openspec/changes/add-plan-export/proposal.md, then:",
-			'  revise:   pnpm change draft add-plan-export "<what to change>"',
-			"  approve:  pnpm change approve add-plan-export",
+			'  revise:   specsesh change draft add-plan-export "<what to change>"',
+			"  approve:  specsesh change approve add-plan-export",
 		]);
 		expect(lines.join("\n")).not.toContain("pnpm task answer");
 	});
@@ -46,10 +46,10 @@ describe("formatDraftOutput", () => {
 		const at = lines.indexOf("Sliced into 3 changes. Draft the others when you're ready:");
 		expect(lines[at - 1]).toBe("");
 		expect(lines.slice(at + 1, at + 3)).toEqual([
-			'  pnpm change draft add-plan-export-schema --intent "A schema for the export."',
-			'  pnpm change draft add-plan-export-ci --intent "Check \\"\\$PLAN\\" in \\`ci\\` \\\\ too."',
+			'  specsesh change draft add-plan-export-schema --intent "A schema for the export."',
+			'  specsesh change draft add-plan-export-ci --intent "Check \\"\\$PLAN\\" in \\`ci\\` \\\\ too."',
 		]);
-		expect(lines.at(-1)).toBe("  approve:  pnpm change approve add-plan-export");
+		expect(lines.at(-1)).toBe("  approve:  specsesh change approve add-plan-export");
 	});
 
 	it("lists no slices without them, or with this change alone", () => {
@@ -60,14 +60,14 @@ describe("formatDraftOutput", () => {
 
 	it("ends a question with it, then the answer command", () => {
 		const shown: DraftShown = { kind: "question", change, loop: 3, ran: true, approved: [], stage: "proposal", question: "CSV too?", drafts: [{ n: 1, issues: [] }], exitCode: 1 };
-		expect(formatDraftOutput(shown, context).slice(-2)).toEqual(["question: CSV too?", '  answer:   pnpm change draft add-plan-export "<answer>"']);
+		expect(formatDraftOutput(shown, context).slice(-2)).toEqual(["question: CSV too?", '  answer:   specsesh change draft add-plan-export "<answer>"']);
 		expect(shown.exitCode).toBe(1);
 	});
 
 	it("ends a drafted change with the build command, and says every stage is approved", () => {
 		const lines = formatDraftOutput({ kind: "drafted", change, ran: false, approved: ["proposal", "design", "specs", "tasks"], exitCode: 0 }, context);
 		expect(lines[0]).toBe("# add-plan-export — drafted: every stage is approved");
-		expect(lines.at(-1)).toBe("  next:     pnpm change build add-plan-export");
+		expect(lines.at(-1)).toBe("  next:     specsesh change build add-plan-export");
 	});
 
 	it("puts the header, then the approved stages, then the current stage's drafts with their issues", () => {
@@ -102,11 +102,11 @@ describe("formatDraftOutput", () => {
 	it("ends a failed or exhausted draft with its reason and the retry command", () => {
 		const failed = formatDraftOutput({ kind: "failed", change, loop: 4, ran: true, approved: [], status: "failed", reason: "model unavailable", stage: "specs", drafts: [], exitCode: 1 }, context);
 		expect(failed[0]).toBe("# add-plan-export — draft failed at the specs");
-		expect(failed.slice(-2)).toEqual(["reason: model unavailable", "  retry:    pnpm change draft add-plan-export"]);
+		expect(failed.slice(-2)).toEqual(["reason: model unavailable", "  retry:    specsesh change draft add-plan-export"]);
 
 		const exhausted = formatDraftOutput({ kind: "failed", change, loop: 5, ran: true, approved: [], status: "exhausted", reason: "exhausted", drafts: [], exitCode: 1 }, context);
 		expect(exhausted[0]).toBe("# add-plan-export — draft exhausted");
-		expect(exhausted.slice(-2)).toEqual(["", "  retry:    pnpm change draft add-plan-export"]);
+		expect(exhausted.slice(-2)).toEqual(["", "  retry:    specsesh change draft add-plan-export"]);
 	});
 });
 
@@ -131,7 +131,7 @@ describe("formatBuildOutput", () => {
 			"## change check: passed",
 			"",
 			"Changed: packages/plan/src/export.ts, packages/plan/src/cli.ts",
-			"pnpm change close add-plan-export",
+			"specsesh change close add-plan-export",
 		]);
 		expect(result.exitCode).toBe(0);
 	});
@@ -140,7 +140,7 @@ describe("formatBuildOutput", () => {
 		const lines = formatBuildOutput({ ...shown, ran: false, kind: "built", groups: [converged(1)], check: { passed: true }, exitCode: 0 });
 		expect(lines[0]).toBe("# add-plan-export — built");
 		expect(lines.join("\n")).not.toContain("Changed:");
-		expect(lines.at(-1)).toBe("pnpm change close add-plan-export");
+		expect(lines.at(-1)).toBe("specsesh change close add-plan-export");
 	});
 
 	it("ends a built change with the close command after the change check and the unclaimed scenarios, never spec:archive", () => {
@@ -154,7 +154,7 @@ describe("formatBuildOutput", () => {
 		});
 		expect(lines).toContain("## change check: passed");
 		expect(lines.indexOf("## unclaimed: 1")).toBeGreaterThan(lines.indexOf("## change check: passed"));
-		expect(lines.at(-1)).toBe("pnpm change close add-plan-export");
+		expect(lines.at(-1)).toBe("specsesh change close add-plan-export");
 		expect(lines.join("\n")).not.toContain("spec:archive");
 	});
 
@@ -171,13 +171,13 @@ describe("formatBuildOutput", () => {
 		};
 		const lines = formatBuildOutput(result);
 		expect(lines.slice(0, 3)).toEqual(["# add-plan-export — waiting for an answer", "## group 1: converged (4 tasks, 0 reworks)", "## group 2: blocked at 2.3"]);
-		expect(lines.slice(-2)).toEqual(["group 2 asks: Which API?", '  answer:  pnpm change build add-plan-export "<answer>"']);
+		expect(lines.slice(-2)).toEqual(["group 2 asks: Which API?", '  answer:  specsesh change build add-plan-export "<answer>"']);
 		expect(result.exitCode).toBe(1);
 	});
 
 	it("asks without a group when the build doesn't know it", () => {
 		const lines = formatBuildOutput({ ...shown, kind: "waiting", to: "principal", question: "Which API?", exitCode: 1 });
-		expect(lines.slice(-2)).toEqual(["question: Which API?", '  answer:  pnpm change build add-plan-export "<answer>"']);
+		expect(lines.slice(-2)).toEqual(["question: Which API?", '  answer:  specsesh change build add-plan-export "<answer>"']);
 	});
 
 	const onDisk = ["## MODIFIED Requirements", "", "### Requirement: Export writes JSON", "#### Scenario: Export writes JSON", "- **WHEN** `plan export p1` runs", "- **THEN** stdout SHALL be the plan as JSON", ""].join("\n");
@@ -220,8 +220,8 @@ describe("formatBuildOutput", () => {
 			"+- **THEN** stdout SHALL be the plan as JSON, with keys sorted",
 			"",
 			"group 2 asks: Amend the spec?",
-			"  amend:   pnpm change build add-plan-export --amend",
-			'  answer:  pnpm change build add-plan-export "<answer>"',
+			"  amend:   specsesh change build add-plan-export --amend",
+			'  answer:  specsesh change build add-plan-export "<answer>"',
 		]);
 		expect(result.exitCode).toBe(1);
 	});
@@ -246,7 +246,7 @@ describe("formatBuildOutput", () => {
 	it("prints a blocked build without an amendment as before, with no amend command", () => {
 		const { amendment: _amendment, ...without } = blocked({ question: "Which API?" }) as Extract<BuildShown, { kind: "waiting" }>;
 		const lines = formatBuildOutput(without);
-		expect(lines.slice(-3)).toEqual(["", "group 2 asks: Which API?", '  answer:  pnpm change build add-plan-export "<answer>"']);
+		expect(lines.slice(-3)).toEqual(["", "group 2 asks: Which API?", '  answer:  specsesh change build add-plan-export "<answer>"']);
 		expect(lines.join("\n")).not.toContain("--amend");
 		expect(lines.join("\n")).not.toContain("proposed amendment");
 	});
@@ -272,20 +272,20 @@ describe("formatBuildOutput", () => {
 			"## unclaimed: 1",
 			"   plan/export › Export writes JSON › An empty plan exports",
 			"",
-			"  retry:   pnpm change build add-plan-export",
+			"  retry:   specsesh change build add-plan-export",
 		]);
 	});
 
 	it("ends a failed build with its reason and the retry command", () => {
 		const lines = formatBuildOutput({ ...shown, kind: "failed", status: "failed", reason: "model unavailable", exitCode: 1 });
 		expect(lines[0]).toBe("# add-plan-export — failed");
-		expect(lines.slice(-2)).toEqual(["reason: model unavailable", "  retry:   pnpm change build add-plan-export"]);
+		expect(lines.slice(-2)).toEqual(["reason: model unavailable", "  retry:   specsesh change build add-plan-export"]);
 	});
 });
 
 describe("formatStaleApprovalRefusal", () => {
 	const refusal = "add-plan-export: approved files changed since they were approved; build refused";
-	const nextSteps = ["review it with: pnpm change draft add-plan-export", "then approve it again: pnpm change approve add-plan-export"];
+	const nextSteps = ["review it with: specsesh change draft add-plan-export", "then approve it again: specsesh change approve add-plan-export"];
 
 	it("names one changed delta between the refusal line and the next steps", () => {
 		expect(formatStaleApprovalRefusal(change, [{ stage: "specs", path: "specs/plan/export/spec.md", state: "changed" }])).toEqual([

@@ -10,7 +10,7 @@
  *   ready                   a new draft, fresh budget    refused, nothing waits
  *   drafted                 nothing starts, exit 0       refused, nothing waits
  *
- * Feedback that is `approve` is refused in every state, naming `pnpm change approve`.
+ * Feedback that is `approve` is refused in every state, naming `specsesh change approve`.
  *
  * Two halves, so every refusal comes before the database opens: `prepareDraft` checks
  * the arguments and reads the intent, touching nothing; `runDraft` writes `intent.md`
@@ -132,7 +132,7 @@ export function prepareDraft(args: DraftArgs, options: DraftPrepareOptions): Dra
 		return refused(`"${change}" is not a change id: give the directory name under ${shown(workspace, changesDir)}/`);
 	}
 	if (args.feedback !== undefined && isApproveFeedback(args.feedback)) {
-		return refused(`"approve" is not feedback; to approve the stage under review run: pnpm change approve ${change}`);
+		return refused(`"approve" is not feedback; to approve the stage under review run: specsesh change approve ${change}`);
 	}
 	if (args.intent !== undefined && args.intentFile !== undefined) return refused("give --intent or --intent-file, not both");
 	const changePath = shown(workspace, changeDir);

@@ -51,6 +51,9 @@ describe("change/cli draft output", () => {
 		expect(run.code).toBe(0);
 		expect(run.calls).toBe(0);
 		expect(run.out).toContain("design.md");
+		const [revise, approve] = tail(run.out, 2);
+		expect(revise).toContain(`specsesh change draft ${CHANGE} "<what to change>"`);
+		expect(approve).toContain(`specsesh change approve ${CHANGE}`);
 		expect(await loopsIn(db)).toEqual(before);
 		expect(await draftLoopsIn(db)).toEqual(drafts);
 	});
@@ -62,10 +65,10 @@ describe("change/cli draft output", () => {
 		expect(run.code).toBe(0);
 		expect(run.out.split("\n")[0]).toMatch(new RegExp(`^# ${CHANGE} — `));
 		const [revise, approve] = tail(run.out, 2);
-		expect(revise).toContain(`pnpm change draft ${CHANGE} "<what to change>"`);
-		expect(approve).toContain(`pnpm change approve ${CHANGE}`);
+		expect(revise).toContain(`specsesh change draft ${CHANGE} "<what to change>"`);
+		expect(approve).toContain(`specsesh change approve ${CHANGE}`);
 		expect(run.out.indexOf("proposal.md")).toBeGreaterThan(-1);
-		expect(run.out.indexOf("proposal.md")).toBeLessThan(run.out.indexOf(`pnpm change draft ${CHANGE} "<what to change>"`));
+		expect(run.out.indexOf("proposal.md")).toBeLessThan(run.out.indexOf(`specsesh change draft ${CHANGE} "<what to change>"`));
 		expect(run.out).not.toContain("pnpm task answer");
 		expect(run.out).not.toContain("--decision approve");
 	});
@@ -89,11 +92,11 @@ describe("change/cli draft output", () => {
 		expect(run.code).not.toBe(2);
 		expect([0, 1]).toContain(run.code);
 		expect(run.out).toContain("Sliced into 3 changes.");
-		const schema = run.out.indexOf('pnpm change draft add-plan-export-schema --intent "Publish the JSON Schema of the export. Follows add-plan-export."');
-		const ci = run.out.indexOf('pnpm change draft add-plan-export-ci --intent "Fail a PR whose plan export is invalid. Follows add-plan-export-schema."');
+		const schema = run.out.indexOf('specsesh change draft add-plan-export-schema --intent "Publish the JSON Schema of the export. Follows add-plan-export."');
+		const ci = run.out.indexOf('specsesh change draft add-plan-export-ci --intent "Fail a PR whose plan export is invalid. Follows add-plan-export-schema."');
 		expect(schema).toBeGreaterThan(-1);
 		expect(ci).toBeGreaterThan(schema);
-		expect(run.out).not.toContain(`pnpm change draft ${CHANGE} --intent`);
+		expect(run.out).not.toContain(`specsesh change draft ${CHANGE} --intent`);
 	});
 
 	it("Scenario: A question exits 1", async () => {
@@ -103,7 +106,7 @@ describe("change/cli draft output", () => {
 		expect(run.code).toBe(1);
 		const [question, answer] = tail(run.out, 2);
 		expect(question).toContain("CSV too?");
-		expect(answer).toContain(`pnpm change draft ${CHANGE} "<answer>"`);
+		expect(answer).toContain(`specsesh change draft ${CHANGE} "<answer>"`);
 	});
 
 	it("Scenario: A drafted change points at the next step", async () => {
@@ -115,7 +118,7 @@ describe("change/cli draft output", () => {
 		const run = await change(["draft", CHANGE], dir, [], stages);
 		expect(run.code).toBe(0);
 		expect(run.out.split("\n")[0]).toContain("drafted");
-		expect(tail(run.out, 1)[0]).toContain(`pnpm change build ${CHANGE}`);
+		expect(tail(run.out, 1)[0]).toContain(`specsesh change build ${CHANGE}`);
 		expect(run.out).not.toContain("--next-group");
 	});
 });
@@ -150,7 +153,7 @@ describe.skipIf(process.platform === "win32")("change/cli build output", () => {
 			expect(blocked.code).toBe(1);
 			const [question, answer] = tail(blocked.out, 2);
 			expect(question).toMatch(endsWith("Which API?"));
-			expect(answer).toMatch(endsWith(`pnpm change build ${CHANGE} "<answer>"`));
+			expect(answer).toMatch(endsWith(`specsesh change build ${CHANGE} "<answer>"`));
 			expect(blocked.out).not.toContain("--amend");
 		}, 120_000);
 
@@ -162,8 +165,8 @@ describe.skipIf(process.platform === "win32")("change/cli build output", () => {
 				expect(blocked.code).toBe(1);
 				const [question, amend, answer] = tail(blocked.out, 3);
 				expect(question).toMatch(endsWith("Amend the spec?"));
-				expect(amend).toMatch(endsWith(`pnpm change build ${CHANGE} --amend`));
-				expect(answer).toMatch(endsWith(`pnpm change build ${CHANGE} "<answer>"`));
+				expect(amend).toMatch(endsWith(`specsesh change build ${CHANGE} --amend`));
+				expect(answer).toMatch(endsWith(`specsesh change build ${CHANGE} "<answer>"`));
 			}, 120_000);
 		}
 
@@ -175,7 +178,7 @@ describe.skipIf(process.platform === "win32")("change/cli build output", () => {
 			expect(run.code).toBe(0);
 			expect(run.out.split("\n")[0]).toBe(`# ${CHANGE} — built`);
 			expect(run.out).toContain("## change check: passed");
-			expect(tail(run.out, 1)[0]).toBe(`pnpm change close ${CHANGE}`);
+			expect(tail(run.out, 1)[0]).toBe(`specsesh change close ${CHANGE}`);
 		}, 120_000);
 	});
 });

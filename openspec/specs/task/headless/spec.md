@@ -304,11 +304,21 @@ The repository root SHALL hold `agentscript.config.json` configuring this repo's
 - **AND** `delegates` SHALL be exactly `{ claude_code: { runner: "claude-code", model: "opus", allow: ["pnpm", "node"], context: ["CLAUDE.md"] } }`
 
 ### Requirement: The repo wires the runner in
-The root `package.json` SHALL have a `task` script running the built `agentscript-task` bin, so `pnpm task <change-id> <task-id>` works, and a `test:live` script running the live run. `.gitignore` SHALL list `.agentscript/`. `CLAUDE.md` SHALL have a section on running a task: the command, `--next`, `status`, answering an escalation, and that the runner never commits.
+The root `package.json` SHALL have a `task` script `node packages/specsesh/bin/specsesh.js task`, so `pnpm task <change-id> <task-id>` runs `specsesh task` with `run` implied, and a `test:live` script running the live run. `.gitignore` SHALL list `.agentscript/`. `CLAUDE.md` SHALL have a section on running a task: the command, `--next`, `status`, answering an escalation, and that the runner never commits.
 
 #### Scenario: The database directory is ignored
 - **WHEN** `.gitignore` is read
 - **THEN** it SHALL contain a line `.agentscript/`
+
+#### Scenario: pnpm task runs specsesh task
+- **WHEN** the root `package.json` is read
+- **THEN** `scripts.task` SHALL be `node packages/specsesh/bin/specsesh.js task`
+- **AND** `node packages/specsesh/bin/specsesh.js task status --db <missing>` SHALL print `no loops in <missing>` and exit `0`
+
+#### Scenario: The old task bin prints the specsesh usage
+- **GIVEN** a build of `packages/agent`
+- **WHEN** `node packages/agent/dist/bin/agentscript-task.js` runs with no arguments
+- **THEN** it SHALL exit `2` and stderr SHALL equal what `node packages/specsesh/bin/specsesh.js task` prints
 
 ### Requirement: An opt-in live run proves it works on this repo
 `pnpm test:live` SHALL copy the repo to a temp directory, commit it in a fresh git repository, add a fixture change `fixture-live-task` whose task `1.1` replaces a named stale comment and whose check asserts the new text, then run `agentscript-task run fixture-live-task 1.1` with the repo config. It is never part of `pnpm test`.

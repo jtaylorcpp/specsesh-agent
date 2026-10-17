@@ -7,10 +7,16 @@ checks) in a workspace you confine them to. On top of that sits an OpenSpec **ta
 works a change's tasks until the checks pass.
 
 ```bash
+# the command line: specsesh brings the Node peers with it
+npm install -g specsesh        # or run it without installing: npx specsesh --help
+# the library:
 npm install @specsesh/agent
 # then the peers for the layers you use, e.g. for durable runs on Node:
 npm install @earendil-works/pi-ai @earendil-works/pi-durable @earendil-works/chord
 ```
+
+Installing `@specsesh/agent` on its own, globally or not, gives bins that fail on import:
+pi-ai, pi-durable and chord are optional peers. For the command line, install `specsesh`.
 
 - [A script](#a-script)
 - [Run it once](#run-it-once) (CLI, or from code on any pi provider, or on your Claude subscription)
@@ -353,6 +359,7 @@ peer dependencies, so a consumer of the interpreter alone installs none of them.
 | `@specsesh/agent/cloudflare` | `AgentScriptHost`, a Durable Object class for a Worker to re-export (workerd only); `defineAgentHost<Env>(config)`, a Durable Object built from an `AgentConfig` on `AgentScriptHost`'s routes, whose POST body may name a `model`; `workersAI(binding, modelId)`, a model on the `AI` binding; the Sandbox and Artifacts workspace: `sandboxWorkspace(sandbox, { dir, secrets? })`, `artifactsSandboxWorkspace(artifacts, sandbox, { repo, fork, dir })` and the types `SandboxLike` and `ArtifactsLike`. Its only runner is `agent`, so a `claude-code` grant is refused | the durable peers and `agents` |
 | `@specsesh/agent/openspec` | The OpenSpec ontology: typed schemas for a change, its lifecycle steps, its execution loops and their evidence | none (uses the `typebox` dependency) |
 | `@specsesh/agent/task` | The task and group loops (`startTaskLoop`, `startGroupLoop`, `answerEscalation`, …), `taskLoopExtensions`, the CI test picker `pickTests`, and the bundled `task.agent`, `task-delegate.agent`, `group.agent` and `ci-test-pick.agent` (Node only) | the durable peers |
+| `@specsesh/agent/cli` | `main(argv)`, the dispatcher behind `specsesh agent\|durable\|task\|change`, which resolves to the exit code, and its `USAGE` (Node only) | `@earendil-works/pi-ai`, `@earendil-works/pi-durable`, `@earendil-works/chord` |
 
 The authoring, interpreter and openspec entries run on Node and on Workers.
 
@@ -434,6 +441,13 @@ no files and runs no loop.
   `ReviewEvidence`, `Finding`; `satisfies(target, evidence)`.
 
 ## Command-line tools
+
+To run the CLI, use `npx specsesh <command>` (for example `npx specsesh change build <change>`),
+or `npm install --save-dev specsesh`, which installs the Node peers as ordinary dependencies. See
+[`specsesh`](https://www.npmjs.com/package/specsesh).
+
+The four bins below are the lower-level tools behind it. They are only available when
+`@specsesh/agent` is installed with its optional peers; `npx @specsesh/agent` doesn't work.
 
 - `agentscript-pi run <file> [--provider <id>] [--model <id>] [--entry <subagent>]... [--var name=value]... [--json]`
   runs a script once, on any pi provider or with `--provider claude-code`; `agentscript-pi models [provider]`

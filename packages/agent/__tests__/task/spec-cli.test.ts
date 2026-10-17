@@ -41,7 +41,7 @@ const PROPOSAL_BUNDLE = "=== proposal.md\n# A proposal\n";
 describe("spec", () => {
 	it("Scenario: A new change starts at the proposal", async () => {
 		const run = await spec(["add-plan-export", "--intent", "Export a plan"], { responses: [draft(PROPOSAL_BUNDLE)] });
-		expect(run.err.split("\n")[0]).toMatch(/^loop \d+ — resume with: agentscript-task resume \d+ --db /);
+		expect(run.err.split("\n")[0]).toMatch(/^loop \d+ — resume with: specsesh task resume \d+ --db /);
 		expect(run.code).toBe(0);
 		const changeDir = join(run.dir, "openspec", "changes", "add-plan-export");
 		expect(readFileSync(join(changeDir, "intent.md"), "utf8")).toBe("Export a plan");
@@ -71,8 +71,8 @@ describe("spec", () => {
 		const id = /^# spec loop (\d+)/.exec(run.out)?.[1];
 		expect(run.out.split("\n").slice(-3)).toEqual([
 			"Review openspec/changes/add-plan-export/proposal.md, then:",
-			`  approve:  pnpm task answer ${id} --by principal --decision approve`,
-			`  revise:   pnpm task answer ${id} --by principal --decision "<what to change>"`,
+			`  approve:  specsesh task answer ${id} --by principal --decision approve`,
+			`  revise:   specsesh task answer ${id} --by principal --decision "<what to change>"`,
 		]);
 	});
 
@@ -83,7 +83,7 @@ describe("spec", () => {
 		recordApproval(changeDir, stage, { principal: "jesse", notes: "", at: new Date().toISOString() }, [stage]);
 		const run = await spec(["add-plan-export"], { dir });
 		expect(run.code).toBe(0);
-		expect(run.out).toBe("Every stage of add-plan-export is approved. Execute it: pnpm task add-plan-export --next-group");
+		expect(run.out).toBe("Every stage of add-plan-export is approved. Execute it: specsesh task add-plan-export --next-group");
 	});
 
 	it("reruns an approved stage whose file changed", async () => {
@@ -125,6 +125,15 @@ describe("spec", () => {
 		expect(events[3]).toMatchObject({ status: "blocked", drafts: 1, approved: false });
 	});
 
+	it("Scenario: The spec resume hint names specsesh task", async () => {
+		const run = await spec(["add-plan-export", "--intent", "Export a plan"], { responses: [draft(PROPOSAL_BUNDLE)] });
+		expect(run.err.split("\n")[0]).toMatch(/^loop \d+ — resume with: specsesh task resume \d+ --db /);
+		for (const text of [run.out, run.err]) {
+			expect(text).not.toContain("agentscript-task");
+			expect(text).not.toContain("pnpm task");
+		}
+	});
+
 	it("writes --intent-file's words verbatim", async () => {
 		const dir = temp("spec-cli-");
 		writeFileSync(join(dir, "why.md"), "Export a plan\n\nso CI can read it.\n");
@@ -150,8 +159,8 @@ describe("formatSpecOutcome and specExitCode", () => {
 
 	it("ends a review with both commands for its loop", () => {
 		expect(formatSpecOutcome(review, context).slice(-2)).toEqual([
-			"  approve:  pnpm task answer 12 --by principal --decision approve",
-			'  revise:   pnpm task answer 12 --by principal --decision "<what to change>"',
+			"  approve:  specsesh task answer 12 --by principal --decision approve",
+			'  revise:   specsesh task answer 12 --by principal --decision "<what to change>"',
 		]);
 	});
 
@@ -159,10 +168,10 @@ describe("formatSpecOutcome and specExitCode", () => {
 		expect(formatSpecOutcome(approved, { ...context, loop: 13, principal: "jesse", nextStage: "design" })).toEqual([
 			"# spec loop 13 — converged (approved)",
 			"proposal approved by jesse.",
-			"Next: pnpm task spec add-plan-export",
+			"Next: specsesh task spec add-plan-export",
 		]);
 		expect(formatSpecOutcome(approved, { ...context, principal: "jesse" }).at(-1)).toBe(
-			"Every stage of add-plan-export is approved. Execute it: pnpm task add-plan-export --next-group",
+			"Every stage of add-plan-export is approved. Execute it: specsesh task add-plan-export --next-group",
 		);
 	});
 
@@ -189,13 +198,34 @@ describe("formatSpecOutcome and specExitCode", () => {
 		expect(lines).toEqual([
 			"# spec loop 14 — converged (approved)",
 			"proposal approved by jesse.",
-			"Next: pnpm task spec add-plan-export",
+			"Next: specsesh task spec add-plan-export",
 			"",
 			"Sliced into 3 changes. Start the others when you're ready:",
-			'  pnpm task spec add-plan-export-schema --intent "Publish the JSON Schema of the export. Follows add-plan-export."',
-			'  pnpm task spec add-plan-export-ci --intent "A GitHub Action that fails a PR whose plan export is invalid. Follows add-plan-export-schema."',
+			'  specsesh task spec add-plan-export-schema --intent "Publish the JSON Schema of the export. Follows add-plan-export."',
+			'  specsesh task spec add-plan-export-ci --intent "A GitHub Action that fails a PR whose plan export is invalid. Follows add-plan-export-schema."',
 		]);
-		expect(lines.some((line) => line.startsWith("  pnpm task spec add-plan-export --intent"))).toBe(false);
+		expect(lines.some((line) => line.startsWith("  specsesh task spec add-plan-export --intent"))).toBe(false);
+	});
+
+	it("names neither agentscript-task nor pnpm task in any ending", () => {
+		const question: LoopOutcome<StageOutcome> = {
+			status: "blocked",
+			iterations: [],
+			escalation: { level: "task", to: "agent", reason: "question", question: "Which format?" },
+		};
+		const slices = [
+			{ id: "add-plan-export", intent: "First." },
+			{ id: "add-plan-export-schema", intent: "Second." },
+		];
+		const text = [
+			formatSpecOutcome(review, context),
+			formatSpecOutcome(question, context),
+			formatSpecOutcome(approved, { ...context, nextStage: "design", slices }),
+			formatSpecOutcome(approved, context),
+		].flat().join("\n");
+		expect(text).toContain(`  answer:   specsesh task answer 12 --by agent --decision "<your answer>"`);
+		expect(text).not.toContain("agentscript-task");
+		expect(text).not.toContain("pnpm task");
 	});
 
 	it("escapes quotes, backslashes, dollars and backticks in a slice's intent", () => {
@@ -204,12 +234,12 @@ describe("formatSpecOutcome and specExitCode", () => {
 			{ id: "add-plan-export-schema", intent: 'Say "hi" to $HOME, `pwd` and \\n.' },
 		];
 		expect(formatSpecOutcome(approved, { ...context, nextStage: "design", slices }).at(-1)).toBe(
-			'  pnpm task spec add-plan-export-schema --intent "Say \\"hi\\" to \\$HOME, \\`pwd\\` and \\\\n."',
+			'  specsesh task spec add-plan-export-schema --intent "Say \\"hi\\" to \\$HOME, \\`pwd\\` and \\\\n."',
 		);
 	});
 
 	it("prints nothing extra without slices.md, or with a malformed one", () => {
-		const expected = ["# spec loop 12 — converged (approved)", "proposal approved by jesse.", "Next: pnpm task spec add-plan-export"];
+		const expected = ["# spec loop 12 — converged (approved)", "proposal approved by jesse.", "Next: specsesh task spec add-plan-export"];
 		const stages = [stage, { ...stage, name: "design" }];
 		const plain = approvedChange();
 		expect(formatSpecOutcome(approved, { ...context, ...after(approved, stages, plain) })).toEqual(expected);
@@ -223,7 +253,7 @@ describe("formatSpecOutcome and specExitCode", () => {
 			{ id: "add-plan-export-schema", intent: "Second." },
 		];
 		const design = { ...approved, result: { ...approved.result, stage: "design" } };
-		expect(formatSpecOutcome(design, { ...context, nextStage: "specs", slices }).at(-1)).toBe("Next: pnpm task spec add-plan-export");
+		expect(formatSpecOutcome(design, { ...context, nextStage: "specs", slices }).at(-1)).toBe("Next: specsesh task spec add-plan-export");
 	});
 
 	it("Scenario: A spec loop waiting for review exits 0", () => {

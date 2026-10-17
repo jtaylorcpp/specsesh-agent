@@ -183,7 +183,7 @@ describe("task/cmd-draft", () => {
 		});
 	});
 
-	it("refuses approve as feedback at a review, naming pnpm change approve, and answers nothing", async () => {
+	it("refuses approve as feedback at a review, naming specsesh change approve, and answers nothing", async () => {
 		await session(async ({ workspace, changeDir, env, harness, draft: run }) => {
 			const first = await run({ intent: "Export a plan" }, [draft("=== proposal.md\n## Why\n")]);
 			const approvals = join(changeDir, "approvals.json");
@@ -192,7 +192,7 @@ describe("task/cmd-draft", () => {
 
 			const result = await run({ feedback: " Approve " });
 			expect(result).toMatchObject({ kind: "refused", exitCode: 2, loops: [] });
-			expect((result as { message: string }).message).toContain(`pnpm change approve ${CHANGE}`);
+			expect((result as { message: string }).message).toContain(`specsesh change approve ${CHANGE}`);
 			expect(existsSync(approvals) ? readFileSync(approvals) : undefined).toEqual(before);
 			expect(env.requests.length).toBe(calls);
 			const state = await changeState(harness, { change: CHANGE, changesDir: join(workspace, "openspec", "changes"), stages }, context);

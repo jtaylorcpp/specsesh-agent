@@ -132,7 +132,7 @@ describe("task/cli: groups through the built bin", () => {
 		const id = /^loop (\d+) — resume with: /.exec(blocked.stderr)?.[1];
 		expect(id, blocked.stderr).toBeDefined();
 		expect(lines(blocked.stdout).at(-1)).toBe(
-			`agentscript-task answer ${id} --db ${join(repo, ".agentscript", "task-loops.sqlite")} --by principal --decision "…"`,
+			`specsesh task answer ${id} --db ${join(repo, ".agentscript", "task-loops.sqlite")} --by principal --decision "…"`,
 		);
 
 		const wrong = await spawnBin(["answer", id!, "--by", "agent", "--decision", "go"], { cwd: repo, bin });

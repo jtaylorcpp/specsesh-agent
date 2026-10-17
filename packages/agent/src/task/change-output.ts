@@ -29,8 +29,8 @@
  *
  *   <change>: approved files changed since they were approved; build refused
  *     <stage>: <path> (changed|missing)              one per file, in stage then path order
- *   review it with: pnpm change draft <change>
- *   then approve it again: pnpm change approve <change>
+ *   review it with: specsesh change draft <change>
+ *   then approve it again: specsesh change approve <change>
  *
  * Pure: it prints nothing and reads nothing. The exit code is the result's own.
  */
@@ -56,15 +56,18 @@ export interface DraftOutputContext {
 /** `s` in double quotes, with `"`, `\`, `$` and `` ` `` escaped, so the printed command pastes safely. */
 const shellQuote = (s: string) => `"${s.replace(/["\\$`]/g, "\\$&")}"`;
 
-export const reviseCmd = (change: string) => `pnpm change draft ${change} "<what to change>"`;
-export const approveCmd = (change: string) => `pnpm change approve ${change}`;
-export const answerCmd = (change: string) => `pnpm change draft ${change} "<answer>"`;
-export const buildCmd = (change: string) => `pnpm change build ${change}`;
-export const buildAnswerCmd = (change: string) => `pnpm change build ${change} "<answer>"`;
-export const buildAmendCmd = (change: string) => `pnpm change build ${change} --amend`;
-export const closeCmd = (change: string) => `pnpm change close ${change}`;
-export const retryCmd = (change: string) => `pnpm change draft ${change}`;
-export const sliceCmd = (slice: { readonly id: string; readonly intent: string }) => `pnpm change draft ${slice.id} --intent ${shellQuote(slice.intent)}`;
+/** The command every hint starts with. */
+const CHANGE_CMD = "specsesh change";
+
+export const reviseCmd = (change: string) => `${CHANGE_CMD} draft ${change} "<what to change>"`;
+export const approveCmd = (change: string) => `${CHANGE_CMD} approve ${change}`;
+export const answerCmd = (change: string) => `${CHANGE_CMD} draft ${change} "<answer>"`;
+export const buildCmd = (change: string) => `${CHANGE_CMD} build ${change}`;
+export const buildAnswerCmd = (change: string) => `${CHANGE_CMD} build ${change} "<answer>"`;
+export const buildAmendCmd = (change: string) => `${CHANGE_CMD} build ${change} --amend`;
+export const closeCmd = (change: string) => `${CHANGE_CMD} close ${change}`;
+export const retryCmd = (change: string) => `${CHANGE_CMD} draft ${change}`;
+export const sliceCmd = (slice: { readonly id: string; readonly intent: string }) => `${CHANGE_CMD} draft ${slice.id} --intent ${shellQuote(slice.intent)}`;
 
 const plural = (k: number) => `${k} issue${k === 1 ? "" : "s"}`;
 

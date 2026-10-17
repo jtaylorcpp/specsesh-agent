@@ -41,7 +41,7 @@ export function parseVar(raw: string): [string, VariableValue] {
 	return [name, value];
 }
 
-async function main(argv: string[]): Promise<number> {
+export async function main(argv: string[]): Promise<number> {
 	const [command, ...rest] = argv;
 	const models = builtinModels();
 

@@ -16,15 +16,15 @@ afterEach(cleanTemps);
 
 // One line per command, word for word from the scenario.
 const BUILD_USAGE =
-	"agentscript-change build <change> [<answer>|--amend] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]";
+	"specsesh change build <change> [<answer>|--amend] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]";
 const USAGE_LINES = [
-	"agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]",
-	"agentscript-change approve <change> [--principal <name>] [--db <path>]",
+	"specsesh change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]",
+	"specsesh change approve <change> [--principal <name>] [--db <path>]",
 	BUILD_USAGE,
-	"agentscript-change close <change> [--db <path>]",
+	"specsesh change close <change> [--db <path>]",
 ];
 /** The `build` line before `--amend`: a usage text still carrying it is stale. */
-const STALE_BUILD_USAGE = "agentscript-change build <change> [--change-check <command>]";
+const STALE_BUILD_USAGE = "specsesh change build <change> [--change-check <command>]";
 
 describe("change/cli usage", () => {
 	it("Scenario: No command prints usage", async () => {
@@ -40,7 +40,7 @@ describe("change/cli usage", () => {
 		const { dir } = workspace();
 		const run = await change(["frobnicate", CHANGE], dir);
 		expect(run.code).toBe(2);
-		expect(run.err).toContain("usage:");
+		expect(run.err.startsWith("usage:")).toBe(true);
 		// Both paths print the one usage text.
 		expect(run.err).toContain(BUILD_USAGE);
 	});

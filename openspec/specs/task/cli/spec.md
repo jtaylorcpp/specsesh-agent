@@ -57,11 +57,11 @@ When `startTaskLoop` or `startGroupLoop` rejects (an unreadable source, a missin
 - **THEN** stderr SHALL contain `9` and `1`, and the exit code SHALL be `2`
 
 ### Requirement: run prints the loop id before any model call
-Immediately after the loop task is created and before the harness resumes, `run` SHALL print to stderr exactly `loop <id> — resume with: agentscript-task resume <id> --db <path>`.
+Immediately after the loop task is created and before the harness resumes, `run` SHALL print to stderr exactly `loop <id> — resume with: specsesh task resume <id> --db <path>`.
 
 #### Scenario: The resume hint is the first stderr line
 - **WHEN** the CLI runs a loop
-- **THEN** stderr SHALL match `^loop \d+ — resume with: agentscript-task resume \d+ --db `
+- **THEN** stderr SHALL match `^loop \d+ — resume with: specsesh task resume \d+ --db `
 
 ### Requirement: resume continues a stored loop without the change files
 `resume <loop-id>` SHALL take the database from `--db`, else the config's `db`, wait for the stored task loop or group loop and read no change file. A loop id that is not an integer or is not in the database MUST print `no loop <id> in <path>` and exit `2`.
@@ -84,7 +84,7 @@ Immediately after the loop task is created and before the harness resumes, `run`
 - **THEN** the exit code SHALL be `2` and the loop SHALL stay blocked
 
 ### Requirement: Text output reports each iteration and the outcome
-Without `--json`, the CLI SHALL print `# loop <id> — <status>`, then per iteration `## iteration <n>: <met|unmet>` followed by its unmet summary when not met, then the escalation's `to` and `question` when blocked, or `ticked: <true|false>` when converged. A blocked outcome SHALL end with the exact resume command, `agentscript-task answer <loop> --db <path> --by <to> --decision "…"`.
+Without `--json`, the CLI SHALL print `# loop <id> — <status>`, then per iteration `## iteration <n>: <met|unmet>` followed by its unmet summary when not met, then the escalation's `to` and `question` when blocked, or `ticked: <true|false>` when converged. A blocked outcome SHALL end with the exact resume command, `specsesh task answer <loop> --db <path> --by <to> --decision "…"`.
 
 #### Scenario: A converged loop prints its iterations and ticked
 - **WHEN** a loop converges on iteration 2 with tasks.md from the change directory
@@ -93,7 +93,7 @@ Without `--json`, the CLI SHALL print `# loop <id> — <status>`, then per itera
 #### Scenario: A blocked loop ends with the answer command
 - **GIVEN** loop `7` in `loops.sqlite` blocked with an escalation to `"principal"`
 - **WHEN** the text outcome is printed
-- **THEN** its last line SHALL be `agentscript-task answer 7 --db loops.sqlite --by principal --decision "…"`
+- **THEN** its last line SHALL be `specsesh task answer 7 --db loops.sqlite --by principal --decision "…"`
 
 ### Requirement: JSON output is the loop id merged with the outcome
 With `--json`, the CLI SHALL print `JSON.stringify({ loop: id, ...outcome }, null, 2)` to stdout, where `outcome` is the `LoopOutcome<TaskOutcome>` of a task loop or the `LoopOutcome<GroupOutcome>` of a group loop.
@@ -107,7 +107,7 @@ With `--json`, the CLI SHALL print `JSON.stringify({ loop: id, ...outcome }, nul
 - **THEN** stdout SHALL parse as JSON with an integer `loop`, a `status` and a `result.tasks` array with one entry per task
 
 ### Requirement: The CLI has five commands and prints usage otherwise
-`agentscript-task` SHALL accept `run`, `spec`, `resume`, `answer` or `status` as its first argument. Any other first argument, or none, MUST print usage to stderr and exit `2`. The usage MUST begin with `usage:` and give one line per command, as the scenario "No command prints usage" lists them.
+`agentscript-task`, and `specsesh task`, which runs it, SHALL accept `run`, `spec`, `resume`, `answer` or `status` as its first argument. Any other first argument, or none, MUST print usage to stderr and exit `2`. The usage MUST begin with `usage:` and give one `specsesh task` line per command, as the scenario "No command prints usage" lists them.
 
 #### Scenario: An unknown command prints usage
 - **WHEN** the CLI runs with `frobnicate`
@@ -116,7 +116,7 @@ With `--json`, the CLI SHALL print `JSON.stringify({ loop: id, ...outcome }, nul
 #### Scenario: No command prints usage
 - **WHEN** the CLI runs with no arguments
 - **THEN** stderr SHALL begin with `usage:` and the exit code SHALL be `2`
-- **AND** stderr SHALL list `agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]`, `agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]`, `agentscript-task resume <loop-id>|--all [--db <path>] [--json]`, `agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]` and `agentscript-task status [--db <path>]`
+- **AND** stderr SHALL list `specsesh task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]`, `specsesh task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]`, `specsesh task resume <loop-id>|--all [--db <path>] [--json]`, `specsesh task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]` and `specsesh task status [--db <path>]`
 
 #### Scenario: status is a command
 - **WHEN** the CLI runs `status`
@@ -190,7 +190,7 @@ With `--next-group`, `run` SHALL select the first `## <n>.` group of `tasks.md`,
 - **THEN** it SHALL start a group loop for group `2`
 
 ### Requirement: Text output for a group lists its tasks and the group check
-Without `--json`, a group loop SHALL print `# group loop <id> — <status>`, then per task `## task <id>: <status> (runs <n>)`, then `## group check: passed` or `## group check: failed` for its last round, then, when blocked, the escalation's `to` and `question` and the exact `agentscript-task answer <loop> --db <path> --by <to> --decision "…"` command as its last line.
+Without `--json`, a group loop SHALL print `# group loop <id> — <status>`, then per task `## task <id>: <status> (runs <n>)`, then `## group check: passed` or `## group check: failed` for its last round, then, when blocked, the escalation's `to` and `question` and the exact `specsesh task answer <loop> --db <path> --by <to> --decision "…"` command as its last line.
 
 #### Scenario: A converged group prints its tasks
 - **WHEN** a group loop converges with `1.1` run twice and `1.2` once
@@ -238,20 +238,20 @@ Without `--json`, a group loop SHALL print `# group loop <id> — <status>`, the
 - **THEN** `approvals.json` SHALL record `principal` `jesse`
 
 ### Requirement: Text output for a spec loop ends with the next step
-The text output SHALL start `# spec loop <id> — <status>`, then one line per draft: `## <stage> draft <n>: clean` or `: <k> issues`, each issue below it. A review SHALL end with the files' paths and the approve and revise commands for that loop. An approval SHALL end with the next stage's `spec` command or, when none remains, `pnpm task <change> --next-group`; an approved proposal with `slices.md` SHALL then list a `spec <id> --intent "<intent>"` command per later slice, in order.
+The text output SHALL start `# spec loop <id> — <status>`, then one line per draft: `## <stage> draft <n>: clean` or `: <k> issues`, each issue below it. A review SHALL end with the files' paths and the approve and revise commands for that loop. An approval SHALL end with the next stage's `spec` command or, when none remains, `specsesh task <change> --next-group`; an approved proposal with `slices.md` SHALL then list a `spec <id> --intent "<intent>"` command per later slice, in order.
 
 #### Scenario: A review prints both commands
 - **WHEN** loop `12` ends waiting for review of `proposal.md`
-- **THEN** the output SHALL end with `pnpm task answer 12 --by principal --decision approve` and `pnpm task answer 12 --by principal --decision "<what to change>"`
+- **THEN** the output SHALL end with `specsesh task answer 12 --by principal --decision approve` and `specsesh task answer 12 --by principal --decision "<what to change>"`
 
 #### Scenario: The last approval points at execution
 - **WHEN** the last stage in `SPEC_STAGES` of `add-plan-export` is approved
-- **THEN** the output SHALL end with `pnpm task add-plan-export --next-group`
+- **THEN** the output SHALL end with `specsesh task add-plan-export --next-group`
 
 #### Scenario: Approving a sliced proposal lists the other slices
 - **GIVEN** `slices.md` with `add-plan-export`, `add-plan-export-schema` and `add-plan-export-ci`
 - **WHEN** the proposal is approved
-- **THEN** the output SHALL list `pnpm task spec add-plan-export-schema --intent "…"` then `pnpm task spec add-plan-export-ci --intent "…"`, each with its slice's intent
+- **THEN** the output SHALL list `specsesh task spec add-plan-export-schema --intent "…"` then `specsesh task spec add-plan-export-ci --intent "…"`, each with its slice's intent
 
 ### Requirement: resume --all resumes each interrupted loop once through its root
 `resume --all` SHALL take `<db>.lock` once and resume every `interrupted` loop (`task/headless`) through its root. The root is the outermost still-running loop up its parent links (task → group → change), or the loop itself when its parent has ended. Roots SHALL resume once each, one after another, in stored start-time order with loop id as tie-break. Each resumes as `resume <loop-id>` would, worktree and stderr progress events included. A refused root SHALL NOT stop the batch.
@@ -273,7 +273,7 @@ The text output SHALL start `# spec loop <id> — <status>`, then one line per d
 #### Scenario: A blocked root ends with the answer command
 - **GIVEN** interrupted group loop `13` of `add-plan-export` group `1` holding interrupted task loop `14`, in `.agentscript/task-loops.sqlite`
 - **WHEN** `resume --all` resumes it and it ends blocked to `principal`
-- **THEN** stdout SHALL contain `loop 13 add-plan-export group 1 (via 14) — blocked: agentscript-task answer 13 --db .agentscript/task-loops.sqlite --by principal --decision "…"` and the exit code SHALL be `1`
+- **THEN** stdout SHALL contain `loop 13 add-plan-export group 1 (via 14) — blocked: specsesh task answer 13 --db .agentscript/task-loops.sqlite --by principal --decision "…"` and the exit code SHALL be `1`
 
 #### Scenario: Nothing to resume
 - **GIVEN** `.agentscript/task-loops.sqlite` with no interrupted loop
@@ -290,3 +290,19 @@ The text output SHALL start `# spec loop <id> — <status>`, then one line per d
 #### Scenario: --json with --all is refused
 - **WHEN** the CLI runs `resume --all --json`
 - **THEN** stderr SHALL contain `--json is not supported with --all` followed by usage, and the exit code SHALL be `2`
+
+### Requirement: Task hints name specsesh task
+Every command line the task CLI prints for a person to run SHALL begin `specsesh task`: the resume hints of `run`, `spec`, `resume` and `answer` (`loop <id> — resume with: specsesh task resume <id> --db <path>`), the answer commands of a blocked task, group or spec loop, and the spec loop's next-step lines. No usage, refusal, hint or next-step line SHALL contain `agentscript-task` or `pnpm task`.
+
+#### Scenario: The spec resume hint names specsesh task
+- **WHEN** `spec add-plan-export --intent "Export a plan"` starts a spec loop
+- **THEN** stderr SHALL contain a line matching `^loop \d+ — resume with: specsesh task resume \d+ --db `
+
+#### Scenario: A blocked group ends with the specsesh answer command
+- **GIVEN** a group loop `9` that ends blocked, escalated to `principal`
+- **WHEN** its text output is printed with database `loops.sqlite`
+- **THEN** its last line SHALL be `specsesh task answer 9 --db loops.sqlite --by principal --decision "…"`
+
+#### Scenario: The task usage names no old command
+- **WHEN** the CLI runs with no arguments
+- **THEN** stderr SHALL contain neither `agentscript-task` nor `pnpm task`
