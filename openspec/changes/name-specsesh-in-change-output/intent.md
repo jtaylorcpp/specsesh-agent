@@ -1,0 +1,1 @@
+The change CLI's usage, refusals and next-command lines name `specsesh change …` instead of `agentscript-change …` and `pnpm change …`, and this repository's `pnpm change` runs `specsesh change`. Follows add-specsesh-command (slice 4 of its slices.md); the `agentscript-change` bin keeps working.

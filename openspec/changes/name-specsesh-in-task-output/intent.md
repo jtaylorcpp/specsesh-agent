@@ -1,0 +1,1 @@
+The task CLI's usage, resume hints and next-step lines name `specsesh task …` instead of `agentscript-task …` and `pnpm task …`, and this repository's `pnpm task` runs `specsesh task`. Follows name-specsesh-in-change-output (slice 5 of add-specsesh-command's slices.md); the `agentscript-task` bin keeps working.
