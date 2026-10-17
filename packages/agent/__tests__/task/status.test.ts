@@ -185,11 +185,11 @@ describe("task/cli: The CLI has five commands and prints usage otherwise", () =>
 	it("Scenario: No command prints usage", async () => {
 		const r = await cli([]);
 		expect(r.err.startsWith("usage:")).toBe(true);
-		expect(r.err).toContain("agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]");
-		expect(r.err).toContain("agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]");
-		expect(r.err).toContain("agentscript-task resume <loop-id>|--all [--db <path>] [--json]");
-		expect(r.err).toContain("agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]");
-		expect(r.err).toContain("agentscript-task status [--db <path>]");
+		expect(r.err).toContain("specsesh task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]");
+		expect(r.err).toContain("specsesh task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]");
+		expect(r.err).toContain("specsesh task resume <loop-id>|--all [--db <path>] [--json]");
+		expect(r.err).toContain("specsesh task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]");
+		expect(r.err).toContain("specsesh task status [--db <path>]");
 		expect(r.code).toBe(2);
 	});
 

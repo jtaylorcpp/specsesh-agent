@@ -1,9 +1,9 @@
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { loadConfig, resolveRunSettings } from "../../src/task/config.js";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
@@ -37,27 +37,42 @@ describe("task/headless: This repo ships a config for its own tasks", () => {
 });
 
 describe("task/headless: The repo wires the runner in", () => {
+	// Both bins run from packages/agent/dist.
+	beforeAll(() => {
+		if (!existsSync(join(REPO, "packages", "agent", "dist", "bin", "agentscript-task.js"))) {
+			execFileSync("pnpm", ["--filter", "@specsesh/agent", "build"], { cwd: REPO, stdio: "inherit" });
+		}
+	}, 120_000);
+
 	it("Scenario: The database directory is ignored", () => {
 		const lines = readFileSync(join(REPO, ".gitignore"), "utf8").split("\n");
 		expect(lines).toContain(".agentscript/");
 	});
 
-	it("the root scripts run the built bin, with run implied", () => {
+	it("Scenario: pnpm task runs specsesh task", () => {
 		const scripts = (JSON.parse(readFileSync(join(REPO, "package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
-		expect(scripts["task"]).toBe("node scripts/task.mjs");
-		expect(scripts["test:live"]).toBe("pnpm --filter @specsesh/agent test:live");
-		const dir = mkdtempSync(join(tmpdir(), "task-wrapper-"));
+		expect(scripts["task"]).toBe("node packages/specsesh/bin/specsesh.js task");
+		const dir = mkdtempSync(join(tmpdir(), "task-script-"));
 		try {
-			const wrapper = join(REPO, "scripts", "task.mjs");
-			const status = spawnSync(process.execPath, [wrapper, "status", "--db", join(dir, "none.sqlite")], { cwd: dir, encoding: "utf8" });
-			expect(status.stdout.trim()).toBe(`no loops in ${join(dir, "none.sqlite")}`);
-			// `<change> <task>` becomes `run <change> <task>`: here refused for its missing database, by run's usage.
-			const run = spawnSync(process.execPath, [wrapper, "some-change", "1.1"], { cwd: dir, encoding: "utf8" });
-			expect(run.status).toBe(2);
-			expect(run.stderr).toContain("run needs --db");
+			const missing = join(dir, "missing.sqlite");
+			const status = spawnSync(process.execPath, ["packages/specsesh/bin/specsesh.js", "task", "status", "--db", missing], { cwd: REPO, encoding: "utf8" });
+			expect(status.status).toBe(0);
+			expect(status.stdout.trim()).toBe(`no loops in ${missing}`);
+			expect(existsSync(missing)).toBe(false);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("Scenario: The old task bin prints the specsesh usage", () => {
+		const old = spawnSync(process.execPath, ["packages/agent/dist/bin/agentscript-task.js"], { cwd: REPO, encoding: "utf8" });
+		const specsesh = spawnSync(process.execPath, ["packages/specsesh/bin/specsesh.js", "task"], { cwd: REPO, encoding: "utf8" });
+		expect(old.status, old.stderr).toBe(2);
+		expect(specsesh.status, specsesh.stderr).toBe(2);
+		expect(old.stderr).toBe(specsesh.stderr);
+		expect(old.stderr).toMatch(/^usage:/);
+		expect(old.stderr).not.toContain("agentscript-task");
+		expect(old.stderr).not.toContain("pnpm task");
 	});
 
 	it("CLAUDE.md says how to run a task", () => {

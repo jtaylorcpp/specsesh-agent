@@ -118,15 +118,18 @@ export { DEFAULT_MODEL, DEFAULT_PROVIDER };
 export const DIRTY_LISTED = 20;
 
 const USAGE = `usage:
-  agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]
+  specsesh task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]
       options: --script <name|path>  --workspace <dir>  --check <command>...  --allow <word>...
                --max-iterations <n>  --escalate-to principal|agent  --provider <id>  --model <id>
                --allow-dirty  --worktree  --json
                --no-delegates   withdraw every delegate grant for this run
-  agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
-  agentscript-task resume <loop-id>|--all [--db <path>] [--json]
-  agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]
-  agentscript-task status [--db <path>]`;
+  specsesh task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
+  specsesh task resume <loop-id>|--all [--db <path>] [--json]
+  specsesh task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]
+  specsesh task status [--db <path>]`;
+
+/** The stderr line printed as soon as a loop exists, before the harness resumes it. */
+const resumeHint = (id: number | string, db: string) => `loop ${id} — resume with: specsesh task resume ${id} --db ${db}`;
 
 export interface CliDeps {
 	/** The pi-ai model collection. Defaults to every built-in provider plus claude-code. */
@@ -160,7 +163,7 @@ export function formatGroupOutcome(id: number | string, outcome: LoopOutcome<Gro
 	if (last !== undefined) lines.push(`## group check: ${last.verdict.met ? "passed" : "failed"}`);
 	if (outcome.status === "blocked") {
 		lines.push(`to: ${outcome.escalation.to}`, `question: ${outcome.escalation.question}`);
-		lines.push(`agentscript-task answer ${id} --db ${dbPath} --by ${outcome.escalation.to} --decision "…"`);
+		lines.push(`specsesh task answer ${id} --db ${dbPath} --by ${outcome.escalation.to} --decision "…"`);
 	}
 	return lines;
 }
@@ -408,7 +411,7 @@ async function run(
 			}
 			// Before any model call, so a crash still leaves you the ID to resume, and the loop its owner.
 			await io.ownership?.claim(Number(id), BACKGROUND_CONTEXT);
-			io.err(`loop ${id} — resume with: agentscript-task resume ${id} --db ${db.label}`);
+			io.err(resumeHint(id, db.label));
 			const loop = Number(id);
 			io.emit({ event: "loop-started", loop, change: change.id, task, script: settings.script.label, at: now() });
 			for (const warning of warnings) io.emit({ event: "warning", loop, message: warning });
@@ -530,7 +533,7 @@ async function runGroup(harness: Harness, storage: Storage, options: GroupLoopOp
 		return 2;
 	}
 	await io.ownership?.claim(Number(id), BACKGROUND_CONTEXT);
-	io.err(`loop ${id} — resume with: agentscript-task resume ${id} --db ${db.label}`);
+	io.err(resumeHint(id, db.label));
 	return await settleGroup(harness, storage, id, io, db);
 }
 
@@ -600,7 +603,7 @@ async function continueGroup(
 		return 2;
 	}
 	await io.ownership?.claim(Number(next), BACKGROUND_CONTEXT);
-	io.err(`loop ${next} — resume with: agentscript-task resume ${next} --db ${db.label}`);
+	io.err(resumeHint(next, db.label));
 	return await settleGroup(harness, storage, next, io, db);
 }
 
@@ -650,7 +653,7 @@ async function continueSpec(
 				return 2;
 			}
 			await io.ownership?.claim(Number(next), BACKGROUND_CONTEXT);
-			io.err(`loop ${next} — resume with: agentscript-task resume ${next} --db ${db.label}`);
+			io.err(resumeHint(next, db.label));
 		}
 		// The drafts the answered run already streamed are not streamed again.
 		const record = await harness.getTask(next, BACKGROUND_CONTEXT);
@@ -839,7 +842,7 @@ async function continueStored(
 			return 2;
 		}
 		await io.ownership?.claim(Number(next), BACKGROUND_CONTEXT);
-		io.err(`loop ${next} — resume with: agentscript-task resume ${next} --db ${db.label}`);
+		io.err(resumeHint(next, db.label));
 		started(Number(next));
 		return await finish(harness, next, { ...context, earlier: settled?.outcome.iterations.length ?? 0 });
 	} finally {
@@ -1014,7 +1017,7 @@ async function finish(harness: Harness, id: LoopId, context: FinishContext): Pro
 			out(`remove: git worktree remove ${path}`);
 		}
 		if (outcome.status === "blocked") {
-			out(`agentscript-task answer ${id} --db ${context.db.label} --by ${outcome.escalation.to} --decision "…"`);
+			out(`specsesh task answer ${id} --db ${context.db.label} --by ${outcome.escalation.to} --decision "…"`);
 		}
 	}
 	return exitFor(outcome);

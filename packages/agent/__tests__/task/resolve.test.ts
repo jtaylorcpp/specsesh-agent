@@ -181,8 +181,8 @@ describe("task/cli: run takes a change and a task, with the database from flag o
 		const r = await cli([]);
 		expect(r.code).toBe(2);
 		expect(r.errLines[0]).toMatch(/^usage:/);
-		expect(r.err).toContain("agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]");
-		for (const word of ["resume", "answer", "status"]) expect(r.err).toContain(`agentscript-task ${word}`);
+		expect(r.err).toContain("specsesh task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]");
+		for (const word of ["resume", "answer", "status"]) expect(r.err).toContain(`specsesh task ${word}`);
 	});
 
 	it("Scenario: --next and --next-group together print usage", async () => {

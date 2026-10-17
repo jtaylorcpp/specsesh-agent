@@ -118,7 +118,7 @@ describe("task/cli: status and answer cover spec loops", () => {
 		const entry = file.approvals.find((approval) => approval.stage === "proposal");
 		expect(entry?.principal).toBe("jesse");
 		const [hint, ...lines] = r.err.trimEnd().split("\n");
-		expect(hint).toMatch(/^loop \d+ — resume with: agentscript-task resume \d+ --db /);
+		expect(hint).toMatch(/^loop \d+ — resume with: specsesh task resume \d+ --db /);
 		expect(lines.map((line) => JSON.parse(line) as unknown)).toMatchObject([
 			{ event: "stage-started", stage: "proposal", script: "spec-proposal" },
 			{ event: "stage-ended", status: "converged", drafts: 0, approved: true },
@@ -134,8 +134,10 @@ describe("task/cli: text output for a spec loop ends with the next step", () => 
 		expect(r.out).toContain("## proposal draft 1: clean");
 		expect(r.out).toContain("openspec/changes/add-plan-export/proposal.md");
 		const [approve, revise] = lastLines(r.out, 2);
-		expect(approve).toMatch(new RegExp(`pnpm task answer ${r.id} --by principal --decision approve$`));
-		expect(revise!.endsWith(`pnpm task answer ${r.id} --by principal --decision "<what to change>"`)).toBe(true);
+		expect(approve).toMatch(new RegExp(`specsesh task answer ${r.id} --by principal --decision approve$`));
+		expect(revise!.endsWith(`specsesh task answer ${r.id} --by principal --decision "<what to change>"`)).toBe(true);
+		expect(r.out).not.toContain("agentscript-task");
+		expect(r.out).not.toContain("pnpm task");
 	});
 
 	it("Scenario: The last approval points at execution", async () => {
@@ -147,7 +149,8 @@ describe("task/cli: text output for a spec loop ends with the next step", () => 
 			expect(last.code, last.err).toBe(0);
 		}
 		expect(last!.out).toMatch(/^# spec loop \d+ — converged/);
-		expect(lastLines(last!.out, 1)[0]).toMatch(/pnpm task add-plan-export --next-group$/);
+		expect(lastLines(last!.out, 1)[0]).toMatch(/specsesh task add-plan-export --next-group$/);
+		expect(last!.out).not.toContain("pnpm task");
 	});
 
 	it("Scenario: Approving a sliced proposal lists the other slices", async () => {
@@ -168,16 +171,18 @@ describe("task/cli: text output for a spec loop ends with the next step", () => 
 		const r = await task(repo, ["answer", id!, "--by", "principal", "--decision", "approve"]);
 		expect(r.code, r.err).toBe(0);
 		const next =
-			SPEC_STAGES.length > 1 ? "Next: pnpm task spec add-plan-export" : "pnpm task add-plan-export --next-group";
+			SPEC_STAGES.length > 1 ? "Next: specsesh task spec add-plan-export" : "specsesh task add-plan-export --next-group";
 		const schema =
-			'pnpm task spec add-plan-export-schema --intent "Publish the JSON Schema of the export. Follows add-plan-export."';
+			'specsesh task spec add-plan-export-schema --intent "Publish the JSON Schema of the export. Follows add-plan-export."';
 		const ci =
-			'pnpm task spec add-plan-export-ci --intent "A GitHub Action that fails a PR whose plan export is invalid. Follows add-plan-export-schema."';
+			'specsesh task spec add-plan-export-ci --intent "A GitHub Action that fails a PR whose plan export is invalid. Follows add-plan-export-schema."';
 		expect(r.out).toContain(schema);
 		expect(r.out).toContain(ci);
 		expect(r.out.indexOf(schema)).toBeLessThan(r.out.indexOf(ci));
 		expect(r.out).not.toContain("spec add-plan-export --intent");
 		expect(r.out.indexOf(next), r.out).toBeGreaterThanOrEqual(0);
 		expect(r.out.indexOf(next)).toBeLessThan(r.out.indexOf(schema));
+		expect(r.out).not.toContain("agentscript-task");
+		expect(r.out).not.toContain("pnpm task");
 	});
 });

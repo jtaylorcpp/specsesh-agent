@@ -85,7 +85,7 @@ describe("task/cli: Text output for a group lists its tasks and the group check"
 	it("Scenario: A converged group prints its tasks", async () => {
 		const b = await runGroupOnce([ask]);
 		expect(b.code).toBe(1);
-		expect(b.errLines[0]).toBe(`loop ${b.id} — resume with: agentscript-task resume ${b.id} --db ${b.db}`);
+		expect(b.errLines[0]).toBe(`loop ${b.id} — resume with: specsesh task resume ${b.id} --db ${b.db}`);
 		// Answering reruns 1.1 (its second run), then 1.2.
 		b.env.faux.setResponses([verdict(true), verdict(true)]);
 		const r = await cli(["answer", String(b.id), "--db", b.db, "--by", "principal", "--decision", "The first way"], b.env);
@@ -112,7 +112,7 @@ describe("task/cli: Text output for a group lists its tasks and the group check"
 		expect(lines).toContain("## task 1.1: blocked (runs 1)");
 		expect(lines).toContain("to: principal");
 		expect(lines).toContain("question: Which way?");
-		expect(lines.at(-1)).toBe(`agentscript-task answer ${idOf(r.errLines)} --db loops.sqlite --by principal --decision "…"`);
+		expect(lines.at(-1)).toBe(`specsesh task answer ${idOf(r.errLines)} --db loops.sqlite --by principal --decision "…"`);
 	});
 
 	it("formatGroupOutcome names each task's runs and the last round", () => {
@@ -204,7 +204,7 @@ describe("task/cli: resume continues a stored loop without the change files", ()
 		// The first call for 1.2 SIGKILLs the CLI, which is the fake's parent.
 		const killed = await spawnBin(["run", "tiny", "1", "--db", db], { cwd: repo, bin });
 		expect(killed.code).not.toBe(0);
-		const id = /^loop (\d+) — resume with: agentscript-task resume \1 --db /.exec(killed.stderr)?.[1];
+		const id = /^loop (\d+) — resume with: specsesh task resume \1 --db /.exec(killed.stderr)?.[1];
 		expect(id, killed.stderr).toBeDefined();
 		expect(readFileSync(tasksMd, "utf8")).toContain("- [x] 1.1 ");
 		expect(readFileSync(tasksMd, "utf8")).toContain("- [ ] 1.2 ");

@@ -124,7 +124,7 @@ describe("task/headless: loop-ended lists the files the loop changed", () => {
 		expect(blocked.code).toBe(1);
 		const id = /^loop (\d+)/.exec(blocked.stderr)?.[1];
 		const answer = blocked.stdout.trimEnd().split("\n").at(-1) ?? "";
-		expect(answer).toMatch(new RegExp(`^agentscript-task answer ${id} --db .*task-loops\\.sqlite --by principal --decision "…"$`));
+		expect(answer).toMatch(new RegExp(`^specsesh task answer ${id} --db .*task-loops\\.sqlite --by principal --decision "…"$`));
 		const answered = await spawnBin(["answer", String(id), "--by", "principal", "--decision", "the first way"], { cwd: repo, bin });
 		expect(answered.code, answered.stderr).toBe(0);
 		const parsed = events(lines(answered.stderr));

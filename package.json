@@ -14,7 +14,7 @@
     "test:live": "pnpm --filter @specsesh/agent test:live",
     "agent": "node packages/agent/dist/bin/agentscript-pi.js",
     "durable": "node packages/agent/dist/bin/agentscript-durable.js",
-    "task": "node scripts/task.mjs",
+    "task": "node packages/specsesh/bin/specsesh.js task",
     "change": "node packages/specsesh/bin/specsesh.js change",
     "pack:check": "pnpm --filter @specsesh/agent pack:check",
     "spec:check": "OPENSPEC_TELEMETRY=0 openspec validate --all --strict",

@@ -33,7 +33,7 @@ type Route = (args: string[], deps: CliDeps) => Promise<number> | number;
 
 const TASK_COMMANDS = new Set(["run", "spec", "resume", "answer", "status"]);
 
-/** The rule of `scripts/task.mjs`: a first argument that is not a command or a flag gets `run`. */
+/** The implied-`run` rule of `specsesh task`: a first argument that is not a command or a flag is taken as `run <change> …`. */
 const implyRun = (args: string[]): string[] =>
 	args[0] !== undefined && !TASK_COMMANDS.has(args[0]) && !args[0].startsWith("-") ? ["run", ...args] : args;
 

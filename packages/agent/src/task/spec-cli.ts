@@ -1,5 +1,5 @@
 /**
- * `agentscript-task spec <change> [<stage>]`: run one stage of a change's spec
+ * `specsesh task spec <change> [<stage>]`: run one stage of a change's spec
  * loop, in place, until it blocks for the principal's review.
  *
  *   spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
@@ -39,6 +39,8 @@ import { readSlices, type Slice } from "./stages/slices-md.js";
 
 export const INTENT_FILE = "intent.md";
 const SLICES_FILE = "slices.md";
+/** The command every printed hint and next step names. */
+const CMD = "specsesh task";
 
 export interface SpecIo {
 	readonly out: (line: string) => void;
@@ -85,7 +87,7 @@ export interface SpecOutcomeContext {
 const shellQuote = (s: string) => `"${s.replace(/["\\$`]/g, "\\$&")}"`;
 
 /** The last line once every stage is approved. */
-export const allApproved = (change: string) => `Every stage of ${change} is approved. Execute it: pnpm task ${change} --next-group`;
+export const allApproved = (change: string) => `Every stage of ${change} is approved. Execute it: ${CMD} ${change} --next-group`;
 
 /** A settled spec loop as text, ending with the next step. */
 export function formatSpecOutcome(outcome: LoopOutcome<StageOutcome>, context: SpecOutcomeContext): string[] {
@@ -103,22 +105,22 @@ export function formatSpecOutcome(outcome: LoopOutcome<StageOutcome>, context: S
 		lines.push(
 			"",
 			`Review ${files.join(", ")}, then:`,
-			`  approve:  pnpm task answer ${loop} --by principal --decision approve`,
-			`  revise:   pnpm task answer ${loop} --by principal --decision "<what to change>"`,
+			`  approve:  ${CMD} answer ${loop} --by principal --decision approve`,
+			`  revise:   ${CMD} answer ${loop} --by principal --decision "<what to change>"`,
 		);
 	} else if (outcome.status === "blocked") {
 		lines.push(
 			"",
 			`question: ${outcome.escalation.question}`,
-			`  answer:   pnpm task answer ${loop} --by ${outcome.escalation.to} --decision "<your answer>"`,
+			`  answer:   ${CMD} answer ${loop} --by ${outcome.escalation.to} --decision "<your answer>"`,
 		);
 	} else if (outcome.status === "converged" && outcome.result.approved) {
 		lines.push(`${outcome.result.stage} approved${context.principal !== undefined ? ` by ${context.principal}` : ""}.`);
-		lines.push(context.nextStage !== undefined ? `Next: pnpm task spec ${change}` : allApproved(change));
+		lines.push(context.nextStage !== undefined ? `Next: ${CMD} spec ${change}` : allApproved(change));
 		const later = outcome.result.stage === "proposal" ? (context.slices ?? []).slice(1) : [];
 		if (later.length > 0) {
 			lines.push("", `Sliced into ${context.slices?.length} changes. Start the others when you're ready:`);
-			for (const slice of later) lines.push(`  pnpm task spec ${slice.id} --intent ${shellQuote(slice.intent)}`);
+			for (const slice of later) lines.push(`  ${CMD} spec ${slice.id} --intent ${shellQuote(slice.intent)}`);
 		}
 	}
 	return lines;
@@ -273,7 +275,7 @@ export async function runSpec(args: readonly string[], config: LoadedConfig, io:
 				return refuse(message(error));
 			}
 			// Before any model call, so a crash still leaves you the ID to resume.
-			io.err(`loop ${id} — resume with: agentscript-task resume ${id} --db ${db.label}`);
+			io.err(`loop ${id} — resume with: ${CMD} resume ${id} --db ${db.label}`);
 			const at = now();
 			harness.resume();
 			let outcome: LoopOutcome<StageOutcome>;
