@@ -224,6 +224,39 @@ Provider/model also come from `AGENTSCRIPT_PROVIDER` / `AGENTSCRIPT_MODEL`; cred
 env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...). The bins are compiled JavaScript;
 nothing needs `tsx`.
 
+## Releasing
+
+```bash
+node scripts/release-check.mjs v0.2.0   # run it locally before tagging; prints latest or next
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+- **Lockstep versions.** `@specsesh/agent` and `specsesh` always share one exact semver version.
+  To release, set `version` in `packages/agent/package.json` and `packages/specsesh/package.json`
+  to the same value and commit on `main`. A prerelease (`0.2.0-rc.1`) goes to the `next`
+  dist-tag, anything else to `latest`. Build metadata is not allowed.
+- **A pushed `v<version>` tag is the only trigger.** No branch, PR or manual dispatch publishes.
+- **The workflow.** `.github/workflows/release.yml` runs `pnpm install --frozen-lockfile`,
+  `pnpm check`, `pnpm test`, `pnpm pack:check`, the release check, then
+  `pnpm --filter <pkg> pack --pack-destination ../../release` for both packages, the release check
+  again with `--packed release/specsesh-<v>.tgz`, and finally
+  `npm publish <tarball> --access public --provenance --tag <dist-tag>`, first
+  `release/specsesh-agent-<v>.tgz`, then `release/specsesh-<v>.tgz`. It publishes through npm
+  trusted publishing (OIDC). Its only permissions are `id-token: write` and `contents: read`, and
+  every action is pinned to a commit SHA. It uses no npm token or `secrets.`. Don't add any.
+- **`scripts/release-check.mjs <tag> [--packed <specsesh.tgz>]`**, no dependencies: both versions
+  equal and semver, the tag `v<version>`, npm 11.5.1 or newer, and with `--packed`, the packed
+  `specsesh` depending on exactly that `@specsesh/agent` version. It prints the dist-tag on stdout,
+  exits 1 with one stderr line per problem and 2 on usage (no tag). `RELEASE_CHECK_ROOT` sets the
+  repo root (the tests use it).
+- **Partial failure.** If the agent publishes but `specsesh` fails, re-run only the `specsesh`
+  publish step or cut the next patch. Never re-tag an existing version.
+- **Never `npm publish` by hand after the first.** Each package's first version is published
+  manually only because a trusted publisher can't be attached until the package exists
+  (`openspec/changes/archive/2026-10-16-add-npm-release-workflow/design.md`, "Manual steps"). Every later version
+  goes through the tag and the workflow so it carries provenance. Publishing access requires 2FA
+  and disallows tokens.
+
 ## Running a task
 
 `agentscript.config.json` holds the task runner's defaults for this repo: the claude-code provider

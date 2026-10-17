@@ -1,0 +1,44 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # npm trusted publishing (OIDC) and provenance
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0, version from packageManager
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm pack:check
+      - name: Release check
+        id: check
+        run: |
+          dist_tag=$(node scripts/release-check.mjs "$GITHUB_REF_NAME")
+          echo "dist_tag=$dist_tag" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - run: pnpm --filter @specsesh/agent pack --pack-destination ../../release
+      - run: pnpm --filter specsesh pack --pack-destination ../../release
+      - run: node scripts/release-check.mjs "$GITHUB_REF_NAME" --packed "release/specsesh-$VERSION.tgz"
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+      - name: Publish @specsesh/agent
+        run: npm publish "release/specsesh-agent-$VERSION.tgz" --access public --provenance --tag "$DIST_TAG"
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+          DIST_TAG: ${{ steps.check.outputs.dist_tag }}
+      - name: Publish specsesh
+        run: npm publish "release/specsesh-$VERSION.tgz" --access public --provenance --tag "$DIST_TAG"
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+          DIST_TAG: ${{ steps.check.outputs.dist_tag }}
