@@ -21,27 +21,6 @@ How the library is published: one npm package, `@specsesh/agent`, with an entry 
 - **WHEN** every other `package.json` in the workspace (root and `examples/*`) is read
 - **THEN** each SHALL have `private: true`
 
-### Requirement: The package exports exactly nine entry points
-The manifest's `exports` SHALL have exactly the keys `./authoring`, `./interpreter`, `./pi`, `./claude-code`, `./durable`, `./node`, `./cloudflare`, `./openspec` and `./task`. Each SHALL map to `{ "types": "./dist/<entry>/index.d.ts", "import": "./dist/<entry>/index.js" }`. There SHALL be no root `.` export and no `./package.json` export, so a deep import such as `@specsesh/agent/dist/interpreter/run.js` is refused by Node.
-
-#### Scenario: The exports map is exact
-- **WHEN** the manifest's `exports` is read
-- **THEN** its keys SHALL be exactly the nine entries, in that order
-- **AND** `exports["./durable"]` SHALL equal `{ "types": "./dist/durable/index.d.ts", "import": "./dist/durable/index.js" }`
-- **AND** `exports["./node"]` SHALL equal `{ "types": "./dist/node/index.d.ts", "import": "./dist/node/index.js" }`
-- **AND** `exports["./openspec"]` SHALL equal `{ "types": "./dist/openspec/index.d.ts", "import": "./dist/openspec/index.js" }`
-- **AND** `exports["./task"]` SHALL equal `{ "types": "./dist/task/index.d.ts", "import": "./dist/task/index.js" }`
-
-#### Scenario: A deep import is refused
-- **GIVEN** the packed tarball installed in an empty project
-- **WHEN** Node imports `@specsesh/agent/dist/interpreter/run.js`
-- **THEN** it SHALL fail with `ERR_PACKAGE_PATH_NOT_EXPORTED`
-
-#### Scenario: The bare package name is not importable
-- **GIVEN** the packed tarball installed in an empty project
-- **WHEN** Node imports `@specsesh/agent`
-- **THEN** it SHALL fail with `ERR_PACKAGE_PATH_NOT_EXPORTED`
-
 ### Requirement: The build emits JavaScript and declarations file for file
 `pnpm build` in `packages/agent` SHALL run `tsc -p tsconfig.build.json`, compiling `src/**/*.ts` (and no test file) into `dist/` with the same relative paths, each as `.js`, `.d.ts` and a source map, and SHALL copy every `src/task/scripts/*.agent` to `dist/task/scripts/`. Those scripts are the only files in `dist/` not compiled from `src/`. The build MUST fail on any type error. `dist/` SHALL NOT be committed.
 
@@ -180,3 +159,22 @@ The pack check SHALL import `@specsesh/agent/openspec` under plain Node from a p
 - **GIVEN** the packed tarball installed with the pi peers
 - **WHEN** `npm ls typebox` runs in that project and a script imports `./openspec` and `./pi` together
 - **THEN** `npm ls typebox` SHALL list exactly one version, `1.3.27`, and the script SHALL run to completion
+
+### Requirement: The package exports one entry per layer and the command
+The manifest's `exports` SHALL have exactly the keys `./authoring`, `./interpreter`, `./pi`, `./claude-code`, `./durable`, `./node`, `./cloudflare`, `./openspec`, `./task` and `./cli`, in that order, each mapping to `{ "types": "./dist/<entry>/index.d.ts", "import": "./dist/<entry>/index.js" }`. There SHALL be no root `.` and no `./package.json` export, so a deep import is refused by Node.
+
+#### Scenario: The exports map is exact
+- **WHEN** the manifest's `exports` is read
+- **THEN** its keys SHALL be exactly the ten entries, in that order
+- **AND** `exports["./task"]` SHALL equal `{ "types": "./dist/task/index.d.ts", "import": "./dist/task/index.js" }`
+- **AND** `exports["./cli"]` SHALL equal `{ "types": "./dist/cli/index.d.ts", "import": "./dist/cli/index.js" }`
+
+#### Scenario: A deep import is refused
+- **GIVEN** the packed tarball installed in an empty project
+- **WHEN** Node imports `@specsesh/agent/dist/interpreter/run.js`
+- **THEN** it SHALL fail with `ERR_PACKAGE_PATH_NOT_EXPORTED`
+
+#### Scenario: The bare package name is not importable
+- **GIVEN** the packed tarball installed in an empty project
+- **WHEN** Node imports `@specsesh/agent`
+- **THEN** it SHALL fail with `ERR_PACKAGE_PATH_NOT_EXPORTED`
