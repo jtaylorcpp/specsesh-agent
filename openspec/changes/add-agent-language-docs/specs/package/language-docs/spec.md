@@ -10,13 +10,13 @@ The package SHALL ship `docs/language/<topic>.md` for each of `overview`, `confi
 
 #### Scenario: Every topic is present
 - **WHEN** the package is packed
-- **THEN** the tarball holds the twelve topic files, and `specsesh language` shows each one's summary line
+- **THEN** the tarball holds the twelve topic files, and `specsesh agent language` shows each one's summary line
 
 ### Requirement: Examples and reference blocks pass check
-Every `examples/**/*.agent` file, and every example block marked `agent` in `docs/language/*.md`, SHALL pass `specsesh check`.
+Every `examples/**/*.agent` file, and every example block marked `agent` in `docs/language/*.md`, SHALL pass `specsesh agent check`.
 
 #### Scenario: Examples check clean
-- **WHEN** the docs test runs `specsesh check` over `examples/agents/*.agent`
+- **WHEN** the docs test runs `specsesh agent check` over `examples/agents/*.agent`
 - **THEN** it exits 0
 
 #### Scenario: A broken doc example fails the build
@@ -24,8 +24,8 @@ Every `examples/**/*.agent` file, and every example block marked `agent` in `doc
 - **THEN** the docs test fails, naming `logic.md` and the block's line
 
 ### Requirement: The tour builds one script step by step
-`guides/00-language-tour.md` SHALL build one script in at least six steps: prompt, variables, structured output, logic, a `run` action, and model-callable actions. Each step SHALL show the whole script so far and the commands to check and run it.
+`guides/00-language-tour.md` SHALL build one script in at least six steps: prompt, variables, structured output, logic, a `run` action, and model-callable actions. Each step SHALL show the whole script so far and the commands to check and run it. A step whose script `specsesh agent run` cannot run (a `run` statement or `reasoning.actions` needs a host that provides the actions) SHALL say so, and say how a host runs it, rather than show a command that would fail.
 
 #### Scenario: Each tour step checks
 - **WHEN** the docs test extracts the script shown at each step of the tour
-- **THEN** each one passes `specsesh check`
+- **THEN** each one passes `specsesh agent check`

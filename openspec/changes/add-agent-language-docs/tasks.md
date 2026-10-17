@@ -10,5 +10,5 @@
 
 ## 3. Checks and README
 
-- [ ] 3.1 Docs test: `specsesh check` over the examples, the topic blocks and each tour step; tests "Examples check clean", "A broken doc example fails the build" and "Each tour step checks"
+- [ ] 3.1 Docs test: `specsesh agent check` over the examples, the topic blocks and each tour step; tests "Examples check clean", "A broken doc example fails the build" and "Each tour step checks"
 - [ ] 3.2 `packages/agent/README.md`: a "Write your own agent" section
