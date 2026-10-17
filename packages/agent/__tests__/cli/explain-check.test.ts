@@ -1,6 +1,5 @@
 /**
- * package/explain: `specsesh check`, through `runCheck`. The route from `main` comes with
- * the wiring task.
+ * package/explain: `specsesh agent check`, through `main`.
  */
 
 import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
@@ -8,13 +7,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BUNDLED_DELEGATES, BUNDLED_DIR } from "../../src/cli/bundled.js";
-import { CHECK_USAGE, checkSource, runCheck } from "../../src/cli/explain.js";
+import { CHECK_USAGE, checkSource } from "../../src/cli/explain.js";
+import { main } from "../../src/cli/index.js";
 
-/** Runs `runCheck` with `out` and `err` collecting lines. */
+/** Runs `main(["agent", "check", …argv])` with `out` and `err` collecting lines. */
 async function run(argv: string[]) {
 	const out: string[] = [];
 	const err: string[] = [];
-	const code = await runCheck(argv, { out: (line) => out.push(line), err: (line) => err.push(line) });
+	const code = await main(["agent", "check", ...argv], { out: (line) => out.push(line), err: (line) => err.push(line) });
 	return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -27,7 +27,7 @@ function scratch(name: string, source: string): string {
 
 const HEADER = 'config:\n    agent_name: "x"\n    description: "d"\n\n';
 
-describe("specsesh check validates scripts without running them", () => {
+describe("specsesh agent check validates scripts without running them", () => {
 	it("Scenario: Bundled scripts pass", async () => {
 		const files = readdirSync(BUNDLED_DIR)
 			.filter((f) => f.endsWith(".agent"))
@@ -50,7 +50,7 @@ describe("specsesh check validates scripts without running them", () => {
 		const { code, stdout } = await run([file]);
 		expect(code).toBe(1);
 		expect(stdout).toBe(
-			`${file}:9:20  @context, in subagent "t", is unsupported by this runtime (see \`specsesh language subset\`) [construct: @context]`,
+			`${file}:9:20  @context, in subagent "t", is unsupported by this runtime (see \`specsesh agent language subset\`) [construct: @context]`,
 		);
 		const json = await run([file, "--json"]);
 		expect(json.code).toBe(1);
@@ -70,12 +70,12 @@ describe("specsesh check validates scripts without running them", () => {
 		for (const line of lines) expect(line.startsWith(`${file}:6:`)).toBe(true);
 	});
 
-	it("with no files it prints its usage and exits 2", async () => {
+	it("Scenario: check with no files", async () => {
 		const { code, stdout, stderr } = await run([]);
 		expect(code).toBe(2);
 		expect(stdout).toBe("");
 		expect(stderr).toBe(CHECK_USAGE);
-		expect(CHECK_USAGE).toBe("usage: specsesh check <file.agent>…");
+		expect(CHECK_USAGE).toBe("usage: specsesh agent check <file.agent>…");
 	});
 
 	it("an unreadable file is a problem, and the other files are still checked", async () => {

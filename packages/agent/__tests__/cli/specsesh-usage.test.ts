@@ -13,7 +13,7 @@ const USAGE_LINES = [
 	"specsesh task <change> <task-id>|<group>|--next|--next-group [options]",
 	"specsesh task <run|spec|resume|answer|status> [options]",
 	"specsesh durable <run|resume> [options]",
-	"specsesh agent <run|models> [options]",
+	"specsesh agent <run|models|list|show|new|check|language|actions> [options]",
 	"specsesh --version",
 	"specsesh --help",
 ];
@@ -35,6 +35,14 @@ describe("specsesh prints its usage and its version", () => {
 		expect(stderr.startsWith("usage:")).toBe(true);
 		const lines = stderr.split("\n").map((line) => line.trim());
 		for (const line of USAGE_LINES) expect(lines).toContain(line);
+	});
+
+	it("Scenario: Help lists them", async () => {
+		const { code, stdout } = await run(["--help"]);
+		expect(code).toBe(0);
+		expect(stdout.split("\n").map((line) => line.trim())).toContain(
+			"specsesh agent <run|models|list|show|new|check|language|actions> [options]",
+		);
 	});
 
 	it("Scenario: --help prints usage to stdout", async () => {

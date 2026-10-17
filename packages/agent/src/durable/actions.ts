@@ -32,7 +32,7 @@ export interface ActionContext {
 
 interface HostActionBase {
 	readonly name: string;
-	/** One line on what it does, for `specsesh actions`. */
+	/** One line on what it does, for `specsesh agent actions`. */
 	readonly description?: string;
 	/** `read` changes nothing; the rest are the ontology's Action kinds. */
 	readonly kind: "read" | "edit" | "command" | "delegate";

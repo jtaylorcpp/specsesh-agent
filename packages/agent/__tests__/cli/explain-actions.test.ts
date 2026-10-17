@@ -1,17 +1,16 @@
 /**
- * package/explain: `specsesh actions`, through `runActions`. The route from `main`
- * comes with the wiring task.
+ * package/explain: `specsesh agent actions`, through `main`.
  */
 
 import { describe, expect, it } from "vitest";
-import { runActions } from "../../src/cli/explain.js";
+import { main } from "../../src/cli/index.js";
 import { deleteActions } from "../../src/durable/actions.js";
 import { memoryWorkspace, searchActions, workspaceActions } from "../../src/durable/workspace.js";
 
 async function run(argv: string[]) {
 	const out: string[] = [];
 	const err: string[] = [];
-	const code = await runActions(argv, { out: (line) => out.push(line), err: (line) => err.push(line) });
+	const code = await main(["agent", "actions", ...argv], { out: (line) => out.push(line), err: (line) => err.push(line) });
 	return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -23,7 +22,7 @@ interface Listed {
 	writes: boolean;
 }
 
-describe("specsesh actions lists the built-in actions", () => {
+describe("specsesh agent actions lists the built-in actions", () => {
 	it("Scenario: delete_file is a write", async () => {
 		const { code, stdout } = await run(["--json"]);
 		expect(code).toBe(0);
@@ -53,7 +52,7 @@ describe("specsesh actions lists the built-in actions", () => {
 		for (const argv of [["frobnicate"], ["--nope"]]) {
 			const { code, stderr } = await run(argv);
 			expect(code).toBe(2);
-			expect(stderr).toContain("usage: specsesh actions [--json]");
+			expect(stderr).toContain("usage: specsesh agent actions [--json]");
 		}
 	});
 });

@@ -4,7 +4,7 @@
  *   specsesh change …   agentscript-change
  *   specsesh task …     agentscript-task, with `run` implied as in `pnpm task`
  *   specsesh durable …  agentscript-durable
- *   specsesh agent …    agentscript-pi
+ *   specsesh agent …    agentscript-pi, except the subcommands `explain.ts` handles
  *
  * Importing this module runs nothing and installs no signal handlers: the
  * `specsesh` bin does that before calling `main`.
@@ -15,21 +15,61 @@ import { main as changeMain, type ChangeCliDeps } from "../bin/agentscript-chang
 import { main as durableMain, type CliDeps as DurableCliDeps } from "../bin/agentscript-durable.js";
 import { main as piMain } from "../bin/agentscript-pi.js";
 import { main as taskMain, type CliDeps as TaskCliDeps } from "../bin/agentscript-task.js";
+import { runActions, runCheck, runLanguage, runList, runNew, runShow } from "./explain.js";
 
 export const USAGE = `usage:
   specsesh change <draft|approve|build|close> <change> [options]
   specsesh task <change> <task-id>|<group>|--next|--next-group [options]
   specsesh task <run|spec|resume|answer|status> [options]
   specsesh durable <run|resume> [options]
-  specsesh agent <run|models> [options]
+  specsesh agent <run|models|list|show|new|check|language|actions> [options]
   specsesh --version
   specsesh --help
 Run a command with no arguments for its own usage.`;
 
-/** What the durable, task and change bins take; `agent` writes through `console` and ignores it. */
-export type CliDeps = Partial<DurableCliDeps & TaskCliDeps & ChangeCliDeps>;
+export const AGENT_USAGE = `usage:
+  specsesh agent run <file> [options]
+  specsesh agent models [provider]
+  specsesh agent list [--json]
+  specsesh agent show <name> [--json]
+  specsesh agent new <name> [--out <path>]
+  specsesh agent check <file.agent>… [--json]
+  specsesh agent language [topic] [--json]
+  specsesh agent actions [--json]`;
+
+/**
+ * What the durable, task and change bins take, plus `write` for `agent show`. `agentscript-pi`
+ * writes through `console` and ignores it.
+ */
+export type CliDeps = Partial<DurableCliDeps & TaskCliDeps & ChangeCliDeps> & {
+	readonly write?: (chunk: Uint8Array) => void;
+};
 
 type Route = (args: string[], deps: CliDeps) => Promise<number> | number;
+
+/** The `agent` subcommands handled here rather than by `agentscript-pi`. */
+const EXPLAIN_ROUTES: Readonly<Record<string, Route>> = {
+	list: (args, { out, err, write }) => runList(args, { out, err, write }),
+	show: (args, { out, err, write }) => runShow(args, { out, err, write }),
+	new: (args, { out, err, cwd }) => runNew(args, { out, err, cwd }),
+	check: (args, { out, err }) => runCheck(args, { out, err }),
+	language: (args, { out, err }) => runLanguage(args, { out, err }),
+	actions: (args, { out, err }) => runActions(args, { out, err }),
+};
+
+function agent(args: string[], deps: CliDeps): Promise<number> | number {
+	const [sub, ...rest] = args;
+	if (sub === undefined) {
+		(deps.err ?? ((line) => process.stderr.write(`${line}\n`)))(AGENT_USAGE);
+		return 2;
+	}
+	if (sub === "--help" || sub === "-h" || sub === "help") {
+		(deps.out ?? ((line) => process.stdout.write(`${line}\n`)))(AGENT_USAGE);
+		return 0;
+	}
+	const route = Object.hasOwn(EXPLAIN_ROUTES, sub) ? EXPLAIN_ROUTES[sub] : undefined;
+	return route === undefined ? piMain(args) : route(rest, deps);
+}
 
 const TASK_COMMANDS = new Set(["run", "spec", "resume", "answer", "status"]);
 
@@ -38,7 +78,7 @@ const implyRun = (args: string[]): string[] =>
 	args[0] !== undefined && !TASK_COMMANDS.has(args[0]) && !args[0].startsWith("-") ? ["run", ...args] : args;
 
 const ROUTES: Readonly<Record<string, Route>> = {
-	agent: (args) => piMain(args),
+	agent,
 	durable: (args, deps) => durableMain(args, deps),
 	task: (args, deps) => taskMain(implyRun(args), deps),
 	change: (args, deps) => changeMain(args, deps),

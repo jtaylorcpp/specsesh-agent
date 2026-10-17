@@ -1,5 +1,5 @@
 /**
- * The catalogue of bundled scripts, for `specsesh agents`.
+ * The catalogue of bundled scripts, for `specsesh agent list` and `show`.
  *
  * Read from what ships, never from a list kept beside it: the task scripts from
  * the `.agent` files in `task/scripts/` (beside `src/cli` and `dist/cli` alike,

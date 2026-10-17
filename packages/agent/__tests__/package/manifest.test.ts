@@ -121,8 +121,8 @@ describe("The package exports one entry per layer and the command", () => {
 });
 
 describe("The tarball holds only the build, the readme and the license", () => {
-	it("declares files as dist, README.md and LICENSE", () => {
-		expect(manifest.files).toEqual(["dist", "README.md", "LICENSE"]);
+	it("declares files as dist, docs, templates, README.md and LICENSE", () => {
+		expect(manifest.files).toEqual(["dist", "docs", "templates", "README.md", "LICENSE"]);
 	});
 });
 

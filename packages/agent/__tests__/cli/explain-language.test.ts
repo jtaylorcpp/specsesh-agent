@@ -1,7 +1,7 @@
 /**
- * package/explain: `specsesh language [topic]`, through `runLanguage`. The route from `main`
- * comes with the wiring task; the topic texts come with `add-agent-language-docs`, so these
- * tests point `dir` at a temp directory rather than at what ships.
+ * package/explain: `specsesh agent language [topic]`. The scenarios run through `main`, over
+ * what ships; the topic texts come with `add-agent-language-docs`, so the other tests call
+ * `runLanguage` with `dir` pointed at a temp directory.
  */
 
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runLanguage } from "../../src/cli/explain.js";
+import { main } from "../../src/cli/index.js";
 import { SUPPORTED_CONSTRUCTS } from "../../src/interpreter/subset.js";
 
 const TOPICS = ["overview", "config", "system", "variables", "subagents", "prompts", "interpolation", "logic", "outputs", "actions", "run", "refused", "subset"];
@@ -21,22 +22,30 @@ async function run(argv: string[], dir = mkdtempSync(join(tmpdir(), "language-")
 	return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
-describe("specsesh language prints the reference by topic", () => {
+/** Runs `main(["agent", "language", …argv])` with `out` and `err` collecting lines. */
+async function viaMain(argv: string[]) {
+	const out: string[] = [];
+	const err: string[] = [];
+	const code = await main(["agent", "language", ...argv], { out: (line) => out.push(line), err: (line) => err.push(line) });
+	return { code, stdout: out.join("\n"), stderr: err.join("\n") };
+}
+
+describe("specsesh agent language prints the reference by topic", () => {
 	it("Scenario: Subset matches the interpreter", async () => {
-		const { code, stdout } = await run(["subset", "--json"]);
+		const { code, stdout } = await viaMain(["subset", "--json"]);
 		expect(code).toBe(0);
 		const entries = JSON.parse(stdout) as Array<{ id: string }>;
 		expect(entries.map((e) => e.id)).toEqual(SUPPORTED_CONSTRUCTS.map((c) => c.id));
 	});
 
 	it("Scenario: Topic list", async () => {
-		const { code, stdout } = await run([]);
+		const { code, stdout } = await viaMain([]);
 		expect(code).toBe(0);
 		const lines = stdout.split("\n");
 		expect(lines).toHaveLength(TOPICS.length);
 		lines.forEach((line, i) => expect(line).toMatch(new RegExp(`^- \`${TOPICS[i]}\` — \\S`)));
 
-		const json = JSON.parse((await run(["--json"])).stdout) as Array<{ name: string; summary: string }>;
+		const json = JSON.parse((await viaMain(["--json"])).stdout) as Array<{ name: string; summary: string }>;
 		expect(json.map((t) => t.name)).toEqual(TOPICS);
 		for (const t of json) expect(t.summary).not.toBe("");
 	});
@@ -83,6 +92,6 @@ describe("specsesh language prints the reference by topic", () => {
 		expect((await run(["--nope"])).code).toBe(2);
 		const { code, stderr } = await run(["config", "logic"]);
 		expect(code).toBe(2);
-		expect(stderr).toBe("usage: specsesh language [topic] [--json]");
+		expect(stderr).toBe("usage: specsesh agent language [topic] [--json]");
 	});
 });

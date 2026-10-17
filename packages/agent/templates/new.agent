@@ -1,21 +1,21 @@
-# A starter Agent Script, written by `specsesh new agent`.
+# A starter Agent Script, written by `specsesh agent new`.
 #
-# Check it with `specsesh check <file>` and run it with `specsesh agent run <file>`.
-# Each block below has a topic in `specsesh language <topic>`; `specsesh language`
-# lists them, and `specsesh language subset` shows every construct this runtime runs.
+# Check it with `specsesh agent check <file>` and run it with `specsesh agent run <file>`.
+# Each block below has a topic in `specsesh agent language <topic>`; `specsesh agent language`
+# lists them, and `specsesh agent language subset` shows every construct this runtime runs.
 
-# config: names the agent. See `specsesh language config`.
+# config: names the agent. See `specsesh agent language config`.
 config:
     agent_name: "{{AGENT_NAME}}"
     description: "Describe what this agent does in one sentence."
 
-# system: standing instructions that every step sees. See `specsesh language system`.
+# system: standing instructions that every step sees. See `specsesh agent language system`.
 system:
     instructions: |
         You are a concise assistant. Answer in plain language.
 
 # variables: the run's typed state, each with a literal default. Set one from the
-# command line with `--var name=value`. See `specsesh language variables`.
+# command line with `--var name=value`. See `specsesh agent language variables`.
 variables:
     question: mutable string = "What is Agent Script?"
         description: "the question to answer"
@@ -24,8 +24,8 @@ variables:
 
 # subagent: one step of the run. This one has a single prompt, which interpolates
 # a variable, and one structured output: `@outputs.answer` is what the model returns,
-# and `set` stores it in a variable. See `specsesh language subagents`,
-# `specsesh language interpolation` and `specsesh language outputs`.
+# and `set` stores it in a variable. See `specsesh agent language subagents`,
+# `specsesh agent language interpolation` and `specsesh agent language outputs`.
 subagent answer:
     description: "Answer the question"
 

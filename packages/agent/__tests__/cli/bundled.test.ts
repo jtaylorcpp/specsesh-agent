@@ -1,7 +1,7 @@
 /**
- * package/explain: the catalogue behind `specsesh agents`, read from the shipped `.agent`
+ * package/explain: the catalogue behind `specsesh agent list`, read from the shipped `.agent`
  * files and delegate scripts. These scenarios are covered at the catalogue level here; the
- * `agents --json` command that prints it comes with `explain.ts`.
+ * `agent list --json` command that prints it is in `explain-agents.test.ts`.
  */
 
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -29,7 +29,7 @@ afterEach(() => {
 	for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-describe("specsesh agents lists the bundled scripts", () => {
+describe("specsesh agent list lists the bundled scripts", () => {
 	it("Scenario: Every bundled script is listed", () => {
 		const scripts = listBundled();
 		const names = scripts.map((s) => s.name);

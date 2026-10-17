@@ -1,12 +1,13 @@
 /**
- * The `specsesh` commands that explain the package.
+ * The `specsesh agent` subcommands that explain the package. Each handler takes the
+ * arguments after its subcommand.
  *
- *   specsesh agents [--json]             the bundled scripts, from `bundled.ts`
- *   specsesh agents show <name> [--json] one script's source, exactly as shipped
- *   specsesh language [topic] [--json]   the Agent Script reference, from `docs/language/`
- *   specsesh actions [--json]            the built-in host actions, from their definitions
- *   specsesh check <file.agent>… [--json] what a run would refuse, with no model
- *   specsesh new agent <name> [--out <path>] a starter script, from `templates/new.agent`
+ *   specsesh agent list [--json]               the bundled scripts, from `bundled.ts`
+ *   specsesh agent show <name> [--json]        one script's source, exactly as shipped
+ *   specsesh agent language [topic] [--json]   the Agent Script reference, from `docs/language/`
+ *   specsesh agent actions [--json]            the built-in host actions, from their definitions
+ *   specsesh agent check <file.agent>… [--json] what a run would refuse, with no model
+ *   specsesh agent new <name> [--out <path>]   a starter script, from `templates/new.agent`
  *
  * Exit 0 on success and 2 on usage or an unknown name, like the bins. `check`
  * exits 1 when a file would not run, and `new` when its target already exists.
@@ -31,9 +32,26 @@ export interface ExplainDeps extends ListOptions {
 	readonly write?: (chunk: Uint8Array) => void;
 }
 
-export const AGENTS_USAGE = "usage: specsesh agents [--json]\n       specsesh agents show <name> [--json]";
+export const LIST_USAGE = "usage: specsesh agent list [--json]";
 
-export async function runAgents(argv: readonly string[], deps: ExplainDeps = {}): Promise<number> {
+export async function runList(argv: readonly string[], deps: ExplainDeps = {}): Promise<number> {
+	const out = deps.out ?? ((line) => process.stdout.write(`${line}\n`));
+	const err = deps.err ?? ((line) => process.stderr.write(`${line}\n`));
+	const args = argv.filter((a) => a !== "--json");
+	if (args.length > 0) {
+		if (args[0]?.startsWith("-") === true) err(`unknown option ${args[0]}`);
+		err(LIST_USAGE);
+		return 2;
+	}
+	const scripts = listBundled(deps);
+	if (argv.includes("--json")) out(JSON.stringify(scripts.map(summary), null, 2));
+	else for (const line of table(scripts)) out(line);
+	return 0;
+}
+
+export const SHOW_USAGE = "usage: specsesh agent show <name> [--json]";
+
+export async function runShow(argv: readonly string[], deps: ExplainDeps = {}): Promise<number> {
 	const out = deps.out ?? ((line) => process.stdout.write(`${line}\n`));
 	const err = deps.err ?? ((line) => process.stderr.write(`${line}\n`));
 	const write = deps.write ?? ((chunk) => process.stdout.write(chunk));
@@ -42,24 +60,15 @@ export async function runAgents(argv: readonly string[], deps: ExplainDeps = {})
 	const unknownFlag = args.find((a) => a.startsWith("-"));
 	if (unknownFlag !== undefined) {
 		err(`unknown option ${unknownFlag}`);
-		err(AGENTS_USAGE);
+		err(SHOW_USAGE);
+		return 2;
+	}
+	const [name] = args;
+	if (name === undefined || args.length > 1) {
+		err(SHOW_USAGE);
 		return 2;
 	}
 	const scripts = listBundled(deps);
-	if (args.length === 0) {
-		if (json) out(JSON.stringify(scripts.map(summary), null, 2));
-		else for (const line of table(scripts)) out(line);
-		return 0;
-	}
-	if (args[0] !== "show" || args.length > 2) {
-		err(AGENTS_USAGE);
-		return 2;
-	}
-	const name = args[1];
-	if (name === undefined) {
-		err("usage: specsesh agents show <name>");
-		return 2;
-	}
 	const script = scripts.find((s) => s.name === name);
 	if (script === undefined) {
 		err(`unknown agent "${name}"; known agents: ${scripts.map((s) => s.name).join(", ")}`);
@@ -124,7 +133,7 @@ export interface LanguageDeps {
 	readonly dir?: string;
 }
 
-export const LANGUAGE_USAGE = "usage: specsesh language [topic] [--json]";
+export const LANGUAGE_USAGE = "usage: specsesh agent language [topic] [--json]";
 
 export async function runLanguage(argv: readonly string[], deps: LanguageDeps = {}): Promise<number> {
 	const out = deps.out ?? ((line) => process.stdout.write(`${line}\n`));
@@ -215,7 +224,7 @@ export function listActions(): ActionInfo[] {
 		.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export const ACTIONS_USAGE = "usage: specsesh actions [--json]";
+export const ACTIONS_USAGE = "usage: specsesh agent actions [--json]";
 
 export async function runActions(argv: readonly string[], deps: LanguageDeps = {}): Promise<number> {
 	const out = deps.out ?? ((line) => process.stdout.write(`${line}\n`));
@@ -251,7 +260,7 @@ export interface CheckProblem {
 	readonly construct?: string;
 }
 
-export const CHECK_USAGE = "usage: specsesh check <file.agent>…";
+export const CHECK_USAGE = "usage: specsesh agent check <file.agent>…";
 
 /**
  * Every problem that would stop `source` from running, in the order a run meets
@@ -273,7 +282,7 @@ export function checkSource(file: string, source: string): CheckProblem[] {
 		return unsupported.map((c) => ({
 			file,
 			...position(c.range),
-			message: `${c.construct}, in ${c.where}, is unsupported by this runtime (see \`specsesh language subset\`)`,
+			message: `${c.construct}, in ${c.where}, is unsupported by this runtime (see \`specsesh agent language subset\`)`,
 			construct: c.construct,
 		}));
 	}
@@ -329,13 +338,13 @@ export async function runCheck(argv: readonly string[], deps: LanguageDeps = {})
 	return problems.length === 0 ? 0 : 1;
 }
 
-/** The starter script `new agent` writes, beside `src/` and `dist/` alike. */
+/** The starter script `agent new` writes, beside `src/` and `dist/` alike. */
 export const NEW_TEMPLATE: string = fileURLToPath(new URL("../../templates/new.agent", import.meta.url));
 
 /** The template's stand-in for the agent's name; it is a valid string, so the raw template parses. */
 const NAME_PLACEHOLDER = "{{AGENT_NAME}}";
 
-export const NEW_USAGE = "usage: specsesh new agent <name> [--out <path>]";
+export const NEW_USAGE = "usage: specsesh agent new <name> [--out <path>]";
 
 export interface NewDeps {
 	readonly out?: (line: string) => void;
@@ -346,7 +355,7 @@ export interface NewDeps {
 	readonly template?: string;
 }
 
-/** Writes a starter script from the template, and never overwrites a file. */
+/** Writes a starter script from the template, and never overwrites a file. `argv` follows `specsesh agent new`. */
 export async function runNew(argv: readonly string[], deps: NewDeps = {}): Promise<number> {
 	const out = deps.out ?? ((line) => process.stdout.write(`${line}\n`));
 	const err = deps.err ?? ((line) => process.stderr.write(`${line}\n`));
@@ -368,8 +377,8 @@ export async function runNew(argv: readonly string[], deps: NewDeps = {}): Promi
 			positional.push(arg);
 		}
 	}
-	const [kind, name] = positional;
-	if (kind !== "agent" || name === undefined || positional.length > 2) {
+	const [name] = positional;
+	if (name === undefined || positional.length > 1) {
 		err(NEW_USAGE);
 		return 2;
 	}
@@ -389,7 +398,7 @@ export async function runNew(argv: readonly string[], deps: NewDeps = {}): Promi
 		return 1;
 	}
 	out(`wrote ${target}`);
-	out(`check it with: specsesh check ${target}`);
+	out(`check it with: specsesh agent check ${target}`);
 	return 0;
 }
 
