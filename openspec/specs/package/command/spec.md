@@ -6,7 +6,7 @@ The `specsesh` command: one entry, `@specsesh/agent/cli`, whose `main` routes `a
 ## Requirements
 
 ### Requirement: specsesh routes four commands to their CLIs
-`@specsesh/agent/cli` SHALL export `main(argv, deps)` and `USAGE`. `main` SHALL route a first argument of `agent`, `durable`, `task` or `change` to the `main` of `agentscript-pi`, `agentscript-durable`, `agentscript-task` or `agentscript-change`, passing the remaining arguments, and `deps` to the three that take them, and SHALL return that `main`'s exit code. Importing the entry SHALL print nothing and exit nothing.
+`@specsesh/agent/cli` SHALL export `main(argv, deps)` and `USAGE`. `main` SHALL route `agent`, `durable`, `task` or `change` to the `main` of `agentscript-pi`, `agentscript-durable`, `agentscript-task` or `agentscript-change` with the remaining arguments (and `deps` for the last three), and return its exit code. `agent` SHALL reach `agentscript-pi` only after `main` has taken out `package/explain`'s subcommands and the agent usage. Importing the entry SHALL print nothing and exit nothing.
 
 #### Scenario: change routes to the change CLI
 - **WHEN** `main(["change"])` runs
@@ -17,8 +17,12 @@ The `specsesh` command: one entry, `@specsesh/agent/cli`, whose `main` routes `a
 - **THEN** it SHALL return what `agentscript-durable`'s `main(["run"])` returns, with the same stderr
 
 #### Scenario: agent routes to the pi CLI
-- **WHEN** `main(["agent"])` runs
+- **WHEN** `main(["agent", "run"])` runs
 - **THEN** it SHALL return `2` and stderr SHALL begin with `usage:` and contain `agentscript-pi run <file>`
+
+#### Scenario: agent alone prints the agent usage
+- **WHEN** `main(["agent"])` runs
+- **THEN** it SHALL return `2` and stderr SHALL begin with `usage:` and name `specsesh agent run`, `models`, `list`, `show`, `new`, `check`, `language` and `actions`
 
 #### Scenario: Importing the cli entry runs nothing
 - **WHEN** a Node process imports `@specsesh/agent/cli` and does nothing else
@@ -41,7 +45,7 @@ With no argument or an unknown first argument, `main` SHALL print `USAGE` to std
 #### Scenario: No command prints usage
 - **WHEN** `main([])` runs
 - **THEN** stderr SHALL begin with `usage:` and it SHALL return `2`
-- **AND** stderr SHALL list `specsesh change <draft|approve|build|close> <change> [options]`, `specsesh task <change> <task-id>|<group>|--next|--next-group [options]`, `specsesh task <run|spec|resume|answer|status> [options]`, `specsesh durable <run|resume> [options]`, `specsesh agent <run|models> [options]`, `specsesh --version` and `specsesh --help`
+- **AND** stderr SHALL list `specsesh change <draft|approve|build|close> <change> [options]`, `specsesh task <change> <task-id>|<group>|--next|--next-group [options]`, `specsesh task <run|spec|resume|answer|status> [options]`, `specsesh durable <run|resume> [options]`, `specsesh agent <run|models|list|show|new|check|language|actions> [options]`, `specsesh --version` and `specsesh --help`
 
 #### Scenario: --help prints usage to stdout
 - **WHEN** `main(["--help"])`, `main(["-h"])` and `main(["help"])` run
