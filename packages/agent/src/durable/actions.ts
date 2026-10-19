@@ -28,6 +28,12 @@ export interface ActionContext {
 	 * resumed run counts the same. Absent outside a run: none.
 	 */
 	readonly priorCalls?: (name: string) => number;
+	/**
+	 * Text a delegate puts before its instructions. Set only by the run that owns
+	 * this call, from its durable input, and only for `run` calls; actions other
+	 * than delegates ignore it.
+	 */
+	readonly delegatePreamble?: string;
 }
 
 interface HostActionBase {

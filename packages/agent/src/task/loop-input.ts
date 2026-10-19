@@ -7,6 +7,8 @@ import type { LoopWorktree } from "./options.js";
 /** The durable input of `agentscript.task-loop`: every source already read into text. */
 export interface TaskLoopInput {
 	readonly task: string;
+	/** The change's name, the base name of its directory; absent for a change given as texts, and in older loops. */
+	readonly change?: string;
 	readonly taskText: string;
 	readonly proposal: string;
 	readonly design: string;

@@ -6,7 +6,7 @@ import type { Harness, JsonObject, TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { analyze } from "../../src/authoring/index.js";
-import { RESULT_TOOL, type Workspace } from "../../src/durable/index.js";
+import { RESULT_TOOL, type RunInput, type Workspace } from "../../src/durable/index.js";
 import { scanDocument } from "../../src/interpreter/index.js";
 import { GroupOutcome, Iteration, LoopOutcome, TaskOutcome, check, type Escalation } from "../../src/openspec/index.js";
 import {
@@ -16,7 +16,9 @@ import {
 	answerGroupEscalation,
 	groupLoopExtensions,
 	startGroupLoop,
+	taskPreamble,
 	waitForGroupLoop,
+	type TaskLoopInput,
 } from "../../src/task/index.js";
 import {
 	DEFAULT_MAX_REWORKS,
@@ -974,6 +976,31 @@ describe("task/group: a group loop on a real store", () => {
 		expect(seen).toContain(staged.command);
 		expect(seen).toContain("exit 1");
 		expect(seen).toContain("2 failed: value.test.ts");
+	});
+
+	it("Scenario: A group's task run carries the preamble", async () => {
+		const r = await openRun([verdict(true), verdict(true)]);
+		await runGroup(r);
+		const loops = await scan(r.storage, TASK_LOOP);
+		const loop = loops.find((t) => (t.input as unknown as TaskLoopInput).task === "1.1");
+		const input = loop?.input as unknown as TaskLoopInput;
+		expect(input.change).toBe("tiny");
+		const [run] = (await scan(r.storage, "agentscript.run")).filter((t) => t.owner === loop?.id);
+		const preamble = (run?.input as unknown as RunInput).delegatePreamble;
+		expect(preamble).toBe(taskPreamble(input));
+		expect(preamble).toContain("Change: tiny\nTask 1.1: `src/value.txt` holds 2");
+	});
+
+	it("Scenario: The group judge's run carries no preamble", async () => {
+		const staged = stagedCheck([true, true, false], "2 failed: value.test.ts");
+		const r = await openRun([verdict(true), verdict(true), judgeSays({ next_action: "ask", question: "Which?" })], { checks: [staged.command] });
+		await runGroup(r);
+		const runs = (await scan(r.storage, "agentscript.run")).map((t) => t.input as unknown as RunInput);
+		const judge = runs.filter((input) => input.source === GROUP_JUDGE);
+		expect(judge).toHaveLength(1);
+		expect(judge[0]).not.toHaveProperty("delegatePreamble");
+		// The task runs beside it do carry one.
+		expect(runs.filter((input) => input.delegatePreamble !== undefined)).toHaveLength(2);
 	});
 
 	it("Scenario: A rework verdict names a task", () => {

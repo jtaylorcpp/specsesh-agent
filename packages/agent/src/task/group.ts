@@ -5,7 +5,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import {
 	defineExtension,
 	defineTask,
@@ -471,6 +471,7 @@ export function recordEntry(entries: readonly GroupEntry[], task: string, outcom
 export function taskLoopInputFor(input: GroupLoopInput, task: string, carried: string): TaskLoopInput {
 	return {
 		task,
+		...(input.changeDir !== undefined ? { change: basename(input.changeDir) } : {}),
 		taskText: input.tasks.find((t) => t.id === task)?.text ?? "",
 		proposal: input.proposal,
 		design: input.design,

@@ -4,6 +4,7 @@
  * A refusal creates nothing and calls no model.
  */
 
+import { basename, resolve } from "node:path";
 import { analyze } from "../authoring/index.js";
 import { start } from "../interpreter/index.js";
 import { readDeclarations } from "../interpreter/compose.js";
@@ -58,6 +59,7 @@ export function prepareTaskLoop(options: TaskLoopOptions): TaskLoopInput {
 
 	return {
 		task: options.task,
+		...("dir" in options.change ? { change: basename(resolve(options.change.dir)) } : {}),
 		taskText,
 		proposal: change.proposal,
 		design: change.design,

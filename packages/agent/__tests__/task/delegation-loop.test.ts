@@ -10,9 +10,9 @@ import { analyze } from "../../src/authoring/index.js";
 import { readActionDefinitions } from "../../src/interpreter/actions.js";
 import { readSubagents } from "../../src/interpreter/compose.js";
 import { claudeCodeRunner } from "../../src/node/index.js";
-import { BUNDLED_SCRIPTS, startTaskLoop, type TaskLoopInput } from "../../src/task/index.js";
+import { BUNDLED_SCRIPTS, startTaskLoop, taskPreamble, type TaskLoopInput } from "../../src/task/index.js";
 import { gitRepo } from "./cli-helpers.js";
-import { COUNT_CHECK, JUDGE_ONLY, cleanTemps, context, loopEnv, loopHarness, plan, prompts, runLoop, temp, tinyChange, verdict } from "./helpers.js";
+import { COUNT_CHECK, JUDGE_ONLY, PROPOSAL, cleanTemps, context, loopEnv, loopHarness, plan, prompts, runLoop, temp, tinyChange, verdict } from "./helpers.js";
 
 afterEach(() => cleanTemps());
 
@@ -161,5 +161,37 @@ describe("actions/delegation: A delegate acts only through its run's workspace",
 			else process.env["FAKE_CLAUDE_OUT"] = saved;
 		}
 		expect(readFileSync(out, "utf8")).toBe(realpathSync(worktree));
+	});
+});
+
+/** A fake `claude` that writes its stdin to `out` and changes no file. */
+function recordingClaude(out: string): string {
+	const binary = join(temp("task-claude-"), "claude");
+	writeFileSync(
+		binary,
+		`#!${process.execPath}\nconst fs = require("node:fs");\nfs.writeFileSync(${JSON.stringify(out)}, fs.readFileSync(0, "utf8"));\nprocess.stdout.write(JSON.stringify({ type: "result", is_error: false, result: "nothing" }));\n`,
+		{ mode: 0o755 },
+	);
+	return binary;
+}
+
+describe("task/agent: The loop hands every delegate the task preamble", () => {
+	it("Scenario: The bundled delegate script's delegate sees the contract", async () => {
+		const out = join(temp("task-claude-out-"), "stdin.txt");
+		const grant = granted(recordingClaude(out));
+		const r = await runLoop(
+			[plan("Edit src/value.txt"), verdict(false, "not yet")],
+			{ script: { path: DELEGATE_SCRIPT }, workspace: gitRepo(), budget: { maxIterations: 1 }, ...grant.overrides },
+			grant.actions,
+		);
+		const input = (await r.harness.getTask(r.id, context))?.input as unknown as TaskLoopInput;
+		await r.harness.close(context);
+
+		const preamble = taskPreamble(input);
+		expect(preamble).toContain("Change: tiny\nTask 1.1: `src/value.txt` holds 2");
+		expect(preamble).toContain(`# proposal.md\n\n${PROPOSAL.trimEnd()}`);
+		const stdin = readFileSync(out, "utf8");
+		expect(stdin.startsWith(`${preamble}\n\nEdit src/value.txt`)).toBe(true);
+		expect(stdin).toContain("Your terms for this delegation");
 	});
 });

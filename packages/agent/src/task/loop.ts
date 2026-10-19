@@ -46,6 +46,7 @@ import { LoopOutcome, TaskOutcome, check, explain, outcomeStatus, type Finding, 
 import { contractChoices } from "./contract.js";
 import { checkEvidence, runLoopChecks } from "./checks.js";
 import { readRun, recordIteration, taskTarget } from "./iteration.js";
+import { taskPreamble } from "./preamble.js";
 import { judgeIteration } from "./judge.js";
 import type { LoopCheckpoint, TaskLoopInput, TaskLoopResult } from "./loop-input.js";
 import { tickTask } from "./tick.js";
@@ -173,6 +174,8 @@ export const TaskLoopTask: Task<TaskLoopInput, LoopCheckpoint, TaskLoopResult, o
 					choices: contractChoices(input.deltas),
 				},
 				...(input.model !== undefined ? { model: input.model } : {}),
+				// Rendered from the texts read at start, so every delegate the run calls sees the contract the judge sees.
+				delegatePreamble: taskPreamble(input),
 			};
 			await runtime.commit(async (tx) => {
 				const child = await tx.createTask(runTask, runInput, { ownership: { kind: "task", taskId: runtime.taskId } });

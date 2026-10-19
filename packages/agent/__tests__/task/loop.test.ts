@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { LoopOutcome, TaskOutcome, check, type LoopOutcome as LoopOutcomeType, type TaskOutcome as TaskOutcomeType } from "../../src/openspec/index.js";
-import { runScript } from "../../src/durable/index.js";
+import { runScript, type RunInput } from "../../src/durable/index.js";
 import { BUNDLED_SCRIPTS, DELETE_NOT_GRANTED, TASK_LOOP, startTaskLoop, waitForTaskLoop, waitForTaskLoopResult } from "../../src/task/index.js";
 import { readRun } from "../../src/task/iteration.js";
 import { taskLoopRegistry } from "../../src/task/loop.js";
@@ -219,10 +219,10 @@ function crashedLoop() {
 	return { dir, workspace, dbPath, id };
 }
 
-async function resumeCrashed(crashed: ReturnType<typeof crashedLoop>) {
+async function resumeCrashed(crashed: ReturnType<typeof crashedLoop>, responses = [verdict(true)]) {
 	const storage = await openNodeSqliteStorage(crashed.dbPath);
 	const { env } = loopEnv({ workspace: crashed.workspace });
-	env.faux.setResponses([verdict(true)]);
+	env.faux.setResponses(responses);
 	const harness = await loopHarness(env, storage);
 	const stranded = await harness.getTask(crashed.id, context);
 	const before = await runTasks(storage);
@@ -261,6 +261,19 @@ describe("task/agent: Sources are read once, at start, into the durable input", 
 		expect(prompt).toContain(`Proposal: ${PROPOSAL.trimEnd().split("\n")[0]}`);
 		expect(prompt).toContain("The value file must say 2.");
 		expect(prompt).not.toContain("EDITED AFTER THE START");
+	}, 90_000);
+
+	it("Scenario: A resumed loop's preamble uses the texts read at start", async () => {
+		const crashed = crashedLoop();
+		writeFileSync(join(crashed.dir, "proposal.md"), "## Why\n\nEDITED AFTER THE START\n");
+		const { after, outcome } = await resumeCrashed(crashed, [verdict(false, "not yet"), verdict(true)]);
+
+		expect(outcome.status).toBe("converged");
+		expect(outcome.iterations).toHaveLength(2);
+		// The second run was created after the resume, from the loop's durable input.
+		const preamble = (after[1]?.input as unknown as RunInput | undefined)?.delegatePreamble;
+		expect(preamble).toContain(`# proposal.md\n\n${PROPOSAL.trimEnd()}\n\n`);
+		expect(preamble).not.toContain("EDITED AFTER THE START");
 	}, 90_000);
 });
 

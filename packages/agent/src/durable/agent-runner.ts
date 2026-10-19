@@ -7,7 +7,7 @@
  *   delegate/<name>  { instructions } → { ok, summary, files_changed }  delegate  safe (durable)
  *
  * The delegate contract: the script declares `instructions` (string), seeded
- * with the call's, and `ok` (boolean) and `summary` (string), read back when
+ * with the call's (after the run's delegate preamble, when it carries one), and `ok` (boolean) and `summary` (string), read back when
  * the child completes. Runtime-neutral: no `node:` import.
  */
 
@@ -183,9 +183,12 @@ export function agentRunner(): AgentRunner {
 						if ((ctx.priorCalls?.(name) ?? 0) >= terms.maxCalls) {
 							return { ok: false, message: `delegate ${terms.name} reached its limit of ${terms.maxCalls} calls in this run` };
 						}
+						const own = String(inputs["instructions"]);
+						// The run's preamble goes first; the child carries none of its own, so it doesn't nest.
+						const instructions = ctx.delegatePreamble !== undefined ? `${ctx.delegatePreamble}\n\n${own}` : own;
 						return {
 							source: script,
-							options: { entry, variables: { instructions: String(inputs["instructions"]) } },
+							options: { entry, variables: { instructions } },
 							model,
 							scope,
 							maxSteps,
