@@ -5,6 +5,7 @@
  *   specsesh task …     agentscript-task, with `run` implied as in `pnpm task`
  *   specsesh durable …  agentscript-durable
  *   specsesh agent …    agentscript-pi, except the subcommands `explain.ts` handles
+ *   specsesh llm …      the guide for LLM agents and a starter skill, from `llm.ts`
  *
  * Importing this module runs nothing and installs no signal handlers: the
  * `specsesh` bin does that before calling `main`.
@@ -16,6 +17,7 @@ import { main as durableMain, type CliDeps as DurableCliDeps } from "../bin/agen
 import { main as piMain } from "../bin/agentscript-pi.js";
 import { main as taskMain, type CliDeps as TaskCliDeps } from "../bin/agentscript-task.js";
 import { runActions, runCheck, runLanguage, runList, runNew, runShow } from "./explain.js";
+import { runLlm } from "./llm.js";
 
 export const USAGE = `usage:
   specsesh change <draft|approve|build|close> <change> [options]
@@ -23,6 +25,7 @@ export const USAGE = `usage:
   specsesh task <run|spec|resume|answer|status> [options]
   specsesh durable <run|resume> [options]
   specsesh agent <run|models|list|show|new|check|language|actions> [options]
+  specsesh llm [skill [--out <path>]]
   specsesh --version
   specsesh --help
 Run a command with no arguments for its own usage.`;
@@ -82,6 +85,7 @@ const ROUTES: Readonly<Record<string, Route>> = {
 	durable: (args, deps) => durableMain(args, deps),
 	task: (args, deps) => taskMain(implyRun(args), deps),
 	change: (args, deps) => changeMain(args, deps),
+	llm: (args, { out, err, cwd }) => runLlm(args, { out, err, cwd, usage: USAGE }),
 };
 
 export async function main(argv: readonly string[], deps: CliDeps = {}): Promise<number> {

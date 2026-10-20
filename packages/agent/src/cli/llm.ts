@@ -1,0 +1,85 @@
+/**
+ * `specsesh llm`: how to use specsesh, for an LLM agent, from text that ships in the package.
+ *
+ *   specsesh llm                            the guide, from `docs/llm/guide.md`
+ *   specsesh llm skill [--out <path>]       a starter SKILL.md, from `templates/SKILL.md`
+ *
+ * `{{version}}` becomes the package version in both, and `{{usage}}` the CLI's `USAGE` in the
+ * guide, so its command list is the one `specsesh --help` prints. Exit 0 on success, 1 when
+ * `--out` names an existing file, 2 on usage.
+ */
+
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/** The guide, beside `src/` and `dist/` alike. */
+export const LLM_GUIDE: string = fileURLToPath(new URL("../../docs/llm/guide.md", import.meta.url));
+
+/** The starter skill, beside `src/` and `dist/` alike. */
+export const SKILL_TEMPLATE: string = fileURLToPath(new URL("../../templates/SKILL.md", import.meta.url));
+
+export const LLM_USAGE = `usage: specsesh llm                          print the guide for LLM agents
+       specsesh llm skill [--out <path>]     print a starter SKILL.md, or write it to <path>`;
+
+export interface LlmDeps {
+	readonly out?: (line: string) => void;
+	readonly err?: (line: string) => void;
+	/** What `--out` resolves against. Default `process.cwd()`. */
+	readonly cwd?: string;
+	/** The CLI's usage, put in the guide for `{{usage}}`. */
+	readonly usage: string;
+}
+
+function version(): string {
+	return (JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }).version;
+}
+
+/** A shipped text with its placeholders filled; the trailing newline goes, since `out` adds one. */
+function render(file: string, usage: string): string {
+	return readFileSync(file, "utf8").replaceAll("{{version}}", version()).replaceAll("{{usage}}", usage).replace(/\n+$/, "");
+}
+
+/** `argv` follows `specsesh llm`. */
+export function runLlm(argv: readonly string[], deps: LlmDeps): number {
+	const out = deps.out ?? ((line) => process.stdout.write(`${line}\n`));
+	const err = deps.err ?? ((line) => process.stderr.write(`${line}\n`));
+	const [sub, ...rest] = argv;
+	if (sub === "--help" || sub === "-h" || sub === "help") {
+		out(LLM_USAGE);
+		return 0;
+	}
+	if (sub === undefined) {
+		out(render(LLM_GUIDE, deps.usage));
+		return 0;
+	}
+	if (sub !== "skill") {
+		err(LLM_USAGE);
+		return 2;
+	}
+	let outPath: string | undefined;
+	for (let i = 0; i < rest.length; i++) {
+		if (rest[i] === "--out" && rest[i + 1] !== undefined && !(rest[i + 1] as string).startsWith("-")) outPath = rest[++i];
+		else {
+			err(LLM_USAGE);
+			return 2;
+		}
+	}
+	const skill = render(SKILL_TEMPLATE, deps.usage);
+	if (outPath === undefined) {
+		out(skill);
+		return 0;
+	}
+	const target = resolve(deps.cwd ?? process.cwd(), outPath);
+	try {
+		mkdirSync(dirname(target), { recursive: true });
+		writeFileSync(target, `${skill}\n`, { flag: "wx" });
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "EEXIST") err(`${target} already exists; not overwriting`);
+		else err(`cannot write ${target}: ${(error as Error).message}`);
+		return 1;
+	}
+	out(`wrote ${target}`);
+	return 0;
+}
