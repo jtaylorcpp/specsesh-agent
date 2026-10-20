@@ -18,7 +18,7 @@
  * or commits: the result says what to print and the exit code.
  */
 
-import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import type { Context } from "@earendil-works/chord";
@@ -193,6 +193,8 @@ export async function trialFold(workspace: string, change: string, bin?: Openspe
 	const failed = (exit: number | null, failure: string): TrialFoldResult => ({ ok: false, command: FOLD_COMMAND, exit, issues: [], failure });
 	try {
 		cpSync(join(workspace, "openspec"), join(trial, "openspec"), { recursive: true });
+		// `cpSync` keeps each directory's mode; archive must move the change even when the workspace's copy is read-only.
+		ownerWritable(trial);
 		const archive = await openspec(resolved, trial, ["archive", change, "--yes"]);
 		if (archive.kind === "spawn-failed") return failed(null, archive.message);
 		if (archive.exit !== 0) return failed(null, `openspec archive ${change} --yes failed (exit ${archive.exit}):\n${archive.stdout}${archive.stderr}`);
@@ -203,7 +205,17 @@ export async function trialFold(workspace: string, change: string, bin?: Openspe
 		if (issues === undefined) return failed(validate.exit, `no parseable JSON\nstdout:\n${validate.stdout}\nstderr:\n${validate.stderr}`);
 		return { ok: validate.exit === 0 && issues.length === 0, command: FOLD_COMMAND, exit: validate.exit, issues };
 	} finally {
+		// Again here, for a copy `cpSync` threw partway through.
+		ownerWritable(trial);
 		rmSync(trial, { recursive: true, force: true });
+	}
+}
+
+/** Give the owner write access to `dir` and every directory under it, following no links. */
+function ownerWritable(dir: string): void {
+	chmodSync(dir, lstatSync(dir).mode | 0o700);
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		if (entry.isDirectory()) ownerWritable(join(dir, entry.name));
 	}
 }
 
