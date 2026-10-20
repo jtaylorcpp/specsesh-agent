@@ -340,12 +340,12 @@ The judge in `task.agent` and `task-delegate.agent` SHALL say: the task is done 
 - **THEN** its prompt SHALL contain `It is done only when the checks pass`, `Default to retry` and `Answer next_action with exactly one word`
 
 ### Requirement: The delegate script shows the judge what changed and changes approach
-`task-delegate.agent` SHALL set `act_files` from the delegate's `files_changed`, and its judge prompt SHALL contain `Files the delegate changed: ` followed by that number. Its orient step SHALL say that when the carried feedback names a check that already failed before, the last approach did not work and a different one is needed.
+`task-delegate.agent` SHALL set `act_files` from the delegate's `files_changed`, and its judge prompt SHALL contain `Files the delegate changed in this iteration: ` followed by that number, `(-1 means unknown)`, and `Earlier iterations may already have done the work, so 0 alone does not mean the task is unfinished.` Its orient step SHALL say that when the carried feedback names a check that already failed before, the last approach did not work and a different one is needed.
 
 #### Scenario: The judge sees an idle delegate
 - **GIVEN** a fake `claude` that writes no file
 - **WHEN** an iteration of `task-delegate.agent` reaches its judge step
-- **THEN** the judge's prompt SHALL contain `Files the delegate changed: 0`
+- **THEN** the judge's prompt SHALL contain `Files the delegate changed in this iteration: 0` and `0 alone does not mean the task is unfinished`, and SHALL NOT contain `0 means the delegate changed nothing`
 
 #### Scenario: Orient asks for a different approach
 - **WHEN** `task-delegate.agent`'s orient step is composed for iteration `2`
@@ -396,7 +396,7 @@ When `delete_granted` is true, `task-delegate.agent`'s orient prompt SHALL have 
 - **THEN** the start SHALL NOT be refused, the orient prompt SHALL NOT contain `RETIRE:`, no `retire` step or `delete_file` call SHALL run, and the judge prompt SHALL contain `Files deleted: none`
 
 ### Requirement: The bundled task scripts show carried feedback whenever it is non-empty
-The orient and judge prompts of `task.agent` and `task-delegate.agent` SHALL contain the `carried` text whenever it is non-empty, including on the first iteration of a run resumed by an answer. The judge SHALL treat a principal's answer as settling the question it answers and not choose `ask` for it again; checks still decide done. When `carried` is empty neither prompt SHALL contain it.
+The orient and judge prompts of `task.agent` and `task-delegate.agent` SHALL contain the `carried` text whenever it is non-empty, including on the first iteration of a run resumed by an answer. The judge SHALL label it `Feedback carried in (from an earlier iteration or the principal's answer): `, never as the principal's alone, and when it answers a question SHALL not choose `ask` for it again; checks still decide done. When `carried` is empty neither prompt SHALL contain it.
 
 #### Scenario: task.agent shows an answer on a resumed run's first iteration
 - **GIVEN** a run of the bundled `task.agent` whose first iteration is seeded with `carried` `"Use the v2 API"`
@@ -411,14 +411,240 @@ The orient and judge prompts of `task.agent` and `task-delegate.agent` SHALL con
 #### Scenario: A fresh run's first iteration shows no carried line
 - **GIVEN** a fresh run of the bundled `task.agent`, and one of `task-delegate.agent`, each seeded with `carried` `""`
 - **WHEN** each orient and judge step is composed for iteration `1`
-- **THEN** neither orient prompt SHALL contain `Carried in` or `This is iteration`, and neither judge prompt SHALL contain `The principal's answer or earlier feedback`
+- **THEN** neither orient prompt SHALL contain `Carried in` or `This is iteration`, and neither judge prompt SHALL contain `Feedback carried in`
 
 #### Scenario: task.agent's judge sees an answer on a resumed run's first iteration
 - **GIVEN** a run of the bundled `task.agent` whose first iteration is seeded with `carried` `"Use the v2 API"`
 - **WHEN** its judge step is composed for iteration `1`
-- **THEN** the judge prompt SHALL contain `The principal's answer or earlier feedback: Use the v2 API` and `do not choose ask for that question again`
+- **THEN** the judge prompt SHALL contain `Feedback carried in (from an earlier iteration or the principal's answer): Use the v2 API` and `do not choose ask for that question again`
+- **AND** it SHALL NOT contain `The principal's answer or earlier feedback`
 
 #### Scenario: task-delegate.agent's judge sees an answer on a resumed run's first iteration
 - **GIVEN** a run of the bundled `task-delegate.agent` with a `claude_code` grant whose first iteration is seeded with `carried` `"Use the v2 API"`
 - **WHEN** its judge step is composed for iteration `1`
-- **THEN** the judge prompt SHALL contain `The principal's answer or earlier feedback: Use the v2 API` and `do not choose ask for that question again`
+- **THEN** the judge prompt SHALL contain `Feedback carried in (from an earlier iteration or the principal's answer): Use the v2 API` and `do not choose ask for that question again`
+- **AND** it SHALL NOT contain `The principal's answer or earlier feedback`
+
+### Requirement: The bundled task scripts' system block is role-neutral
+The `system` instructions of `task.agent` and `task-delegate.agent` SHALL start with `You are one step of a task loop that implements one task of an OpenSpec change` and SHALL contain `Each step's prompt says its role.` and `A step without tools decides only from the text it is given.` They MUST NOT contain `real workspace`. They SHALL keep the contract rules: the spec deltas are the contract, never tick boxes, never edit the spec, and say so when the spec looks wrong.
+
+#### Scenario: The system block names no workspace
+- **WHEN** a model step of either bundled task script is composed
+- **THEN** its `instructions` section SHALL start with `You are one step of a task loop that implements one task of an OpenSpec change` and contain `Each step's prompt says its role.` and `A step without tools decides only from the text it is given.`
+- **AND** it SHALL NOT contain `real workspace` or `You implement one task`
+
+#### Scenario: The system block keeps the contract rules
+- **WHEN** the `system` instructions of either bundled task script are read
+- **THEN** they SHALL contain `The spec deltas are the contract`, `never tick boxes`, `never edit the spec` and `If the spec itself looks wrong, say so`
+
+### Requirement: Each bundled task step's prompt says its role
+In `task.agent` and `task-delegate.agent`, the prompt of every step that makes a model request SHALL start with `You are the <step> step`. The prompts of the tool-less steps (orient and judge in both, and retire in `task-delegate.agent`) SHALL contain `You have no tools: decide only from the text below.` `task.agent`'s `act` prompt SHALL contain `you act in the real workspace` and SHALL NOT contain that sentence. Retire's role line SHALL sit inside its `delete_granted` branch.
+
+#### Scenario: task.agent's tool-less steps say their role
+- **WHEN** an iteration of the bundled `task.agent` composes its orient and judge steps
+- **THEN** the orient prompt SHALL start with `You are the orient step` and the judge prompt with `You are the judge step`
+- **AND** each SHALL contain `You have no tools: decide only from the text below.`
+
+#### Scenario: task-delegate.agent's tool-less steps say their role
+- **GIVEN** a harness with `deleteFiles` `true` and a `claude_code` grant on a fake `claude`
+- **WHEN** an iteration of the bundled `task-delegate.agent` composes its orient, retire and judge steps
+- **THEN** their prompts SHALL start with `You are the orient step`, `You are the retire step` and `You are the judge step`
+- **AND** each SHALL contain `You have no tools: decide only from the text below.`
+
+#### Scenario: task.agent's act step acts in the real workspace
+- **WHEN** an iteration of the bundled `task.agent` dispatches its act step
+- **THEN** the act prompt SHALL start with `You are the act step`, contain `you act in the real workspace` and `Carry out this plan`
+- **AND** it SHALL NOT contain `You have no tools`
+
+#### Scenario: Without the delete grant, retire makes no model request
+- **GIVEN** a harness without `deleteFiles` and a `claude_code` grant on a fake `claude`
+- **WHEN** an iteration of the bundled `task-delegate.agent` runs
+- **THEN** no model request's prompt SHALL start with `You are the retire step`
+
+### Requirement: The bundled judges see the plan as another step's instructions
+`task-delegate.agent`'s judge prompt SHALL show `plan` after `The instructions the delegate was given (for the delegate, not for you): `, and `task.agent`'s after `The plan the act step followed (for the act step, not for you): `. Neither judge prompt SHALL have a line starting `Plan:`.
+
+#### Scenario: task-delegate.agent's judge sees the delegate's instructions
+- **GIVEN** a run of the bundled `task-delegate.agent` with a `claude_code` grant whose orient step answers the plan `Edit src/a.ts`
+- **WHEN** its judge step is composed
+- **THEN** the judge prompt SHALL contain `The instructions the delegate was given (for the delegate, not for you): Edit src/a.ts`
+- **AND** no line of it SHALL start with `Plan:`
+
+#### Scenario: task.agent's judge sees the act step's plan
+- **GIVEN** a run of the bundled `task.agent` whose orient step answers the plan `Edit src/a.ts`
+- **WHEN** its judge step is composed
+- **THEN** the judge prompt SHALL contain `The plan the act step followed (for the act step, not for you): Edit src/a.ts`
+- **AND** no line of it SHALL start with `Plan:`
+
+### Requirement: The bundled judges say what next_action is when the task is met
+The loop ignores `next_action` on a met verdict, and no value means done. Each bundled judge prompt (`task.agent`, `task-delegate.agent`) SHALL contain the line `When the task is met, next_action is ignored: answer retry.` directly before the line `Answer next_action with exactly one word: retry, amend-spec or ask. Put every explanation in unmet, never in next_action.`
+
+#### Scenario: The judges say next_action is ignored when the task is met
+- **GIVEN** a run of the bundled `task.agent`, and a run of the bundled `task-delegate.agent` with a `claude_code` grant
+- **WHEN** each judge step is composed
+- **THEN** each judge prompt SHALL contain the line `When the task is met, next_action is ignored: answer retry.`
+- **AND** the next line SHALL be `Answer next_action with exactly one word: retry, amend-spec or ask. Put every explanation in unmet, never in next_action.`
+
+### Requirement: The loop hands every delegate the task preamble
+Each iteration's `agentscript.run` child SHALL carry `delegatePreamble` set to the task preamble rendered from the loop's durable input, so every delegate the iteration calls with `run` receives it before its instructions. A group loop's task runs SHALL carry it the same way; the group judge's run and the spec loop's runs SHALL carry none. No script variable is added.
+
+#### Scenario: The bundled delegate script's delegate sees the contract
+- **GIVEN** a task loop for task `2.1` of a change directory, running `task-delegate.agent` with `claude_code` granted to a fake `claude` that records its stdin
+- **WHEN** iteration 1 calls the delegate
+- **THEN** stdin SHALL start with the task preamble, then a blank line, then the iteration's `plan`
+
+#### Scenario: A group's task run carries the preamble
+- **GIVEN** a group loop over group `2` of a change directory
+- **WHEN** it runs task `2.1` as a child task loop
+- **THEN** that task loop's iteration run SHALL carry the task preamble for task `2.1`
+
+#### Scenario: The group judge's run carries no preamble
+- **GIVEN** a group loop whose group check fails
+- **WHEN** it runs its judge
+- **THEN** the judge's `agentscript.run` input SHALL have no `delegatePreamble`
+
+#### Scenario: A resumed loop's preamble uses the texts read at start
+- **GIVEN** a loop started from a directory, whose proposal.md is edited after the start
+- **WHEN** the loop is resumed after a crash and runs its next iteration
+- **THEN** that iteration's `delegatePreamble` SHALL hold the proposal text read at start
+
+### Requirement: The task preamble is fixed text over the loop's sources
+`taskPreamble(input)` SHALL return the opening line, `Change: <change>` (only when `change` is set), `Task <task>: <taskText>`, the three rules, then `# proposal.md`, `# design.md` (only when design is not `""`) and `# Spec deltas`, each followed by a blank line and its text with trailing newlines trimmed, and end with `# Instructions`. Blocks are separated by one blank line.
+
+#### Scenario: The preamble for a change directory
+- **GIVEN** a loop input with `change` `"add-x"`, `task` `"2.1"`, `taskText` `"Do X"`, `proposal` `"P\n"`, `design` `"D"` and `deltas` `"## a/b\nR\n"`
+- **WHEN** `taskPreamble` renders it
+- **THEN** it SHALL equal exactly:
+
+```text
+You are working on one task of an OpenSpec change. The documents below are its contract; the instructions after them are this iteration's plan.
+
+Change: add-x
+Task 2.1: Do X
+
+Rules:
+- Change only what the task needs.
+- Never tick boxes in tasks.md, and never edit the change's proposal, design or spec deltas.
+- If the spec itself looks wrong, say so in your reply instead of coding around it.
+
+# proposal.md
+
+P
+
+# design.md
+
+D
+
+# Spec deltas
+
+## a/b
+R
+
+# Instructions
+```
+
+#### Scenario: An empty design is left out
+- **GIVEN** the same input with `design` `""`
+- **WHEN** `taskPreamble` renders it
+- **THEN** it SHALL contain no `# design.md` line, and `P` SHALL be followed by a blank line and `# Spec deltas`
+
+#### Scenario: A change given as texts has no Change line
+- **GIVEN** a loop started with `change` `{ proposal: { text }, deltas: [{ text }], tasks: { text } }`
+- **WHEN** its preamble is rendered
+- **THEN** it SHALL contain no line starting `Change:`, and its second block SHALL start with `Task `
+
+### Requirement: The loop input names the change it came from
+`TaskLoopInput` SHALL carry an optional `change`: the base name of `change.dir` for a `{ dir }` change, and absent for a change given as texts. A group loop SHALL pass its change's base name to each task loop it runs. A loop whose stored input has no `change` SHALL still run.
+
+#### Scenario: A directory change is named
+- **WHEN** a task loop starts with `change` `{ dir: "openspec/changes/add-x" }`
+- **THEN** its durable input SHALL have `change` `"add-x"`
+
+### Requirement: A script that declares changed is seeded what changed since the loop started
+A task script MAY declare `changed`. Before each iteration the loop SHALL seed it, only into a script that declares it, with the paths changed in the loop's workspace since the loop started, sorted, one per line, or `""`. A script declaring `changed` with a type other than string MUST be refused at start, naming `changed` and `string`. A script that does not declare it SHALL keep the contract.
+
+#### Scenario: A script without changed keeps the contract
+- **GIVEN** a script declaring every contract variable and not `changed`
+- **WHEN** `startTaskLoop` is called with it
+- **THEN** the start SHALL NOT be refused, and no iteration's run SHALL be seeded with `changed`
+
+#### Scenario: A mistyped changed is refused
+- **GIVEN** a script declaring every contract variable and `changed: mutable number = 0`
+- **WHEN** `startTaskLoop` is called with it
+- **THEN** it SHALL reject naming `changed` and `string`, no loop SHALL be created, and no model request SHALL be made
+
+#### Scenario: The second iteration sees the first iteration's files
+- **GIVEN** a clean git workspace and a script declaring `changed` whose iteration 1 writes `src/b.ts` and `src/a.ts` and ends unmet
+- **WHEN** iteration 2 starts
+- **THEN** its run SHALL be seeded with `changed` `"src/a.ts\nsrc/b.ts"`, and iteration 1's run SHALL have been seeded with `changed` `""`
+
+#### Scenario: Edits made before the loop started are not listed
+- **GIVEN** a git workspace with an uncommitted edit to `src/old.ts`, and a script declaring `changed` whose iteration 1 writes `src/a.ts` and leaves `src/old.ts` alone
+- **WHEN** iteration 2 starts
+- **THEN** its run SHALL be seeded with `changed` `"src/a.ts"`
+
+### Requirement: changed is measured from a baseline the loop keeps
+The loop SHALL snapshot the workspace its gate uses once, at its first iteration, and keep that baseline durably. A resumed loop, and a run started by `answerEscalation`, SHALL measure `changed` from the original baseline. `changed` SHALL leave out the change's `tasks.md` and every path in the option `excludeChanged`. A workspace that cannot snapshot SHALL be seeded `(unknown)`.
+
+#### Scenario: A resumed loop measures from the loop's start
+- **GIVEN** a loop whose iteration 1 wrote `src/a.ts` and ended unmet, and whose process died before iteration 2 started
+- **WHEN** the loop resumes in a new process and iteration 2 starts
+- **THEN** its run SHALL be seeded with `changed` `"src/a.ts"`
+
+#### Scenario: An answered run measures from the blocked loop's start
+- **GIVEN** a loop blocked after iteration 1, which wrote `src/a.ts`
+- **WHEN** the principal answers and the new run's first iteration starts
+- **THEN** that run SHALL be seeded with `changed` `"src/a.ts"`
+
+#### Scenario: The tick and excluded paths are not listed
+- **GIVEN** a loop started with `excludeChanged` `["runs.sqlite", "runs.sqlite-wal"]` over a git workspace holding the change's `tasks.md`, whose iteration 1 writes `src/a.ts`, `tasks.md`, `runs.sqlite` and `runs.sqlite-wal`
+- **WHEN** iteration 2 starts
+- **THEN** its run SHALL be seeded with `changed` `"src/a.ts"`
+
+#### Scenario: A workspace without snapshots seeds unknown
+- **GIVEN** a harness bound to a `memoryWorkspace` and a script declaring `changed`
+- **WHEN** iteration 1 starts
+- **THEN** its run SHALL be seeded with `changed` `"(unknown)"`
+
+### Requirement: Each task loop of a group measures changed from its own start
+Every task loop a group starts SHALL take its own baseline at its first iteration and SHALL be given the group's `excludeChanged`. This covers a task's first run, a rework, and the rerun of a blocked task after the group is answered. Its `changed` SHALL list only what changed since that task loop started.
+
+#### Scenario: A later task does not see an earlier task's files
+- **GIVEN** a two-task group whose script declares `changed`, where task `1.1` writes `src/a.ts` and converges
+- **WHEN** task `1.2`'s first iteration starts
+- **THEN** its run SHALL be seeded with `changed` `""`
+
+#### Scenario: A reworked task measures from its rerun
+- **GIVEN** a group whose judge reworks task `1.1` after its first loop wrote `src/a.ts`
+- **WHEN** the rework's first iteration starts
+- **THEN** its run SHALL be seeded with `changed` `""`
+
+### Requirement: The bundled task judges see the changes since the loop started
+`task.agent` and `task-delegate.agent` SHALL declare `changed: mutable string = ""`. Each judge prompt SHALL contain `Files changed since the loop started (iteration <n>):` followed by `changed`, or `none` when it is `""`, and `counting the work of every iteration since the loop started`. Each orient prompt SHALL contain `Files changed since the loop started:` and `changed` when `iteration` is above 1 and `changed` is not `""`, and SHALL NOT otherwise.
+
+#### Scenario: The judge counts work done in an earlier iteration
+- **GIVEN** a run of `task-delegate.agent` seeded with `iteration` `2` and `changed` `"src/a.ts"`, and a fake `claude` that writes no file
+- **WHEN** its judge step is composed
+- **THEN** the prompt SHALL contain `Files changed since the loop started (iteration 2):`, `src/a.ts` and `Files the delegate changed in this iteration: 0`
+
+#### Scenario: task.agent's judge shows none on a fresh loop
+- **GIVEN** a run of `task.agent` seeded with `iteration` `1` and `changed` `""`
+- **WHEN** its judge step is composed
+- **THEN** the prompt SHALL contain `Files changed since the loop started (iteration 1):` followed by `none`
+
+#### Scenario: The judge asks about the work since the loop started
+- **WHEN** either bundled script's judge step is composed
+- **THEN** its prompt SHALL contain `counting the work of every iteration since the loop started` and `It is done only when the checks pass`
+
+#### Scenario: Orient shows earlier work from iteration 2
+- **GIVEN** either bundled script
+- **WHEN** its orient step is composed for `iteration` `2` with `changed` `"src/a.ts"`, and for `iteration` `1` with `changed` `""`
+- **THEN** the first prompt SHALL contain `Files changed since the loop started:` and `src/a.ts`, and the second SHALL NOT contain `Files changed since the loop started`
+
+### Requirement: A script can make passing checks sufficient
+A host MAY make passing checks enough for a met verdict with a logic-only subagent after the judge that runs `set @variables.met = True` under `if @variables.checks_passed:`. The loop SHALL treat that `met` like any other, gate included. The bundled scripts SHALL NOT do this: their judge decides.
+
+#### Scenario: Passing checks converge a loop whose judge said unmet
+- **GIVEN** a copy of `task.agent` with a trailing subagent `accept` holding only `if @variables.checks_passed:` / `set @variables.met = True`, a judge that answers `met` `False`, and checks that pass
+- **WHEN** iteration 1 runs
+- **THEN** the loop SHALL end `converged` after the gate, with the task ticked
