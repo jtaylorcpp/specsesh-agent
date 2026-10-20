@@ -1,3 +1,6 @@
+import { chmodSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createModels, Type, type Context, type Message } from "@earendil-works/pi-ai";
 import type { ProcessResult, Runner } from "../../src/claude-code/claude-code.js";
@@ -22,6 +25,10 @@ function harness(...answers: ProcessResult[]) {
 }
 
 const flag = (args: readonly string[], name: string) => args[args.indexOf(name) + 1];
+
+/** The note `pi/claude-code` pins, as the literal string. */
+const NOTE =
+	"This step has no workspace. The environment details you may see (working directory, whether it is a git repository, platform) describe the process running this step, not the project the step is about; ignore them.";
 const user = (content: string): Message => ({ role: "user", content, timestamp: 0 });
 const system = (sections: Record<string, string | null>, content = "", toolsAdded?: Context["tools"]): Message =>
 	({ role: "system", content, sections, ...(toolsAdded ? { toolsAdded } : {}), timestamp: 0 }) as Message;
@@ -130,5 +137,27 @@ describe("The claude-code surface is exported from the root entry", () => {
 		expect(CLAUDE_CODE_PROVIDER).toBe("claude-code");
 		expect(CLAUDE_CODE_PROVIDER_ID).toBe("claude-code");
 		expect(CLAUDE_CODE_API).toBe("claude-code");
+	});
+});
+
+describe("The system prompt ends with the no-workspace note", () => {
+	it("Scenario: The provider passes the note", async () => {
+		const h = harness(ok({ result: "Hello!" }));
+		await h.models.complete(h.model, { messages: [system({}, "Be kind."), user("Say hi")] });
+		expect(flag(h.calls[0]!.args, "--system-prompt")).toBe(`Be kind.\n\n${NOTE}`);
+	});
+});
+
+describe("The provider spawns per request with the request's abort signal", () => {
+	it("Scenario: The provider runs claude in its cwd option", async () => {
+		const binary = join(mkdtempSync(join(tmpdir(), "agentscript-fake-claude-")), "claude");
+		writeFileSync(binary, `#!${process.execPath}\nprocess.stdin.resume();\nprocess.stdin.on("end", () => process.stdout.write(JSON.stringify({ type: "result", is_error: false, result: process.cwd() })));\n`);
+		chmodSync(binary, 0o755);
+		const cwd = mkdtempSync(join(tmpdir(), "agentscript-provider-cwd-"));
+		const models = createModels();
+		models.setProvider(claudeCodeProvider({ binary, cwd, timeoutMs: 10_000 }));
+		const message = await models.complete(models.getModel("claude-code", "claude-haiku-4-5")!, { messages: [user("Where?")] });
+		const text = message.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+		expect(realpathSync(text)).toBe(realpathSync(cwd));
 	});
 });

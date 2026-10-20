@@ -13,7 +13,8 @@
  *                             your global CLAUDE.md leaks into every step (measured:
  *                             ~9.3k tokens of LifeOS context vs ~500 with it).
  *   --tools ""                no tools; the step is reasoning only
- *   --system-prompt           the document's system block, as its own channel
+ *   --system-prompt           the document's system block, as its own channel, then
+ *                             the no-workspace note (below)
  *   --json-schema             when the step writes variables
  *   --no-session-persistence  the port is stateless
  *
@@ -21,12 +22,20 @@
  * the subscription login rather than silently billing an API key; CLAUDECODE is
  * removed so a run started from inside a Claude Code session is not refused.
  *
+ * Claude Code adds its own environment block (working directory, git status,
+ * platform, date) to the system prompt even with --system-prompt, and no flag
+ * removes it. So each process runs in a fresh empty directory, and the system
+ * prompt ends with a note saying those details describe the process, not the
+ * project the step is about.
+ *
  * Claude Code owns its own turn loop and bound, so unlike the pi port this one
  * CAN report `cut-short` — when Claude Code says it stopped at max turns.
  */
 
 import { spawn } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ReasoningPort, ReasoningRequest, StepOutcome } from "../interpreter/index.js";
 import { TOOLS_NEED_DURABLE_HOST, toFailureCategory } from "../interpreter/index.js";
 import { categoryFromStatus } from "../pi/categories.js";
@@ -53,6 +62,8 @@ export interface ClaudeCodeReasoningPortOptions {
 	readonly maxTurns?: number;
 	/** Kill the process after this long. Defaults to 5 minutes. */
 	readonly timeoutMs?: number;
+	/** Where `claude` runs. Defaults to a fresh empty directory per step, removed after. Ignored with `runner`. */
+	readonly cwd?: string;
 	/** Replaces process spawning, for tests. */
 	readonly runner?: Runner;
 	/** Called with every parsed result, for logging cost and turns. */
@@ -90,6 +101,10 @@ export interface ClaudeInvocation {
 	readonly maxTurns?: number;
 }
 
+/** Appended to every system prompt: Claude Code's environment block can't be turned off. */
+const NO_WORKSPACE_NOTE =
+	"This step has no workspace. The environment details you may see (working directory, whether it is a git repository, platform) describe the process running this step, not the project the step is about; ignore them.";
+
 export function claudeArgs(invocation: ClaudeInvocation): string[] {
 	const args = [
 		"-p",
@@ -102,7 +117,7 @@ export function claudeArgs(invocation: ClaudeInvocation): string[] {
 		"--output-format",
 		"json",
 		"--system-prompt",
-		invocation.system,
+		invocation.system === "" ? NO_WORKSPACE_NOTE : `${invocation.system}\n\n${NO_WORKSPACE_NOTE}`,
 	];
 	if (invocation.schema !== undefined) args.push("--json-schema", JSON.stringify(invocation.schema));
 	if (invocation.maxTurns !== undefined) args.push("--max-turns", String(invocation.maxTurns));
@@ -118,7 +133,7 @@ export function claudeCodeEnv(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 export function createClaudeCodeReasoningPort(options: ClaudeCodeReasoningPortOptions = {}): ReasoningPort {
-	const runner = options.runner ?? spawnRunner(options.binary ?? "claude", options.timeoutMs ?? 300_000);
+	const runner = options.runner ?? spawnRunner(options.binary ?? "claude", options.timeoutMs ?? 300_000, undefined, options.cwd);
 	return {
 		async reason(request: ReasoningRequest): Promise<StepOutcome> {
 			// One `claude -p` per step, tools off: nothing here can run a tool loop.
@@ -181,25 +196,49 @@ export function toClaudeCodeOutcome(
 	return { parsed, step: { kind: "answered", text } };
 }
 
-export function spawnRunner(binary: string, timeoutMs: number, signal?: AbortSignal): Runner {
-	return (args, input, env) =>
-		new Promise((resolve) => {
-			// Run outside any project so no project-level settings are picked up either.
-			const child = spawn(binary, args, { env, cwd: tmpdir(), stdio: ["pipe", "pipe", "pipe"] });
-			let stdout = "";
-			let stderr = "";
-			const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
-			signal?.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });
-			child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
-			child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
-			child.on("error", (spawnError) => {
-				clearTimeout(timer);
-				resolve({ code: null, stdout, stderr, spawnError });
-			});
-			child.on("close", (code) => {
-				clearTimeout(timer);
-				resolve({ code, stdout, stderr });
-			});
-			child.stdin.end(input);
+export function spawnRunner(binary: string, timeoutMs: number, signal?: AbortSignal, cwd?: string): Runner {
+	return async (args, input, env) => {
+		// Run outside any project so no project-level settings are picked up either, and
+		// in a directory of our own, so Claude Code finds nothing another process left there.
+		let dir: string;
+		try {
+			dir = cwd ?? (await mkdtemp(join(tmpdir(), "agentscript-claude-")));
+		} catch (error) {
+			return { code: null, stdout: "", stderr: "", spawnError: error instanceof Error ? error : new Error(String(error)) };
+		}
+		try {
+			return await spawnIn(dir, binary, args, input, env, timeoutMs, signal);
+		} finally {
+			if (cwd === undefined) await rm(dir, { recursive: true, force: true });
+		}
+	};
+}
+
+function spawnIn(
+	cwd: string,
+	binary: string,
+	args: readonly string[],
+	input: string,
+	env: NodeJS.ProcessEnv,
+	timeoutMs: number,
+	signal?: AbortSignal,
+): Promise<ProcessResult> {
+	return new Promise((resolve) => {
+		const child = spawn(binary, args, { env, cwd, stdio: ["pipe", "pipe", "pipe"] });
+		let stdout = "";
+		let stderr = "";
+		const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+		signal?.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });
+		child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
+		child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+		child.on("error", (spawnError) => {
+			clearTimeout(timer);
+			resolve({ code: null, stdout, stderr, spawnError });
 		});
+		child.on("close", (code) => {
+			clearTimeout(timer);
+			resolve({ code, stdout, stderr });
+		});
+		child.stdin.end(input);
+	});
 }

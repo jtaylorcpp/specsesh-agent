@@ -341,6 +341,39 @@ describe("durable/run-task: The next phase asks the step machine and either fini
 	});
 });
 
+describe("durable/run-task: The result section shows the schema only on structured steps", () => {
+	async function pipelineRequests() {
+		const env = setup();
+		env.faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("submit_result", { severity: "low" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("Queued.")]),
+		]);
+		const harness = await openHarness(new MemoryStorage(), env);
+		await runScript(harness, PIPELINE, { entry: ENTRIES, model: env.model }, context);
+		await harness.close(context);
+		return env.requests;
+	}
+
+	it("Scenario: The classify step's prompt shows its schema", async () => {
+		const requests = await pipelineRequests();
+		expect(sections(requests[0])["result"]).toContain('"severity"');
+	});
+
+	it("Scenario: The respond step has no result section", async () => {
+		const requests = await pipelineRequests();
+		expect(sections(requests[1])["result"]).toBeUndefined();
+	});
+
+	it("Scenario: The result section names no tool", async () => {
+		const requests = await pipelineRequests();
+		// pi-durable wraps each section in its own tag; the text is what the extension rendered.
+		const result = sections(requests[0])["result"]?.replace(/^<result>\n/, "");
+		expect(result?.startsWith("Finish by submitting a structured result matching this JSON Schema:\n")).toBe(true);
+		expect(result).not.toContain("submit_result");
+		expect(toolNames(requests[0])).toContain("submit_result");
+	});
+});
+
 describe("durable/run-task: A step conversation is configured with the script's system block, the step extension, and only the tools the step needs", () => {
 	it("Scenario: A structured step offers the result tool", async () => {
 		const env = setup();

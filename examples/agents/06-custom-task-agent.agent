@@ -20,12 +20,14 @@ config:
     agent_name: "custom-task-agent"
     description: "One iteration of an OpenSpec task loop: act, check, judge"
 
-# The standing instructions every step sees.
+# The standing instructions every model step sees, tool-less ones included: keep them
+# role-neutral, and say each step's role in its prompt.
 system:
     instructions: |
-        You implement one task of an OpenSpec change, in a real workspace, one iteration at a time.
-        The spec deltas are the contract. Change only what the task needs; never tick boxes, never
-        edit the spec.
+        You are one step of a task loop that implements one task of an OpenSpec change, one iteration at a time.
+        Each step's prompt says its role. A step without tools decides only from the text it is given.
+        The spec deltas are the contract. Change only what the task needs; never tick boxes,
+        never edit the spec.
 
 # Seeded: task_id, task_text, proposal, design, deltas, iteration, carried.
 # Read back: met, unmet, next_action, question, amend_path, amend_text.
@@ -93,6 +95,7 @@ subagent act:
 
     reasoning:
         instructions: ->
+            | You are the act step: you act in the real workspace, with the tools you are offered.
             | Task {!@variables.task_id}: {!@variables.task_text}
             | Spec deltas:
             | {!@variables.deltas}
@@ -136,6 +139,7 @@ subagent judge:
 
     reasoning:
         instructions: ->
+            | You are the judge step: you decide whether the task is done from the check output below. You have no tools: decide only from the text below.
             | Task {!@variables.task_id}: {!@variables.task_text}
             | Checks passed: {!@variables.checks_passed}
             | Check output:

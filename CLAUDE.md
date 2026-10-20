@@ -176,7 +176,10 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
   Claude Code's OAuth token to pi or any other client: that is against Anthropic's terms (coopcli
   withdrew exactly that in `simplify-specsketch-workbench`), and a test pins its absence.
   `--safe-mode` is required: without it your global CLAUDE.md leaks into every step. Never `--bare`
-  (it forces API-key auth). First live run: 2026-10-10, triage example, Haiku 4.5, completed.
+  (it forces API-key auth). Each step runs in a fresh empty directory under `os.tmpdir()`, removed
+  after (or in the port's or provider's `cwd` option), and the system prompt ends with a fixed
+  no-workspace note, because Claude Code's environment block (working directory, git status,
+  platform) can't be turned off. First live run: 2026-10-10, triage example, Haiku 4.5, completed.
   (This is the reasoning port, which offers no tools; a delegate's `claudeCodeRunner` is different,
   see Hard lines.)
 

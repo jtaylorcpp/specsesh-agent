@@ -223,7 +223,7 @@ const resultSection = section("result", async (input, context) => {
 	const doc = await input.read.snapshot(AgentScriptStep, input.conversationId, context);
 	if (doc?.schema === null || doc?.schema === undefined) return undefined;
 	return (
-		`Finish by calling ${RESULT_TOOL} with an object matching this JSON Schema:\n` +
+		"Finish by submitting a structured result matching this JSON Schema:\n" +
 		JSON.stringify(doc.schema, null, 2)
 	);
 });
