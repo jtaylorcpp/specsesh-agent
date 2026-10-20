@@ -92,7 +92,8 @@ describe("specsesh routes four commands to their CLIs", () => {
 		for (const flag of ["--help", "-h", "help"]) {
 			const help = capture();
 			expect(await main(["agent", flag], help.deps), flag).toBe(0);
-			expect(help.out(), flag).toBe(AGENT_USAGE);
+			// The usage first; `agent help` then adds its page (package/llm).
+			expect(help.out().startsWith(AGENT_USAGE), flag).toBe(true);
 			expect(help.err(), flag).toBe("");
 		}
 	});

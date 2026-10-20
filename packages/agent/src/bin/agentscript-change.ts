@@ -62,7 +62,7 @@ import { readSlices, type Slice } from "../task/stages/slices-md.js";
 import { builtin, resolvePrincipal } from "./agentscript-task.js";
 
 /** One line per command. */
-const USAGE = `usage:
+export const USAGE = `usage:
   specsesh change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
   specsesh change approve <change> [--principal <name>] [--db <path>]
   specsesh change build <change> [<answer>|--amend] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]

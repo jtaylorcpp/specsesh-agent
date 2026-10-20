@@ -1,12 +1,14 @@
 /**
  * `specsesh llm`: how to use specsesh, for an LLM agent, from text that ships in the package.
  *
- *   specsesh llm                            the guide, from `docs/llm/guide.md`
+ *   specsesh llm                            the guide, a short map, from `docs/llm/guide.md`
  *   specsesh llm skill [--out <path>]       a starter SKILL.md, from `templates/SKILL.md`
+ *   specsesh <command> help                 the command's usage and its page, `docs/llm/<command>.md`
  *
- * `{{version}}` becomes the package version in both, and `{{usage}}` the CLI's `USAGE` in the
- * guide, so its command list is the one `specsesh --help` prints. Exit 0 on success, 1 when
- * `--out` names an existing file, 2 on usage.
+ * The guide is a map and each command's page holds its depth, so an agent loads only what it
+ * needs. `{{version}}` becomes the package version everywhere, and `{{usage}}` the CLI's `USAGE`
+ * in the guide, so its command list is the one `specsesh --help` prints. Exit 0 on success, 1
+ * when `--out` names an existing file, 2 on usage.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -15,6 +17,12 @@ import { fileURLToPath } from "node:url";
 
 /** The guide, beside `src/` and `dist/` alike. */
 export const LLM_GUIDE: string = fileURLToPath(new URL("../../docs/llm/guide.md", import.meta.url));
+
+/** The directory of the command pages, `<command>.md`, beside `src/` and `dist/` alike. */
+export const LLM_DOCS: string = fileURLToPath(new URL("../../docs/llm/", import.meta.url));
+
+/** The commands that answer `help` with a page. */
+export const HELP_COMMANDS = ["change", "task", "durable", "agent"] as const;
 
 /** The starter skill, beside `src/` and `dist/` alike. */
 export const SKILL_TEMPLATE: string = fileURLToPath(new URL("../../templates/SKILL.md", import.meta.url));
@@ -81,5 +89,12 @@ export function runLlm(argv: readonly string[], deps: LlmDeps): number {
 		return 1;
 	}
 	out(`wrote ${target}`);
+	return 0;
+}
+
+/** Prints `usage`, a blank line and `docs/llm/<command>.md`, for `specsesh <command> help`. */
+export function runCommandHelp(command: (typeof HELP_COMMANDS)[number], usage: string, deps: Omit<LlmDeps, "usage">): number {
+	const out = deps.out ?? ((line) => process.stdout.write(`${line}\n`));
+	out(`${usage}\n\n${render(`${LLM_DOCS}${command}.md`, usage)}`);
 	return 0;
 }

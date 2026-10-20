@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { USAGE, main } from "../../src/cli/index.js";
+import { AGENT_USAGE, USAGE, main } from "../../src/cli/index.js";
+import { HELP_COMMANDS } from "../../src/cli/llm.js";
 
 const PACKAGE = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -46,16 +47,8 @@ describe("specsesh llm prints the guide for LLM agents", () => {
 
 	it("Scenario: The guide covers the workflow and its rules", async () => {
 		const { stdout } = await run(["llm"]);
-		for (const command of [
-			"specsesh change draft",
-			"specsesh change approve",
-			"specsesh change build",
-			"specsesh change close",
-			"specsesh task answer",
-			"specsesh agent list",
-		]) {
-			expect(stdout).toContain(command);
-		}
+		expect(stdout.split("\n").length).toBeLessThanOrEqual(60);
+		for (const command of HELP_COMMANDS) expect(stdout).toContain(`specsesh ${command} help`);
 		expect(stdout).toContain("specsesh never commits");
 		expect(stdout).toContain("Only the principal approves");
 	});
@@ -77,6 +70,7 @@ describe("specsesh llm skill prints a starter skill", () => {
 		const { stdout } = await run(["llm", "skill"]);
 		const { body } = frontMatter(stdout);
 		expect(body).toContain("specsesh llm");
+		expect(body).toContain("specsesh <command> help");
 		expect(body).toContain("principal");
 		expect(stdout).not.toContain("{{");
 	});
@@ -128,23 +122,70 @@ describe("The guide and the skill ship in the package", () => {
 			{ files: { path: string }[] },
 		];
 		const paths = packed.files.map((file) => file.path);
-		expect(paths).toContain("docs/llm/guide.md");
+		for (const page of ["guide", ...HELP_COMMANDS]) expect(paths).toContain(`docs/llm/${page}.md`);
 		expect(paths).toContain("templates/SKILL.md");
 	});
 
 	it("Scenario: The build requires them", () => {
-		// A copy of the script beside every asset it requires but the guide.
-		const root = mkdtempSync(join(tmpdir(), "specsesh-assets-"));
-		mkdirSync(join(root, "scripts"));
-		copyFileSync(join(PACKAGE, "scripts/check-assets.mjs"), join(root, "scripts/check-assets.mjs"));
-		mkdirSync(join(root, "templates"));
-		writeFileSync(join(root, "templates/new.agent"), "");
-		writeFileSync(join(root, "templates/SKILL.md"), "");
-		mkdirSync(join(root, "docs/language"), { recursive: true });
-		expect(existsSync(join(root, "docs/llm/guide.md"))).toBe(false);
+		for (const missing of ["guide", "task"]) {
+			// A copy of the script beside every asset it requires but one page.
+			const root = mkdtempSync(join(tmpdir(), "specsesh-assets-"));
+			mkdirSync(join(root, "scripts"));
+			copyFileSync(join(PACKAGE, "scripts/check-assets.mjs"), join(root, "scripts/check-assets.mjs"));
+			mkdirSync(join(root, "templates"));
+			writeFileSync(join(root, "templates/new.agent"), "");
+			writeFileSync(join(root, "templates/SKILL.md"), "");
+			mkdirSync(join(root, "docs/language"), { recursive: true });
+			mkdirSync(join(root, "docs/llm"));
+			for (const page of ["guide", ...HELP_COMMANDS]) if (page !== missing) writeFileSync(join(root, `docs/llm/${page}.md`), "");
+			expect(existsSync(join(root, `docs/llm/${missing}.md`))).toBe(false);
 
-		const ran = spawnSync(process.execPath, [join(root, "scripts/check-assets.mjs")], { encoding: "utf8" });
-		expect(ran.status).toBe(1);
-		expect(ran.stderr).toContain("docs/llm/guide.md");
+			const ran = spawnSync(process.execPath, [join(root, "scripts/check-assets.mjs")], { encoding: "utf8" });
+			expect(ran.status, missing).toBe(1);
+			expect(ran.stderr, missing).toContain(`docs/llm/${missing}.md`);
+		}
+	});
+});
+
+describe("specsesh <command> help explains the command in depth", () => {
+	/** The first heading of a command's page, as shipped. */
+	const heading = (command: string) => readFileSync(join(PACKAGE, `docs/llm/${command}.md`), "utf8").split("\n")[0] as string;
+
+	it("Scenario: Each command explains itself", async () => {
+		for (const command of HELP_COMMANDS) {
+			const { code, stdout, stderr } = await run([command, "help"]);
+			expect(stderr, command).toBe("");
+			expect(code, command).toBe(0);
+			expect(stdout.startsWith("usage:"), command).toBe(true);
+			expect(stdout, command).toContain(`specsesh ${command}`);
+			expect(stdout, command).toContain(heading(command));
+			expect(stdout, command).not.toContain("{{");
+		}
+	});
+
+	it("Scenario: --help and -h say the same", async () => {
+		const help = await run(["change", "help"]);
+		for (const flag of ["--help", "-h"]) {
+			const other = await run(["change", flag]);
+			expect(other.code, flag).toBe(0);
+			expect(other.stdout, flag).toBe(help.stdout);
+		}
+	});
+
+	it("Scenario: task help is not a change", async () => {
+		const { code, stdout, stderr } = await run(["task", "help"]);
+		expect(code).toBe(0);
+		expect(stdout + stderr).not.toContain("give exactly one of");
+	});
+
+	it("Scenario: agent help still lists every subcommand", async () => {
+		const { stdout } = await run(["agent", "help"]);
+		for (const line of AGENT_USAGE.split("\n")) expect(stdout).toContain(line);
+	});
+
+	it("Scenario: durable help names specsesh", async () => {
+		const { stdout } = await run(["durable", "help"]);
+		expect(stdout).toContain("specsesh durable run");
+		expect(stdout).not.toContain("agentscript-durable");
 	});
 });

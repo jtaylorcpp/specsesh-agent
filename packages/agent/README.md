@@ -203,11 +203,13 @@ specsesh agent run triage.agent         # on a pi provider, or --provider claude
 
 ### For an LLM agent
 
-**`specsesh llm`** prints a guide for a model that runs specsesh for you, such as a coding agent. It
-covers the change workflow (draft, approve, build, close), the rules (only you approve or answer as
-the principal; specsesh never commits), the exit codes and the full usage, and matches the installed
-version. **`specsesh llm skill [--out <path>]`** prints a starter `SKILL.md` that points the model at
-that guide, or writes it to `<path>`, creating directories and never overwriting:
+**`specsesh llm`** prints a guide for a model that runs specsesh for you, such as a coding agent: which
+command fits which job, the rules (only you approve or answer as the principal; specsesh never
+commits), the exit codes and the top-level usage, matching the installed version. **`specsesh llm skill [--out <path>]`** prints a starter `SKILL.md` that points the model at
+that guide, or writes it to `<path>`, creating directories and never overwriting. The guide is a
+short map; each command explains itself in depth only when asked, so an agent loads what it needs:
+`specsesh change help`, `task help`, `agent help` and `durable help` print the command's usage and a
+page on its flags, outputs, refusals and exit codes.
 
 ```bash
 npx specsesh llm skill --out .claude/skills/specsesh/SKILL.md

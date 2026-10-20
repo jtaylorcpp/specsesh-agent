@@ -29,7 +29,7 @@ import { startScript, waitForScript } from "../durable/host.js";
 export const DEFAULT_PROVIDER = "anthropic";
 export const DEFAULT_MODEL = "claude-haiku-4-5";
 
-const USAGE = `usage:
+export const USAGE = `usage:
   agentscript-durable run <file> --db <path> [--provider <id>] [--model <id>] [--entry <subagent>]... [--var name=value]... [--json]
   agentscript-durable resume <task-id> --db <path> [--json]`;
 
