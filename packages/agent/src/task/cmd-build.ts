@@ -325,7 +325,12 @@ export async function runBuild(harness: Harness, request: BuildRequest, options:
 			if (dirty !== undefined) return dirty;
 			let id: ChangeId;
 			try {
-				id = await startChangeLoop(harness, { ...request.options, ...(options.model !== undefined ? { model: options.model } : {}) }, context);
+				const excludeChanged = [...dbFiles(request)];
+				id = await startChangeLoop(
+					harness,
+					{ ...request.options, excludeChanged, ...(options.model !== undefined ? { model: options.model } : {}) },
+					context,
+				);
 			} catch (error) {
 				return refused(message(error));
 			}
@@ -527,15 +532,24 @@ function textOnDisk(path: string): string | null {
 	}
 }
 
+/** The repository-relative paths of the database's own files inside the workspace's repository; none outside git. */
+function dbFiles(request: Pick<BuildRequest, "workspace" | "db">): Set<string> {
+	if (!insideGit(request.workspace)) return new Set();
+	const root = repoRoot(request.workspace);
+	const files = new Set<string>();
+	for (const file of DB_SUFFIXES.map((suffix) => `${request.db.path}${suffix}`)) {
+		const rel = inRepo(root, file);
+		if (rel !== undefined) files.add(rel);
+	}
+	return files;
+}
+
 /** Snapshot the tree now; the returned function lists what changed since, less tasks.md (its ticks) and the database. Nothing outside git. */
 function changeTracker(request: BuildRequest): () => string[] {
 	if (!insideGit(request.workspace)) return () => [];
-	const root = repoRoot(request.workspace);
-	const skip = new Set<string>();
-	for (const file of [join(request.changeDir, "tasks.md"), ...DB_SUFFIXES.map((suffix) => `${request.db.path}${suffix}`)]) {
-		const rel = inRepo(root, file);
-		if (rel !== undefined) skip.add(rel);
-	}
+	const skip = dbFiles(request);
+	const tasks = inRepo(repoRoot(request.workspace), join(request.changeDir, "tasks.md"));
+	if (tasks !== undefined) skip.add(tasks);
 	const before = snapshot(request.workspace);
 	return () => changedBetween(before, snapshot(request.workspace), skip);
 }

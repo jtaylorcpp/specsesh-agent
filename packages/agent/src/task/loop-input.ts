@@ -36,17 +36,34 @@ export interface TaskLoopInput {
 	readonly answers?: number;
 	/** The escalation that blocked it. */
 	readonly escalation?: Escalation;
+	/** The blocked loop's baseline, which an answered run measures `changed` from. Absent: the run takes its own. */
+	readonly since?: Baseline;
+	/** Repository-relative paths `changed` leaves out, besides tasks.md. */
+	readonly excludeChanged?: readonly string[];
 }
 
+/**
+ * The workspace as the loop's first iteration found it: path → snapshot value, sorted by path.
+ * `null`: the workspace cannot snapshot. Absent (a loop stored before baselines): taken at the next `iterate`.
+ */
+export type Baseline = Record<string, string> | null;
+
 export type LoopCheckpoint =
-	| { readonly phase: "iterate"; readonly iterations: Iteration[]; readonly carried: string }
-	| { readonly phase: "await"; readonly iterations: Iteration[]; readonly carried: string; readonly child: TaskId }
+	| { readonly phase: "iterate"; readonly iterations: Iteration[]; readonly carried: string; readonly since?: Baseline }
+	| {
+			readonly phase: "await";
+			readonly iterations: Iteration[];
+			readonly carried: string;
+			readonly child: TaskId;
+			readonly since?: Baseline;
+	  }
 	| {
 			readonly phase: "judge";
 			readonly iterations: Iteration[];
 			readonly carried: string;
 			readonly child: TaskId;
 			readonly read: IterationRead;
+			readonly since?: Baseline;
 	  }
 	/** The judge said met and checks are configured: the gate runs them before the loop converges. */
 	| {
@@ -55,10 +72,16 @@ export type LoopCheckpoint =
 			readonly carried: string;
 			readonly child: TaskId;
 			readonly read: IterationRead;
+			readonly since?: Baseline;
 	  };
 
-/** The loop task's durable result: the ontology's outcome, and notes it has no field for. */
-export interface TaskLoopResult extends JsonObject {
+/**
+ * The loop task's durable result: the ontology's outcome, notes it has no field for, and the
+ * loop's baseline, which `answerEscalation` hands the next run (absent on a result stored
+ * before baselines).
+ */
+export type TaskLoopResult = JsonObject & {
 	outcome: LoopOutcome<TaskOutcome> & JsonObject;
 	notes: string[];
-}
+	since?: Baseline;
+};

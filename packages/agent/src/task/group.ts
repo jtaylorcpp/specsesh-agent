@@ -111,6 +111,8 @@ export interface GroupLoopInput {
 	readonly model?: ModelRef;
 	readonly delegates?: DelegateGrants;
 	readonly worktree?: LoopWorktree;
+	/** Repository-relative paths every task loop's `changed` leaves out; each task loop measures from its own start. */
+	readonly excludeChanged?: readonly string[];
 	/** Set only on a run that answers a blocked group loop: the encoded checkpoint it starts from, and the loop it answers. */
 	readonly resume?: { readonly checkpoint: JsonObject; readonly answers: number };
 }
@@ -194,6 +196,7 @@ export function readGroupInput(options: ResolvedGroupOptions): GroupLoopInput {
 		...(options.model !== undefined ? { model: options.model } : {}),
 		...delegatesOf(options),
 		...(options.worktree !== undefined ? { worktree: { path: options.worktree.path, branch: options.worktree.branch } } : {}),
+		...(options.excludeChanged !== undefined ? { excludeChanged: [...options.excludeChanged] } : {}),
 	};
 }
 
@@ -486,6 +489,8 @@ export function taskLoopInputFor(input: GroupLoopInput, task: string, carried: s
 		...(input.model !== undefined ? { model: input.model } : {}),
 		...(input.delegates !== undefined ? { delegates: input.delegates } : {}),
 		...(input.worktree !== undefined ? { worktree: input.worktree } : {}),
+		// No `since`: every task loop, a rework or a rerun included, takes its own baseline.
+		...(input.excludeChanged !== undefined ? { excludeChanged: input.excludeChanged } : {}),
 		carried,
 		earlier: [],
 	};

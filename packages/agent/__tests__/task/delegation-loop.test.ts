@@ -113,9 +113,11 @@ describe("task/agent: The delegate script shows the judge what changed and chang
 		await r.harness.close(context);
 
 		expect(r.outcome.status).toBe("exhausted");
-		const judge =prompts(r.env.requests).filter((p) => p.includes("Is the task done against the spec deltas?"));
+		const judge = prompts(r.env.requests).filter((p) => p.includes("Is the task done against the spec deltas"));
 		expect(judge).toHaveLength(1);
-		expect(judge[0]).toContain("Files the delegate changed: 0");
+		expect(judge[0]).toContain("Files the delegate changed in this iteration: 0");
+		expect(judge[0]).toContain("0 alone does not mean the task is unfinished");
+		expect(judge[0]).not.toContain("0 means the delegate changed nothing");
 	});
 
 	it("Scenario: Orient asks for a different approach", async () => {

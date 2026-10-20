@@ -44,6 +44,8 @@ export interface TaskLoopOptions {
 	readonly deleteFiles?: boolean;
 	/** The git worktree a host created for this loop, recorded so a resume or a status can name it. */
 	readonly worktree?: LoopWorktree;
+	/** Repository-relative paths the seeded `changed` leaves out, such as the host's own database. tasks.md is always left out. */
+	readonly excludeChanged?: readonly string[];
 }
 
 /** A git worktree a loop runs in. */

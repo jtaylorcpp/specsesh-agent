@@ -481,7 +481,7 @@ One JSON object per stderr line, each with `event` and `loop`. A task loop's eve
 | `action` | `iteration`, `kind` (`edit`, `command`, `delegate`), `summary`, `refs` | An action ran. With the delegate script: one `delegate`, one `command` for the checks |
 | `evidence` | `iteration`, `kind`, plus the evidence's fields | Evidence an action recorded. `check`: `command`, `exitCode`, `output`. `diff`: `files` (`path`, `change`) |
 | `verdict` | `iteration`, `met`, `unmet`, `next` (`done`, `retry`, `ask`, `amend-spec`) | The iteration was judged. A gate failure is `met: false` with the gate's reason |
-| `loop-ended` | `status`, `iterations`, `ticked`, `changed` | The loop settled |
+| `loop-ended` | `status`, `iterations`, `ticked`, `changed` | The loop settled. `changed` is measured from the loop's start, across `resume` and `answer`: a resumed run lists edits made before the crash, and an answered run the blocked run's. A group's task lists only its own files |
 | `warning` | `message` | A condition at start: not in git (guard skipped), a stale lock taken over, uncommitted changes left in the main tree in worktree mode. Emitted for task runs, `resume` and `answer`; not for the start of a group run |
 
 A group loop adds four, and its child task loops' events carry `group: <n>` and their own `loop` ids (the group's `loop` is the id in the resume hint):
@@ -497,7 +497,7 @@ Skip the hint line when parsing: `tail -n +2 run.jsonl | jq -c 'select(.event ==
 
 ## Tune the agent
 
-Every iteration runs one Agent Script. Copy a bundled script, edit it, and point at it with `--script <path>` (or `"script"` in the config). It is refused at start, before any model call, unless it keeps the **task-script contract**: these variables, declared with exactly these types. The loop seeds the first seven before each iteration and reads the last four back after it.
+Every iteration runs one Agent Script. Copy a bundled script, edit it, and point at it with `--script <path>` (or `"script"` in the config). It is refused at start, before any model call, unless it keeps the **task-script contract**: these variables, declared with exactly these types. The loop always seeds the first seven before each iteration, seeds `changed` and `delete_granted` (whether `delete_file` is granted) only into a script that declares them, and reads the last four back after it.
 
 ```
 variables:
@@ -515,6 +515,8 @@ variables:
         description: "seeded: which iteration this is"
     carried: mutable string = ""
         description: "seeded: feedback from earlier iterations or an escalation answer"
+    changed: mutable string = ""
+        description: "seeded if declared: files changed since the loop started, one per line; (unknown) when the workspace cannot snapshot"
     met: mutable boolean = False
         description: "read back: the judge's verdict"
     unmet: mutable string = ""
@@ -546,6 +548,24 @@ subagent judge:
 ```
 
 Other edits that pay for themselves: a line in `system.instructions` stating a repo rule ("tests live next to the code"), a sharper `orient` ("list the scenarios this task must satisfy"), or a different `act`. The group judge works the same way with its own contract (`group_number`, `group_title`, `tasks`, `proposal`, `deltas`, `check_output`, `rework_count` seeded; `next_action` default `rework`, `rework_task`, `feedback`, `question` read back) and `--group-script`.
+
+`changed` is taken when the iteration begins, so the judge of iteration *n* sees what iterations 1 to *n*-1 changed, kept across `resume` and answers. It leaves out the change's `tasks.md` and the runner's database. The bundled judges show it beside the delegate's per-iteration count, so an iteration that finds the work already done is not read as "nothing was done".
+
+### Make passing checks sufficient
+
+The bundled judge decides whether a task is done, and passing checks are necessary, not sufficient. A host whose checks are the task (scenario-scoped tests, a CI test picker) can make them sufficient with a logic-only subagent after `judge`:
+
+```
+subagent accept:
+    description: "Passing checks are enough, without the model"
+
+    reasoning:
+        instructions: ->
+            if @variables.checks_passed:
+                set @variables.met = True
+```
+
+This makes the configured checks the whole definition of done. The loop's gate still runs them again before converging. Don't do it with the bundled checks: `pnpm check` and `pnpm test` are repo-wide and would pass for a task whose tests were never written. The bundled scripts keep the judge.
 
 ## Use the library from code
 

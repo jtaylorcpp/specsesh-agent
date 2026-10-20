@@ -124,6 +124,7 @@ export function readChangeInput(options: ChangeLoopOptions, unclaimed: readonly 
 		...(options.model !== undefined ? { model: options.model } : {}),
 		...delegatesOf(options),
 		...(options.worktree !== undefined ? { worktree: { path: options.worktree.path, branch: options.worktree.branch } } : {}),
+		...(options.excludeChanged !== undefined ? { excludeChanged: [...options.excludeChanged] } : {}),
 	};
 }
 

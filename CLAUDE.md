@@ -339,10 +339,19 @@ pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop pr
   `run` gets the task preamble before its instructions: the change, the task, the rules, then the
   proposal, design and deltas in full (`taskPreamble`, carried as `RunInput.delegatePreamble`).
   Outside a loop, and for a delegate offered as a step tool, it gets none.
+- **`changed` is seeded, if declared.** Before each iteration the loop seeds `changed` (the files
+  changed since the loop started, one per line, measured from a baseline its first iteration takes
+  and keeps across `resume` and answers; `(unknown)` when the workspace can't snapshot) into a
+  script that declares it as a string. It leaves out `tasks.md` and `excludeChanged` (the CLI's
+  database). The bundled judges show it beside the delegate's per-iteration count. A host may make
+  passing checks sufficient with a logic-only subagent after `judge` (`if @variables.checks_passed:`
+  / `set @variables.met = True`), at the cost of making the checks the whole definition of done;
+  the bundled scripts keep the judge.
 - **Headless.** It never prompts. Progress is JSON Lines on stderr after the resume hint; the outcome
   is on stdout. Exit `0` converged, `1` blocked/exhausted/failed, `2` refused.
 - **Clean tree.** `run` refuses uncommitted changes (listing them) so every edit after it is the
-  loop's; `--allow-dirty` overrides. `loop-ended.changed` lists the files the loop changed.
+  loop's; `--allow-dirty` overrides. `loop-ended.changed` lists the files the loop changed since its
+  start, from the same baseline, so it holds across `resume` and `answer` and per task in a group.
 - **It never commits.** It runs only `git status`, `rev-parse`, `worktree add` and `worktree list`.
   Review the diff and commit yourself.
 - **`--worktree`** runs the task in `../<repo>-worktrees/<change-id>-<task-id>` on branch
