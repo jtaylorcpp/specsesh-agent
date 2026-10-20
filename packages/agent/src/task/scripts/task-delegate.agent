@@ -165,7 +165,11 @@ subagent judge:
             | Task {!@variables.task_id}: {!@variables.task_text}
             | The instructions the delegate was given (for the delegate, not for you): {!@variables.plan}
             | What the delegated agent reports: {!@variables.act_summary}
-            | Files the delegate changed in this iteration: {!@variables.act_files} (-1 means unknown). Earlier iterations may already have done the work, so 0 alone does not mean the task is unfinished.
+            if @variables.act_files == 0 and @variables.changed == "":
+                | Files the delegate changed in this iteration: 0 (-1 means unknown). 0 means the delegate changed nothing.
+                | No file has changed since the loop started either, so the work has not been done: a report that it already exists is wrong unless the check output shows the task's scenario passing.
+            else:
+                | Files the delegate changed in this iteration: {!@variables.act_files} (-1 means unknown). Earlier iterations may already have done the work, so 0 alone does not mean the task is unfinished.
             if @variables.retire_path != "":
                 | Files deleted: {!@variables.retire_path}
             else:

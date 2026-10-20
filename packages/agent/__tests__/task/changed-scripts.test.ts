@@ -43,16 +43,16 @@ function orientPrompt(source: string, variables: Record<string, VariableValue>):
 
 /**
  * The judge's prompt: the run walked with faux answers to the step that writes `next_action`.
- * The delegate, when there is one, answers as one that changed no file.
+ * The delegate, when there is one, answers as one that changed `filesChanged` files.
  */
-function judgePrompt(source: string, variables: Record<string, VariableValue>): string {
+function judgePrompt(source: string, variables: Record<string, VariableValue>, filesChanged = 0): string {
 	let state = start(source, { entry: entries(source), variables });
 	for (let guard = 0; guard < 50; guard += 1) {
 		const step = next(source, state);
 		if (step.type === "done") throw new Error("the run finished without a judge step");
 		if (step.type === "action") {
 			const outputs: Record<string, VariableValue> =
-				step.call.action === "run_checks" ? { passed: true, output: "ok" } : { ok: true, summary: "nothing to do", files_changed: 0 };
+				step.call.action === "run_checks" ? { passed: true, output: "ok" } : { ok: true, summary: "nothing to do", files_changed: filesChanged };
 			state = applyAction(source, step.state, { ok: true, outputs });
 			continue;
 		}
@@ -90,5 +90,21 @@ describe("task/agent: The bundled task judges see the changes since the loop sta
 			expect(later, name).toContain("Earlier iterations may already have done part of the task");
 			expect(orientPrompt(read(name), seeded(1, "")), name).not.toContain("Files changed since the loop started");
 		}
+	});
+});
+
+describe("task/agent: The delegate script shows the judge what changed and changes approach", () => {
+	it("Scenario: The judge sees an idle delegate after earlier changes", () => {
+		const prompt = judgePrompt(read("task-delegate.agent"), seeded(2, "src/a.ts"));
+		expect(prompt).toContain(
+			"Files the delegate changed in this iteration: 0 (-1 means unknown). Earlier iterations may already have done the work, so 0 alone does not mean the task is unfinished.",
+		);
+		expect(prompt).not.toContain("0 means the delegate changed nothing");
+	});
+
+	it("Scenario: The judge sees a delegate that changed files", () => {
+		const prompt = judgePrompt(read("task-delegate.agent"), seeded(1, ""), 2);
+		expect(prompt).toContain("Files the delegate changed in this iteration: 2 (-1 means unknown).");
+		expect(prompt).not.toContain("0 means the delegate changed nothing");
 	});
 });
