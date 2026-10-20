@@ -19,8 +19,9 @@ const TASK_SCRIPT = fileURLToPath(BUNDLED_SCRIPTS.task);
 const DELEGATE_SCRIPT = fileURLToPath(BUNDLED_SCRIPTS.delegate);
 const ANSWER = "Use the v2 API";
 const ORIENT = "Write a short, concrete plan for this iteration";
-const JUDGE = "Is the task done against the spec deltas?";
-const JUDGE_CARRIED = "The principal's answer or earlier feedback";
+const JUDGE = "Is the task done against the spec deltas";
+const JUDGE_CARRIED = "Feedback carried in (from an earlier iteration or the principal's answer)";
+const OLD_JUDGE_CARRIED = "The principal's answer or earlier feedback";
 const NO_REASK = "do not choose ask for that question again";
 
 /** A fake `claude` that changes no file. */
@@ -122,7 +123,7 @@ describe("task/agent: The bundled task scripts show carried feedback whenever it
 			expect(orients[0]).not.toContain("This is iteration");
 			const judges = prompts(r.env.requests).filter((p) => p.includes(JUDGE));
 			expect(judges).toHaveLength(1);
-			expect(judges[0]).not.toContain(JUDGE_CARRIED);
+			expect(judges[0]).not.toContain("Feedback carried in");
 		}
 	});
 
@@ -138,6 +139,7 @@ describe("task/agent: The bundled task scripts show carried feedback whenever it
 		expect(r.judges).toHaveLength(1);
 		expect(r.judges[0]).toContain(`${JUDGE_CARRIED}: ${ANSWER}`);
 		expect(r.judges[0]).toContain(NO_REASK);
+		expect(r.judges[0]).not.toContain(OLD_JUDGE_CARRIED);
 	});
 
 	it("Scenario: task-delegate.agent's judge sees an answer on a resumed run's first iteration", async () => {
@@ -153,5 +155,6 @@ describe("task/agent: The bundled task scripts show carried feedback whenever it
 		expect(r.judges).toHaveLength(1);
 		expect(r.judges[0]).toContain(`${JUDGE_CARRIED}: ${ANSWER}`);
 		expect(r.judges[0]).toContain(NO_REASK);
+		expect(r.judges[0]).not.toContain(OLD_JUDGE_CARRIED);
 	});
 });

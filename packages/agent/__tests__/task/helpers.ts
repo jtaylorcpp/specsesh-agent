@@ -168,6 +168,37 @@ subagent judge:
             set @variables.question = @outputs.question
 `;
 
+/** The `edit_file` action, declared for a logic-only step. */
+const EDIT_FILE = `    actions:
+        edit_file:
+            description: "Replace a file's content in the workspace"
+            inputs:
+                path: string
+                content: string
+            outputs:
+                ok: boolean
+            target: "mcpTool://edit_file"
+`;
+
+/**
+ * JUDGE_ONLY declaring `changed`, with a logic-only `write` step first that writes each of
+ * `files[n - 1]` in iteration `n`, and the judge showing `changed`.
+ */
+export function writer(files: readonly (readonly string[])[]): string {
+	const writes = files
+		.map((paths, i) =>
+			paths.length === 0
+				? ""
+				: `            if @variables.iteration == ${i + 1}:\n` +
+					paths.map((path) => `                run @actions.edit_file\n                    with path = "${path}"\n                    with content = "${path} ${i + 1}"\n`).join(""),
+		)
+		.join("");
+	const write = writes === "" ? "" : `subagent write:\n    description: "Write the iteration's files, without the model"\n\n${EDIT_FILE}\n    reasoning:\n        instructions: ->\n${writes}\n`;
+	return JUDGE_ONLY.replace('    carried: mutable string = ""\n', '    carried: mutable string = ""\n    changed: mutable string = ""\n')
+		.replace("subagent judge:", `${write}subagent judge:`)
+		.replace("            | Carried: {!@variables.carried}\n", "            | Carried: {!@variables.carried}\n            | Changed: {!@variables.changed}\n");
+}
+
 /** The group judge's contract and nothing more. */
 export const GROUP_JUDGE = `config:
     agent_name: "group-judge"

@@ -29,7 +29,7 @@ import {
 } from "../../src/durable/index.js";
 import { localWorkspace } from "../../src/node/index.js";
 import { hostAction } from "./action-scripts.js";
-import { DELEGATE_THEN_OFFER, delegateTwice, fakeClaude, fakeClaudeRunner } from "./delegation-scripts.js";
+import { DELEGATE_THEN_OFFER, delegateDefinition, delegateTwice, fakeClaude, fakeClaudeRunner } from "./delegation-scripts.js";
 import { context, openHarness, setup } from "./helpers.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -296,4 +296,51 @@ describe("delegation maxCalls, counted from the run's own reports", () => {
 		expect(result.variables["second_summary"]).toContain("reached its limit of 1 calls");
 		expect(claude.starts()).toBe(1);
 	}, 90_000);
+});
+
+/** One deterministic `run @actions.delegate` on `claude_code` with `instructions` "Fix the test". */
+const FIX_THE_TEST = `config:
+    agent_name: "fix-the-test"
+
+variables:
+    done: mutable boolean = False
+
+subagent act:
+    description: "Delegate once"
+
+    actions:
+${delegateDefinition("claude_code")}
+    reasoning:
+        instructions: ->
+            run @actions.delegate
+                with instructions = "Fix the test"
+                set @variables.done = @outputs.ok
+`;
+
+describe("actions/delegation: the run's preamble", () => {
+	it("Scenario: No preamble outside a loop", async () => {
+		const { workspace, execs } = memory();
+		const delegates = delegationActions({ claude_code: { runner: "fake" } }, { workspace, runners: { fake } });
+		const env = setup();
+		const installed = agentScriptExtensions({ actions: createActionRegistry(delegates), workspace: temp("agentscript-ws-") });
+		env.registry.install(installed.run);
+		env.registry.install(installed.step);
+		const harness = await openHarness(new MemoryStorage(), env);
+		const result = await runScript(harness, FIX_THE_TEST, { model: env.model }, context);
+		await harness.close(context);
+
+		expect(result.kind).toBe("completed");
+		expect(execs).toHaveLength(1);
+		expect(execs[0]?.options.stdin?.startsWith("Fix the test\n\nYour terms for this delegation")).toBe(true);
+	});
+
+	it("Scenario: The record names the call's instructions", async () => {
+		const { workspace, execs } = memory();
+		const [action] = delegationActions({ one: { runner: "fake" } }, { workspace, runners: { fake } });
+		const result = await call(action, "Fix the test\nthen rerun", { delegatePreamble: "You are working on one task" });
+
+		expect(execs[0]?.options.stdin?.startsWith("You are working on one task\n\nFix the test\nthen rerun\n\n")).toBe(true);
+		const record = (result as { record: { action: unknown } }).record;
+		expect(record.action).toEqual({ kind: "delegate", summary: "Fix the test", refs: ["delegate/one"] });
+	});
 });

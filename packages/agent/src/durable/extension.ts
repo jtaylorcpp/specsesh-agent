@@ -120,6 +120,8 @@ export interface RunInput {
 	readonly scope?: readonly string[];
 	/** The model steps the run may dispatch; the next one ends it failed instead. */
 	readonly maxSteps?: number;
+	/** Text every action called with `run` gets as `ActionContext.delegatePreamble`; a step's tool calls get none. */
+	readonly delegatePreamble?: string;
 }
 
 export type RunCheckpoint =
@@ -223,7 +225,7 @@ const resultSection = section("result", async (input, context) => {
 	const doc = await input.read.snapshot(AgentScriptStep, input.conversationId, context);
 	if (doc?.schema === null || doc?.schema === undefined) return undefined;
 	return (
-		`Finish by calling ${RESULT_TOOL} with an object matching this JSON Schema:\n` +
+		"Finish by submitting a structured result matching this JSON Schema:\n" +
 		JSON.stringify(doc.schema, null, 2)
 	);
 });
@@ -374,10 +376,16 @@ function createExtensions(
 				const { call } = awaiting as AwaitingAction;
 				const action = registry.get(call.tool);
 				const priorCalls = (name: string) => reportedCalls(state, name);
+				const { delegatePreamble } = task.input;
 				let result: ActionResult;
 				if (action !== undefined && isDurable(action)) {
 					const { child, before } = task.state.checkpoint;
-					const actionContext: ActionContext = { workspace, priorCalls, ...(runtime.signal !== undefined ? { signal: runtime.signal } : {}) };
+					const actionContext: ActionContext = {
+						workspace,
+						priorCalls,
+						...(runtime.signal !== undefined ? { signal: runtime.signal } : {}),
+						...(delegatePreamble !== undefined ? { delegatePreamble } : {}),
+					};
 					if (intent === null) {
 						await runtime.commit(
 							() => ({ status: "running", checkpoint: { phase: "act", state, intent: { replay: "safe" } } }),
@@ -436,9 +444,9 @@ function createExtensions(
 						() => ({ status: "running", checkpoint: { phase: "act", state, intent: { replay: action.replay } } }),
 						context,
 					);
-					result = await execute(action, call.inputs, workspace, runtime.signal, priorCalls);
+					result = await execute(action, call.inputs, workspace, runtime.signal, priorCalls, delegatePreamble);
 				} else if (intent.replay === "safe") {
-					result = await execute(action, call.inputs, workspace, runtime.signal, priorCalls);
+					result = await execute(action, call.inputs, workspace, runtime.signal, priorCalls, delegatePreamble);
 				} else {
 					result = { ok: false, message: `${call.action} was interrupted and not re-run` };
 				}
@@ -465,9 +473,17 @@ async function execute(
 	workspace: string,
 	signal: AbortSignal | undefined,
 	priorCalls: (name: string) => number,
+	delegatePreamble?: string,
 ): Promise<ActionResult> {
 	if (isDurable(action)) return { ok: false, message: `${action.name} runs as a child task: call it with run` };
-	return attempt(() => action.execute(inputs, { workspace, priorCalls, ...(signal !== undefined ? { signal } : {}) }));
+	return attempt(() =>
+		action.execute(inputs, {
+			workspace,
+			priorCalls,
+			...(signal !== undefined ? { signal } : {}),
+			...(delegatePreamble !== undefined ? { delegatePreamble } : {}),
+		}),
+	);
 }
 
 /** Await `call`; a throw becomes a failed result carrying its message. */

@@ -25,6 +25,20 @@ export const SEEDED: Readonly<Record<string, ContractType>> = {
 	carried: "string",
 };
 
+/**
+ * Seeded only into a script that declares them; a script that does not keeps the contract.
+ * Declared with another type, the script is refused.
+ */
+export const OPTIONAL_SEEDED: Readonly<Record<string, ContractType>> = {
+	changed: "string",
+	delete_granted: "boolean",
+};
+
+/** An optional seed whose refusal keeps the wording it had before the table. */
+const OPTIONAL_MISTYPED: Readonly<Record<string, (declared: string) => string>> = {
+	delete_granted: (declared) => `delete_granted is declared ${declared}; the loop seeds it as boolean`,
+};
+
 /** Read back from the run's final variables. */
 export const READ_BACK: Readonly<Record<string, ContractType>> = {
 	met: "boolean",
@@ -54,8 +68,9 @@ export function contractChoices(deltas: string): Record<string, string[]> {
 }
 
 /**
- * One line per missing or mistyped contract variable, and per choice-limited default outside its
- * values; empty when the script keeps the contract. `deltas` is the loop's `deltas` seed.
+ * One line per missing or mistyped contract variable, per optional seed declared with another
+ * type, and per choice-limited default outside its values; empty when the script keeps the
+ * contract. `deltas` is the loop's `deltas` seed.
  */
 export function contractProblems(source: string, deltas = ""): string[] {
 	const declarations = readDeclarations(analyze(source).parsed);
@@ -64,6 +79,11 @@ export function contractProblems(source: string, deltas = ""): string[] {
 		const declared = declarations.get(name);
 		if (declared === undefined) problems.push(`${name} is not declared; declare it as ${type}`);
 		else if (declared.type !== type) problems.push(`${name} is declared ${declared.type}; the contract needs ${type}`);
+	}
+	for (const [name, type] of Object.entries(OPTIONAL_SEEDED)) {
+		const declared = declarations.get(name);
+		if (declared === undefined || declared.type === type) continue;
+		problems.push(OPTIONAL_MISTYPED[name]?.(declared.type) ?? `${name} is declared ${declared.type}; the contract needs ${type}`);
 	}
 	for (const [name, values] of Object.entries(contractChoices(deltas))) {
 		const declared = declarations.get(name);

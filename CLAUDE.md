@@ -176,7 +176,10 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
   Claude Code's OAuth token to pi or any other client: that is against Anthropic's terms (coopcli
   withdrew exactly that in `simplify-specsketch-workbench`), and a test pins its absence.
   `--safe-mode` is required: without it your global CLAUDE.md leaks into every step. Never `--bare`
-  (it forces API-key auth). First live run: 2026-10-10, triage example, Haiku 4.5, completed.
+  (it forces API-key auth). Each step runs in a fresh empty directory under `os.tmpdir()`, removed
+  after (or in the port's or provider's `cwd` option), and the system prompt ends with a fixed
+  no-workspace note, because Claude Code's environment block (working directory, git status,
+  platform) can't be turned off. First live run: 2026-10-10, triage example, Haiku 4.5, completed.
   (This is the reasoning port, which offers no tools; a delegate's `claudeCodeRunner` is different,
   see Hard lines.)
 
@@ -332,10 +335,23 @@ pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop pr
 - **Delegations act through the workspace.** A delegate acts only in the loop's workspace, and each
   delegation records `files_changed` (the number of files it changed, or -1 when the workspace can't
   snapshot).
+- **The task preamble.** Inside a task loop (a task, or a group's task), every delegate called with
+  `run` gets the task preamble before its instructions: the change, the task, the rules, then the
+  proposal, design and deltas in full (`taskPreamble`, carried as `RunInput.delegatePreamble`).
+  Outside a loop, and for a delegate offered as a step tool, it gets none.
+- **`changed` is seeded, if declared.** Before each iteration the loop seeds `changed` (the files
+  changed since the loop started, one per line, measured from a baseline its first iteration takes
+  and keeps across `resume` and answers; `(unknown)` when the workspace can't snapshot) into a
+  script that declares it as a string. It leaves out `tasks.md` and `excludeChanged` (the CLI's
+  database). The bundled judges show it beside the delegate's per-iteration count. A host may make
+  passing checks sufficient with a logic-only subagent after `judge` (`if @variables.checks_passed:`
+  / `set @variables.met = True`), at the cost of making the checks the whole definition of done;
+  the bundled scripts keep the judge.
 - **Headless.** It never prompts. Progress is JSON Lines on stderr after the resume hint; the outcome
   is on stdout. Exit `0` converged, `1` blocked/exhausted/failed, `2` refused.
 - **Clean tree.** `run` refuses uncommitted changes (listing them) so every edit after it is the
-  loop's; `--allow-dirty` overrides. `loop-ended.changed` lists the files the loop changed.
+  loop's; `--allow-dirty` overrides. `loop-ended.changed` lists the files the loop changed since its
+  start, from the same baseline, so it holds across `resume` and `answer` and per task in a group.
 - **It never commits.** It runs only `git status`, `rev-parse`, `worktree add` and `worktree list`.
   Review the diff and commit yourself.
 - **`--worktree`** runs the task in `../<repo>-worktrees/<change-id>-<task-id>` on branch
@@ -410,6 +426,6 @@ behaviour only; internals go in a change's `design.md`. Stock `spec-driven` sche
     denied, never prompted;
   - `ANTHROPIC_API_KEY` and `CLAUDECODE` are stripped from the child's environment;
   - Claude Code's OAuth token is never read, copied or forwarded: subscription auth only;
-  - the instructions go only on stdin, followed by the terms block.
+  - the loop's preamble and the instructions go only on stdin, followed by the terms block.
 
 `packages/agent/__tests__/core/{import-boundary,no-compiler}.test.ts` and `__tests__/package/layers.test.ts` enforce the first two.

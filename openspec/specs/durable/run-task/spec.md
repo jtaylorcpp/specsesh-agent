@@ -19,7 +19,7 @@ Agent Script as a pi-durable extension: one agentscript.run task per run, checkp
 - **THEN** it SHALL equal `"submit_result"`, the name the step's tool is registered under
 
 ### Requirement: A run is one durable task named agentscript.run
-The package SHALL define `AgentScriptRun` with `defineTask`, name `agentscript.run`, version `1`. Its input MUST be a `RunInput` of `{ source: string, options?: StartOptions, model?: ModelRef, scope?: string[], maxSteps?: number }`: `source` the full script text, `options` the `core/step-machine` start options (`entry`, `variables`, `choices`), `model` the pi model every step runs on, with `scope` and `maxSteps` as their requirements say. Its result type MUST be the core `RunResult`.
+The package SHALL define `AgentScriptRun` with `defineTask`, name `agentscript.run`, version `1`. Its input MUST be a `RunInput` of `{ source: string, options?: StartOptions, model?: ModelRef, scope?: string[], maxSteps?: number, delegatePreamble?: string }`: `source` the full script text, `options` the `core/step-machine` start options (`entry`, `variables`, `choices`), `model` the pi model every step runs on, the rest as their requirements say. Its result type MUST be the core `RunResult`.
 
 #### Scenario: The script travels inside the task
 - **GIVEN** a task created with input `{ source, options: { entry: ["classify", "gate", "respond"] }, model }`
@@ -247,7 +247,7 @@ On each call `submit_result` SHALL read the conversation's `agentscript.step` do
 - **AND** the step doc's `result` SHALL equal the submitted arguments
 
 ### Requirement: The result section shows the schema only on structured steps
-`AgentScriptStepExtension` SHALL contribute a system-prompt section named `result`. When the conversation's `agentscript.step` doc has a non-null `schema`, the section text MUST be `Finish by calling submit_result with an object matching this JSON Schema:` followed by a newline and the schema as two-space-indented JSON. When the schema is null or the doc is absent, the section MUST be omitted.
+`AgentScriptStepExtension` SHALL contribute a system-prompt section named `result`. When the conversation's `agentscript.step` doc has a non-null `schema`, the section text MUST be `Finish by submitting a structured result matching this JSON Schema:` followed by a newline and the schema as two-space-indented JSON. The section MUST NOT name a tool. When the schema is null or the doc is absent, the section MUST be omitted.
 
 #### Scenario: The classify step's prompt shows its schema
 - **WHEN** the `classify` step's model request is made
@@ -256,6 +256,12 @@ On each call `submit_result` SHALL read the conversation's `agentscript.step` do
 #### Scenario: The respond step has no result section
 - **WHEN** the `respond` step's model request is made
 - **THEN** there SHALL be no `result` section
+
+#### Scenario: The result section names no tool
+- **WHEN** the `classify` step's model request is made
+- **THEN** the `result` section SHALL start with `Finish by submitting a structured result matching this JSON Schema:` followed by a newline
+- **AND** it SHALL NOT contain `submit_result`
+- **AND** the request SHALL still offer the `submit_result` tool
 
 ### Requirement: checkResult refuses a result with no schema or no object
 `@specsesh/agent/durable` SHALL export `checkResult(schema, value): string | undefined`, returning `undefined` when the value is acceptable and otherwise one message for the model. When `schema` is `null` it MUST return `This step takes no structured result; answer in text instead.`; when `value` is `null`, not an object, or an array it MUST return `The result must be an object.`
@@ -427,3 +433,21 @@ A host action MAY be durable: `{ start(inputs, context) → child run input or a
 - **GIVEN** a durable host action and a run that calls it with `run`
 - **WHEN** the run completes
 - **THEN** exactly one child task SHALL have been created, and the call's result SHALL be `finish`'s answer for it
+
+### Requirement: A run hands its delegate preamble to the actions it runs
+When `RunInput.delegatePreamble` is set, the `act` phase SHALL pass it, read from the task's input, as `ActionContext.delegatePreamble` to every action it calls with `run`, executed or durable. A step's tool calls SHALL get none. Without it, no action SHALL get one. A script can neither read nor set it.
+
+#### Scenario: A delegate preamble travels inside the task
+- **GIVEN** a run created with `delegatePreamble` `"P"` whose script calls a durable delegate with `run`, and a process that dies before that call
+- **WHEN** a fresh harness resumes the run
+- **THEN** the delegate's `start` SHALL receive `delegatePreamble` `"P"` in its context
+
+#### Scenario: A step's tool call gets no preamble
+- **GIVEN** a run created with `delegatePreamble` `"P"` whose step is offered a host action as a reasoning action
+- **WHEN** the model calls that tool
+- **THEN** the action's context SHALL have no `delegatePreamble`
+
+#### Scenario: A run without a preamble passes none
+- **GIVEN** a run created without `delegatePreamble` whose script calls an action with `run`
+- **WHEN** the action executes
+- **THEN** its context SHALL have no `delegatePreamble`

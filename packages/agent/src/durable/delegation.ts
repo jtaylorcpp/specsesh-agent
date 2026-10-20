@@ -1,7 +1,8 @@
 /**
  * Delegation as a capability the user grants: one `delegate/<name>` host action
  * per grant, run by the grant's runner through the workspace it was given, on
- * the grant's terms alone. The script supplies only `instructions`.
+ * the grant's terms alone. The script supplies only `instructions`; inside a
+ * run that carries one, the run's delegate preamble goes before them.
  *
  *   delegate/<name>  { instructions } → { ok, summary, files_changed }  delegate  unsafe
  *
@@ -179,7 +180,13 @@ export function delegationActions(grants: DelegateGrants = {}, options: Delegati
 				}
 				if (workspace.exec === undefined) return { ok: false, message: "this workspace cannot run processes" };
 				const instructions = String(inputs["instructions"]);
-				const prepared = runner.prepare({ instructions, terms, workspace });
+				// The run's preamble goes first, into the text that reaches stdin only; never into the terms.
+				const preamble = context.delegatePreamble;
+				const prepared = runner.prepare({
+					instructions: preamble !== undefined ? `${preamble}\n\n${instructions}` : instructions,
+					terms,
+					workspace,
+				});
 				if ("error" in prepared) return { ok: false, message: prepared.error };
 				const recorded: Action = { kind: "delegate", summary: firstLine(instructions), refs: [name] };
 				const command = prepared.argv.join(" ");

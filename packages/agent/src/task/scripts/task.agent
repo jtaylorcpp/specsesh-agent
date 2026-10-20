@@ -4,7 +4,8 @@ config:
 
 system:
     instructions: |
-        You implement one task of an OpenSpec change, in a real workspace, one iteration at a time.
+        You are one step of a task loop that implements one task of an OpenSpec change, one iteration at a time.
+        Each step's prompt says its role. A step without tools decides only from the text it is given.
         The spec deltas are the contract. The task names what to do now. Feedback from earlier
         iterations says what was still unmet. Change only what the task needs; never tick boxes,
         never edit the spec. If the spec itself looks wrong, say so instead of coding around it.
@@ -26,6 +27,8 @@ variables:
         description: "feedback carried from earlier iterations or an escalation answer"
     delete_granted: mutable boolean = False
         description: "whether delete_file is granted to this loop"
+    changed: mutable string = ""
+        description: "seeded: files changed since the loop started, one per line"
     plan: mutable string = ""
         description: "this iteration's plan"
     checks_passed: mutable boolean = False
@@ -50,6 +53,7 @@ subagent orient:
 
     reasoning:
         instructions: ->
+            | You are the orient step: you write this iteration's plan for the step that acts. You have no tools: decide only from the text below.
             | Task {!@variables.task_id}: {!@variables.task_text}
             | Proposal:
             | {!@variables.proposal}
@@ -59,6 +63,10 @@ subagent orient:
             | {!@variables.deltas}
             if @variables.iteration > 1:
                 | This is iteration {!@variables.iteration}.
+            if @variables.iteration > 1 and @variables.changed != "":
+                | Files changed since the loop started:
+                | {!@variables.changed}
+                | Earlier iterations may already have done part of the task; check these files before redoing it.
             if @variables.carried != "":
                 | Carried in (still unmet from an earlier iteration, or the principal's answer): {!@variables.carried}
             if @variables.delete_granted:
@@ -103,6 +111,7 @@ subagent act:
 
     reasoning:
         instructions: ->
+            | You are the act step: you act in the real workspace, with the tools you are offered.
             | Carry out this plan, using the tools: {!@variables.plan}
             | When done, summarise what you changed.
         actions:
@@ -141,17 +150,25 @@ subagent judge:
 
     reasoning:
         instructions: ->
+            | You are the judge step: you decide whether the task is done from the reports and check output below. You have no tools: decide only from the text below.
             | Task {!@variables.task_id}: {!@variables.task_text}
-            | Plan: {!@variables.plan}
+            | The plan the act step followed (for the act step, not for you): {!@variables.plan}
             | Checks passed: {!@variables.checks_passed}
             | Check output:
             | {!@variables.check_output}
+            | Files changed since the loop started (iteration {!@variables.iteration}):
+            if @variables.changed != "":
+                | {!@variables.changed}
+            else:
+                | none
+            | The list was taken when this iteration began; (unknown) means the workspace cannot list its changes.
             if @variables.carried != "":
-                | The principal's answer or earlier feedback: {!@variables.carried}
+                | Feedback carried in (from an earlier iteration or the principal's answer): {!@variables.carried}
                 | If it answers a question about this task, follow it: it overrides the task text where they differ, and do not choose ask for that question again. The checks still decide whether the task is done.
-            | Is the task done against the spec deltas? It is done only when the checks pass. If not, say exactly what is unmet.
+            | Is the task done against the spec deltas, counting the work of every iteration since the loop started? It is done only when the checks pass. If not, say exactly what is unmet.
             | Choose next_action. Default to retry: keep iterating until the checks pass. A change outside this task's files is allowed when the spec deltas already require it and the checks need it.
             | Choose amend-spec only when the spec deltas themselves contradict each other or the code they describe. Choose ask only for a decision that no passing check could settle.
+            | When the task is met, next_action is ignored: answer retry.
             | Answer next_action with exactly one word: retry, amend-spec or ask. Put every explanation in unmet, never in next_action.
             | When next_action is amend-spec, set amend_path to the delta that is wrong, exactly as listed, and set amend_text to the whole new text of that file, not a patch. For any other next_action, leave both empty.
             set @variables.met = @outputs.met

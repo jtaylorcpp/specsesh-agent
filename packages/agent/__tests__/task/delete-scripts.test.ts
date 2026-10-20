@@ -138,7 +138,7 @@ describe("task/agent: task-delegate.agent's outer step deletes what the delegate
 		expect(orient).toContain("RETIRE: <path>");
 		const retiring = all.find((p) => p.includes("Set retire_path to the path on the first line starting"));
 		expect(retiring).toContain(`RETIRE: ${path}`);
-		const judge = all.filter((p) => p.includes("Is the task done against the spec deltas?"));
+		const judge = all.filter((p) => p.includes("Is the task done against the spec deltas"));
 		expect(judge).toHaveLength(1);
 		expect(judge[0]).toContain(`Files deleted: ${path}`);
 	});
@@ -192,7 +192,7 @@ describe("task/agent: task-delegate.agent's outer step deletes what the delegate
 		const stream = r.outcome.iterations.flatMap((iteration) => iterationEvents(Number(r.id), iteration));
 		expect(stream.filter((e) => e.event === "action" && String(e.summary).startsWith("delete_file"))).toEqual([]);
 		expect(existsSync(join(workspace, "src/a.ts"))).toBe(true);
-		const judge = all.filter((p) => p.includes("Is the task done against the spec deltas?"));
+		const judge = all.filter((p) => p.includes("Is the task done against the spec deltas"));
 		expect(judge).toHaveLength(1);
 		expect(judge[0]).toContain("Files deleted: none");
 	});

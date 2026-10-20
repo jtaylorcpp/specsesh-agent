@@ -18,7 +18,7 @@ import {
 	type Escalation,
 } from "../openspec/index.js";
 import { EscalationAnswerError } from "./errors.js";
-import type { TaskLoopInput, TaskLoopResult } from "./loop-input.js";
+import type { Baseline, TaskLoopInput, TaskLoopResult } from "./loop-input.js";
 import { TASK_LOOP } from "./loop.js";
 import { createLoop } from "./start.js";
 
@@ -29,7 +29,7 @@ export async function waitForTaskLoopResult(
 	harness: Harness,
 	id: TaskId<LoopOutcome<TaskOutcome>>,
 	context: Context,
-): Promise<{ outcome: LoopOutcome<TaskOutcome>; notes: string[] }> {
+): Promise<{ outcome: LoopOutcome<TaskOutcome>; notes: string[]; since?: Baseline }> {
 	const settled = await harness.waitForTask(id as unknown as TaskId<TaskLoopResult>, context);
 	if (settled.state.status !== "terminal") {
 		throw new Error(`task loop ${String(id)} is ${settled.state.status}, not finished. Loop IDs are numbers; check the ID passed in.`);
@@ -51,15 +51,24 @@ export async function waitForTaskLoop(
 	return (await waitForTaskLoopResult(harness, id, context)).outcome;
 }
 
+/** A stored baseline: an object of strings. */
+const isBaseline = (value: unknown): value is Record<string, string> =>
+	typeof value === "object" && value !== null && !Array.isArray(value) && Object.values(value).every((v) => typeof v === "string");
+
 const sameEscalation = (a: Escalation | undefined, b: Escalation) =>
 	a !== undefined && a.level === b.level && a.to === b.to && a.reason === b.reason && a.question === b.question;
 
-function readResult(value: unknown, id: unknown): { outcome: LoopOutcome<TaskOutcome>; notes: string[] } {
-	const { outcome, notes } = (value ?? {}) as Partial<TaskLoopResult>;
+/** The result's outcome, checked, its notes, and its baseline when it has one. */
+function readResult(value: unknown, id: unknown): { outcome: LoopOutcome<TaskOutcome>; notes: string[]; since?: Baseline } {
+	const { outcome, notes, since } = (value ?? {}) as Partial<TaskLoopResult>;
 	if (!check(TaskLoopOutcome, outcome)) {
 		throw new Error(`task loop ${String(id)} holds an outcome the ontology refuses: ${explain(TaskLoopOutcome, outcome).join("; ")}`);
 	}
-	return { outcome: outcome as LoopOutcome<TaskOutcome>, notes: Array.isArray(notes) ? notes.map(String) : [] };
+	return {
+		outcome: outcome as LoopOutcome<TaskOutcome>,
+		notes: Array.isArray(notes) ? notes.map(String) : [],
+		...(since === null || isBaseline(since) ? { since } : {}),
+	};
 }
 
 /**
@@ -80,7 +89,7 @@ export async function answerEscalation(
 	if (record.state.status !== "terminal" || record.state.outcome.status !== "completed") {
 		throw new EscalationAnswerError(`task loop ${id} has not ended blocked, so it has no escalation to answer`);
 	}
-	const { outcome } = readResult(record.state.outcome.result, id);
+	const { outcome, since } = readResult(record.state.outcome.result, id);
 	if (outcome.status !== "blocked") {
 		throw new EscalationAnswerError(`task loop ${id} ended ${outcome.status}, not blocked, so it has no escalation to answer`);
 	}
@@ -102,7 +111,15 @@ export async function answerEscalation(
 	const input = record.input as unknown as TaskLoopInput;
 	return createLoop(
 		harness,
-		{ ...input, carried: carriedFor(stored), earlier: outcome.iterations, answers: id as unknown as number, escalation },
+		// The blocked loop's baseline, so the new run measures `changed` from the very first run's start.
+		{
+			...input,
+			carried: carriedFor(stored),
+			earlier: outcome.iterations,
+			answers: id as unknown as number,
+			escalation,
+			...(since !== undefined ? { since } : {}),
+		},
 		context,
 	);
 }

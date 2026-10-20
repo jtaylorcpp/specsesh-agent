@@ -46,10 +46,12 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 
 - **A crash between ticking and the judge's commit reports `ticked: false`.** The judge phase writes tasks.md, then commits the outcome. If the process dies in between, the re-run judge finds the line already ticked and reports `ticked: false` with "already ticked", though this loop ticked it. Recording the tick's intent in the checkpoint first would close it.
 - **One harness, one action configuration.** `agentScriptExtensions` binds one registry and workspace per harness, so loops with different workspaces, checks or allowlists need separate harnesses. The CLI's `resume`/`answer` install the stored configuration after opening the harness; a library host must do the same.
+- **Delegates offered as step tools get no task preamble** (from loop-supplies-delegate-contract). Only `run` calls receive `RunInput.delegatePreamble`. A process delegate offered under `reasoning.actions` runs as a pi-durable tool registered once per harness and reads its offer from the step's `agentscript.step-actions` doc, so carrying the preamble means adding it to that doc and its dispatch in `src/durable/extension.ts`. The bundled scripts call their delegates with `run`, and agent delegates are run-only.
+- **`task-delegate.agent`'s `orient` could stop restating the requirements** (from loop-supplies-delegate-contract). The delegate now sees the proposal, design and deltas in full, so the plan could focus on approach. The `RETIRE:` paragraph still belongs in the plan.
 
 ## Headless runner (from add-headless-task-runner)
 
-- **`changed` after `resume` is measured from the resume, not the loop's start.** The porcelain snapshot is taken when the process starts waiting, so edits made before a crash are not listed by the resumed run.
+- **`group-ended.changed` after a group `resume` is measured from the resume.** A group has no baseline of its own; its task loops' `loop-ended.changed` are measured from each task loop's start (`judge-sees-loop-changes`).
 - **`--json` carries neither `changed` nor the worktree's review lines.** Both are on the event stream (`loop-ended`) and in the text outcome; the JSON outcome stays `{ loop, ...outcome }`.
 - **`worktreeSetup` commands have no timeout**, and their output is shown only when one fails.
 - **`pnpm task` runs from the repository root** (pnpm's working directory), so a relative `--db` is relative to the root wherever you type it.
@@ -73,4 +75,3 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 - **A change judge.** A failing change check ends the build `failed`. The ontology's change loop may rework a group or add a task for an unclaimed scenario; nothing does yet.
 - **The plan stage still writes `pnpm spec:archive <change>` as a task.** A build runs it like any task, before its change check. The plan stage's rules should forbid archive tasks, since `pnpm change close` does the fold.
 - **A crash between `answerSpecLoop` (or `answerGroupEscalation`) and the parent's commit** leaves a child run no parent awaits; the answer has to be given again.
-- **`trialFold` cannot remove a copy of a read-only directory.** `cpSync` keeps modes, so a read-only directory under `openspec/` makes the temp copy unremovable and `rmSync` throws `EACCES` (the "A failed recording resumes nothing" test of `cli-amend` fails this way). A fix: make the copy owner-writable (`chmod u+rwx`, recursively) before the trial archive.

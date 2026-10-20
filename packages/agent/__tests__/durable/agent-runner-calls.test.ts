@@ -14,11 +14,13 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import {
 	EDIT_AGENT,
 	READ_AGENT,
+	AgentScriptRun,
 	RESULT_TOOL,
 	startScript,
 	waitForScript,
 	type DelegateGrants,
 	type RunCheckpoint,
+	type RunInput,
 } from "../../src/durable/index.js";
 import type { RunResult } from "../../src/interpreter/index.js";
 import { CALLER, agentHarness, childRuns, fauxModels } from "./agent-runner-scripts.js";
@@ -144,6 +146,36 @@ describe("actions/agent-runner: a call runs the script as a durable child", () =
 			action: { kind: "delegate", summary: "Set a to 2.", refs: ["delegate/reviewer", `run:${children[0]}`] },
 			evidence: [{ kind: "diff", files: [{ path: "src/a.ts", change: "modified" }] }],
 		});
+	});
+
+	it("Scenario: An agent delegate is seeded with the run's preamble", async () => {
+		const faux = fauxModels();
+		faux.script("opus", [call(RESULT_TOOL, { ok: true, summary: "Fine." })]);
+		const storage = new MemoryStorage();
+		const { harness, models } = await agentHarness(storage, workspace(), faux.models, {
+			reviewer: { runner: "agent", model: "opus", script: READ_AGENT },
+		});
+		// startScript takes no preamble: create the caller's run with a whole RunInput, as the task loop does.
+		const root = await harness.root(context);
+		const agent = await root.agent(context);
+		const runTask = agent.extensions
+			.flatMap((extension) => extension.tasks ?? [])
+			.find((task) => task.definition.name === AgentScriptRun.definition.name) as typeof AgentScriptRun;
+		const input: RunInput = {
+			source: CALLER,
+			options: { variables: { instructions: "Review src/a.ts" } },
+			model: models.default,
+			delegatePreamble: "Task 2.1: Do X",
+		};
+		const id = await root.commit((tx) => tx.createTask(runTask, input, { ownership: { kind: "conversation" } }), context);
+		const result = await waitForScript(harness, id, context);
+		const [child] = await childRuns(storage, id);
+		const childInput = (await harness.getTask(child as TaskId<RunResult>, context))?.input as unknown as RunInput;
+		await harness.close(context);
+
+		expect(result.kind).toBe("completed");
+		expect(childInput.options?.variables).toEqual({ instructions: "Task 2.1: Do X\n\nReview src/a.ts" });
+		expect(childInput).not.toHaveProperty("delegatePreamble");
 	});
 });
 

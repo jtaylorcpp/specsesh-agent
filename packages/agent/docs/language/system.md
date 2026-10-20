@@ -25,4 +25,12 @@ At run time:
   [prompt lines](prompts.md).
 - A subagent that makes no model request (only logic lines, or a `run`) never sends it.
 
+Every step that makes a model request gets the same block, including steps that are offered no
+tools. So keep it role-neutral: don't write "you edit files in the workspace" there, because a
+planning or judging step will read it as its own job. Say each step's role, and whether it has
+tools, at the top of that step's prompt instead (`You are the judge step: … You have no tools:
+decide only from the text below.`). A script copied from an older bundled `task` template
+(`specsesh agent show task`) still opens its system block with "in a real workspace"; update it to
+match the current one.
+
 There is one `system` block per document. A subagent cannot have its own `system:`. It is refused.

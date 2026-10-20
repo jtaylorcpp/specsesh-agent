@@ -4,9 +4,8 @@
  * A refusal creates nothing and calls no model.
  */
 
-import { analyze } from "../authoring/index.js";
+import { basename, resolve } from "node:path";
 import { start } from "../interpreter/index.js";
-import { readDeclarations } from "../interpreter/compose.js";
 import type { Context } from "@earendil-works/chord";
 import type { Harness, TaskId } from "@earendil-works/pi-durable";
 import { checkBindings, type DelegateGrants } from "../durable/index.js";
@@ -15,7 +14,7 @@ import { checkContract } from "./contract.js";
 import { concatDeltas } from "./deltas.js";
 import { TaskLoopStartError } from "./errors.js";
 import type { TaskLoopInput } from "./loop-input.js";
-import { DELETE_GRANTED, OPTIONAL_TARGETS, TaskLoopTask, subagentsOf, taskLoopRegistry } from "./loop.js";
+import { OPTIONAL_TARGETS, TaskLoopTask, subagentsOf, taskLoopRegistry } from "./loop.js";
 import { DEFAULT_ESCALATE_TO, DEFAULT_MAX_ITERATIONS, type TaskLoopOptions } from "./options.js";
 import { readChange, readScript } from "./sources.js";
 import { findTask } from "./tasks-md.js";
@@ -42,10 +41,6 @@ export function prepareTaskLoop(options: TaskLoopOptions): TaskLoopInput {
 	checkContract(script, deltas);
 	// The whole document, as a run would check it: parse, lint, subset, entries.
 	start(script, { entry: subagentsOf(script) });
-	const declared = readDeclarations(analyze(script).parsed).get(DELETE_GRANTED);
-	if (declared !== undefined && declared.type !== "boolean") {
-		throw new TaskLoopStartError(`${DELETE_GRANTED} is declared ${declared.type}; the loop seeds it as boolean`);
-	}
 	const checks = [...(options.checks ?? [])];
 	const allow = [...(options.allow ?? [])];
 	const deleteFiles = options.deleteFiles ?? false;
@@ -58,6 +53,7 @@ export function prepareTaskLoop(options: TaskLoopOptions): TaskLoopInput {
 
 	return {
 		task: options.task,
+		...("dir" in options.change ? { change: basename(resolve(options.change.dir)) } : {}),
 		taskText,
 		proposal: change.proposal,
 		design: change.design,
@@ -73,6 +69,7 @@ export function prepareTaskLoop(options: TaskLoopOptions): TaskLoopInput {
 		...delegatesOf(options),
 		deleteFiles,
 		...(options.worktree !== undefined ? { worktree: { path: options.worktree.path, branch: options.worktree.branch } } : {}),
+		...(options.excludeChanged !== undefined ? { excludeChanged: [...options.excludeChanged] } : {}),
 		carried: "",
 		earlier: [],
 	};

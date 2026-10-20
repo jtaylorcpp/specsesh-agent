@@ -43,11 +43,13 @@ import {
 } from "../durable/index.js";
 import { defaultRunners, localWorkspace } from "../node/index.js";
 import { LoopOutcome, TaskOutcome, check, explain, outcomeStatus, type Finding, type Iteration } from "../openspec/index.js";
+import { baselineOf, changedSeed, changedSince, snapshotOf } from "./changed.js";
 import { contractChoices } from "./contract.js";
 import { checkEvidence, runLoopChecks } from "./checks.js";
 import { readRun, recordIteration, taskTarget } from "./iteration.js";
+import { taskPreamble } from "./preamble.js";
 import { judgeIteration } from "./judge.js";
-import type { LoopCheckpoint, TaskLoopInput, TaskLoopResult } from "./loop-input.js";
+import type { Baseline, LoopCheckpoint, TaskLoopInput, TaskLoopResult } from "./loop-input.js";
 import { tickTask } from "./tick.js";
 
 export const TASK_LOOP = "agentscript.task-loop";
@@ -59,8 +61,20 @@ export { DELETE_NOT_GRANTED, OPTIONAL_TARGETS };
 /** Seeded, as whether `delete_file` is granted, only into a script that declares it. */
 export const DELETE_GRANTED = "delete_granted";
 
-/** The contract's seeded variables for iteration `n`, and `delete_granted` when the script declares it. */
-export function seededVariables(input: TaskLoopInput, n: number, carried: string): Record<string, VariableValue> {
+/** Seeded, as what changed since the loop started, only into a script that declares it. */
+export const CHANGED = "changed";
+
+/**
+ * The contract's seeded variables for iteration `n`, and `delete_granted` and `changed` when the
+ * script declares them. `changed` is the seed as `changedSeed` builds it; `(unknown)` when not given.
+ */
+export function seededVariables(
+	input: TaskLoopInput,
+	n: number,
+	carried: string,
+	changed = changedSeed(undefined),
+): Record<string, VariableValue> {
+	const declarations = readDeclarations(analyze(input.script).parsed);
 	return {
 		task_id: input.task,
 		task_text: input.taskText,
@@ -69,7 +83,8 @@ export function seededVariables(input: TaskLoopInput, n: number, carried: string
 		deltas: input.deltas,
 		iteration: n,
 		carried,
-		...(readDeclarations(analyze(input.script).parsed).has(DELETE_GRANTED) ? { [DELETE_GRANTED]: input.deleteFiles === true } : {}),
+		...(declarations.has(DELETE_GRANTED) ? { [DELETE_GRANTED]: input.deleteFiles === true } : {}),
+		...(declarations.has(CHANGED) ? { [CHANGED]: changed } : {}),
 	};
 }
 
@@ -80,19 +95,23 @@ export function subagentsOf(script: string): string[] {
 	return [...readSubagents(analyze(script).parsed).keys()];
 }
 
-function result(outcome: TaskLoopResult["outcome"], notes: string[]): TaskLoopResult {
+/** `{ since }` as a checkpoint or result holds it: absent while the loop has taken no baseline. */
+const sinceOf = (since: Baseline | undefined): { since?: Baseline } => (since !== undefined ? { since } : {});
+
+function result(outcome: TaskLoopResult["outcome"], notes: string[], since: Baseline | undefined): TaskLoopResult {
 	if (!check(TaskLoopOutcome, outcome)) {
 		throw new Error(`the task loop built an outcome the ontology refuses: ${explain(TaskLoopOutcome, outcome).join("; ")}`);
 	}
-	return { outcome, notes };
+	return { outcome, notes, ...sinceOf(since) };
 }
 
 /** The converged outcome: ticks the task and records the result. Shared by the judge and the gate. */
-function converge(input: TaskLoopInput, iterations: Iteration[]): TaskLoopResult {
+function converge(input: TaskLoopInput, iterations: Iteration[], since: Baseline | undefined): TaskLoopResult {
 	const tick = tickTask(input.tasksPath, input.task);
 	return result(
 		{ status: "converged", iterations, result: { task: input.task, ticked: tick.ticked } } as TaskLoopResult["outcome"],
 		tick.note === undefined ? [] : [tick.note],
+		since,
 	);
 }
 
@@ -113,13 +132,13 @@ type LoopPhases = TaskDefinition<TaskLoopInput, LoopCheckpoint, TaskLoopResult, 
  */
 function gatePhase(bound?: Workspace): LoopPhases["gate"] {
 	return async (task, runtime, context) => {
-		const { iterations, read } = task.state.checkpoint;
+		const { iterations, read, since } = task.state.checkpoint;
 		const input = task.input;
 		const n = iterations.length + 1;
 		const runs = await runLoopChecks(loopWorkspace(input, bound), input.checks);
 		const failing = runs.filter((r) => r.exitCode !== 0);
 		if (failing.length === 0) {
-			const done = converge(input, [...iterations, recordIteration(n, input.task, read)]);
+			const done = converge(input, [...iterations, recordIteration(n, input.task, read)], since);
 			await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
 			return;
 		}
@@ -140,11 +159,58 @@ function gatePhase(bound?: Workspace): LoopPhases["gate"] {
 		if (status === undefined) {
 			const carried =
 				reason + "\n\n" + failing.map((c) => "$ " + c.command + " (exit " + c.exitCode + ")\n" + c.output.slice(-4000)).join("\n\n");
-			await runtime.commit(() => ({ status: "running", checkpoint: { phase: "iterate", iterations: all, carried } }), context);
+			await runtime.commit(
+				() => ({ status: "running", checkpoint: { phase: "iterate", iterations: all, carried, ...sinceOf(since) } }),
+				context,
+			);
 			return;
 		}
-		const done = result({ status, iterations: all } as TaskLoopResult["outcome"], []);
+		const done = result({ status, iterations: all } as TaskLoopResult["outcome"], [], since);
 		await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
+	};
+}
+
+/**
+ * The iterate phase over `loopWorkspace(input, bound)`, the workspace the gate checks. The
+ * loop's first iteration takes its baseline there (`null` when it cannot snapshot), unless the
+ * checkpoint or an answered run's input already holds one, and commits it with the child.
+ * A process that dies before that commit retakes it; nothing has run by then.
+ */
+function iteratePhase(bound?: Workspace): LoopPhases["iterate"] {
+	return async (task, runtime, context) => {
+		const { iterations, carried } = task.state.checkpoint;
+		const input = task.input;
+		const runTask = runtime.registry.task(AgentScriptRun.definition.name) as typeof AgentScriptRun | undefined;
+		if (runTask === undefined) {
+			throw new Error(`${TASK_LOOP} needs ${AgentScriptRun.definition.name} installed: install taskLoopExtensions(...)`);
+		}
+		const workspace = loopWorkspace(input, bound);
+		// `null` is a baseline too: a workspace that cannot snapshot is not asked again.
+		const stored = task.state.checkpoint.since !== undefined ? task.state.checkpoint.since : input.since;
+		// One snapshot serves both: the baseline when there is none yet, and `changed` when the script declares it.
+		const now = stored === undefined || readDeclarations(analyze(input.script).parsed).has(CHANGED) ? await snapshotOf(workspace) : undefined;
+		const since = stored !== undefined ? stored : baselineOf(now);
+		const changed = changedSeed(changedSince(input, workspace, since, now));
+		const runInput: RunInput = {
+			source: input.script,
+			options: {
+				entry: subagentsOf(input.script),
+				variables: seededVariables(input, iterations.length + 1, carried, changed),
+				choices: contractChoices(input.deltas),
+			},
+			...(input.model !== undefined ? { model: input.model } : {}),
+			// Rendered from the texts read at start, so every delegate the run calls sees the contract the judge sees.
+			delegatePreamble: taskPreamble(input),
+		};
+		await runtime.commit(async (tx) => {
+			const child = await tx.createTask(runTask, runInput, { ownership: { kind: "task", taskId: runtime.taskId } });
+			return {
+				status: "waiting",
+				checkpoint: { phase: "await", iterations, carried, child, since },
+				on: [child],
+				policy: "allSettled",
+			};
+		}, context);
 	};
 }
 
@@ -158,34 +224,9 @@ export const TaskLoopTask: Task<TaskLoopInput, LoopCheckpoint, TaskLoopResult, o
 	version: 1,
 	initial: (input) => ({ phase: "iterate", iterations: [...input.earlier], carried: input.carried }),
 	phases: {
-		iterate: async (task, runtime, context) => {
-			const { iterations, carried } = task.state.checkpoint;
-			const input = task.input;
-			const runTask = runtime.registry.task(AgentScriptRun.definition.name) as typeof AgentScriptRun | undefined;
-			if (runTask === undefined) {
-				throw new Error(`${TASK_LOOP} needs ${AgentScriptRun.definition.name} installed: install taskLoopExtensions(...)`);
-			}
-			const runInput: RunInput = {
-				source: input.script,
-				options: {
-					entry: subagentsOf(input.script),
-					variables: seededVariables(input, iterations.length + 1, carried),
-					choices: contractChoices(input.deltas),
-				},
-				...(input.model !== undefined ? { model: input.model } : {}),
-			};
-			await runtime.commit(async (tx) => {
-				const child = await tx.createTask(runTask, runInput, { ownership: { kind: "task", taskId: runtime.taskId } });
-				return {
-					status: "waiting",
-					checkpoint: { phase: "await", iterations, carried, child },
-					on: [child],
-					policy: "allSettled",
-				};
-			}, context);
-		},
+		iterate: iteratePhase(),
 		await: async (task, runtime, context) => {
-			const { iterations, carried, child } = task.state.checkpoint;
+			const { iterations, carried, child, since } = task.state.checkpoint;
 			const settled = await runtime.waitForTask(child as TaskId<RunResult>, context);
 			const outcome = settled.state.outcome;
 			const entries = subagentsOf(task.input.script);
@@ -198,30 +239,36 @@ export const TaskLoopTask: Task<TaskLoopInput, LoopCheckpoint, TaskLoopResult, o
 							entries,
 						);
 			await runtime.commit(
-				() => ({ status: "running", checkpoint: { phase: "judge", iterations, carried, child, read } }),
+				() => ({ status: "running", checkpoint: { phase: "judge", iterations, carried, child, read, ...sinceOf(since) } }),
 				context,
 			);
 		},
 		judge: async (task, runtime, context) => {
-			const { iterations, read } = task.state.checkpoint;
+			const { iterations, read, since } = task.state.checkpoint;
 			const input = task.input;
 			const decision = judgeIteration(input, iterations, read);
 			if (decision.kind === "iterate") {
 				await runtime.commit(
-					() => ({ status: "running", checkpoint: { phase: "iterate", iterations: decision.iterations, carried: decision.carried } }),
+					() => ({
+						status: "running",
+						checkpoint: { phase: "iterate", iterations: decision.iterations, carried: decision.carried, ...sinceOf(since) },
+					}),
 					context,
 				);
 				return;
 			}
 			if (decision.kind === "gate") {
 				const { carried, child } = task.state.checkpoint;
-				await runtime.commit(() => ({ status: "running", checkpoint: { phase: "gate", iterations, carried, child, read } }), context);
+				await runtime.commit(
+					() => ({ status: "running", checkpoint: { phase: "gate", iterations, carried, child, read, ...sinceOf(since) } }),
+					context,
+				);
 				return;
 			}
 			const done =
 				decision.kind === "converged"
-					? converge(input, decision.iterations)
-					: result(decision.outcome as TaskLoopResult["outcome"], decision.notes);
+					? converge(input, decision.iterations, since)
+					: result(decision.outcome as TaskLoopResult["outcome"], decision.notes, since);
 			await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: done } }), context);
 		},
 		gate: gatePhase(),
@@ -231,12 +278,12 @@ export const TaskLoopTask: Task<TaskLoopInput, LoopCheckpoint, TaskLoopResult, o
 	},
 });
 
-/** `TaskLoopTask` with its gate bound to `workspace`. pi-durable runs a task's phases from the installed definition. */
+/** `TaskLoopTask` with its iterate and gate phases bound to `workspace`. pi-durable runs a task's phases from the installed definition. */
 function boundTaskLoopTask(workspace: Workspace): Task<TaskLoopInput, LoopCheckpoint, TaskLoopResult, object> {
 	const definition = TaskLoopTask.definition;
 	return defineTask<TaskLoopInput, LoopCheckpoint, TaskLoopResult>({
 		...definition,
-		phases: { ...definition.phases, gate: gatePhase(workspace) },
+		phases: { ...definition.phases, iterate: iteratePhase(workspace), gate: gatePhase(workspace) },
 	});
 }
 

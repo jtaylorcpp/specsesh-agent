@@ -46,6 +46,8 @@ export const CLAUDE_CODE_PROVIDER_ID = "claude-code";
 export interface ClaudeCodeProviderOptions {
 	readonly binary?: string;
 	readonly timeoutMs?: number;
+	/** Where `claude` runs. Defaults to a fresh empty directory per request, removed after. Ignored with `runner`. */
+	readonly cwd?: string;
 	/** Replaces process spawning, for tests. Receives the request's abort signal. */
 	readonly runner?: (signal: AbortSignal | undefined) => Runner;
 }
@@ -81,7 +83,7 @@ export function claudeCodeModel(id: string): Model<typeof CLAUDE_CODE_API> {
 
 export function claudeCodeProvider(options: ClaudeCodeProviderOptions = {}): Provider<typeof CLAUDE_CODE_API> {
 	const runnerFor =
-		options.runner ?? ((signal) => spawnRunner(options.binary ?? "claude", options.timeoutMs ?? 300_000, signal));
+		options.runner ?? ((signal) => spawnRunner(options.binary ?? "claude", options.timeoutMs ?? 300_000, signal, options.cwd));
 	const stream = (model: Model<Api>, context: { messages: Message[] }, streamOptions?: StreamOptions) =>
 		streamClaude(model, context.messages, runnerFor(streamOptions?.signal));
 	return createProvider({

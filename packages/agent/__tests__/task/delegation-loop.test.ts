@@ -10,9 +10,9 @@ import { analyze } from "../../src/authoring/index.js";
 import { readActionDefinitions } from "../../src/interpreter/actions.js";
 import { readSubagents } from "../../src/interpreter/compose.js";
 import { claudeCodeRunner } from "../../src/node/index.js";
-import { BUNDLED_SCRIPTS, startTaskLoop, type TaskLoopInput } from "../../src/task/index.js";
+import { BUNDLED_SCRIPTS, startTaskLoop, taskPreamble, type TaskLoopInput } from "../../src/task/index.js";
 import { gitRepo } from "./cli-helpers.js";
-import { COUNT_CHECK, JUDGE_ONLY, cleanTemps, context, loopEnv, loopHarness, plan, prompts, runLoop, temp, tinyChange, verdict } from "./helpers.js";
+import { COUNT_CHECK, JUDGE_ONLY, PROPOSAL, cleanTemps, context, loopEnv, loopHarness, plan, prompts, runLoop, temp, tinyChange, verdict } from "./helpers.js";
 
 afterEach(() => cleanTemps());
 
@@ -113,9 +113,14 @@ describe("task/agent: The delegate script shows the judge what changed and chang
 		await r.harness.close(context);
 
 		expect(r.outcome.status).toBe("exhausted");
-		const judge =prompts(r.env.requests).filter((p) => p.includes("Is the task done against the spec deltas?"));
+		const judge = prompts(r.env.requests).filter((p) => p.includes("Is the task done against the spec deltas"));
 		expect(judge).toHaveLength(1);
-		expect(judge[0]).toContain("Files the delegate changed: 0");
+		const lines = judge[0]!.split("\n");
+		expect(lines).toContain("Files the delegate changed in this iteration: 0 (-1 means unknown). 0 means the delegate changed nothing.");
+		expect(lines).toContain(
+			"No file has changed since the loop started either, so the work has not been done: a report that it already exists is wrong unless the check output shows the task's scenario passing.",
+		);
+		expect(judge[0]).not.toContain("0 alone does not mean the task is unfinished");
 	});
 
 	it("Scenario: Orient asks for a different approach", async () => {
@@ -161,5 +166,37 @@ describe("actions/delegation: A delegate acts only through its run's workspace",
 			else process.env["FAKE_CLAUDE_OUT"] = saved;
 		}
 		expect(readFileSync(out, "utf8")).toBe(realpathSync(worktree));
+	});
+});
+
+/** A fake `claude` that writes its stdin to `out` and changes no file. */
+function recordingClaude(out: string): string {
+	const binary = join(temp("task-claude-"), "claude");
+	writeFileSync(
+		binary,
+		`#!${process.execPath}\nconst fs = require("node:fs");\nfs.writeFileSync(${JSON.stringify(out)}, fs.readFileSync(0, "utf8"));\nprocess.stdout.write(JSON.stringify({ type: "result", is_error: false, result: "nothing" }));\n`,
+		{ mode: 0o755 },
+	);
+	return binary;
+}
+
+describe("task/agent: The loop hands every delegate the task preamble", () => {
+	it("Scenario: The bundled delegate script's delegate sees the contract", async () => {
+		const out = join(temp("task-claude-out-"), "stdin.txt");
+		const grant = granted(recordingClaude(out));
+		const r = await runLoop(
+			[plan("Edit src/value.txt"), verdict(false, "not yet")],
+			{ script: { path: DELEGATE_SCRIPT }, workspace: gitRepo(), budget: { maxIterations: 1 }, ...grant.overrides },
+			grant.actions,
+		);
+		const input = (await r.harness.getTask(r.id, context))?.input as unknown as TaskLoopInput;
+		await r.harness.close(context);
+
+		const preamble = taskPreamble(input);
+		expect(preamble).toContain("Change: tiny\nTask 1.1: `src/value.txt` holds 2");
+		expect(preamble).toContain(`# proposal.md\n\n${PROPOSAL.trimEnd()}`);
+		const stdin = readFileSync(out, "utf8");
+		expect(stdin.startsWith(`${preamble}\n\nEdit src/value.txt`)).toBe(true);
+		expect(stdin).toContain("Your terms for this delegation");
 	});
 });

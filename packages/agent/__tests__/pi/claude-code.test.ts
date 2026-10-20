@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -36,6 +37,18 @@ function fakeRunner(...answers: ProcessResult[]) {
 }
 
 const flag = (args: readonly string[], name: string) => args[args.indexOf(name) + 1];
+
+/** The note `pi/claude-code` pins, as the literal string. */
+const NOTE =
+	"This step has no workspace. The environment details you may see (working directory, whether it is a git repository, platform) describe the process running this step, not the project the step is about; ignore them.";
+
+/** A fake `claude` that answers with the directory it ran in. */
+function cwdClaude(): string {
+	const binary = join(mkdtempSync(join(tmpdir(), "agentscript-fake-claude-")), "claude");
+	writeFileSync(binary, `#!${process.execPath}\nprocess.stdin.resume();\nprocess.stdin.on("end", () => process.stdout.write(JSON.stringify({ type: "result", is_error: false, result: process.cwd() })));\n`);
+	chmodSync(binary, 0o755);
+	return binary;
+}
 
 describe("the claude-code port on the triage example", () => {
 	it("sets variables from Claude Code's structured_output", async () => {
@@ -186,7 +199,7 @@ describe("Each turn is one headless claude -p invocation with a fixed argv", () 
 			"--output-format",
 			"json",
 			"--system-prompt",
-			"s",
+			`s\n\n${NOTE}`,
 		]);
 	});
 
@@ -197,7 +210,36 @@ describe("Each turn is one headless claude -p invocation with a fixed argv", () 
 	});
 });
 
+describe("The system prompt ends with the no-workspace note", () => {
+	it("Scenario: The note follows the system text", () => {
+		expect(flag(claudeArgs({ system: "s", model: "m" }), "--system-prompt")).toBe(`s\n\n${NOTE}`);
+	});
+
+	it("Scenario: An empty system text is the note alone", () => {
+		expect(flag(claudeArgs({ system: "", model: "m" }), "--system-prompt")).toBe(NOTE);
+	});
+
+	it("Scenario: The port passes the note", async () => {
+		const { runner, calls } = fakeRunner(ok({ result: "{}", structured_output: { severity: "high", summary: "x" } }));
+		await run(TRIAGE, { port: createClaudeCodeReasoningPort({ runner }) });
+		expect(calls.length).toBeGreaterThan(0);
+		for (const { args } of calls) {
+			const system = flag(args, "--system-prompt")!;
+			expect(system).toContain("You triage bug reports");
+			expect(system.endsWith(NOTE)).toBe(true);
+		}
+	});
+});
+
 describe("The port is one claude process per step and stateless", () => {
+	it("Scenario: The port runs claude in its cwd option", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "agentscript-port-cwd-"));
+		const port = createClaudeCodeReasoningPort({ binary: cwdClaude(), cwd, timeoutMs: 10_000 });
+		const outcome = await port.reason({ systemInstructions: "s", prompt: "p" });
+		expect(outcome.kind).toBe("answered");
+		expect(realpathSync(outcome.kind === "answered" ? outcome.text : "")).toBe(realpathSync(cwd));
+	});
+
 	it("Scenario: onResult sees each parsed result", async () => {
 		const first = { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "one" };
 		const second = { ...first, result: "two", total_cost_usd: 0.5 };
