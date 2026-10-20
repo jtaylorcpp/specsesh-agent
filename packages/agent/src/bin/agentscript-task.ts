@@ -127,7 +127,7 @@ export { DEFAULT_MODEL, DEFAULT_PROVIDER };
 /** How many dirty paths a refusal lists before saying how many more there are. */
 export const DIRTY_LISTED = 20;
 
-const USAGE = `usage:
+export const USAGE = `usage:
   specsesh task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]
       options: --script <name|path>  --workspace <dir>  --check <command>...  --allow <word>...
                --max-iterations <n>  --escalate-to principal|agent  --provider <id>  --model <id>

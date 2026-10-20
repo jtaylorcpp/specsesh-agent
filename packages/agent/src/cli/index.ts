@@ -5,17 +5,19 @@
  *   specsesh task …     agentscript-task, with `run` implied as in `pnpm task`
  *   specsesh durable …  agentscript-durable
  *   specsesh agent …    agentscript-pi, except the subcommands `explain.ts` handles
+ *   specsesh llm …      the guide for LLM agents and a starter skill, from `llm.ts`
  *
  * Importing this module runs nothing and installs no signal handlers: the
  * `specsesh` bin does that before calling `main`.
  */
 
 import { readFileSync } from "node:fs";
-import { main as changeMain, type ChangeCliDeps } from "../bin/agentscript-change.js";
-import { main as durableMain, type CliDeps as DurableCliDeps } from "../bin/agentscript-durable.js";
+import { USAGE as CHANGE_USAGE, main as changeMain, type ChangeCliDeps } from "../bin/agentscript-change.js";
+import { USAGE as DURABLE_USAGE, main as durableMain, type CliDeps as DurableCliDeps } from "../bin/agentscript-durable.js";
 import { main as piMain } from "../bin/agentscript-pi.js";
-import { main as taskMain, type CliDeps as TaskCliDeps } from "../bin/agentscript-task.js";
+import { USAGE as TASK_USAGE, main as taskMain, type CliDeps as TaskCliDeps } from "../bin/agentscript-task.js";
 import { runActions, runCheck, runLanguage, runList, runNew, runShow } from "./explain.js";
+import { HELP_COMMANDS, runCommandHelp, runLlm } from "./llm.js";
 
 export const USAGE = `usage:
   specsesh change <draft|approve|build|close> <change> [options]
@@ -23,6 +25,7 @@ export const USAGE = `usage:
   specsesh task <run|spec|resume|answer|status> [options]
   specsesh durable <run|resume> [options]
   specsesh agent <run|models|list|show|new|check|language|actions> [options]
+  specsesh llm [skill [--out <path>]]
   specsesh --version
   specsesh --help
 Run a command with no arguments for its own usage.`;
@@ -77,11 +80,22 @@ const TASK_COMMANDS = new Set(["run", "spec", "resume", "answer", "status"]);
 const implyRun = (args: string[]): string[] =>
 	args[0] !== undefined && !TASK_COMMANDS.has(args[0]) && !args[0].startsWith("-") ? ["run", ...args] : args;
 
+const HELP_WORDS = new Set(["help", "--help", "-h"]);
+
+/** Each command's full usage, as `specsesh <command> help` prints it. */
+const COMMAND_USAGE: Readonly<Record<(typeof HELP_COMMANDS)[number], string>> = {
+	change: CHANGE_USAGE,
+	task: TASK_USAGE,
+	durable: DURABLE_USAGE.replaceAll("agentscript-durable", "specsesh durable"),
+	agent: AGENT_USAGE,
+};
+
 const ROUTES: Readonly<Record<string, Route>> = {
 	agent,
 	durable: (args, deps) => durableMain(args, deps),
 	task: (args, deps) => taskMain(implyRun(args), deps),
 	change: (args, deps) => changeMain(args, deps),
+	llm: (args, { out, err, cwd }) => runLlm(args, { out, err, cwd, usage: USAGE }),
 };
 
 export async function main(argv: readonly string[], deps: CliDeps = {}): Promise<number> {
@@ -100,6 +114,11 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 		const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
 		out(`specsesh ${manifest.version}`);
 		return 0;
+	}
+	// `<command> help` before routing, so `task help` is never taken as a change named `help`.
+	const helped = HELP_COMMANDS.find((name) => name === cmd);
+	if (helped !== undefined && argv.length === 2 && HELP_WORDS.has(argv[1] as string)) {
+		return runCommandHelp(helped, COMMAND_USAGE[helped], deps);
 	}
 	const route = Object.hasOwn(ROUTES, cmd) ? ROUTES[cmd] : undefined;
 	if (route === undefined) {
