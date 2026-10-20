@@ -335,6 +335,10 @@ pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop pr
 - **Delegations act through the workspace.** A delegate acts only in the loop's workspace, and each
   delegation records `files_changed` (the number of files it changed, or -1 when the workspace can't
   snapshot).
+- **The task preamble.** Inside a task loop (a task, or a group's task), every delegate called with
+  `run` gets the task preamble before its instructions: the change, the task, the rules, then the
+  proposal, design and deltas in full (`taskPreamble`, carried as `RunInput.delegatePreamble`).
+  Outside a loop, and for a delegate offered as a step tool, it gets none.
 - **Headless.** It never prompts. Progress is JSON Lines on stderr after the resume hint; the outcome
   is on stdout. Exit `0` converged, `1` blocked/exhausted/failed, `2` refused.
 - **Clean tree.** `run` refuses uncommitted changes (listing them) so every edit after it is the
@@ -413,6 +417,6 @@ behaviour only; internals go in a change's `design.md`. Stock `spec-driven` sche
     denied, never prompted;
   - `ANTHROPIC_API_KEY` and `CLAUDECODE` are stripped from the child's environment;
   - Claude Code's OAuth token is never read, copied or forwarded: subscription auth only;
-  - the instructions go only on stdin, followed by the terms block.
+  - the loop's preamble and the instructions go only on stdin, followed by the terms block.
 
 `packages/agent/__tests__/core/{import-boundary,no-compiler}.test.ts` and `__tests__/package/layers.test.ts` enforce the first two.

@@ -5,7 +5,7 @@
 
 import type { TaskOutcome } from "@earendil-works/pi-durable";
 import type { ActionResult, RunResult, VariableValue } from "../../src/interpreter/index.js";
-import type { DurableFinishContext, DurableHostAction, ExecutedHostAction, RunInput } from "../../src/durable/index.js";
+import type { ActionContext, DurableFinishContext, DurableHostAction, ExecutedHostAction, RunInput } from "../../src/durable/index.js";
 
 /** The built-ins' signatures, so a script binds to a fake exactly as to the real one. */
 export const SIGNATURES = {
@@ -36,6 +36,20 @@ export function recordingAction(name: ActionName, result: ActionResult) {
 	return { action, calls };
 }
 
+/** A host action that records the context of each call and answers with `result`. */
+export function contextAction(name: ActionName, result: ActionResult) {
+	const contexts: ActionContext[] = [];
+	const action: ExecutedHostAction = {
+		name,
+		...SIGNATURES[name],
+		execute: async (_inputs, context) => {
+			contexts.push(context);
+			return result;
+		},
+	};
+	return { action, contexts };
+}
+
 /**
  * `run_checks` as a durable action: its child runs `deterministicScript("run_command")`,
  * and `finish` answers `passed` when the child completed with `exit_code` 0.
@@ -43,6 +57,7 @@ export function recordingAction(name: ActionName, result: ActionResult) {
  */
 export function durableChecks(startResult?: Extract<ActionResult, { ok: false }>) {
 	const starts: Readonly<Record<string, VariableValue>>[] = [];
+	const startContexts: ActionContext[] = [];
 	const finishes: { outcome: TaskOutcome<RunResult>; context: DurableFinishContext }[] = [];
 	const action: DurableHostAction = {
 		name: "run_checks",
@@ -51,8 +66,9 @@ export function durableChecks(startResult?: Extract<ActionResult, { ok: false }>
 		outputs: SIGNATURES.run_checks.outputs,
 		replay: "safe",
 		durable: {
-			async start(inputs): Promise<RunInput | Extract<ActionResult, { ok: false }>> {
+			async start(inputs, context): Promise<RunInput | Extract<ActionResult, { ok: false }>> {
 				starts.push(inputs);
+				startContexts.push(context);
 				return startResult ?? { source: deterministicScript("run_command"), scope: ["run_command"] };
 			},
 			async finish(_inputs, outcome, context) {
@@ -62,7 +78,7 @@ export function durableChecks(startResult?: Extract<ActionResult, { ok: false }>
 			},
 		},
 	};
-	return { action, starts, finishes };
+	return { action, starts, startContexts, finishes };
 }
 
 const DEFINITIONS: Record<ActionName, string> = {
@@ -167,4 +183,31 @@ ${DEFINITIONS.run_command}${DEFINITIONS.edit_file}
             note: @actions.edit_file
                 with path = "NOTES.md"
                 with content = ...
+`;
+
+/** A model step, then a deterministic subagent whose one `run` calls `run_checks`. */
+export const THINK_THEN_CHECK = `config:
+    agent_name: "think-then-check"
+
+system:
+    instructions: "You answer briefly."
+
+variables:
+    passed: mutable boolean = False
+
+subagent think:
+    description: "Think"
+
+    reasoning:
+        instructions: ->
+            | Say one.
+
+subagent act:
+    description: "Run one action"
+
+    actions:
+${DEFINITIONS.run_checks}
+    reasoning:
+        instructions: ->
+${RUNS.run_checks}
 `;

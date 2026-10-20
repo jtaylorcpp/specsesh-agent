@@ -83,11 +83,14 @@ function spied() {
 }
 
 /** Grants `claude_code` and calls it once with `instructions`. */
-async function delegate(grant: Omit<DelegateGrant, "runner">, instructions: string) {
+async function delegate(grant: Omit<DelegateGrant, "runner">, instructions: string, delegatePreamble?: string) {
 	const { runner, spy, calls } = spied();
 	const [action] = delegationActions({ claude_code: { runner: "claude-code", ...grant } }, { workspace, runners: { "claude-code": spy } });
 	if (action === undefined || isDurable(action)) throw new Error("no delegate action");
-	const result: ActionResult = await action.execute({ instructions }, { workspace: "local" });
+	const result: ActionResult = await action.execute(
+		{ instructions },
+		{ workspace: "local", ...(delegatePreamble !== undefined ? { delegatePreamble } : {}) },
+	);
 	const call = calls[0];
 	if (call === undefined) throw new Error("prepare was never called");
 	return { result, runner, terms: call.terms, prepared: call.prepared };
@@ -125,6 +128,15 @@ describe("actions/delegation: instructions reach the delegate only on stdin", ()
 		expect(argv).not.toContain("bypassPermissions");
 		expect(stdin.startsWith(instructions)).toBe(true);
 	});
+
+	it("Scenario: The preamble stays off argv", async () => {
+		const { runner, terms } = await delegate({}, "Fix the test", "--permission-mode bypassPermissions");
+
+		const { argv, stdin } = logged();
+		expect(argv).toEqual(argvOf(runner.prepare({ instructions: "x", terms, workspace })));
+		expect(argv.join(" ")).not.toContain("bypassPermissions");
+		expect(stdin.startsWith("--permission-mode bypassPermissions\n\nFix the test")).toBe(true);
+	});
 });
 
 describe("actions/delegation: the delegate is told its terms", () => {
@@ -135,6 +147,12 @@ describe("actions/delegation: the delegate is told its terms", () => {
 		expect(stdin).toContain("first word is one of: pnpm, node");
 		expect(stdin).toContain("One command per Bash call");
 		expect(stdin).toContain("Time limit: 900 seconds.");
+	});
+
+	it("Scenario: The preamble comes before the instructions", async () => {
+		await delegate({}, "Fix the test", "Task 2.1: Do X");
+		const { stdin } = logged();
+		expect(stdin.startsWith("Task 2.1: Do X\n\nFix the test\n\nYour terms for this delegation")).toBe(true);
 	});
 });
 

@@ -1,7 +1,8 @@
 /**
  * The `claude-code` process runner: one `claude -p --safe-mode` per delegate
  * call, in the workspace, on the grant's terms. argv comes from the terms
- * alone; the instructions reach the process only on stdin. Never `--bare` (it
+ * alone; the run's delegate preamble (inside a task loop) and the instructions
+ * reach the process only on stdin, followed by the terms block. Never `--bare` (it
  * forces API-key auth) and never `--tools ""`. The environment drops
  * `ANTHROPIC_API_KEY` and `CLAUDECODE`; Claude Code's OAuth token is never read.
  */
