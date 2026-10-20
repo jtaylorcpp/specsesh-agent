@@ -256,7 +256,8 @@ git tag v0.2.0 && git push origin v0.2.0
   `pnpm --filter <pkg> pack --pack-destination release` for both packages, the release check
   again with `--packed release/specsesh-<v>.tgz`, and finally
   `npm publish <tarball> --access public --provenance --tag <dist-tag>`, first
-  `release/specsesh-agent-<v>.tgz`, then `release/specsesh-<v>.tgz`. It publishes through npm
+  `./release/specsesh-agent-<v>.tgz`, then `./release/specsesh-<v>.tgz` (the `./` matters: npm
+  reads a bare `release/<name>.tgz` as GitHub shorthand and fails). It publishes through npm
   trusted publishing (OIDC). Its only permissions are `id-token: write` and `contents: read`, and
   every action is pinned to a commit SHA. It uses no npm token or `secrets.`. Don't add any.
 - **`scripts/release-check.mjs <tag> [--packed <specsesh.tgz>]`**, no dependencies: both versions
