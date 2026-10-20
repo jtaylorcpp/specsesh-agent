@@ -19,7 +19,7 @@ const TASK_SCRIPT = fileURLToPath(BUNDLED_SCRIPTS.task);
 const DELEGATE_SCRIPT = fileURLToPath(BUNDLED_SCRIPTS.delegate);
 const ANSWER = "Use the v2 API";
 const ORIENT = "Write a short, concrete plan for this iteration";
-const JUDGE = "Is the task done against the spec deltas?";
+const JUDGE = "Is the task done against the spec deltas";
 const JUDGE_CARRIED = "The principal's answer or earlier feedback";
 const NO_REASK = "do not choose ask for that question again";
 

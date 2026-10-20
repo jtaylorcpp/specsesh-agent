@@ -19,7 +19,7 @@ import type { Context } from "@earendil-works/chord";
 import type { Cursor, Harness, Storage, TaskId } from "@earendil-works/pi-durable";
 import type { GroupOutcome, Iteration, LoopOutcome, LoopStatus, TaskOutcome } from "../openspec/index.js";
 import { decodeCheckpoint, initialGroupCheckpoint, type GroupCheckpoint, type GroupLoopInput } from "./group.js";
-import type { LoopCheckpoint, TaskLoopResult } from "./loop-input.js";
+import type { Baseline, LoopCheckpoint, TaskLoopResult } from "./loop-input.js";
 import { TASK_LOOP } from "./loop.js";
 import type { StageOutcome } from "./spec-loop.js";
 
@@ -228,6 +228,8 @@ export interface GroupWatchOptions {
 	readonly script: string;
 	/** Called as a child's `loop-started` is emitted; the function it returns lists what that loop changed. */
 	readonly track?: () => () => string[];
+	/** Lists what a settled child changed since its own baseline; preferred to `track` for a child whose result holds one. */
+	readonly fromBaseline?: (since: Baseline) => string[];
 }
 
 /**
@@ -310,6 +312,7 @@ export class GroupWatcher {
 				? (ended.result as TaskLoopResult).outcome
 				: { status: "failed", iterations: [] }
 		) as LoopOutcome<TaskOutcome>;
+		const since = ended?.status === "completed" ? (ended.result as TaskLoopResult).since : undefined;
 		watcher.finish(outcome);
 		sink({
 			event: "loop-ended",
@@ -317,7 +320,7 @@ export class GroupWatcher {
 			status: outcome.status,
 			iterations: outcome.iterations.length,
 			ticked: outcome.status === "converged" ? outcome.result.ticked : false,
-			changed: changed(),
+			changed: since !== undefined && this.options.fromBaseline !== undefined ? this.options.fromBaseline(since) : changed(),
 		});
 		this.current = undefined;
 		this.done += 1;

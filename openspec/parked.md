@@ -49,7 +49,7 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 
 ## Headless runner (from add-headless-task-runner)
 
-- **`changed` after `resume` is measured from the resume, not the loop's start.** The porcelain snapshot is taken when the process starts waiting, so edits made before a crash are not listed by the resumed run.
+- **`group-ended.changed` after a group `resume` is measured from the resume.** A group has no baseline of its own; its task loops' `loop-ended.changed` are measured from each task loop's start (`judge-sees-loop-changes`).
 - **`--json` carries neither `changed` nor the worktree's review lines.** Both are on the event stream (`loop-ended`) and in the text outcome; the JSON outcome stays `{ loop, ...outcome }`.
 - **`worktreeSetup` commands have no timeout**, and their output is shown only when one fails.
 - **`pnpm task` runs from the repository root** (pnpm's working directory), so a relative `--db` is relative to the root wherever you type it.

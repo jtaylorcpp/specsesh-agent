@@ -87,6 +87,7 @@ import {
 	type SpecLoopInput,
 	type SpecStage,
 	type StageOutcome,
+	type Baseline,
 	type TaskLoopInput,
 	type TaskLoopOptions,
 	type TaskLoopResult,
@@ -461,6 +462,8 @@ async function run(
 			...(Object.keys(delegates).length > 0 ? { delegates } : {}),
 			...(worktree !== undefined ? { worktree } : {}),
 			deleteFiles,
+			// The database is the runner's, never the loop's: no script is seeded it as changed.
+			excludeChanged: insideGit(workspace) ? [...dbFiles(repoRoot(workspace), db)] : [],
 		};
 		try {
 			if (group !== undefined && groupScript !== undefined) {
@@ -621,6 +624,7 @@ async function settleGroup(harness: Harness, storage: Storage, id: GroupId, io: 
 					change: changeOf(input),
 					script: scriptOf({ script: input.script } as TaskLoopInput),
 					track: diffSince,
+					fromBaseline: (since) => (root !== undefined ? changedFromBaseline(since, input.workspace, skip) : []),
 				})
 			: undefined;
 	watcher?.start();
@@ -1017,15 +1021,27 @@ interface FinishContext {
 /** The database file and what SQLite and the lock put beside it. */
 const DB_SUFFIXES = ["", "-wal", "-shm", "-journal", ".lock"];
 
-/** The repository-relative paths `changed` leaves out: the tick and the database's own files. */
-function bookkeeping(root: string, context: FinishContext): Set<string> {
-	const files = [...(context.tasksPath !== undefined ? [context.tasksPath] : []), ...DB_SUFFIXES.map((suffix) => `${context.db.path}${suffix}`)];
+/** The repository-relative paths of the database file and what SQLite and the lock put beside it, those inside the repository. */
+function dbFiles(root: string, db: DbPath): Set<string> {
 	const paths = new Set<string>();
-	for (const file of files) {
+	for (const file of DB_SUFFIXES.map((suffix) => `${db.path}${suffix}`)) {
 		const rel = inRepo(root, file);
 		if (rel !== undefined) paths.add(rel);
 	}
 	return paths;
+}
+
+/** The repository-relative paths `changed` leaves out: the tick and the database's own files. */
+function bookkeeping(root: string, context: FinishContext): Set<string> {
+	const paths = dbFiles(root, context.db);
+	const tick = context.tasksPath !== undefined ? inRepo(root, context.tasksPath) : undefined;
+	if (tick !== undefined) paths.add(tick);
+	return paths;
+}
+
+/** What changed in `workspace` since a loop's baseline, less `skip`; `[]` for a workspace that could not snapshot. */
+function changedFromBaseline(since: Baseline, workspace: string, skip: ReadonlySet<string>): string[] {
+	return since === null ? [] : changedBetween(new Map(Object.entries(since)), snapshot(workspace), skip);
 }
 
 async function finish(harness: Harness, id: LoopId, context: FinishContext): Promise<number> {
@@ -1043,10 +1059,17 @@ async function finish(harness: Harness, id: LoopId, context: FinishContext): Pro
 		await disown();
 		await stop();
 	}
-	const { outcome, notes } = result;
+	const { outcome, notes, since } = result;
 	watcher.finish(outcome);
+	// From the loop's baseline, so a resumed or answered run lists what the loop changed before this process.
+	// The snapshot taken as this process started waiting serves only a loop stored before baselines.
+	const skip = before !== undefined ? bookkeeping(repoRoot(context.workspace), context) : new Set<string>();
 	const changed =
-		before !== undefined ? changedBetween(before, snapshot(context.workspace), bookkeeping(repoRoot(context.workspace), context)) : [];
+		before === undefined
+			? []
+			: since !== undefined
+				? changedFromBaseline(since, context.workspace, skip)
+				: changedBetween(before, snapshot(context.workspace), skip);
 	const ended: TaskEvent = {
 		event: "loop-ended",
 		loop: Number(id),

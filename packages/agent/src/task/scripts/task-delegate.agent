@@ -26,6 +26,8 @@ variables:
         description: "feedback carried from earlier iterations or an escalation answer"
     delete_granted: mutable boolean = False
         description: "whether delete_file is granted to this loop"
+    changed: mutable string = ""
+        description: "seeded: files changed since the loop started, one per line"
     retire_path: mutable string = ""
         description: "the file the delegate asked to retire this iteration, or empty"
     plan: mutable string = ""
@@ -67,6 +69,10 @@ subagent orient:
             | {!@variables.deltas}
             if @variables.iteration > 1:
                 | This is iteration {!@variables.iteration}.
+            if @variables.iteration > 1 and @variables.changed != "":
+                | Files changed since the loop started:
+                | {!@variables.changed}
+                | Earlier iterations may already have done part of the task; check these files before redoing it.
             if @variables.carried != "":
                 | Carried in (still unmet from an earlier iteration, or the principal's answer): {!@variables.carried}
                 | If the carried feedback names a check that already failed before, the last approach did not work; choose a different one rather than repeating it.
@@ -155,8 +161,7 @@ subagent judge:
             | Task {!@variables.task_id}: {!@variables.task_text}
             | Plan: {!@variables.plan}
             | What the delegated agent reports: {!@variables.act_summary}
-            | Files the delegate changed: {!@variables.act_files}
-            | 0 means the delegate changed nothing; -1 means the count is unknown.
+            | Files the delegate changed in this iteration: {!@variables.act_files} (-1 means unknown). Earlier iterations may already have done the work, so 0 alone does not mean the task is unfinished.
             if @variables.retire_path != "":
                 | Files deleted: {!@variables.retire_path}
             else:
@@ -164,10 +169,16 @@ subagent judge:
             | Checks passed: {!@variables.checks_passed}
             | Check output:
             | {!@variables.check_output}
+            | Files changed since the loop started (iteration {!@variables.iteration}):
+            if @variables.changed != "":
+                | {!@variables.changed}
+            else:
+                | none
+            | The list was taken when this iteration began; (unknown) means the workspace cannot list its changes.
             if @variables.carried != "":
                 | The principal's answer or earlier feedback: {!@variables.carried}
                 | If it answers a question about this task, follow it: it overrides the task text where they differ, and do not choose ask for that question again. The checks still decide whether the task is done.
-            | Is the task done against the spec deltas? It is done only when the checks pass. If not, say exactly what is unmet.
+            | Is the task done against the spec deltas, counting the work of every iteration since the loop started? It is done only when the checks pass. If not, say exactly what is unmet.
             | Choose next_action. Default to retry: keep iterating until the checks pass. A change outside this task's files is allowed when the spec deltas already require it and the checks need it.
             | Choose amend-spec only when the spec deltas themselves contradict each other or the code they describe. Choose ask only for a decision that no passing check could settle.
             | Answer next_action with exactly one word: retry, amend-spec or ask. Put every explanation in unmet, never in next_action.
