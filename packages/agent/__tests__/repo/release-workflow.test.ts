@@ -86,6 +86,8 @@ describe("package/release: A version tag runs the release workflow", () => {
 		expect(publishes[0]).toMatch(/\bspecsesh-agent-[^\s]*\.tgz/);
 		expect(publishes[1]).toMatch(/\bspecsesh-[^\s]*\.tgz/);
 		expect(publishes[1]).not.toContain("specsesh-agent-");
+		// A bare `release/<name>.tgz` is read by npm as GitHub shorthand (`github:release/…`), not a file.
+		for (const publish of publishes) expect(publish).toMatch(/\bnpm publish "\.\/release\//);
 	});
 });
 
