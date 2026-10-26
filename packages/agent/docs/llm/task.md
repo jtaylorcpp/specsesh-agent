@@ -20,6 +20,28 @@
 - `specsesh task spec <change> [<stage>]` runs the spec loop for one stage. Prefer `specsesh change draft`, which runs the stages in order.
 - `specsesh task pick-tests --input <file.json>` picks the tests that cover one closed task, for CI.
 
+## Local model (Ollama)
+
+- **One run.** `specsesh task <change> <task-id> --provider ollama --model qwen3:8b` puts the judge on a model you pulled. The server is `OLLAMA_HOST` (default `http://127.0.0.1:11434`); no key is needed.
+- **In the config.** `"provider": "ollama"` makes the judge local. A `models` entry on `ollama` gives an `agent` delegate a local model:
+
+  ```json
+  {
+    "task": { "provider": "ollama", "model": "qwen3:8b", "script": "task", "checks": ["pnpm test"], "allow": ["pnpm"] },
+    "models": { "local": { "provider": "ollama", "model": "qwen3:8b" } },
+    "delegates": { "editor": { "runner": "agent", "model": "local", "script": "edit",
+      "tools": ["read_file", "list_files", "search_files", "edit_file", "run_command"] } }
+  }
+  ```
+
+  A script calls it with `run @actions.<x>` (target `mcpTool://delegate/editor`) and `instructions`. `tools` must cover the script's actions: the bundled `edit` uses `edit_file` and `run_command` beyond the default three.
+
+- **Fully local.** Pair the local judge with the bundled `task` script, or with an `agent` delegate on a local model. A `claude_code` grant (runner `claude-code`) always runs on Claude Code, whatever the provider.
+- **When the server is contacted.** Only when the run's model, a stored loop's model (`resume`, `answer`) or a `models` entry is on `ollama`. `resume` and `answer` finish a loop on the model it was started on.
+- **Refusals.** An `ollama` model that doesn't resolve exits `2` before a task exists: `no model "<model>" on provider "ollama"`, ending with ` (Ollama at <url>: <reason>)` when the server didn't answer.
+- **Small models** may fail structured steps, such as the judge's `submit_result`. That is the model's limit, not the loop's.
+- In this repo, `pnpm test:ollama` runs a durable run and a one-task loop on a pulled model, and skips when no server answers.
+
 ## Output
 
 - **stdout:** the outcome, `# loop <id> — <status>` and one line per iteration. With `--json`, the outcome is JSON.

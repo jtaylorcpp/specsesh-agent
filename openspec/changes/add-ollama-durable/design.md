@@ -13,3 +13,7 @@
 ## Risks
 
 - A small model may not follow the judge's `submit_result` contract. That is a model limit, not a bug here; `docs/llm/task.md` says so, and the live results go below.
+
+## Verified live
+
+2026-10-26, `OLLAMA_TEST_MODEL=qwen3.5:latest pnpm test:ollama`: the durable triage run, killed with SIGKILL mid-step, completed on `resume`; the one-task loop with the bundled `task` script and the judge on `ollama` converged.

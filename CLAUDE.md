@@ -229,6 +229,8 @@ node packages/agent/dist/bin/agentscript-task.js pick-tests --input in.json [--p
 pnpm --filter hello-world-example start [name]                                      # the example app, on Haiku
 pnpm --filter cloudflare-worker-example dev    # wrangler dev; add --var AGENTSCRIPT_FAUX:1 without an account
 pnpm test:cloudflare            # opt-in, not in `pnpm test`: crash/resume (kill -9 mid-step) + route scripts, local DO storage
+pnpm test:ollama                # opt-in, not in `pnpm test`, built bins: a durable run killed mid-step and resumed, then a one-task
+                                # loop, on a local Ollama model (OLLAMA_TEST_MODEL or the first pulled); skips when no server answers
 pnpm spec:check                 # openspec validate --all --strict
 pnpm change close <change-id>   # end a built change: guard, trial fold, archive (see "Specs")
 pnpm spec:archive <change-id>   # this repo's own script: validate, trial fold, archive; no database

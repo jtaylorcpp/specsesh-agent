@@ -8,6 +8,6 @@
 
 ## 3. Live check and docs
 
-- [ ] 3.1 `scripts/test-ollama.mjs` and a root `test:ollama` script (`design.md` decision 5), never run by `pnpm test`. `packages/agent/docs/llm/durable.md` and `docs/llm/task.md`: a local-model example (`--provider ollama --model <pulled id>`, a config with `"provider": "ollama"` and `"script": "task"`, a `models` entry on `ollama` for an `agent` delegate), noting the `claude_code` grant stays on Claude Code and small models may fail structured steps. `CLAUDE.md`: `pnpm test:ollama` in Commands. Run `pnpm docs:check`, `pnpm check` and `pnpm test`
+- [x] 3.1 `scripts/test-ollama.mjs` and a root `test:ollama` script (`design.md` decision 5), never run by `pnpm test`. `packages/agent/docs/llm/durable.md` and `docs/llm/task.md`: a local-model example (`--provider ollama --model <pulled id>`, a config with `"provider": "ollama"` and `"script": "task"`, a `models` entry on `ollama` for an `agent` delegate), noting the `claude_code` grant stays on Claude Code and small models may fail structured steps. `CLAUDE.md`: `pnpm test:ollama` in Commands. Run `pnpm docs:check`, `pnpm check` and `pnpm test`
 
 The change ends with `pnpm change close add-ollama-durable`.
