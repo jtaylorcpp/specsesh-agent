@@ -1,6 +1,6 @@
 ## 1. Provider pages
 
-- [ ] 1.1 `packages/agent/docs/providers/{api-keys,claude-code,ollama,workers-ai}.md`, written from the code (`design.md` decision 2), each with a summary line and `## Setup`, `## Models`, `## Where it runs`, `## Limits`; `docs/providers/README.md` with a summary line, the matrix (`design.md` decision 3) and a link to each page. `scripts/check-assets.mjs` requires all five. Tests in a new `__tests__/package/usage-docs.test.ts`: "Scenario: Every page has its sections" (provider pages only for now, deploy pages added in 2.1), "Scenario: The matrix holds the agreed values", "Scenario: Each local yes resolves" (using `__tests__/pi/fake-ollama.ts`), and in `__tests__/package/` beside the existing asset tests: "Scenario: The build requires them"
+- [x] 1.1 `packages/agent/docs/providers/{api-keys,claude-code,ollama,workers-ai}.md`, written from the code (`design.md` decision 2), each with a summary line and `## Setup`, `## Models`, `## Where it runs`, `## Limits`; `docs/providers/README.md` with a summary line, the matrix (`design.md` decision 3) and a link to each page. `scripts/check-assets.mjs` requires all five. Tests in a new `__tests__/package/usage-docs.test.ts`: "Scenario: Every page has its sections" (provider pages only for now, deploy pages added in 2.1), "Scenario: The matrix holds the agreed values", "Scenario: Each local yes resolves" (using `__tests__/pi/fake-ollama.ts`), and in `__tests__/package/` beside the existing asset tests: "Scenario: The build requires them"
 
 ## 2. Deployment pages and the readme
 

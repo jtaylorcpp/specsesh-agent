@@ -138,6 +138,8 @@ describe("The guide and the skill ship in the package", () => {
 			mkdirSync(join(root, "docs/language"), { recursive: true });
 			mkdirSync(join(root, "docs/llm"));
 			for (const page of ["guide", ...HELP_COMMANDS]) if (page !== missing) writeFileSync(join(root, `docs/llm/${page}.md`), "");
+			mkdirSync(join(root, "docs/providers"));
+			for (const page of ["README", "api-keys", "claude-code", "ollama", "workers-ai"]) writeFileSync(join(root, `docs/providers/${page}.md`), "");
 			expect(existsSync(join(root, `docs/llm/${missing}.md`))).toBe(false);
 
 			const ran = spawnSync(process.execPath, [join(root, "scripts/check-assets.mjs")], { encoding: "utf8" });
