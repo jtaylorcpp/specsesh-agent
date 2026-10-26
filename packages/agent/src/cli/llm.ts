@@ -4,6 +4,8 @@
  *   specsesh llm                            the guide, a short map, from `docs/llm/guide.md`
  *   specsesh llm skill [--out <path>]       a starter SKILL.md, from `templates/SKILL.md`
  *   specsesh <command> help                 the command's usage and its page, `docs/llm/<command>.md`
+ *   specsesh llm providers [<name>]         the provider matrix, or `docs/providers/<name>.md`
+ *   specsesh llm deploy <local|cloudflare>  `docs/deploy/<target>.md`
  *
  * The guide is a map and each command's page holds its depth, so an agent loads only what it
  * needs. `{{version}}` becomes the package version everywhere, and `{{usage}}` the CLI's `USAGE`
@@ -27,8 +29,32 @@ export const HELP_COMMANDS = ["change", "task", "durable", "agent"] as const;
 /** The starter skill, beside `src/` and `dist/` alike. */
 export const SKILL_TEMPLATE: string = fileURLToPath(new URL("../../templates/SKILL.md", import.meta.url));
 
-export const LLM_USAGE = `usage: specsesh llm                          print the guide for LLM agents
-       specsesh llm skill [--out <path>]     print a starter SKILL.md, or write it to <path>`;
+/** A shipped page, beside `src/` and `dist/` alike. */
+const page = (path: string): string => fileURLToPath(new URL(`../../${path}`, import.meta.url));
+
+/** The provider matrix, printed by `specsesh llm providers`. */
+export const PROVIDERS_INDEX: string = page("docs/providers/README.md");
+
+/** The pages `specsesh llm providers <name>` prints, by fixed name: no path is built from input. */
+export const PROVIDER_PAGES: ReadonlyMap<string, string> = new Map([
+	["api-keys", page("docs/providers/api-keys.md")],
+	["claude-code", page("docs/providers/claude-code.md")],
+	["ollama", page("docs/providers/ollama.md")],
+	["workers-ai", page("docs/providers/workers-ai.md")],
+]);
+
+/** The pages `specsesh llm deploy <target>` prints, by fixed name. */
+export const DEPLOY_PAGES: ReadonlyMap<string, string> = new Map([
+	["local", page("docs/deploy/local.md")],
+	["cloudflare", page("docs/deploy/cloudflare.md")],
+]);
+
+export const LLM_USAGE = `usage: specsesh llm [skill [--out <path>] | providers [<name>] | deploy <local|cloudflare>]
+       specsesh llm                          print the guide for LLM agents
+       specsesh llm skill [--out <path>]     print a starter SKILL.md, or write it to <path>
+       specsesh llm providers [<name>]       print the provider matrix, or one provider's page:
+                                             api-keys, claude-code, ollama or workers-ai
+       specsesh llm deploy <local|cloudflare>  print a deployment page`;
 
 export interface LlmDeps {
 	readonly out?: (line: string) => void;
@@ -59,6 +85,18 @@ export function runLlm(argv: readonly string[], deps: LlmDeps): number {
 	}
 	if (sub === undefined) {
 		out(render(LLM_GUIDE, deps.usage));
+		return 0;
+	}
+	if (sub === "providers" || sub === "deploy") {
+		const [name, ...extra] = rest;
+		const file =
+			sub === "providers" ? (name === undefined ? PROVIDERS_INDEX : PROVIDER_PAGES.get(name)) : name === undefined ? undefined : DEPLOY_PAGES.get(name);
+		if (file === undefined || extra.length > 0) {
+			err(LLM_USAGE);
+			return 2;
+		}
+		// As shipped, no placeholders filled; `out` adds back the final newline.
+		out(readFileSync(file, "utf8").replace(/\n$/, ""));
 		return 0;
 	}
 	if (sub !== "skill") {

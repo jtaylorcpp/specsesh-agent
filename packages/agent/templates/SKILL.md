@@ -11,6 +11,7 @@ specsesh drafts OpenSpec changes, builds them task by task with agent loops, and
 
 1. **The map.** Run `npx specsesh llm` (or `specsesh llm` when it is installed) once per session. It's short: which command fits the job, and the rules that always apply.
 2. **The command.** Before you first use a command, run `specsesh <command> help`: `change`, `task`, `agent` or `durable`. It prints that command's usage and how it behaves: flags, outputs, refusals and exit codes.
+3. **The model.** Before choosing a provider or model, run `specsesh llm providers`: which providers work with which commands, and `specsesh llm providers <name>` for one's setup.
 
 Don't read the help for commands the task doesn't need.
 

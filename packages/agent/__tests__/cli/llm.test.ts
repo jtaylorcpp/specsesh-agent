@@ -49,6 +49,8 @@ describe("specsesh llm prints the guide for LLM agents", () => {
 		const { stdout } = await run(["llm"]);
 		expect(stdout.split("\n").length).toBeLessThanOrEqual(60);
 		for (const command of HELP_COMMANDS) expect(stdout).toContain(`specsesh ${command} help`);
+		expect(stdout).toContain("specsesh llm providers");
+		expect(stdout).toContain("specsesh llm deploy");
 		expect(stdout).toContain("specsesh never commits");
 		expect(stdout).toContain("Only the principal approves");
 	});
@@ -101,7 +103,7 @@ describe("The usage names llm", () => {
 	it("Scenario: Help lists llm", async () => {
 		const { code, stdout } = await run(["--help"]);
 		expect(code).toBe(0);
-		expect(stdout.split("\n")).toContain("  specsesh llm [skill [--out <path>]]");
+		expect(stdout.split("\n")).toContain("  specsesh llm [skill [--out <path>] | providers [<name>] | deploy <local|cloudflare>]");
 	});
 
 	it("Scenario: An unknown llm subcommand prints usage", async () => {
@@ -111,6 +113,46 @@ describe("The usage names llm", () => {
 		]) {
 			const { code, stderr } = await run(argv);
 			expect(code, argv.join(" ")).toBe(2);
+			expect(stderr.startsWith("usage: specsesh llm"), argv.join(" ")).toBe(true);
+		}
+	});
+});
+
+describe("specsesh llm providers and deploy print the shipped pages", () => {
+	/** What the process writes is `stdout` plus the newline `out` adds. */
+	const printed = async (argv: string[]) => {
+		const { code, stdout, stderr } = await run(argv);
+		return { code, stderr, text: `${stdout}\n` };
+	};
+	const shipped = (path: string) => readFileSync(join(PACKAGE, path), "utf8");
+
+	it("Scenario: providers prints the matrix", async () => {
+		const { code, stderr, text } = await printed(["llm", "providers"]);
+		expect(stderr).toBe("");
+		expect(code).toBe(0);
+		expect(text).toBe(shipped("docs/providers/README.md"));
+	});
+
+	it("Scenario: A provider page prints by name", async () => {
+		const { code, text } = await printed(["llm", "providers", "ollama"]);
+		expect(code).toBe(0);
+		expect(text).toBe(shipped("docs/providers/ollama.md"));
+	});
+
+	it("Scenario: A deployment page prints by name", async () => {
+		const { code, text } = await printed(["llm", "deploy", "cloudflare"]);
+		expect(code).toBe(0);
+		expect(text).toBe(shipped("docs/deploy/cloudflare.md"));
+	});
+
+	it("Scenario: An unknown page prints usage", async () => {
+		for (const argv of [
+			["llm", "providers", "nope"],
+			["llm", "deploy"],
+		]) {
+			const { code, stdout, stderr } = await run(argv);
+			expect(code, argv.join(" ")).toBe(2);
+			expect(stdout, argv.join(" ")).toBe("");
 			expect(stderr.startsWith("usage: specsesh llm"), argv.join(" ")).toBe(true);
 		}
 	});

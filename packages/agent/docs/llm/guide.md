@@ -15,6 +15,8 @@ specsesh turns an OpenSpec change (`openspec/changes/<change>/`: proposal, desig
 | run one task or group, see loops, resume or answer one | `specsesh task …` | `specsesh task help` |
 | see, write or check an Agent Script (`.agent`) file | `specsesh agent …` | `specsesh agent help` |
 | run any script durably, so a crash resumes it | `specsesh durable …` | `specsesh durable help` |
+| pick a provider and model, or see which runs where | `specsesh llm providers [<name>]` | the page it prints |
+| run locally or on Cloudflare | `specsesh llm deploy <local\|cloudflare>` | the page it prints |
 
 Most work is the change workflow: draft, approve, build, close.
 

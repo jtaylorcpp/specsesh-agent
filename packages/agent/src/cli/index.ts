@@ -5,7 +5,8 @@
  *   specsesh task …     agentscript-task, with `run` implied as in `pnpm task`
  *   specsesh durable …  agentscript-durable
  *   specsesh agent …    agentscript-pi, except the subcommands `explain.ts` handles
- *   specsesh llm …      the guide for LLM agents and a starter skill, from `llm.ts`
+ *   specsesh llm …      the guide for LLM agents, a starter skill and the provider and
+ *                       deployment pages, from `llm.ts`
  *
  * Importing this module runs nothing and installs no signal handlers: the
  * `specsesh` bin does that before calling `main`.
@@ -25,7 +26,7 @@ export const USAGE = `usage:
   specsesh task <run|spec|resume|answer|status> [options]
   specsesh durable <run|resume> [options]
   specsesh agent <run|models|list|show|new|check|language|actions> [options]
-  specsesh llm [skill [--out <path>]]
+  specsesh llm [skill [--out <path>] | providers [<name>] | deploy <local|cloudflare>]
   specsesh --version
   specsesh --help
 Run a command with no arguments for its own usage.`;
