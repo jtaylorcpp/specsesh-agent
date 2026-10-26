@@ -4,7 +4,7 @@
 
 ## 2. Deployment pages and the readme
 
-- [ ] 2.1 `packages/agent/docs/deploy/{local,cloudflare}.md` with a summary line and `## Setup`, `## Providers`, `## Running and resuming`, `## Limits`; `check-assets.mjs` requires both. `packages/agent/README.md`: link all seven pages, shrink `## Durable runs on Node` and `## On Cloudflare` (`design.md` decision 5), remove the stale "without actions" claim. Tests in `usage-docs.test.ts`: "Scenario: Every page has its sections" (now all seven), "Scenario: A broken link fails by name", "Scenario: The readme links every page", plus the `.agent` paths check, and "Scenario: The pages are packed" beside the existing pack dry-run test
+- [x] 2.1 `packages/agent/docs/deploy/{local,cloudflare}.md` with a summary line and `## Setup`, `## Providers`, `## Running and resuming`, `## Limits`; `check-assets.mjs` requires both. `packages/agent/README.md`: link all seven pages, shrink `## Durable runs on Node` and `## On Cloudflare` (`design.md` decision 5), remove the stale "without actions" claim. Tests in `usage-docs.test.ts`: "Scenario: Every page has its sections" (now all seven), "Scenario: A broken link fails by name", "Scenario: The readme links every page", plus the `.agent` paths check, and "Scenario: The pages are packed" beside the existing pack dry-run test
 
 ## 3. specsesh llm
 

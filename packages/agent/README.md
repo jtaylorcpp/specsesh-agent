@@ -28,6 +28,13 @@ pi-ai, pi-durable and chord are optional peers. For the command line, install `s
 - [On Cloudflare](#on-cloudflare)
 - [Entry points](#entry-points) · [Command-line tools](#command-line-tools) · [Roadmap](#roadmap)
 
+Picking a model and a place to run, one page each:
+
+- **Providers:** [the matrix](docs/providers/README.md) of which provider runs where;
+  [API-key providers](docs/providers/api-keys.md), [claude-code](docs/providers/claude-code.md),
+  [ollama](docs/providers/ollama.md), [workers-ai](docs/providers/workers-ai.md).
+- **Deployment:** [running locally](docs/deploy/local.md), [running on Cloudflare](docs/deploy/cloudflare.md).
+
 Going further? The **[guides](https://github.com/jtaylorcpp/specsesh-agent/tree/main/guides)** cover each layer in depth.
 
 ## A script
@@ -252,40 +259,17 @@ The same script as a [pi-durable](https://www.npmjs.com/package/@earendil-works/
 task: every step is checkpointed in SQLite, so a killed process resumes where it stopped and
 never repeats a finished step.
 
-```ts
-import { readFileSync } from "node:fs";
-import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import { createModels } from "@earendil-works/pi-ai";
-import { createRegistry, Harness } from "@earendil-works/pi-durable";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { claudeCodeProvider } from "@specsesh/agent/claude-code";
-import { AgentScript, AgentScriptStepExtension, runScript } from "@specsesh/agent/durable";
-
-const models = createModels();
-models.setProvider(claudeCodeProvider());                       // or anthropicProvider()
-const registry = createRegistry();
-registry.install(AgentScript);
-registry.install(AgentScriptStepExtension);
-const harness = await Harness.open(await openNodeSqliteStorage("hello.sqlite"), { models, registry }, context);
-
-const result = await runScript(
-  harness,
-  readFileSync("hello.agent", "utf8"),
-  { model: { provider: "claude-code", modelId: "claude-haiku-4-5" }, entry: ["greet", "decide", "sign_off"] },
-  context,
-);
-await harness.close(context);
-```
-
-`startScript` + `waitForScript` split that in two (start now, await later), and
-`harness.resume()` finishes runs whose process died. From the shell:
-
 ```bash
-agentscript-durable run hello.agent --entry greet --entry decide --entry sign_off --db hello.sqlite --provider claude-code
-agentscript-durable resume <task-id> --db hello.sqlite   # its process died mid-step; the id was printed at start
+specsesh durable run hello.agent --entry greet --entry decide --entry sign_off --db hello.sqlite --provider claude-code
+specsesh durable resume <task-id> --db hello.sqlite   # its process died mid-step; the id was printed at start
 ```
 
-The full program is [`examples/hello-world`](../../examples/hello-world).
+From code, install `AgentScript` and `AgentScriptStepExtension` from `@specsesh/agent/durable`
+in a pi-durable `Harness` over `openNodeSqliteStorage`, then `runScript` (or `startScript` +
+`waitForScript`); `harness.resume()` finishes runs whose process died. The full program is
+[`examples/hello-world`](../../examples/hello-world).
+
+Setup, providers, the task and change loops and worktrees: [running locally](docs/deploy/local.md).
 
 ## Actions: let a script do work
 
@@ -406,10 +390,8 @@ that can't serve tools.
 
 ## On Cloudflare
 
-`AgentScriptHost` is a Durable Object class: runs are pi-durable tasks in the object's SQLite
-storage, on **Workers AI** through the `AI` binding.
-
-`wrangler.jsonc`:
+A host is a Durable Object class: each run is a pi-durable task in the object's SQLite
+storage, on **Workers AI** through the `AI` binding or any pi-ai provider. `wrangler.jsonc`:
 
 ```jsonc
 {
@@ -418,58 +400,28 @@ storage, on **Workers AI** through the `AI` binding.
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "ai": { "binding": "AI" },
-  "durable_objects": { "bindings": [{ "name": "HOST", "class_name": "Agents" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Agents"] }]
+  "durable_objects": { "bindings": [{ "name": "HOST", "class_name": "Host" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Host"] }]
 }
 ```
 
-`src/index.ts`:
+`defineAgentHost` builds the class from the same `AgentConfig` a Node host uses, so runs get
+the config's workspace actions and delegates (a `claude-code` grant is refused: no process here):
 
 ```ts
-import { AgentScriptHost, type AgentScriptEnv } from "@specsesh/agent/cloudflare";
+import { defineAgentHost, workersAI } from "@specsesh/agent/cloudflare";
+import { memoryWorkspace } from "@specsesh/agent/durable";
 
-interface Env extends AgentScriptEnv {
-  HOST: DurableObjectNamespace<Agents>;
-}
-
-export class Agents extends AgentScriptHost<Env> {}      // Workers AI; AGENTSCRIPT_MODEL picks the model
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const [, root, host] = new URL(request.url).pathname.split("/");
-    if (root !== "runs" || !host) return new Response("use /runs/<host>", { status: 404 });
-    return env.HOST.getByName(host).fetch(request);    // one object (one durable store) per host name
-  },
-} satisfies ExportedHandler<Env>;
+export class Host extends defineAgentHost<Env>({
+  models: { default: (env) => workersAI(env.AI, "@cf/meta/llama-4-scout") },
+  workspace: () => memoryWorkspace(),       // or sandboxWorkspace / artifactsSandboxWorkspace
+}) {}
 ```
 
-```bash
-curl -X POST "https://my-agents.example.workers.dev/runs/demo?wait=1" \
-  -H 'content-type: application/json' \
-  -d "{\"source\": $(jq -Rs . < hello.agent), \"entry\": [\"greet\", \"decide\", \"sign_off\"], \"variables\": {\"name\": \"Ada\"}}"
-curl "https://my-agents.example.workers.dev/runs/demo/<task>"   # the task id from the POST; progress, then the outcome
-```
-
-To pick a model in code instead of `AGENTSCRIPT_MODEL`, or another provider, override
-`createModel()`. It runs in the constructor, before pi resumes unfinished work, and may read
-only `this.env`:
-
-```ts
-import { createAI } from "agents/models/pi-ai";
-import { AgentScriptHost, type ModelChoice } from "@specsesh/agent/cloudflare";
-
-export class Agents extends AgentScriptHost<Env> {
-  protected override createModel(): ModelChoice {
-    const ai = createAI({ binding: this.env.AI as Ai });
-    const model = ai("@cf/qwen/qwen3-coder");
-    return { provider: ai.provider, model: { provider: model.provider, modelId: model.id } };
-  }
-}
-```
-
-Today a Cloudflare host runs scripts **without actions** (it has no workspace yet); see the
-[roadmap](#roadmap). [`examples/cloudflare-worker`](../../examples/cloudflare-worker) adds a
-faux model for local testing on `wrangler dev --local`.
+The Worker forwards `/runs/<host>` to `env.HOST.getByName(host)`. `AgentScriptHost`, the fixed
+host, runs on one model and registers no actions. Nothing has been deployed yet;
+[`examples/cloudflare-worker`](../../examples/cloudflare-worker) runs on `wrangler dev --local`.
+Routes, workspaces and what the first deploy must check: [running on Cloudflare](docs/deploy/cloudflare.md).
 
 ## Entry points
 
