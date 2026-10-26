@@ -15,8 +15,11 @@ export interface FakeOllama {
 	close(): Promise<void>;
 }
 
-/** A local stand-in for Ollama: `/api/tags` from `models`, `/v1/chat/completions` streaming `reply`. */
-export async function startFakeOllama(options: { models: string[]; reply?: FakeOllamaReply }): Promise<FakeOllama> {
+/**
+ * A local stand-in for Ollama: `/api/tags` from `models`, `/v1/chat/completions` streaming `reply`
+ * (or what `reply` answers for the request's body).
+ */
+export async function startFakeOllama(options: { models: string[]; reply?: FakeOllamaReply | ((body: unknown) => FakeOllamaReply) }): Promise<FakeOllama> {
 	const requests: FakeOllamaRequest[] = [];
 	const server = createServer((req, res) => {
 		const chunks: Buffer[] = [];
@@ -38,7 +41,8 @@ export async function startFakeOllama(options: { models: string[]; reply?: FakeO
 				res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ models }));
 			} else if (req.method === "POST" && path === "/v1/chat/completions") {
 				const model = (body as { model?: string } | null)?.model ?? "unknown";
-				streamReply(res, model, options.reply ?? { text: "" });
+				const reply = typeof options.reply === "function" ? options.reply(body) : options.reply;
+				streamReply(res, model, reply ?? { text: "" });
 			} else {
 				res.writeHead(404, { "content-type": "text/plain" }).end("404 page not found");
 			}

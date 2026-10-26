@@ -59,7 +59,8 @@ import { checkOpenspec } from "../task/openspec-bin.js";
 import type { SpecStage } from "../task/spec-stage.js";
 import { SPEC_STAGES } from "../task/spec-stages.js";
 import { readSlices, type Slice } from "../task/stages/slices-md.js";
-import { builtin, resolvePrincipal } from "./agentscript-task.js";
+import { ollamaRefs, resolvePrincipal } from "./agentscript-task.js";
+import { cliModels, ollamaSuffix, withOllama } from "./models.js";
 
 /** One line per command. */
 export const USAGE = `usage:
@@ -69,7 +70,7 @@ export const USAGE = `usage:
   specsesh change close <change> [--db <path>]`;
 
 export interface ChangeCliDeps {
-	/** The pi-ai model collection. Defaults to every built-in provider plus claude-code. */
+	/** The pi-ai model collection. Defaults to `cliModels()`; either way, `ollama` is added when a model needs it. */
 	readonly models?: () => Promise<Models> | Models;
 	readonly out?: (line: string) => void;
 	readonly err?: (line: string) => void;
@@ -181,7 +182,7 @@ export async function main(argv: readonly string[], deps: ChangeCliDeps = {}): P
 		throw error;
 	}
 	try {
-		return await run(config, { out, err, cwd, env, models: deps.models ?? builtin, stages: deps.stages ?? SPEC_STAGES });
+		return await run(config, { out, err, cwd, env, models: deps.models ?? cliModels, stages: deps.stages ?? SPEC_STAGES });
 	} catch (error) {
 		if (error instanceof DatabaseLockedError) {
 			err(error.message);
@@ -230,8 +231,9 @@ async function resolveTarget(command: string, dbFlag: string | undefined, config
 		modelId: io.env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL,
 	};
 	const models = await io.models();
+	const ollama = await withOllama(models, ollamaRefs(model, config));
 	if (models.getProvider(model.provider) === undefined || models.getModel(model.provider, model.modelId) === undefined) {
-		return `no model "${model.modelId}" on provider "${model.provider}"`;
+		return `no model "${model.modelId}" on provider "${model.provider}"${ollamaSuffix(ollama, model.provider)}`;
 	}
 	return { db, model, models };
 }
@@ -328,11 +330,12 @@ async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promi
 		if (old !== undefined) return old;
 	}
 	const models = await io.models();
+	const model: ModelRef = { provider: request.provider, modelId: request.model };
+	const ollama = await withOllama(models, ollamaRefs(model, config));
 	const provider = models.getProvider(request.provider);
 	if (provider === undefined || models.getModel(request.provider, request.model) === undefined) {
-		return refuse(`no model "${request.model}" on provider "${request.provider}"`);
+		return refuse(`no model "${request.model}" on provider "${request.provider}"${ollamaSuffix(ollama, request.provider)}`);
 	}
-	const model: ModelRef = { provider: request.provider, modelId: request.model };
 	// Only `--amend` records an approval, so nothing else asks git for a name.
 	const principal = request.amend ? resolvePrincipal(undefined, () => gitUserName(io.cwd), io.env) : undefined;
 	let named;

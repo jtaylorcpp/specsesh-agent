@@ -26,6 +26,7 @@ import type { Models } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, type ModelRef } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { LoopOutcome } from "../openspec/index.js";
+import { OLLAMA_PROVIDER_ID, type RegisterOllamaResult } from "../pi/ollama.js";
 import { DEFAULT_CHANGES_DIR, DEFAULT_MODEL, DEFAULT_PROVIDER, resolveDb, type LoadedConfig } from "./config.js";
 import { ApprovalsFileError } from "./errors.js";
 import { jsonLines, now, specEvents } from "./events.js";
@@ -50,6 +51,8 @@ export interface SpecIo {
 	readonly env: Readonly<Record<string, string | undefined>>;
 	/** The pi-ai model collection the stage runs on. */
 	readonly models: () => Promise<Models> | Models;
+	/** Adds `ollama` to `models` when a ref is on it (the bins' `withOllama`), before the model is checked. */
+	readonly withOllama?: (models: Models, refs: readonly ModelRef[]) => Promise<RegisterOllamaResult | undefined>;
 	/** The stages, in order. Defaults to `SPEC_STAGES`. */
 	readonly stages?: readonly SpecStage[];
 }
@@ -234,8 +237,11 @@ export async function runSpec(args: readonly string[], config: LoadedConfig, io:
 		modelId: io.env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL,
 	};
 	const models = await io.models();
+	const namedRefs = Object.values(config.models).map((entry): ModelRef => ({ provider: entry.provider, modelId: entry.model }));
+	const ollama = await io.withOllama?.(models, [model, ...namedRefs]);
 	if (models.getProvider(model.provider) === undefined || models.getModel(model.provider, model.modelId) === undefined) {
-		return refuse(`no model "${model.modelId}" on provider "${model.provider}"`);
+		const unreachable = model.provider === OLLAMA_PROVIDER_ID && ollama?.ok === false ? ` (Ollama at ${ollama.baseUrl}: ${ollama.reason})` : "";
+		return refuse(`no model "${model.modelId}" on provider "${model.provider}"${unreachable}`);
 	}
 
 	// Only now is anything written: the change, its intent, then the database.

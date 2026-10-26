@@ -1,6 +1,8 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Harness, createRegistry } from "@earendil-works/pi-durable";
 import { openNodeSqliteDatabase, openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, groupLoopOptions, main } from "../../src/bin/agentscript-task.js";
@@ -8,6 +10,24 @@ import { startTaskLoop, taskLoopExtensions, type SpecStage } from "../../src/tas
 import { cli, fauxModels, storedLoops, workdir } from "./cli-helpers.js";
 import { draft, proposalStage } from "./spec-helpers.js";
 import { JUDGE_ONLY, JUDGE_ONLY_ASSIGNING, baselineDir, cleanTemps, context, fakePnpm, temp, tinyChange, verdict } from "./helpers.js";
+import { closedPortUrl, startFakeOllama, type FakeOllama, type FakeOllamaReply } from "../pi/fake-ollama.js";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const TS_HOOK = join(HERE, "..", "durable", "fixtures", "ts-resolve.mjs");
+
+// Every harness the CLI builds, as built: how a test sees the models it was given. Passes through otherwise.
+const built = vi.hoisted(() => [] as { models: Record<string, unknown> }[]);
+vi.mock("../../src/durable/harness.js", async (original) => {
+	const actual = await original<typeof import("../../src/durable/harness.js")>();
+	return {
+		...actual,
+		createAgentHarness: async (...args: Parameters<typeof actual.createAgentHarness>) => {
+			const harness = await actual.createAgentHarness(...args);
+			built.push(harness);
+			return harness;
+		},
+	};
+});
 
 // A met verdict with checks goes to the gate, which runs `pnpm`: a fake one that exits 0 keeps these tests offline.
 let restorePath: (() => void) | undefined;
@@ -615,4 +635,124 @@ describe("task/cli: The exit code says whether the task converged", () => {
 		expect(failed.out).toContain('note: the script broke the task-script contract: next_action is "done"');
 		expect(failed.code).toBe(1);
 	});
+});
+
+describe("task/cli: ollama is registered when a loop needs it", () => {
+	const savedHost = process.env.OLLAMA_HOST;
+	const fakes: FakeOllama[] = [];
+	afterEach(async () => {
+		for (const fake of fakes.splice(0)) await fake.close();
+		if (savedHost === undefined) delete process.env.OLLAMA_HOST;
+		else process.env.OLLAMA_HOST = savedHost;
+		built.splice(0);
+	});
+
+	/** A fake Ollama listing `qwen3:8b`, answering `reply`, with OLLAMA_HOST pointing at it. */
+	async function fakeOllama(reply?: FakeOllamaReply | ((body: unknown) => FakeOllamaReply)) {
+		const fake = await startFakeOllama({ models: ["qwen3:8b"], ...(reply !== undefined ? { reply } : {}) });
+		fakes.push(fake);
+		process.env.OLLAMA_HOST = fake.url;
+		return fake;
+	}
+
+	const chats = (fake: FakeOllama) => fake.requests.filter((r) => r.method === "POST" && r.path === "/v1/chat/completions");
+	const MET = { met: true, unmet: "", next_action: "retry", question: "", amend_path: "", amend_text: "" };
+
+	/** The bundled task script's steps: a plan for orient, text for act, a met verdict for the judge. */
+	function taskSteps(body: unknown): FakeOllamaReply {
+		type Tool = { function: { name: string; parameters?: { properties?: Record<string, unknown> } } };
+		const submit = ((body as { tools?: Tool[] }).tools ?? []).find((tool) => tool.function.name === "submit_result");
+		if (submit === undefined) return { text: "Nothing to change." };
+		return { toolCall: { arguments: "plan" in (submit.function.parameters?.properties ?? {}) ? { plan: "nothing to change" } : MET } };
+	}
+
+	/** A directory holding `agentscript.config.json` as given. */
+	function configured(config: unknown) {
+		const dir = temp("task-ollama-");
+		writeFileSync(join(dir, "agentscript.config.json"), JSON.stringify(config));
+		return { dir, db: join(dir, "loops.sqlite") };
+	}
+
+	it("Scenario: A task loop converges on a pulled ollama model", async () => {
+		const fake = await fakeOllama(taskSteps);
+		const { dir, db } = configured({ task: { provider: "ollama", model: "qwen3:8b", script: "task", checks: ["pnpm test"], allow: ["pnpm"] } });
+		const env = fauxModels();
+
+		const r = await cli(["run", tinyChange(), "1.1", "--db", db], env, { cwd: dir });
+
+		expect(r.code, r.err).toBe(0);
+		expect(r.out).toContain("— converged");
+		// orient, act and judge each asked the pulled model; nothing else was asked
+		expect(chats(fake)).toHaveLength(3);
+		for (const chat of chats(fake)) expect((chat.body as { model?: string }).model).toBe("qwen3:8b");
+		expect(env.faux.state.callCount).toBe(0);
+		expect((await storedLoops(db)).inputs[0]?.model).toEqual({ provider: "ollama", modelId: "qwen3:8b" });
+	});
+
+	it("Scenario: A named model on ollama reaches the harness", async () => {
+		await fakeOllama();
+		const { dir, db } = configured({ models: { local: { provider: "ollama", model: "qwen3:8b" } } });
+		const script = join(dir, "judge.agent");
+		writeFileSync(script, JUDGE_ONLY);
+		const env = fauxModels();
+		env.faux.setResponses([verdict(true)]);
+
+		const r = await cli(["run", tinyChange(), "1.1", "--db", db, "--script", script, ...env.args], env, { cwd: dir });
+
+		expect(r.code, r.err).toBe(0);
+		expect(built).toHaveLength(1);
+		expect(built[0]?.models["local"]).toEqual({ provider: "ollama", modelId: "qwen3:8b" });
+	});
+
+	it("Scenario: Other providers never contact Ollama", async () => {
+		const fake = await fakeOllama();
+		const { dir, db } = configured({ task: { provider: "anthropic" } });
+
+		const r = await cli(["run", tinyChange(), "1.1", "--db", db, "--model", "claude-nope"], fauxModels(), { cwd: dir });
+
+		expect(r.code).toBe(2);
+		expect(r.err).toContain('no model "claude-nope" on provider "anthropic"');
+		expect(r.err).not.toContain("Ollama at");
+		expect(fake.requests).toEqual([]);
+	});
+
+	it("Scenario: An unreachable ollama is named in the refusal", async () => {
+		const url = await closedPortUrl();
+		process.env.OLLAMA_HOST = url;
+		const { dir, db } = configured({ task: { provider: "ollama", model: "qwen3:8b" } });
+
+		const r = await cli(["run", tinyChange(), "1.1", "--db", db], fauxModels(), { cwd: dir });
+
+		expect(r.err).toContain(`no model "qwen3:8b" on provider "ollama" (Ollama at ${url}`);
+		expect(r.code).toBe(2);
+		// Refused before the database is even opened, so no task exists.
+		expect(existsSync(db)).toBe(false);
+	});
+
+	it("Scenario: A crashed ollama loop resumes on its model", async () => {
+		const db = join(temp("task-crash-"), "loops.sqlite");
+		const workspace = temp("task-ws-");
+		let out = "";
+		let status: number | null = 0;
+		try {
+			execFileSync(process.execPath, ["--import", TS_HOOK, join(HERE, "fixtures", "crash-ollama-loop-child.ts"), db, tinyChange(), workspace], { encoding: "utf8" });
+		} catch (error) {
+			const e = error as { stdout: string; status: number | null };
+			status = e.status;
+			out = e.stdout;
+		}
+		expect(status).toBe(137);
+		const id = /LOOP (\d+)/.exec(out)?.[1] ?? "";
+		expect(id).toMatch(/^\d+$/);
+
+		const fake = await fakeOllama({ toolCall: { arguments: MET } });
+		const env = fauxModels();
+		const r = await cli(["resume", id, "--db", db], env);
+
+		expect(r.code, r.err).toBe(0);
+		expect(r.out).toContain(`# loop ${id} — converged`);
+		expect(chats(fake).length).toBeGreaterThan(0);
+		for (const chat of chats(fake)) expect((chat.body as { model?: string }).model).toBe("qwen3:8b");
+		expect(env.faux.state.callCount).toBe(0);
+	}, 90_000);
 });

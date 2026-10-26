@@ -4,7 +4,7 @@
 
 ## 2. The task and change CLIs
 
-- [ ] 2.1 `agentscript-task.ts` (`io.models` default, `run`, groups, `pick-tests`, `resume`, `answer`), `src/task/spec-cli.ts` and `agentscript-change.ts`: default `io.models` to `cliModels`, and call `withOllama` with the refs from `design.md` decision 2 before each model check; the refusal suffix as in 1.1. Tests in `__tests__/task/cli.test.ts` (and `cli-group.test.ts` for the group path, if a test needs it): "Scenario: A task loop converges on a pulled ollama model", "Scenario: A named model on ollama reaches the harness", "Scenario: An unreachable ollama is named in the refusal", "Scenario: Other providers never contact Ollama", "Scenario: A crashed ollama loop resumes on its model". The existing task and change CLI scenarios still pass
+- [x] 2.1 `agentscript-task.ts` (`io.models` default, `run`, groups, `pick-tests`, `resume`, `answer`), `src/task/spec-cli.ts` and `agentscript-change.ts`: default `io.models` to `cliModels`, and call `withOllama` with the refs from `design.md` decision 2 before each model check; the refusal suffix as in 1.1. Tests in `__tests__/task/cli.test.ts` (and `cli-group.test.ts` for the group path, if a test needs it): "Scenario: A task loop converges on a pulled ollama model", "Scenario: A named model on ollama reaches the harness", "Scenario: An unreachable ollama is named in the refusal", "Scenario: Other providers never contact Ollama", "Scenario: A crashed ollama loop resumes on its model". The existing task and change CLI scenarios still pass
 
 ## 3. Live check and docs
 
