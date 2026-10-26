@@ -45,6 +45,33 @@ subagent respond:
                 | Write a routine reply about: {!@variables.report}
 `;
 
+/** Two text-only model steps, so one fixed reply answers both. */
+export const HELLO = `config:
+    agent_name: "hello"
+
+system:
+    instructions: "You greet people."
+
+variables:
+    name: mutable string = "Ada"
+
+subagent greet:
+    description: "Say hello"
+
+    reasoning:
+        instructions: ->
+            | Say hello to {!@variables.name}.
+
+subagent farewell:
+    description: "Say goodbye"
+
+    reasoning:
+        instructions: ->
+            | Say goodbye to {!@variables.name}.
+`;
+
+export const HELLO_ENTRIES = ["greet", "farewell"];
+
 /** One model step that writes a string variable, the kind a caller gives `choices`. */
 export const JUDGE = `config:
     agent_name: "judge"

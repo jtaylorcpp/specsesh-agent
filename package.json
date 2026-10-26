@@ -12,6 +12,7 @@
     "test": "pnpm -r test",
     "test:cloudflare": "pnpm --filter cloudflare-worker-example test:cloudflare",
     "test:live": "pnpm --filter @specsesh/agent test:live",
+    "test:ollama": "node scripts/test-ollama.mjs",
     "agent": "node packages/agent/dist/bin/agentscript-pi.js",
     "durable": "node packages/agent/dist/bin/agentscript-durable.js",
     "task": "node packages/specsesh/bin/specsesh.js task",

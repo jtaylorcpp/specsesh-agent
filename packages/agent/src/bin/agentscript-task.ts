@@ -64,6 +64,7 @@ import { DelegateGrantError, type DelegateGrants } from "../durable/delegation.j
 import { createAgentHarness } from "../durable/harness.js";
 import { defaultRunners, localWorkspace } from "../node/index.js";
 import type { Escalation, GroupOutcome, LoopOutcome, Recipient, TaskOutcome } from "../openspec/index.js";
+import type { RegisterOllamaResult } from "../pi/ollama.js";
 import {
 	GroupLoop,
 	SPEC_LOOP,
@@ -121,13 +122,14 @@ import { after, formatSpecOutcome, runSpec, shownPath, specExitCode, stageScript
 import { changeDirOf } from "../task/spec-loop.js";
 import { changeOf, formatLoop, listLoops, markInterrupted, scriptOf } from "../task/status.js";
 import { WorktreeRefusedError, checkWorktree, createWorktree, inRepo, planWorktree, rebase, runSetup } from "../task/worktree.js";
+import { cliModels, ollamaSuffix, withOllama } from "./models.js";
 
 export { DEFAULT_MODEL, DEFAULT_PROVIDER };
 
 /** How many dirty paths a refusal lists before saying how many more there are. */
 export const DIRTY_LISTED = 20;
 
-const USAGE = `usage:
+export const USAGE = `usage:
   specsesh task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]
       options: --script <name|path>  --workspace <dir>  --check <command>...  --allow <word>...
                --max-iterations <n>  --escalate-to principal|agent  --provider <id>  --model <id>
@@ -143,7 +145,7 @@ const USAGE = `usage:
 const resumeHint = (id: number | string, db: string) => `loop ${id} — resume with: specsesh task resume ${id} --db ${db}`;
 
 export interface CliDeps {
-	/** The pi-ai model collection. Defaults to every built-in provider plus claude-code. */
+	/** The pi-ai model collection. Defaults to `cliModels()`; either way, `ollama` is added when a model needs it. */
 	readonly models?: () => Promise<Models> | Models;
 	readonly out?: (line: string) => void;
 	readonly err?: (line: string) => void;
@@ -179,14 +181,12 @@ export function formatGroupOutcome(id: number | string, outcome: LoopOutcome<Gro
 	return lines;
 }
 
-/** Every built-in pi-ai provider plus claude-code: the models a CLI runs on by default. */
-export async function builtin(): Promise<Models> {
-	const { builtinModels } = await import("@earendil-works/pi-ai/providers/all");
-	const { claudeCodeProvider } = await import("../claude-code/index.js");
-	const models = builtinModels();
-	models.setProvider(claudeCodeProvider());
-	return models;
-}
+/** Every named model in the config, as a ref. */
+const namedRefs = (config: Pick<LoadedConfig, "models">): ModelRef[] =>
+	Object.values(config.models).map((entry) => ({ provider: entry.provider, modelId: entry.model }));
+
+/** The refs `withOllama` looks at: the run's own model, then every named model in the config. */
+export const ollamaRefs = (model: ModelRef, config: Pick<LoadedConfig, "models">): ModelRef[] => [model, ...namedRefs(config)];
 
 const isRecipient = (value: string | undefined): value is Recipient => value === "principal" || value === "agent";
 
@@ -210,12 +210,13 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 	if (command !== "run" && command !== "spec" && command !== "resume" && command !== "answer" && command !== "status" && command !== "pick-tests") return usage();
 
 	// pick-tests needs no database and no loop: one script run, JSON out.
-	if (command === "pick-tests") return await pickTestsCommand(rest, { out, err, cwd, env, models: deps.models ?? builtin }, usage);
+	if (command === "pick-tests") return await pickTestsCommand(rest, { out, err, cwd, env, models: deps.models ?? cliModels }, usage);
 
 	// spec parses its own flags, and never reaches run's clean-tree guard.
 	if (command === "spec") {
 		try {
-			return await runSpec(rest, loadConfig(cwd), { out, err, cwd, env, models: deps.models ?? builtin, ...(deps.stages !== undefined ? { stages: deps.stages } : {}) });
+			const io = { out, err, cwd, env, models: deps.models ?? cliModels, withOllama, ...(deps.stages !== undefined ? { stages: deps.stages } : {}) };
+			return await runSpec(rest, loadConfig(cwd), io);
 		} catch (error) {
 			if (isRefusal(error)) {
 				err(message(error));
@@ -320,8 +321,10 @@ async function pickTestsCommand(
 	}
 	const provider = values.provider ?? io.env["AGENTSCRIPT_PROVIDER"] ?? config.task.provider ?? DEFAULT_PROVIDER;
 	const model = values.model ?? io.env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL;
-	const result = await pickTests(input, { provider, model, models: await io.models(), ...(timeoutMs !== undefined ? { timeoutMs } : {}) });
-	io.out(JSON.stringify(result.ok ? { ...result, pattern: testPattern(result.pick.names) } : result));
+	const models = await io.models();
+	const ollama = await withOllama(models, ollamaRefs({ provider, modelId: model }, config));
+	const result = await pickTests(input, { provider, model, models, ...(timeoutMs !== undefined ? { timeoutMs } : {}) });
+	io.out(JSON.stringify(result.ok ? { ...result, pattern: testPattern(result.pick.names) } : { ...result, reason: `${result.reason}${ollamaSuffix(ollama, provider)}` }));
 	return result.ok ? 0 : 1;
 }
 
@@ -383,13 +386,14 @@ async function run(
 	// A missing group script refuses the run here, before any model or database is touched.
 	const groupScript = group !== undefined ? resolveGroupScript(settings.groupScript.value, settings.groupScript.base) : undefined;
 
-	const models = await (deps.models ?? builtin)();
+	const models = await (deps.models ?? cliModels)();
+	const model: ModelRef = { provider: settings.provider, modelId: settings.model };
+	const ollama = await withOllama(models, ollamaRefs(model, config));
 	const provider = models.getProvider(settings.provider);
 	if (provider === undefined || models.getModel(settings.provider, settings.model) === undefined) {
-		io.err(`no model "${settings.model}" on provider "${settings.provider}"`);
+		io.err(`no model "${settings.model}" on provider "${settings.provider}"${ollamaSuffix(ollama, settings.provider)}`);
 		return 2;
 	}
-	const model: ModelRef = { provider: settings.provider, modelId: settings.model };
 	const named = resolveNamedModels(config.models, models);
 
 	// Warnings found before the loop exists go out after the resume hint, which stays the first stderr line.
@@ -789,7 +793,9 @@ async function continueLoop(
 		io.err(`no loop ${target} in ${db.label}`);
 		return 2;
 	}
-	const models = await (deps.models ?? builtin)();
+	const models = await (deps.models ?? cliModels)();
+	// The stored loop's own model is refreshed in continueStored, once the loop is read.
+	const ollama = await withOllama(models, namedRefs(config));
 	// The config's named models as they are now: a loop stores its grants, not the models they name.
 	const named = resolveNamedModels(config.models, models);
 	const warnings: string[] = [];
@@ -800,7 +806,7 @@ async function continueLoop(
 		throw error;
 	});
 	try {
-		return await continueStored(command, target, { by, decision }, loops.storage, loops.io, db, { values, cwd, env, config, deps, models, named, warnings });
+		return await continueStored(command, target, { by, decision }, loops.storage, loops.io, db, { values, cwd, env, config, deps, models, named, warnings, ollama });
 	} finally {
 		await loops.close();
 		lock.release();
@@ -818,6 +824,8 @@ interface StoredTerms {
 	readonly named: Readonly<Record<string, ResolvedModel>>;
 	/** Emitted as `warning` events once the loop is found. */
 	readonly warnings: readonly string[];
+	/** What `withOllama` did for the config's named models, if anything: the stored model then needs no second refresh. */
+	readonly ollama?: RegisterOllamaResult | undefined;
 }
 
 /** `resume` or `answer` one stored loop, its database open and locked by the caller. */
@@ -828,7 +836,7 @@ async function continueStored(
 	storage: Storage,
 	io: Io,
 	db: DbPath,
-	{ values, cwd, env, config, deps, models, named, warnings }: StoredTerms,
+	{ values, cwd, env, config, deps, models, named, warnings, ollama }: StoredTerms,
 ): Promise<number> {
 	const id = Number(target) as LoopId;
 	const found = Number.isInteger(id) ? await findLoop(storage, id) : undefined;
@@ -838,10 +846,12 @@ async function continueStored(
 		provider: env["AGENTSCRIPT_PROVIDER"] ?? config.task.provider ?? DEFAULT_PROVIDER,
 		modelId: env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL,
 	};
+	// A loop started on a local model finishes on it: refresh ollama unless the config's models already did.
+	const refreshed = ollama ?? (found !== undefined ? await withOllama(models, [model]) : undefined);
 	const provider = models.getProvider(model.provider);
 	if (found === undefined || stored === undefined || provider === undefined) {
 		await storage.close(BACKGROUND_CONTEXT);
-		io.err(found === undefined ? `no loop ${target} in ${db.label}` : `no provider "${model.provider}" for loop ${target}`);
+		io.err(found === undefined ? `no loop ${target} in ${db.label}` : `no provider "${model.provider}" for loop ${target}${ollamaSuffix(refreshed, model.provider)}`);
 		return 2;
 	}
 	if (found.kind === "spec") {
@@ -942,7 +952,8 @@ async function resumeEvery(
 		io.out(`no interrupted loops in ${db.label}`);
 		return 0;
 	}
-	const models = await (deps.models ?? builtin)();
+	const models = await (deps.models ?? cliModels)();
+	const ollama = await withOllama(models, namedRefs(config));
 	const named = resolveNamedModels(config.models, models);
 	const lock = lockDatabase(db.path);
 	// The first root carries the stale-lock warning, as a single resume would.
@@ -968,7 +979,7 @@ async function resumeEvery(
 					settled: (outcome) => (result = rootResultOf(outcome)),
 				};
 				try {
-					const terms = { values: {}, cwd, env, config, deps, models, named, warnings: warnings.splice(0) };
+					const terms = { values: {}, cwd, env, config, deps, models, named, warnings: warnings.splice(0), ollama };
 					await continueStored("resume", String(root.loop.id), { by: undefined, decision: undefined }, loops.storage, quiet, db, terms);
 				} finally {
 					await loops.close();

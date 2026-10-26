@@ -10,7 +10,8 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, main, parseVar } from "../../src/bin/agentscript-durable.js";
 import { RESULT_TOOL, startScript, waitForScript } from "../../src/durable/index.js";
-import { ENTRIES, openHarness, PIPELINE, setup } from "./helpers.js";
+import { closedPortUrl, type FakeOllama, startFakeOllama } from "../pi/fake-ollama.js";
+import { ENTRIES, HELLO, HELLO_ENTRIES, openHarness, PIPELINE, setup } from "./helpers.js";
 
 // The real claude-code provider spawns the user's `claude` binary. Stand in a faux provider under
 // its id, so the default model collection can be exercised without one.
@@ -333,6 +334,105 @@ describe("agentscript-durable resume", () => {
 		expect(r.code).toBe(2);
 		expect(r.err).toContain("no task abc");
 	});
+});
+
+describe("ollama is registered when the run needs it", () => {
+	const savedHost = process.env.OLLAMA_HOST;
+	const fakes: FakeOllama[] = [];
+	afterEach(async () => {
+		for (const fake of fakes.splice(0)) await fake.close();
+		if (savedHost === undefined) delete process.env.OLLAMA_HOST;
+		else process.env.OLLAMA_HOST = savedHost;
+	});
+
+	async function fakeOllama() {
+		const fake = await startFakeOllama({ models: ["qwen3:8b"], reply: { text: "Hello, Ada." } });
+		fakes.push(fake);
+		process.env.OLLAMA_HOST = fake.url;
+		return fake;
+	}
+
+	function helloWorkdir() {
+		const w = workdir();
+		const script = join(w.dir, "hello.agent");
+		writeFileSync(script, HELLO);
+		return { ...w, script };
+	}
+
+	/** main() on the CLI's own collection (no deps.models), capturing its output. */
+	async function ownCli(argv: string[]) {
+		const out: string[] = [];
+		const err: string[] = [];
+		const code = await main(argv, { out: (l) => out.push(l), err: (l) => err.push(l) });
+		return { code, out: out.join("\n"), err: err.join("\n") };
+	}
+
+	const chats = (fake: FakeOllama) => fake.requests.filter((r) => r.method === "POST" && r.path === "/v1/chat/completions");
+	const entries = HELLO_ENTRIES.flatMap((e) => ["--entry", e]);
+
+	it("Scenario: A durable run completes on a pulled ollama model", async () => {
+		const { script, db } = helloWorkdir();
+		const fake = await fakeOllama();
+
+		const r = await ownCli(["run", script, "--db", db, "--provider", "ollama", "--model", "qwen3:8b", ...entries]);
+
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("completed");
+		// one chat request per step, each on the pulled model
+		expect(chats(fake)).toHaveLength(2);
+		for (const chat of chats(fake)) expect((chat.body as { model?: string }).model).toBe("qwen3:8b");
+	});
+
+	it("Scenario: Other providers never contact Ollama", async () => {
+		const { script, db } = helloWorkdir();
+		const fake = await fakeOllama();
+
+		const r = await ownCli(["run", script, "--db", db, "--provider", "anthropic", "--model", "claude-nope"]);
+
+		expect(r.code).toBe(2);
+		expect(fake.requests).toEqual([]);
+	});
+
+	it("Scenario: An unreachable ollama is named in the refusal", async () => {
+		const { script, db } = helloWorkdir();
+		const url = await closedPortUrl();
+		process.env.OLLAMA_HOST = url;
+
+		const r = await ownCli(["run", script, "--db", db, "--provider", "ollama", "--model", "qwen3:8b"]);
+
+		expect(r.err).toContain(`no model "qwen3:8b" on provider "ollama" (Ollama at ${url}`);
+		expect(r.code).toBe(2);
+		const storage = await openNodeSqliteStorage(db);
+		const tasks = await storage.scanTasks({}, 10, undefined, BACKGROUND_CONTEXT);
+		await storage.close(BACKGROUND_CONTEXT);
+		expect(tasks.items).toEqual([]);
+	});
+
+	it("Scenario: A crashed ollama run finishes on resume", async () => {
+		const { db } = workdir();
+		let id = "";
+		let status: number | null = 0;
+		try {
+			execFileSync(process.execPath, ["--import", TS_HOOK, join(HERE, "fixtures", "crash-ollama-child.ts"), db], { encoding: "utf8" });
+		} catch (error) {
+			const e = error as { stdout: string; status: number | null };
+			status = e.status;
+			id = /TASK (\d+)/.exec(e.stdout)?.[1] ?? "";
+		}
+		expect(status).toBe(137);
+		expect(id).toMatch(/^\d+$/);
+
+		const fake = await fakeOllama();
+		const r = await ownCli(["resume", id, "--db", db]);
+
+		expect(r.code).toBe(0);
+		expect(r.out).toContain(`# task ${id} — completed`);
+		// only the second step (farewell) asked the model again
+		expect(chats(fake)).toHaveLength(1);
+		const sent = JSON.stringify(chats(fake)[0]!.body);
+		expect(sent).toContain("Say goodbye to Ada.");
+		expect(sent).not.toContain("Say hello to Ada.");
+	}, 90_000);
 });
 
 describe("parseVar", () => {

@@ -12,6 +12,8 @@
  *
  * `--provider claude-code` runs each step through your own `claude` binary on
  * your Claude subscription instead of through pi (see src/claude-code/).
+ * `--provider ollama` runs on a local Ollama server (OLLAMA_HOST, default
+ * http://localhost:11434); only it makes a network call before the run.
  */
 
 import { readFileSync, realpathSync } from "node:fs";
@@ -19,16 +21,27 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { run, type VariableValue } from "../interpreter/index.js";
 import type { ReasoningPort } from "../interpreter/index.js";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, MutableModels } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { CLAUDE_CODE_PROVIDER, createClaudeCodeReasoningPort } from "../claude-code/index.js";
-import { DEFAULT_MODEL, DEFAULT_PROVIDER, resolveModel } from "../pi/index.js";
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, registerOllama, resolveModel } from "../pi/index.js";
 import { createPiReasoningPort } from "../pi/index.js";
+
+const OLLAMA_PROVIDER = "ollama";
 
 const USAGE = `usage:
   agentscript-pi run <file> [--provider <id>] [--model <id>] [--entry <subagent>]...
                             [--var name=value]... [--max-tokens <n>] [--json]
-  agentscript-pi models [provider]`;
+  agentscript-pi models [provider]
+providers: any pi provider, claude-code, or ollama (at OLLAMA_HOST, default http://localhost:11434)`;
+
+/** Register the local Ollama server's pulled models; report an unreachable one on stderr. */
+async function ensureOllama(models: MutableModels): Promise<boolean> {
+	const r = await registerOllama(models);
+	if (r.ok) return true;
+	console.error(`ollama: not reachable at ${r.baseUrl}: ${r.reason}`);
+	return false;
+}
 
 export function parseVar(raw: string): [string, VariableValue] {
 	const eq = raw.indexOf("=");
@@ -51,6 +64,7 @@ export async function main(argv: string[]): Promise<number> {
 			console.log("any id or alias `claude --model` accepts: haiku, sonnet, opus, claude-haiku-4-5, ...");
 			return 0;
 		}
+		if (provider === OLLAMA_PROVIDER && !(await ensureOllama(models))) return 1;
 		for (const m of models.getModels(provider)) console.log(`${m.id}\t${m.name}`);
 		return 0;
 	}
@@ -93,6 +107,7 @@ export async function main(argv: string[]): Promise<number> {
 			},
 		});
 	} else {
+		if (provider === OLLAMA_PROVIDER && !(await ensureOllama(models))) return 1;
 		const model = resolveModel(models, provider, modelId);
 		port = createPiReasoningPort({
 			models,

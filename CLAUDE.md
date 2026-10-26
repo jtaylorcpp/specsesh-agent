@@ -32,15 +32,17 @@ The rest of this section is `packages/agent`:
 | Directory → entry | What it is |
 |---|---|
 | `src/authoring`, `src/interpreter` → `./authoring`, `./interpreter` | The core: authoring + interpreter. No model client, ever. |
-| `src/pi` → `./pi` | A `ReasoningPort` on `@earendil-works/pi-ai`, so any pi provider can run a script. Default testing model: `anthropic/claude-haiku-4-5`. |
+| `src/pi` → `./pi` | A `ReasoningPort` on `@earendil-works/pi-ai`, so any pi provider can run a script. Default testing model: `anthropic/claude-haiku-4-5`. `ollama.ts`: the Ollama provider (`ollamaProvider`, `registerOllama`), keyless, OpenAI-compatible. |
 | `src/claude-code` → `./claude-code` | The claude-code port and pi provider (Node only). |
 | `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). Runtime-neutral: never imports `node:` or `src/claude-code`, so `./cloudflare` can import it. Holds `workspace.ts` (`Workspace`, whose `publish` is optional and which `localWorkspace` never has; `memoryWorkspace`, `workspaceActions`, `runChecks`, `diffSnapshots`), `delegation.ts` (grants, `delegationActions`), `agent-runner.ts` (`agentRunner()`, the `agent` runner: checks a grant against the harness's models and registry, runs it as a durable host action whose child ID commits with the `act` checkpoint, answers `{ ok, summary, files_changed }`; also in node `defaultRunners`), `delegate-scripts.ts` (`READ_AGENT`, `EDIT_AGENT` as source strings, no file system, so they work in Workers; the delegate contract: `instructions` seeded, `ok` and `summary` read back) and `agent-config.ts` (`AgentConfig`, `createAgentHarness`). |
 | `src/node` → `./node` | The Node side of `./durable`: `localWorkspace(dir)`, `builtinActions` (moved from `src/durable/builtins.ts`), `claudeCodeRunner({ binary? })` and `defaultRunners`. Adds `src/durable` and `src/claude-code`. |
 | `src/cloudflare` → `./cloudflare` | `AgentScriptHost`, the Durable Object class (via Cloudflare's `PiHarness`, `agents` 0.28.0), Workers AI by default; `defineAgentHost`, `workersAI` and the Sandbox/Artifacts workspaces (see below). |
 | `src/openspec` → `./openspec` | The OpenSpec ontology (`openspec/{model,process,loops,evidence}`): TypeBox schemas (each a JSON Schema) with `Static` types and refinements, plus pure rules. Imports only `typebox`; no parser, no loop runner. |
 | `src/task` → `./task` | The task loop (`agentscript.task-loop`): an Agent Script run once per iteration as an `agentscript.run` child until the task converges, blocks, exhausts or fails; ticks tasks.md. Also the spec loop (see below). Bundled scripts in `src/task/scripts/` (copied into `dist/` by the build). Adds `src/node`. |
-| `src/cli` → `./cli` | The `specsesh` command: `main(argv, deps)` and `USAGE` route `agent \| durable \| task \| change` to `agentscript-pi \| -durable \| -task \| -change`. `task` implies `run`. `--help` and `--version` are handled here. Importing it runs nothing. Like `src/bin`, not a layer that `__tests__/package/layers.test.ts` constrains. |
+| `src/cli` → `./cli` | The `specsesh` command: `main(argv, deps)` and `USAGE` route `agent \| durable \| task \| change` to `agentscript-pi \| -durable \| -task \| -change`. `task` implies `run`. `--help`, `--version`, `llm` (a short map for LLM agents, `docs/llm/guide.md`, a starter skill, `templates/SKILL.md`, and `llm providers [<name>]` / `llm deploy <local\|cloudflare>`, which print the pages below by fixed name, from `llm.ts`) and `<change|task|durable|agent> help` (the command's usage plus `docs/llm/<command>.md`) are handled here. Importing it runs nothing. Like `src/bin`, not a layer that `__tests__/package/layers.test.ts` constrains. |
 | `src/bin` | The `agentscript-pi`, `agentscript-durable`, `agentscript-task` and `agentscript-change` bins. The four `agentscript-*` bins stay for 0.x; `specsesh` reaches them in-process. |
+| `docs/providers/` | Shipped provider pages (`api-keys`, `claude-code`, `ollama`, `workers-ai`) and `README.md`, the provider × command × deployment matrix that `__tests__/package/usage-docs.test.ts` checks against the registered providers. |
+| `docs/deploy/` | Shipped deployment pages: `local.md` and `cloudflare.md`. |
 
 The CI test picker (`src/task/test-pick.ts`, exported from `./task`): `pickTests(input, options)` runs the
 bundled `ci-test-pick.agent` once to pick the tests that cover one closed task, for Specsesh CI's
@@ -229,6 +231,8 @@ node packages/agent/dist/bin/agentscript-task.js pick-tests --input in.json [--p
 pnpm --filter hello-world-example start [name]                                      # the example app, on Haiku
 pnpm --filter cloudflare-worker-example dev    # wrangler dev; add --var AGENTSCRIPT_FAUX:1 without an account
 pnpm test:cloudflare            # opt-in, not in `pnpm test`: crash/resume (kill -9 mid-step) + route scripts, local DO storage
+pnpm test:ollama                # opt-in, not in `pnpm test`, built bins: a durable run killed mid-step and resumed, then a one-task
+                                # loop, on a local Ollama model (OLLAMA_TEST_MODEL or the first pulled); skips when no server answers
 pnpm spec:check                 # openspec validate --all --strict
 pnpm change close <change-id>   # end a built change: guard, trial fold, archive (see "Specs")
 pnpm spec:archive <change-id>   # this repo's own script: validate, trial fold, archive; no database
