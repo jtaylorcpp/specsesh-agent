@@ -94,6 +94,14 @@ agentscript-pi run hello.agent --entry greet --entry decide --entry sign_off --p
 
 Without `--entry` a run starts at the first subagent only, so list every subagent to run, in order.
 
+**On a local model**, keyless, through an Ollama server at `OLLAMA_HOST` (default
+`http://localhost:11434`); its models are the ones you have pulled:
+
+```bash
+agentscript-pi models ollama
+agentscript-pi run hello.agent --entry greet --entry decide --entry sign_off --provider ollama --model qwen3:8b
+```
+
 **From code.** The interpreter holds no credential and imports no model client: reasoning leaves
 through a `ReasoningPort` you inject. `@specsesh/agent/pi` builds one on pi-ai:
 
@@ -472,7 +480,7 @@ peer dependencies, so a consumer of the interpreter alone installs none of them.
 |---|---|---|
 | `@specsesh/agent/authoring` | `parse`, `analyze`, `Document` (edit with undo/redo, lint) | none |
 | `@specsesh/agent/interpreter` | `run`, the step machine (`start`/`next`/`apply`), `ReasoningPort`, the subset | none |
-| `@specsesh/agent/pi` | A `ReasoningPort` on pi-ai, plus model helpers | `@earendil-works/pi-ai` |
+| `@specsesh/agent/pi` | A `ReasoningPort` on pi-ai, plus model helpers and `ollamaProvider` / `registerOllama` for a local Ollama | `@earendil-works/pi-ai` |
 | `@specsesh/agent/claude-code` | A `ReasoningPort` and a pi provider that run each step through your own `claude -p` (Node only) | `@earendil-works/pi-ai` |
 | `@specsesh/agent/durable` | The pi-durable extensions, `startScript` / `waitForScript` / `runScript`, actions and the built-ins | `@earendil-works/pi-ai`, `@earendil-works/pi-durable`, `@earendil-works/chord` |
 | `@specsesh/agent/node` | `localWorkspace(dir)`, a workspace over the filesystem, `child_process` and git; `gitSnapshot`; `builtinActions` (Node only) | the durable peers |

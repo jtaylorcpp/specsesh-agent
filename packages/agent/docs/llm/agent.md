@@ -18,7 +18,7 @@ The loops are Agent Script (`.agent`) files. These commands show the bundled one
 
 `specsesh agent run <file>` runs a script once and prints each step's outcome and the final variables.
 
-- `--provider <id> --model <id>` picks the model; credentials come from the provider's environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …). `--provider claude-code` uses the local `claude` login instead.
+- `--provider <id> --model <id>` picks the model; credentials come from the provider's environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …). `--provider claude-code` uses the local `claude` login instead. `--provider ollama` runs on a local Ollama server, keyless, at `OLLAMA_HOST` (default `http://localhost:11434`); its models are the ones pulled, and `specsesh agent models ollama` lists them. An unreachable server prints `ollama: not reachable at <url>: <reason>` and exits 1.
 - `--entry <subagent>` (repeatable) picks where it starts. `--var name=value` (repeatable) seeds a variable: `True` and `False` become booleans and numbers numbers.
 - `--json` prints the result as JSON. `specsesh agent models [provider]` lists a provider's models.
 

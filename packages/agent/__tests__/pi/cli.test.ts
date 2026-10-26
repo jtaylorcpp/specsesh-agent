@@ -3,15 +3,35 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { closedPortUrl, startFakeOllama, type FakeOllama } from "./fake-ollama.js";
 
 const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const BIN = join(PKG_DIR, "dist", "bin", "agentscript-pi.js");
 const TRIAGE = join(PKG_DIR, "examples", "triage.agent");
 
+/** One step, no structured result. */
+const HELLO = `config:
+    agent_name: "hello"
+
+subagent hello:
+    description: "Say hello"
+
+    reasoning:
+        instructions: ->
+            | Say hello.
+`;
+
 let dir: string;
 let fakeBin: string;
 let argvLog: string;
+let hello: string;
+let ollama: FakeOllama | undefined;
+
+afterEach(async () => {
+	await ollama?.close();
+	ollama = undefined;
+});
 
 /** A `claude` stand-in: records argv, then prints a `claude -p --output-format json` result. */
 const FAKE_CLAUDE = (log: string) => `#!${process.execPath}
@@ -41,6 +61,8 @@ beforeAll(() => {
 	const claude = join(fakeBin, "claude");
 	writeFileSync(claude, FAKE_CLAUDE(argvLog));
 	chmodSync(claude, 0o755);
+	hello = join(dir, "hello.agent");
+	writeFileSync(hello, HELLO);
 });
 
 afterAll(() => {
@@ -120,6 +142,21 @@ describe("models lists a provider's models", () => {
 		expect(r.stdout).toBe("");
 		expect(r.code).toBe(0);
 	});
+
+	it("Scenario: ollama lists the pulled models", async () => {
+		ollama = await startFakeOllama({ models: ["qwen3:8b"] });
+		const r = await cli(["models", "ollama"], { OLLAMA_HOST: ollama.url });
+		expect(r.stdout.trimEnd()).toBe("qwen3:8b\tqwen3:8b (Ollama)");
+		expect(r.code).toBe(0);
+	});
+
+	it("Scenario: An unreachable ollama is reported", async () => {
+		const url = await closedPortUrl();
+		const r = await cli(["models", "ollama"], { OLLAMA_HOST: url });
+		expect(r.stderr.startsWith(`ollama: not reachable at ${url}`)).toBe(true);
+		expect(r.stdout).toBe("");
+		expect(r.code).toBe(1);
+	});
 });
 
 describe("run takes a file and its options", () => {
@@ -166,6 +203,23 @@ describe("Provider and model come from the flag, then the environment, then the 
 		const envProvider = await cli(["run", TRIAGE], { AGENTSCRIPT_PROVIDER: "nowhere" });
 		expect(envProvider.stderr).toContain('"nowhere" is not a registered provider.');
 	});
+
+	it("Scenario: A model ollama has not pulled fails by name", async () => {
+		ollama = await startFakeOllama({ models: ["qwen3:8b"], reply: { text: "hello" } });
+		const r = await cli(["run", TRIAGE, "--provider", "ollama", "--model", "nope:1b"], { OLLAMA_HOST: ollama.url });
+		expect(r.stderr).toContain('UnknownModelError: no model "nope:1b" on provider "ollama"');
+		expect(r.stderr).toContain("qwen3:8b");
+		expect(r.code).toBe(1);
+		expect(ollama.requests.filter((q) => q.path === "/v1/chat/completions")).toEqual([]);
+	});
+
+	it("Scenario: An unreachable ollama stops run before any request", async () => {
+		const url = await closedPortUrl();
+		const r = await cli(["run", TRIAGE, "--provider", "ollama", "--model", "qwen3:8b"], { OLLAMA_HOST: url });
+		expect(r.stderr.startsWith(`ollama: not reachable at ${url}`)).toBe(true);
+		expect(r.stdout).toBe("");
+		expect(r.code).toBe(1);
+	});
 });
 
 describe("claude-code runs steps through the claude binary instead of pi", () => {
@@ -175,6 +229,16 @@ describe("claude-code runs steps through the claude binary instead of pi", () =>
 		const call = argvCalls().at(-1)!;
 		expect(flag(call, "--model")).toBe("sonnet");
 		expect(call).toContain("--safe-mode");
+	});
+
+	it("Scenario: A script runs on a pulled ollama model", async () => {
+		ollama = await startFakeOllama({ models: ["qwen3:8b"], reply: { text: "hello" } });
+		const r = await cli(["run", hello, "--provider", "ollama", "--model", "qwen3:8b"], { OLLAMA_HOST: ollama.url });
+		expect(r.stdout.startsWith("# ollama/qwen3:8b — completed")).toBe(true);
+		expect(r.code).toBe(0);
+		const chats = ollama.requests.filter((q) => q.method === "POST" && q.path === "/v1/chat/completions");
+		expect(chats).toHaveLength(1);
+		expect((chats[0]!.body as { model?: string }).model).toBe("qwen3:8b");
 	});
 });
 

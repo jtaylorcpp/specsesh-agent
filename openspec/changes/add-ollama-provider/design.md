@@ -26,3 +26,7 @@ A fake Ollama server in `__tests__/pi/fake-ollama.ts` (`node:http` on port 0): `
 
 - **Forced tools on small models.** Ollama passes `tool_choice` to models whose template supports tools; others may answer in text. That fails the step by the existing rule ("received none"). Verified live on `qwen3.5:latest` by hand after the build; record the result in this file.
 - **pi-ai's compat detection** may still set fields by URL; the explicit `compat` on each model wins.
+
+## Verified live
+
+2026-10-26: `agentscript-pi models ollama` listed the pulled models, and `run examples/triage.agent --provider ollama --model qwen3.5:latest` completed with a forced `submit_result` call (`severity`, `summary` set).
