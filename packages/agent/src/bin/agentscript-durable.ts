@@ -21,10 +21,11 @@ import { parseArgs } from "node:util";
 import type { RunResult, VariableValue } from "../interpreter/index.js";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai";
-import { createRegistry, Harness, type TaskId } from "@earendil-works/pi-durable";
+import { createRegistry, Harness, type ModelRef, type TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { AgentScript, AgentScriptStepExtension } from "../durable/extension.js";
 import { startScript, waitForScript } from "../durable/host.js";
+import { cliModels, ollamaSuffix, withOllama } from "./models.js";
 
 export const DEFAULT_PROVIDER = "anthropic";
 export const DEFAULT_MODEL = "claude-haiku-4-5";
@@ -49,14 +50,6 @@ export function parseVar(raw: string): [string, VariableValue] {
 	if (value === "False") return [name, false];
 	if (value !== "" && /^-?\d+(\.\d+)?$/.test(value)) return [name, Number(value)];
 	return [name, value];
-}
-
-async function builtin(): Promise<Models> {
-	const { builtinModels } = await import("@earendil-works/pi-ai/providers/all");
-	const { claudeCodeProvider } = await import("../claude-code/index.js");
-	const models = builtinModels();
-	models.setProvider(claudeCodeProvider());
-	return models;
 }
 
 export async function main(argv: readonly string[], deps: CliDeps = {}): Promise<number> {
@@ -87,7 +80,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 	}
 
 	const context = BACKGROUND_CONTEXT;
-	const models = await (deps.models ?? builtin)();
+	const models = await (deps.models ?? cliModels)();
 	const registry = createRegistry();
 	registry.install(AgentScript);
 	registry.install(AgentScriptStepExtension);
@@ -98,8 +91,9 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 		if (command === "run") {
 			const provider = values.provider ?? process.env.AGENTSCRIPT_PROVIDER ?? DEFAULT_PROVIDER;
 			const modelId = values.model ?? process.env.AGENTSCRIPT_MODEL ?? DEFAULT_MODEL;
+			const ollama = await withOllama(models, [{ provider, modelId }]);
 			if (models.getModel(provider, modelId) === undefined) {
-				err(`no model "${modelId}" on provider "${provider}"`);
+				err(`no model "${modelId}" on provider "${provider}"${ollamaSuffix(ollama, provider)}`);
 				return 2;
 			}
 			id = await startScript(
@@ -116,10 +110,14 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 			err(`task ${id} — resume with: agentscript-durable resume ${id} --db ${values.db}`);
 		} else {
 			id = Number(target) as TaskId<RunResult>;
-			if (!Number.isInteger(id) || (await harness.getTask(id, context)) === undefined) {
+			const task = Number.isInteger(id) ? await harness.getTask(id, context) : undefined;
+			if (task === undefined) {
 				err(`no task ${target} in ${values.db}`);
 				return 2;
 			}
+			// Before resuming, so a run started on a pulled model finds it again.
+			const stored = (task.input as { model?: ModelRef } | null)?.model;
+			if (stored !== undefined) await withOllama(models, [stored]);
 		}
 
 		harness.resume();
