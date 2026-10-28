@@ -204,7 +204,31 @@ function compareParameters(
 	return mismatches;
 }
 
-export const NO_REMOVE = "this workspace cannot delete files";
+/**
+ * Check a successful result's outputs against the action's declared ones: the
+ * same names, each of its declared scalar type. Answers the mismatches as one
+ * message naming each field, or `undefined` when they match.
+ */
+export function checkDeclaredOutputs(
+	action: HostAction,
+	outputs: Readonly<Record<string, unknown>>,
+): string | undefined {
+	const mismatches: string[] = [];
+	for (const [name, type] of Object.entries(action.outputs)) {
+		if (!(name in outputs)) mismatches.push(`output ${name} is missing`);
+		else if (typeof outputs[name] !== type) mismatches.push(`output ${name} is ${describe(outputs[name])}, declared ${type}`);
+	}
+	for (const name of Object.keys(outputs)) {
+		if (!(name in action.outputs)) mismatches.push(`output ${name} is not declared`);
+	}
+	return mismatches.length > 0 ? `${action.name} answered outputs that do not match its declaration: ${mismatches.join("; ")}` : undefined;
+}
+
+function describe(value: unknown): string {
+	return value === null ? "null" : Array.isArray(value) ? "an array" : `a ${typeof value}`;
+}
+
+export const NO_REMOVE ="this workspace cannot delete files";
 
 /** What a call of an ungranted `delete_file` answers. */
 export const DELETE_NOT_GRANTED = 'delete_file is not granted: set "deleteFiles": true under "task" in agentscript.config.json';

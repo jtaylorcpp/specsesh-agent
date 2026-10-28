@@ -16,6 +16,7 @@ export {
 export {
 	ActionBindingError,
 	checkBindings,
+	checkDeclaredOutputs,
 	createActionRegistry,
 	DELETE_NOT_GRANTED,
 	deleteActions,
@@ -73,4 +74,6 @@ export { EDIT_AGENT, READ_AGENT } from "./delegate-scripts.js";
 export type { AgentConfig, AgentHarness, AgentHarnessOptions, ModelFactory } from "./agent-config.js";
 export { createAgentHarness } from "./harness.js";
 export { runScript, startScript, waitForScript, type StartScriptOptions } from "./host.js";
+export { watchScript, type ScriptWatch } from "./watch.js";
 export { checkResult } from "./result.js";
+export { registryHost, type RegistryHost, type RegistryHostOptions } from "./tool-host.js";

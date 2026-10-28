@@ -40,11 +40,13 @@ describe("core/reasoning-port: A port that cannot run tools refuses a request th
 		const outcome = await port.reason(TOOL_REQUEST);
 
 		expect(outcome).toEqual({ kind: "failed", category: "invalid_request", message: TOOLS_NEED_DURABLE_HOST });
-		expect(TOOLS_NEED_DURABLE_HOST).toContain("durable host");
+		if (outcome.kind !== "failed") throw new Error("expected a failed outcome");
+		expect(outcome.message).toContain("durable host");
+		expect(outcome.message).toContain("tool host");
 		expect(requests).toBe(0);
 	});
 
-	it("the claude-code port refuses a tool request without spawning claude", async () => {
+	it("Scenario: The claude-code port without tools refuses a tool request", async () => {
 		const calls: unknown[] = [];
 		const runner: Runner = async (...args) => {
 			calls.push(args);
@@ -52,6 +54,8 @@ describe("core/reasoning-port: A port that cannot run tools refuses a request th
 		};
 		const outcome = await createClaudeCodeReasoningPort({ runner }).reason(TOOL_REQUEST);
 		expect(outcome).toEqual({ kind: "failed", category: "invalid_request", message: TOOLS_NEED_DURABLE_HOST });
+		if (outcome.kind !== "failed") throw new Error("expected a failed outcome");
+		expect(outcome.message).toContain("claude-code port given tools");
 		expect(calls).toHaveLength(0);
 	});
 });

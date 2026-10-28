@@ -16,6 +16,7 @@ const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const manifest = JSON.parse(readFileSync(join(PKG_DIR, "package.json"), "utf8"));
 const NODE_ENTRIES = Object.keys(manifest.exports).filter((key) => key !== "./cloudflare");
 // The peers a Node consumer of every entry but ./cloudflare installs, at the versions the tests run on.
+// The MCP SDK is left out on purpose: every Node entry must import without it (mcp.ts loads it lazily).
 const NODE_PEERS = ["@earendil-works/pi-ai", "@earendil-works/pi-durable", "@earendil-works/chord"].map(
 	(name) => `${name}@${manifest.devDependencies[name]}`,
 );

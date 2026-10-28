@@ -1,6 +1,6 @@
 {
   "name": "@specsesh/agent",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Agent Script as an authoring format, plus an interpreter over a declared subset of it, with pi, Claude Code, durable and Cloudflare hosts. Never compiles to the Salesforce runtime specification.",
   "license": "Apache-2.0",
   "type": "module",
@@ -72,6 +72,7 @@
     "check": "tsc --noEmit && tsc -p tsconfig.build.json && node scripts/chmod-bins.mjs",
     "test": "node scripts/check-subset-conformance.mjs && vitest run",
     "test:live": "vitest run --config vitest.live.config.ts",
+    "test:claude-code": "vitest run --config vitest.live.config.ts __tests__/live/claude-code-tools.live.test.ts",
     "conformance": "node scripts/check-subset-conformance.mjs",
     "pack:check": "vitest run --config vitest.pack.config.ts"
   },
@@ -86,6 +87,7 @@
     "@earendil-works/chord": "^1.1.0",
     "@earendil-works/pi-ai": "^1.1.0",
     "@earendil-works/pi-durable": "^1.1.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "agents": "^0.28.0"
   },
   "peerDependenciesMeta": {
@@ -98,6 +100,9 @@
     "@earendil-works/pi-durable": {
       "optional": true
     },
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
     "agents": {
       "optional": true
     }
@@ -107,6 +112,7 @@
     "@earendil-works/chord": "1.1.0",
     "@earendil-works/pi-ai": "1.1.0",
     "@earendil-works/pi-durable": "1.1.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@types/node": "^22.0.0",
     "agents": "0.28.0",
     "typescript": "^5.7.0",

@@ -109,6 +109,31 @@ agentscript-pi models ollama
 agentscript-pi run hello.agent --entry greet --entry decide --entry sign_off --provider ollama --model qwen3:8b
 ```
 
+**With tools from a module**, `--tools` (repeatable) loads your `HostAction`s from a JavaScript
+module for both `run @actions.x` and offered tools ([`examples/tools/`](examples/tools/)):
+
+```bash
+agentscript-pi run examples/tools/tools.agent --entry echo_it --entry count_it \
+  --tools examples/tools/tools.mjs --provider ollama --model qwen3.5:latest
+```
+
+**With tools from MCP servers**, `--mcp` (repeatable) connects the servers in a `.mcp.json`, the
+same file Claude Code reads, and a script calls them as `mcpTool://<server>/<tool>`:
+
+```bash
+agentscript-pi run issue.agent --mcp .mcp.json --provider ollama --model qwen3.5:latest
+```
+
+**With tools on your subscription**, `agentscript-pi run --provider claude-code` with `--tools` or
+`--mcp` offers a step's tools to Claude Code through a local MCP bridge (`mcpBridge()` from
+`@specsesh/agent/node`). Claude Code calls them itself, in its own loop, possibly in parallel.
+Every call is still checked against its offer's schema, with bound inputs winning, and runs on
+our host; the step's `toolCalls` are in arrival order. The pi loop runs calls one at a time, so
+this is a difference. A tool step defaults `--max-turns` to 16, and reaching it ends the step
+`cut-short`. Durable runs (`agentscript-durable`, pi-durable) on claude-code don't support tool
+steps yet: such a step fails `invalid_request`, pointing to the durable host
+(`add-durable-claude-code-tools` is the next change).
+
 **From code.** The interpreter holds no credential and imports no model client: reasoning leaves
 through a `ReasoningPort` you inject. `@specsesh/agent/pi` builds one on pi-ai:
 
@@ -134,6 +159,64 @@ console.log(result.kind, result.variables.greeting);   // "completed", "Hello, A
 Swap in `claudeCodeProvider()` from `@specsesh/agent/claude-code` (model provider
 `claude-code`) to run each step through `claude -p` on your subscription. It never uses
 `--bare`, strips `ANTHROPIC_API_KEY`, and never reads Claude Code's OAuth token.
+
+**Streamed.** `streamRun` takes the same arguments as `run` and yields the run's events as they
+happen: step boundaries, text and thinking deltas, tool calls and results, `run` actions, then
+`run_end`.
+
+```ts
+import { streamRun } from "@specsesh/agent/interpreter";
+
+const stream = streamRun(readFileSync("hello.agent", "utf8"), {
+  port,
+  entry: ["greet", "decide", "sign_off"],
+  variables: { name: "Ada" },
+});
+for await (const e of stream) {
+  if (e.type === "text_delta") process.stdout.write(e.delta);
+}
+const result = await stream.result;   // equal to what run() resolves
+```
+
+Events are buffered, so a slow reader loses none, and a stream nobody reads keeps one run's events
+in memory. A stream can be iterated only once. `run(source, { ..., onEvent })` is the callback
+form. The claude-code port reports step and action events, and tool calls and results on a tool
+step, but no deltas.
+
+**With your own tools.** Give the port a tool host, and a step with `reasoning.actions` loops:
+each tool the model calls runs on the host, and its result goes back to the model.
+
+```ts
+import { readFile } from "node:fs/promises";
+import { createPiReasoningPort, resolveModel, type PiToolHost } from "@specsesh/agent/pi";
+
+const tools: PiToolHost = async ({ name, inputs }) =>
+  name === "read" ? { ok: true, outputs: { content: await readFile(String(inputs.path), "utf8") } } : { ok: false, message: `no ${name}` };
+const port = createPiReasoningPort({ models, model: resolveModel(models, "anthropic", "claude-haiku-4-5"), tools });
+// then run(source, { port, ... }) as above
+```
+
+Each call is checked against its offer's input schema before the host sees it, with the
+action's bound inputs merged in. `maxRounds` (default 16) bounds a step's model requests;
+reaching it ends the step `cut-short`. Without `tools`, a request that offers tools is still
+refused.
+
+The claude-code port takes the same tool host, plus a bridge that serves the step's tools to
+`claude` as one MCP server:
+
+```ts
+import { createClaudeCodeReasoningPort } from "@specsesh/agent/claude-code";
+import { mcpBridge } from "@specsesh/agent/node";
+
+const port = createClaudeCodeReasoningPort({ model: "haiku", tools, bridge: mcpBridge() });
+```
+
+`tools` without `bridge` throws a `TypeError`. A tool step runs one `claude -p` with
+`--max-turns` `maxTurns ?? 16`, and a listening run gets `tool_call` and `tool_result` events.
+`@specsesh/agent/claude-code` also exports the bridge types (`BridgeTool`, `BridgeReply`,
+`BridgeHandler`, `ToolBridge`, `ToolBridgeFactory`) and `BRIDGE_SERVER` (`"agentscript"`), for a
+bridge of your own. The flags a tool step passes are in
+[docs/providers/claude-code.md](docs/providers/claude-code.md#tool-steps).
 
 ## Discover from the CLI
 
@@ -269,6 +352,28 @@ in a pi-durable `Harness` over `openNodeSqliteStorage`, then `runScript` (or `st
 `waitForScript`); `harness.resume()` finishes runs whose process died. The full program is
 [`examples/hello-world`](../../examples/hello-world).
 
+### Watching a run
+
+`watchScript(harness, id, context)` yields a durable run's events: the same `RunEvent`s and
+iterable-plus-`result` shape as `streamRun`, with `result` settling as `waitForScript` would.
+
+```ts
+const w = watchScript(harness, id, context);   // from @specsesh/agent/durable
+for await (const ev of w) {
+  if (ev.type === "text_delta") process.stdout.write(ev.delta);
+  else if (ev.type === "run_end") console.log(ev.result.kind);
+  else console.log(`\n${ev.type}`, "name" in ev ? ev.name : "subagent" in ev ? ev.subagent : "");
+}
+const result = await w.result;   // w.stop() only detaches; the run carries on
+```
+
+A late watcher first gets the history (`step_start`/`step_end` per applied step, `action_start`/
+`action_end` per settled action, no deltas), then the in-flight step's text so far as one
+`text_delta`, then live events. Deltas come at pi-durable's commit pace (`partialIntervalMs`),
+coarser than `streamRun`'s, but a step watched from its start joins to its text. Watching only
+reads; slow readers and extra watchers lose nothing. Library-only and in-process (no CLI or host
+route streams, no `node:` imports); an id that isn't a run fails `task <id> is a <kind> task, not agentscript.run`.
+
 Setup, providers, the task and change loops and worktrees: [running locally](docs/deploy/local.md).
 
 ## Actions: let a script do work
@@ -343,7 +448,7 @@ registry.install(run);       // instead of AgentScript / AgentScriptStepExtensio
 registry.install(step);
 ```
 
-Model-callable actions (`reasoning.actions`) need a durable host and a provider that serves tools, such as `anthropic`; the Claude Code provider can't, which is why `task-delegate.agent` exists. `run` statements work on any provider. A subagent mixes either prompt lines or `run`, not both: split them across subagents and list both in `entry`.
+Model-callable actions (`reasoning.actions`) need a durable host and a provider that serves tools, such as `anthropic`; the Claude Code provider can't yet (one-shot `agentscript-pi run` can, through `mcpBridge`), which is why `task-delegate.agent` exists. `run` statements work on any provider. A subagent mixes either prompt lines or `run`, not both: split them across subagents and list both in `entry`.
 
 Add your own `HostAction`s beside the built-ins. A command action's replay policy is
 `"unsafe"`: if the process dies mid-command, it fails rather than running twice.

@@ -38,11 +38,11 @@ The manifest's `bin` SHALL map `agentscript-pi` to `./dist/bin/agentscript-pi.js
 - **THEN** none SHALL mention `tsx`
 
 ### Requirement: The layer libraries are optional peers
-`peerDependencies` SHALL be `@earendil-works/pi-ai`, `@earendil-works/pi-durable` and `@earendil-works/chord` at `^1.1.0`, and `agents` at `^0.28.0`, each marked `optional: true` in `peerDependenciesMeta`. The same packages SHALL be `devDependencies` at the versions the tests run on, so the workspace installs them.
+`peerDependencies` SHALL be `@earendil-works/pi-ai`, `@earendil-works/pi-durable` and `@earendil-works/chord` at `^1.1.0`, `agents` at `^0.28.0` and `@modelcontextprotocol/sdk` at `^1.32.1`, each marked `optional: true` in `peerDependenciesMeta`. The same packages SHALL be `devDependencies` at the versions the tests run on, so the workspace installs them.
 
 #### Scenario: Every peer is optional
 - **WHEN** the manifest's `peerDependencies` and `peerDependenciesMeta` are read
-- **THEN** there SHALL be exactly the four peers at those ranges
+- **THEN** there SHALL be exactly the five peers at those ranges
 - **AND** each SHALL have `peerDependenciesMeta[<name>].optional === true`
 
 ### Requirement: The core entries work with no peer installed
@@ -59,7 +59,7 @@ With only `@specsesh/agent` and its required dependencies installed, importing `
 - **THEN** the check SHALL fail, and the script SHALL exit `0`
 
 ### Requirement: Each layer imports only its own peers and the layers beneath it
-`src/pi/` SHALL import only `@earendil-works/pi-ai`, Node builtins, the core directories and itself. `src/claude-code/` adds `src/pi/`. `src/durable/` adds `pi-durable`, `chord` and `src/openspec/`, but no Node builtin or `src/claude-code/`. `src/node/` adds `src/durable/` and `src/claude-code/`; `src/task/` adds `src/node/`. Only `src/cloudflare/` SHALL import `agents` or `cloudflare:workers`, adding `src/durable/`. `src/openspec/` imports only `typebox`.
+`src/pi/` SHALL import only `@earendil-works/pi-ai`, Node builtins, the core directories and itself. `src/claude-code/` adds `src/pi/`. `src/durable/` adds `pi-durable`, `chord` and `src/openspec/`, but no Node builtin or `src/claude-code/`. `src/node/` adds `src/durable/`, `src/claude-code/` and `@modelcontextprotocol/sdk`; `src/task/` adds `src/node/`. Only `src/cloudflare/` SHALL import `agents` or `cloudflare:workers`, adding `src/durable/`. `src/openspec/` imports only `typebox`.
 
 #### Scenario: The layer graph holds
 - **WHEN** every import under `src/pi/`, `src/claude-code/`, `src/durable/`, `src/node/`, `src/task/`, `src/cloudflare/` and `src/openspec/` is reduced to a package name or a top-level `src/` directory
@@ -79,6 +79,10 @@ With only `@specsesh/agent` and its required dependencies installed, importing `
 - **WHEN** the imports under `src/durable/` are reduced
 - **THEN** none SHALL start with `node:`, and none SHALL be `src/claude-code` or `src/node`
 - **AND** neither SHALL any import of `src/cloudflare/`, followed transitively into `src/`
+
+#### Scenario: Only the node layer speaks MCP
+- **WHEN** every file under `src/` is scanned
+- **THEN** only files under `src/node/` SHALL import `@modelcontextprotocol/sdk` or a subpath of it
 
 ### Requirement: No published text names the old package
 No file under `packages/agent/src/` or `packages/agent/dist/`, and neither `README.md` nor `package.json`, SHALL contain `@coopcli`.
@@ -193,12 +197,12 @@ The manifest's `exports` SHALL have exactly the keys `./authoring`, `./interpret
 - **THEN** each SHALL have `private: true`
 
 ### Requirement: specsesh carries the command and its Node dependencies
-The `specsesh` manifest SHALL have `bin` exactly `{ "specsesh": "./bin/specsesh.js" }`, `files` `["bin", "README.md", "LICENSE"]`, `exports` exactly `{ "./package.json": "./package.json" }`, and `dependencies` exactly `@specsesh/agent` at `workspace:*` and `@earendil-works/pi-ai`, `@earendil-works/pi-durable` and `@earendil-works/chord` each at the exact version in `@specsesh/agent`'s `devDependencies`. It SHALL have no `peerDependencies`.
+The `specsesh` manifest SHALL have `bin` exactly `{ "specsesh": "./bin/specsesh.js" }`, `files` `["bin", "README.md", "LICENSE"]`, `exports` exactly `{ "./package.json": "./package.json" }`, and `dependencies` exactly `@specsesh/agent` at `workspace:*` plus `@earendil-works/pi-ai`, `@earendil-works/pi-durable`, `@earendil-works/chord` and `@modelcontextprotocol/sdk`, each at the exact version in `@specsesh/agent`'s `devDependencies`. It SHALL have no `peerDependencies`.
 
 #### Scenario: The specsesh manifest is exact
 - **WHEN** `packages/specsesh/package.json` is read
 - **THEN** `bin`, `files`, `exports` and the keys of `dependencies` SHALL be exactly as required, with no `peerDependencies`
-- **AND** each `@earendil-works/*` dependency SHALL equal the same key in `packages/agent/package.json`'s `devDependencies`
+- **AND** each dependency other than `@specsesh/agent` SHALL equal the same key in `packages/agent/package.json`'s `devDependencies`
 
 ### Requirement: The specsesh bin runs the cli entry
 `packages/specsesh/bin/specsesh.js` SHALL start with `#!/usr/bin/env node`, import nothing but `@specsesh/agent/cli`, install `SIGINT` and `SIGTERM` handlers exiting `130` and `143`, and exit with the code `main(process.argv.slice(2))` resolves to. A thrown error SHALL print `<name>: <message>` to stderr and exit `1`.

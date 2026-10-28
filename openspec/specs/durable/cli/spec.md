@@ -30,12 +30,17 @@ After the command, the CLI SHALL parse the options `--db` (string), `--provider`
 - **THEN** the exit code SHALL be `2`
 
 ### Requirement: The CLI opens a durable SQLite harness with both extensions
-For both commands the CLI SHALL open `Harness.open(await openNodeSqliteStorage(<--db>), { models, registry }, BACKGROUND_CONTEXT)` with a registry that has `AgentScript` and `AgentScriptStepExtension` installed, and MUST close the harness in a `finally` block on every path after it was opened, including early exits and thrown errors. The SQLite file MUST be created if it does not exist.
+For both commands the CLI SHALL open `Harness.open(await openNodeSqliteStorage(<--db>), { models, registry }, BACKGROUND_CONTEXT)`. Its registry SHALL have `AgentScript` and `AgentScriptStepExtension` installed, or, when `--tools` is given, `agentScriptExtensions({ actions, workspace })`'s `run` and `step` with the loaded tools. It MUST close the harness in a `finally` block on every path after opening. The SQLite file MUST be created if absent.
 
 #### Scenario: The harness is closed after a refusal
 - **GIVEN** `run` with an unknown model
 - **WHEN** the CLI exits `2`
 - **THEN** the harness SHALL have been closed before `main` returns
+
+#### Scenario: A durable run calls a tool from a module
+- **GIVEN** a module exporting `echo` and a script that runs `@actions.echo`
+- **WHEN** the CLI runs `run <script> --db <file> --tools <module>`
+- **THEN** the exit code SHALL be `0` and the echoed value SHALL be among the variables
 
 ### Requirement: The model collection defaults to every built-in provider plus claude-code
 When no `models` dependency is injected, the CLI SHALL build its model collection from pi-ai's `builtinModels()` and then register the `claude-code` provider from `@specsesh/agent/claude-code` (`claudeCodeProvider()`), so `--provider claude-code` runs steps through the user's own `claude` binary. Credentials MUST be pi-ai's own environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, ...); the CLI reads no other credential.
@@ -196,3 +201,57 @@ When the provider is `ollama` and `registerOllama` reported the server unreachab
 - **WHEN** the CLI runs `run hello.agent --db runs.sqlite --provider ollama --model qwen3:8b`
 - **THEN** stderr SHALL contain `no model "qwen3:8b" on provider "ollama" (Ollama at ` followed by that URL
 - **AND** the exit code SHALL be `2` and no task SHALL exist in the database
+
+### Requirement: run and resume take --tools and --workspace
+Both commands SHALL also take `--tools <path>` (repeatable) and `--workspace <dir>` (default the working directory), loaded and refused as `agentscript-pi run` does, before the harness opens. The usage SHALL list both on both lines, and `run`'s resume hint SHALL repeat the `--tools` and `--workspace` flags it was given.
+
+#### Scenario: The resume hint repeats the tools
+- **WHEN** `run <script> --db <file> --tools ./t.mjs` creates task 7
+- **THEN** stderr SHALL contain `agentscript-durable resume 7 --db <file> --tools ./t.mjs`
+
+#### Scenario: A bad tools module is refused before the database opens
+- **WHEN** `run` is given a module that fails to import
+- **THEN** stderr SHALL name `--tools` and the module, the exit code SHALL be `2`, and no task SHALL exist
+
+### Requirement: resume re-checks the stored script against its tools
+Before resuming, `resume` SHALL check the stored task's script against the loaded tools with `checkBindings`. A mismatch, including a resume with no `--tools` for a script that defines actions, SHALL print the `ActionBindingError` message and exit `2`, and the task MUST NOT resume.
+
+#### Scenario: A crashed tool run resumes with its tools
+- **GIVEN** a run with `--tools` killed mid-step
+- **WHEN** `resume <id> --db <file> --tools <module>` runs
+- **THEN** the run SHALL complete with exit `0`
+
+#### Scenario: A resume without the tools is refused
+- **GIVEN** a stored task whose script runs `@actions.echo`
+- **WHEN** `resume <id> --db <file>` runs without `--tools`
+- **THEN** stderr SHALL contain `not registered on this host`, the exit code SHALL be `2`, and no model request SHALL be made
+
+### Requirement: run and resume take --mcp
+Both commands SHALL also take `--mcp <file>` (repeatable), loaded and refused as `agentscript-pi run` does, before the harness opens. Its actions join the `--tools` actions in the registry installed with `agentScriptExtensions`. The usage SHALL list it on both lines, `run`'s resume hint SHALL repeat it, and every connection SHALL be closed after the harness closes.
+
+#### Scenario: A durable run calls an MCP tool
+- **GIVEN** an `--mcp` file naming the fixture server `fx` and a script that runs `mcpTool://fx/echo`
+- **WHEN** the CLI runs `run <script> --db <file> --mcp <mcp>`
+- **THEN** the exit code SHALL be `0`, and stderr's resume hint SHALL contain `--mcp <mcp>`
+
+#### Scenario: A resume without the MCP file is refused
+- **GIVEN** a stored task whose script runs `mcpTool://fx/echo`
+- **WHEN** `resume <id> --db <file>` runs without `--mcp`
+- **THEN** stderr SHALL contain `not registered on this host` and the exit code SHALL be `2`
+
+### Requirement: claude-code durable runs offer tools through the bridge
+The bins' model collection SHALL register `claudeCodeProvider({ bridge: mcpBridge() })`, so `run` and `resume` on provider `claude-code` with `--tools` or `--mcp` offer a step's tools to Claude Code. Each call SHALL run in the harness as a host action, recorded in the step's actions like any other provider's. The usage SHALL NOT say such a step fails.
+
+#### Scenario: A durable claude-code run calls a --tools tool
+- **GIVEN** a fake `claude` on `PATH` that reads its `--mcp-config` file, calls the first allowed tool over MCP with fixed arguments, and answers with the tool's text as `result`
+- **WHEN** the CLI runs `run <script offering echo> --db <db> --provider claude-code --tools <echo module>`
+- **THEN** the exit code SHALL be `0`, and the step's recorded actions SHALL hold one `echo` call with those arguments
+
+#### Scenario: The usage no longer refuses claude-code tools
+- **WHEN** the durable CLI prints its usage
+- **THEN** it SHALL NOT contain `a step that offers tools fails`
+
+#### Scenario: A claude-code run killed during a tool call resumes
+- **GIVEN** a fake `claude` that calls the first allowed tool, or answers `resumed: <text>` when its prompt already holds the tool's result, and a tools module whose `echo` exits the process with `137` when `CRASH_ON_ECHO=1`
+- **WHEN** `run --provider claude-code --tools <module>` with `CRASH_ON_ECHO=1` exits `137`, and `resume <id> --db <db> --tools <module>` follows without it
+- **THEN** the resume SHALL exit `0`, `completed`, its last `claude` prompt SHALL contain `[called echo with`, and the step's text SHALL start with `resumed:`

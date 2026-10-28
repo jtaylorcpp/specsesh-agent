@@ -34,8 +34,8 @@ The rest of this section is `packages/agent`:
 | `src/authoring`, `src/interpreter` → `./authoring`, `./interpreter` | The core: authoring + interpreter. No model client, ever. |
 | `src/pi` → `./pi` | A `ReasoningPort` on `@earendil-works/pi-ai`, so any pi provider can run a script. Default testing model: `anthropic/claude-haiku-4-5`. `ollama.ts`: the Ollama provider (`ollamaProvider`, `registerOllama`), keyless, OpenAI-compatible. |
 | `src/claude-code` → `./claude-code` | The claude-code port and pi provider (Node only). |
-| `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). Runtime-neutral: never imports `node:` or `src/claude-code`, so `./cloudflare` can import it. Holds `workspace.ts` (`Workspace`, whose `publish` is optional and which `localWorkspace` never has; `memoryWorkspace`, `workspaceActions`, `runChecks`, `diffSnapshots`), `delegation.ts` (grants, `delegationActions`), `agent-runner.ts` (`agentRunner()`, the `agent` runner: checks a grant against the harness's models and registry, runs it as a durable host action whose child ID commits with the `act` checkpoint, answers `{ ok, summary, files_changed }`; also in node `defaultRunners`), `delegate-scripts.ts` (`READ_AGENT`, `EDIT_AGENT` as source strings, no file system, so they work in Workers; the delegate contract: `instructions` seeded, `ok` and `summary` read back) and `agent-config.ts` (`AgentConfig`, `createAgentHarness`). |
-| `src/node` → `./node` | The Node side of `./durable`: `localWorkspace(dir)`, `builtinActions` (moved from `src/durable/builtins.ts`), `claudeCodeRunner({ binary? })` and `defaultRunners`. Adds `src/durable` and `src/claude-code`. |
+| `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). Runtime-neutral: never imports `node:` or `src/claude-code`, so `./cloudflare` can import it. Holds `workspace.ts` (`Workspace`, whose `publish` is optional and which `localWorkspace` never has; `memoryWorkspace`, `workspaceActions`, `runChecks`, `diffSnapshots`), `delegation.ts` (grants, `delegationActions`), `agent-runner.ts` (`agentRunner()`, the `agent` runner: checks a grant against the harness's models and registry, runs it as a durable host action whose child ID commits with the `act` checkpoint, answers `{ ok, summary, files_changed }`; also in node `defaultRunners`), `delegate-scripts.ts` (`READ_AGENT`, `EDIT_AGENT` as source strings, no file system, so they work in Workers; the delegate contract: `instructions` seeded, `ok` and `summary` read back) `agent-config.ts` (`AgentConfig`, `createAgentHarness`) and `watch.ts` (`watchScript`, a durable run as `RunEvent`s). |
+| `src/node` → `./node` | The Node side of `./durable`: `localWorkspace(dir)`, `builtinActions` (moved from `src/durable/builtins.ts`), `claudeCodeRunner({ binary? })` and `defaultRunners`. `mcp.ts`: `mcpTools(servers)`, MCP servers' tools as host actions `<server>/<tool>`, the only importer of `@modelcontextprotocol/sdk`. Adds `src/durable`, `src/claude-code` and the MCP SDK. |
 | `src/cloudflare` → `./cloudflare` | `AgentScriptHost`, the Durable Object class (via Cloudflare's `PiHarness`, `agents` 0.28.0), Workers AI by default; `defineAgentHost`, `workersAI` and the Sandbox/Artifacts workspaces (see below). |
 | `src/openspec` → `./openspec` | The OpenSpec ontology (`openspec/{model,process,loops,evidence}`): TypeBox schemas (each a JSON Schema) with `Static` types and refinements, plus pure rules. Imports only `typebox`; no parser, no loop runner. |
 | `src/task` → `./task` | The task loop (`agentscript.task-loop`): an Agent Script run once per iteration as an `agentscript.run` child until the task converges, blocks, exhausts or fails; ticks tasks.md. Also the spec loop (see below). Bundled scripts in `src/task/scripts/` (copied into `dist/` by the build). Adds `src/node`. |
@@ -167,23 +167,33 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
 - `./authoring` — parse, mutate with undo/redo, lint, over `@sf-agentscript/*`. Was used by
   specsketch's settings tab as a prompt editor.
 - `./interpreter` — subset scan, prompt composition, logic lines, structured state, three step
-  outcomes. Core tests drive a recording port; pi tests drive pi's faux provider.
-- `./pi` — one `reason()` = one pi `complete()`. Structured steps offer a single
+  outcomes; `run`, and `streamRun` (or `run`'s `onEvent`) for its `RunEvent`s. Core tests drive a recording port; pi tests drive pi's faux provider.
+- `./pi` — without `tools`, one `reason()` = one pi `complete()`. Structured steps offer a single
   `submit_result` tool and force it per wire API (`forceTool`). Failure categories come only from
-  `stopReason` and the HTTP status, never from message text. The port has no round bound, so it
-  never reports `cut-short`.
+  `stopReason` and the HTTP status, never from message text. It loops only when given `tools` (a
+  `PiToolHost`): offered tools run on the host and their results go back to the model, a
+  structured step that never called `submit_result` gets one forced settling request, and
+  `maxRounds` (default 16) bounds it, ending `cut-short`. Without `tools`, a tool request is refused.
 - `--provider claude-code` (`src/claude-code.ts`) — the subscription option. Each step spawns your own
   `claude -p --safe-mode --tools "" --no-session-persistence --output-format json [--json-schema]`,
   with `ANTHROPIC_API_KEY` stripped so the subscription login is used. **Never** read or forward
   Claude Code's OAuth token to pi or any other client: that is against Anthropic's terms (coopcli
   withdrew exactly that in `simplify-specsketch-workbench`), and a test pins its absence.
-  `--safe-mode` is required: without it your global CLAUDE.md leaks into every step. Never `--bare`
-  (it forces API-key auth). Each step runs in a fresh empty directory under `os.tmpdir()`, removed
+  `--safe-mode` on every step that offers no tools: without it your global CLAUDE.md leaks into
+  every step. A tool step passes the measured replacement (`--setting-sources "" --disable-slash-commands
+  --strict-mcp-config`) instead, because `--safe-mode` also turns off the step's MCP server
+  (`add-claude-code-tools`, design decision 1). Never `--bare` (it forces API-key auth), and
+  `ANTHROPIC_API_KEY` is still stripped on tool steps. Each step runs in a fresh empty directory under `os.tmpdir()`, removed
   after (or in the port's or provider's `cwd` option), and the system prompt ends with a fixed
   no-workspace note, because Claude Code's environment block (working directory, git status,
   platform) can't be turned off. First live run: 2026-10-10, triage example, Haiku 4.5, completed.
-  (This is the reasoning port, which offers no tools; a delegate's `claudeCodeRunner` is different,
-  see Hard lines.)
+  Tools and MCP work on one-shot runs (`agent run --tools`/`--mcp`): the port, given `tools` and
+  `bridge: mcpBridge()` (`src/node/mcp-bridge.ts`), serves the step's offers to `claude` as one
+  loopback MCP server, `agentscript`, plus `--mcp-config`, `--allowedTools mcp__agentscript__…` and
+  `--permission-mode dontAsk`; Claude Code calls them, possibly in parallel, and each runs on our
+  host. Durable runs (`durable run`/`resume --tools`/`--mcp`) work too, through the claude-code pi
+  provider's held sessions (below), each call a host action of the harness. Claude Code's built-in tools stay
+  off (`--tools ""`); a delegate's `claudeCodeRunner` is different, see Hard lines.
 
 - **Step machine** (`start` / `next` / `apply` in `run.ts`): the run's state is plain JSON (`RunState`),
   `next` is pure, and `run()` is a loop over the three. A failed step rolls back only its own logic
@@ -204,7 +214,13 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
 - **claude-code pi provider** (`src/claude-code/claude-code-provider.ts`): lets any pi host,
   pi-durable included, run on your subscription locally. Flattens system sections into
   `--system-prompt`, the transcript into the stdin prompt, and one offered tool into
-  `--json-schema` (returned as a tool call). Refuses requests offering more than one tool.
+  `--json-schema` (returned as a tool call). Without a `bridge` option, refuses requests offering
+  more than one tool. With `bridge`, a request offering any tool other than `submit_result` starts
+  a held session (`src/claude-code/provider-session.ts`): one `claude -p` with the tool-step flags
+  and `--max-turns 16`, each call Claude Code makes through the bridge handed to pi as a `toolCall`
+  (id `claude-code-<uuid>`) and its `toolResult` handed back, so pi-durable runs and checkpoints
+  every call. After a crash, results naming no live session start a fresh process on the whole
+  transcript. `cliModels` (`src/bin/models.ts`) registers it with `bridge: mcpBridge()`.
 - **This is a library** consumed from other projects, not a deployed service. `examples/` holds
   consumers. `pnpm build` (tsc) emits `packages/agent/dist/`, which the exports, the bins and the examples use;
   `pnpm pack:check` proves the packed tarball installs and runs in an empty project. Cloudflare is not
@@ -233,6 +249,8 @@ pnpm --filter cloudflare-worker-example dev    # wrangler dev; add --var AGENTSC
 pnpm test:cloudflare            # opt-in, not in `pnpm test`: crash/resume (kill -9 mid-step) + route scripts, local DO storage
 pnpm test:ollama                # opt-in, not in `pnpm test`, built bins: a durable run killed mid-step and resumed, then a one-task
                                 # loop, on a local Ollama model (OLLAMA_TEST_MODEL or the first pulled); skips when no server answers
+pnpm test:claude-code           # opt-in, not in `pnpm test`, your subscription: claude-code tool steps on Haiku (about six requests),
+                                # __tests__/live/claude-code-tools.live.test.ts; skips, saying why, without a logged-in `claude`
 pnpm spec:check                 # openspec validate --all --strict
 pnpm change close <change-id>   # end a built change: guard, trial fold, archive (see "Specs")
 pnpm spec:archive <change-id>   # this repo's own script: validate, trial fold, archive; no database

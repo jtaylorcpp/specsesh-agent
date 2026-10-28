@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,6 +63,41 @@ async function cli(argv: string[], env = setup()) {
 }
 
 const fauxArgs = (env: ReturnType<typeof setup>) => ["--provider", env.model.provider, "--model", env.model.modelId];
+
+const TOOLS = join(HERE, "..", "fixtures", "tools");
+
+/** A deterministic subagent that runs `echo` (from `fixtures/tools/echo.mjs`) and sets `out`: no model step. */
+const RUN_ECHO = `config:
+    agent_name: "run-echo"
+
+variables:
+    out: mutable string = ""
+
+subagent act:
+    description: "Echo without the model"
+
+    actions:
+        echo:
+            description: "Echo the text"
+            inputs:
+                text: string
+            outputs:
+                text: string
+            target: "mcpTool://echo"
+
+    reasoning:
+        instructions: ->
+            run @actions.echo
+                with text = "hi"
+                set @variables.out = @outputs.text
+`;
+
+function echoWorkdir() {
+	const w = workdir();
+	const script = join(w.dir, "run-echo.agent");
+	writeFileSync(script, RUN_ECHO);
+	return { ...w, script };
+}
 
 describe("agentscript-durable run", () => {
 	it("runs a script to completion on a SQLite database and prints the task ID first", async () => {
@@ -156,6 +191,140 @@ describe("The CLI opens a durable SQLite harness with both extensions", () => {
 		expect(closed).toBeDefined();
 		expect(closed).toHaveBeenCalledTimes(1);
 	});
+
+	it("Scenario: A durable run calls a tool from a module", async () => {
+		const { script, db } = echoWorkdir();
+		const env = setup();
+		const r = await cli(["run", script, "--db", db, ...fauxArgs(env), "--tools", join(TOOLS, "echo.mjs"), "--json"], env);
+
+		expect(r.err).not.toContain("ActionBindingError");
+		expect(r.code).toBe(0);
+		expect(JSON.parse(r.out).variables.out).toBe("hi");
+		// a logic-only subagent: the tool ran without the model
+		expect(env.requests).toHaveLength(0);
+	});
+});
+
+describe("run and resume take --tools and --workspace", () => {
+	it("Scenario: The resume hint repeats the tools", async () => {
+		const { dir, script, db } = echoWorkdir();
+		copyFileSync(join(TOOLS, "echo.mjs"), join(dir, "t.mjs"));
+		vi.spyOn(process, "cwd").mockReturnValue(dir);
+		const env = setup();
+
+		const r = await cli(["run", script, "--db", db, ...fauxArgs(env), "--tools", "./t.mjs"], env);
+
+		expect(r.code).toBe(0);
+		const id = /^task (\d+) /.exec(r.err)?.[1];
+		expect(id).toMatch(/^\d+$/);
+		expect(r.err).toContain(`agentscript-durable resume ${id} --db ${db} --tools ./t.mjs`);
+	});
+
+	it("Scenario: A bad tools module is refused before the database opens", async () => {
+		const { script, db } = echoWorkdir();
+		const module = join(TOOLS, "throws.mjs");
+
+		const r = await cli(["run", script, "--db", db, "--tools", module]);
+
+		expect(r.code).toBe(2);
+		expect(r.err).toContain(`--tools ${module}`);
+		// refused before the database is opened, so no task can exist
+		expect(existsSync(db)).toBe(false);
+	});
+});
+
+describe("resume re-checks the stored script against its tools", () => {
+	const echo = join(TOOLS, "echo.mjs");
+
+	/** Runs ECHO_THEN_RESPOND with `--tools` in a child killed on its first model request; returns the task ID. */
+	function crashToolRun(db: string) {
+		let id = "";
+		let status: number | null = 0;
+		try {
+			execFileSync(process.execPath, ["--import", TS_HOOK, join(HERE, "fixtures", "crash-tool-run.ts"), db, echo], { encoding: "utf8" });
+		} catch (error) {
+			const e = error as { stdout: string; status: number | null };
+			status = e.status;
+			id = /task (\d+) — resume with/.exec(e.stdout)?.[1] ?? "";
+		}
+		expect(status).toBe(137);
+		expect(id).toMatch(/^\d+$/);
+		return id;
+	}
+
+	it("Scenario: A crashed tool run resumes with its tools", async () => {
+		const { db } = workdir();
+		const id = crashToolRun(db);
+
+		const env = setup();
+		env.faux.setResponses([fauxAssistantMessage([fauxText("Said hi.")])]);
+		const r = await cli(["resume", id, "--db", db, "--tools", echo, "--json"], env);
+
+		expect(r.err).toBe("");
+		expect(r.code).toBe(0);
+		const parsed = JSON.parse(r.out);
+		expect(parsed.kind).toBe("completed");
+		expect(parsed.variables.out).toBe("hi");
+		// only `respond` asked the model again
+		expect(env.requests).toHaveLength(1);
+	}, 90_000);
+
+	it("Scenario: A resume without the tools is refused", async () => {
+		const { db } = workdir();
+		const id = crashToolRun(db);
+
+		const env = setup();
+		const r = await cli(["resume", id, "--db", db], env);
+
+		expect(r.err).toContain("mcpTool://echo is not registered on this host");
+		expect(r.code).toBe(2);
+		expect(env.requests).toHaveLength(0);
+		// nothing resumed: the task is still there to finish with its tools
+		const again = setup();
+		again.faux.setResponses([fauxAssistantMessage([fauxText("Said hi.")])]);
+		expect((await cli(["resume", id, "--db", db, "--tools", echo], again)).code).toBe(0);
+	}, 90_000);
+});
+
+describe("run and resume take --mcp", () => {
+	const MCP_FIXTURE = join(HERE, "..", "fixtures", "mcp", "server.mjs");
+
+	/** RUN_ECHO against the fixture's `fx/echo`, and an `--mcp` file naming the stdio fixture as `fx`. */
+	function mcpWorkdir() {
+		const w = echoWorkdir();
+		writeFileSync(w.script, RUN_ECHO.replace("mcpTool://echo", "mcpTool://fx/echo"));
+		const mcp = join(w.dir, "fx.mcp.json");
+		writeFileSync(mcp, JSON.stringify({ mcpServers: { fx: { command: process.execPath, args: [MCP_FIXTURE] } } }));
+		return { ...w, mcp };
+	}
+
+	it("Scenario: A durable run calls an MCP tool", async () => {
+		const { script, db, mcp } = mcpWorkdir();
+		const env = setup();
+
+		const r = await cli(["run", script, "--db", db, ...fauxArgs(env), "--mcp", mcp, "--json"], env);
+
+		expect(r.code).toBe(0);
+		const id = /^task (\d+) /m.exec(r.err)?.[1];
+		expect(id).toMatch(/^\d+$/);
+		expect(r.err).toContain(`agentscript-durable resume ${id} --db ${db} --mcp ${mcp}`);
+		expect(r.err).toContain("mcp: skipped fx/tags:");
+		expect(JSON.parse(r.out).variables.out).toBe("hi");
+		expect(env.requests).toHaveLength(0);
+	}, 30_000);
+
+	it("Scenario: A resume without the MCP file is refused", async () => {
+		const { script, db, mcp } = mcpWorkdir();
+		const env = setup();
+		const first = await cli(["run", script, "--db", db, ...fauxArgs(env), "--mcp", mcp], env);
+		const id = /^task (\d+) /m.exec(first.err)?.[1] ?? "";
+		expect(id).toMatch(/^\d+$/);
+
+		const r = await cli(["resume", id, "--db", db]);
+
+		expect(r.err).toContain("not registered on this host");
+		expect(r.code).toBe(2);
+	}, 30_000);
 });
 
 describe("The model collection defaults to every built-in provider plus claude-code", () => {

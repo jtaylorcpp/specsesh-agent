@@ -25,7 +25,7 @@ The claude-code port and provider MUST NOT read, copy or forward Claude Code's c
 - **AND** it SHALL NOT call `readFile`
 
 ### Requirement: Each turn is one headless claude -p invocation with a fixed argv
-`claudeArgs({ system, model, schema?, maxTurns? })` SHALL return, in order: `-p`, `--safe-mode`, `--model`, `<model>`, `--tools`, `""`, `--no-session-persistence`, `--output-format`, `json`, `--system-prompt`, `<system with the no-workspace note>`; then `--json-schema`, `<JSON.stringify(schema)>` when a schema is given; then `--max-turns`, `<String(maxTurns)>` when given. The prompt MUST NOT be in argv: it goes on stdin.
+`claudeArgs({ system, model, schema?, maxTurns?, tools? })` without `tools` SHALL return, in order: `-p`, `--safe-mode`, `--model`, `<model>`, `--tools`, `""`, `--no-session-persistence`, `--output-format`, `json`, `--system-prompt`, `<system with the no-workspace note>`; then `--json-schema`, `<JSON.stringify(schema)>` when a schema is given; then `--max-turns`, `<String(maxTurns)>` when given. The prompt MUST NOT be in argv: it goes on stdin.
 
 #### Scenario: Headless, safe mode, no tools, no saved session
 - **WHEN** `claudeArgs({ system: "s", model: "m" })` is called
@@ -36,11 +36,16 @@ The claude-code port and provider MUST NOT read, copy or forward Claude Code's c
 - **THEN** the argv SHALL end with `--json-schema`, `{"type":"object"}`, `--max-turns`, `3`
 
 ### Requirement: --bare is never passed and --safe-mode always is
-The argv MUST NOT contain `--bare`, which forces API-key authentication. It MUST always contain `--safe-mode`, which stops the user's CLAUDE.md, skills, plugins, hooks and MCP servers loading into every step.
+The argv MUST NOT contain `--bare`, which forces API-key authentication. Without `tools` it MUST contain `--safe-mode`, which stops the user's CLAUDE.md, skills, plugins, hooks and MCP servers loading into every step. With `tools` it MUST instead contain `--setting-sources ""`, `--disable-slash-commands` and `--strict-mcp-config`, because `--safe-mode` also turns off the step's own MCP server.
 
 #### Scenario: Never bare
-- **WHEN** argv is built for any request, structured or not
+- **WHEN** argv is built without `tools` for any request, structured or not
 - **THEN** it SHALL NOT contain `--bare` and SHALL contain `--safe-mode`
+
+#### Scenario: A tool step is isolated without safe mode
+- **WHEN** argv is built with `tools`
+- **THEN** it SHALL NOT contain `--bare` or `--safe-mode`
+- **AND** it SHALL contain `--setting-sources` followed by `""`, `--disable-slash-commands` and `--strict-mcp-config`
 
 ### Requirement: The port's argv comes from the request and its options
 `claudeCodeArgs(request, options)` SHALL call `claudeArgs` with `system` = `request.systemInstructions`, `model` = `options.model` defaulting to `"claude-haiku-4-5"`, `schema` = `request.outputSchema` when present, and `maxTurns` = `options.maxTurns` when given.
@@ -200,11 +205,11 @@ A successful result SHALL map to `{ kind: "answered", text: result ?? "" }`, add
 - **AND** it SHALL end with `Continue from here as the assistant.`
 
 ### Requirement: The provider refuses more than one pi tool without spawning
-A request offering more than one tool SHALL end as an error message, with no process spawned, whose `errorMessage` is `the claude-code provider runs at most one pi tool per request; this one offered <n> (<names, comma-separated>)`. Claude Code runs its own tools, not pi's.
+Without a `bridge` option, a request offering more than one tool SHALL end as an error message, with no process spawned, whose `errorMessage` is `the claude-code provider runs at most one pi tool per request without a bridge; this one offered <n> (<names, comma-separated>)`.
 
 #### Scenario: Two tools are refused
-- **WHEN** a request offering tools `a` and `b` is completed
-- **THEN** the message SHALL have `stopReason` `error`, an `errorMessage` matching `at most one pi tool` and naming `a, b`
+- **WHEN** a request offering tools `a` and `b` is completed by a provider without `bridge`
+- **THEN** the message SHALL have `stopReason` `error`, an `errorMessage` matching `at most one pi tool` and `without a bridge`, and naming `a, b`
 - **AND** the runner SHALL not have been called
 
 ### Requirement: The provider answers text, or a call to the one offered tool
@@ -239,7 +244,7 @@ Every provider message SHALL carry `usage` with `input` = `usage.input_tokens`, 
 - **THEN** the message usage SHALL include `input: 10`, `output: 5`, `totalTokens: 15` and `cost.total: 0.001`
 
 ### Requirement: The provider spawns per request with the request's abort signal
-Without a `runner` option, the provider SHALL build a fresh `spawnRunner(binary ?? "claude", timeoutMs ?? 300000, signal, cwd)` per request, with the request's `StreamOptions.signal` and the `cwd` option. A `runner` option replaces spawning and receives that signal. The provider never passes `--max-turns`.
+Without a `runner` option, the provider SHALL build a fresh `spawnRunner(binary ?? "claude", timeoutMs ?? 300000, signal, cwd)` per spawned process, with the `cwd` option. A non-bridged request's process gets that request's `StreamOptions.signal` and no `--max-turns`; a bridged session's process gets the session's own signal. A `runner` option replaces spawning and receives that signal.
 
 #### Scenario: A test runner replaces spawning
 - **GIVEN** `claudeCodeProvider({ runner: () => fake })`
@@ -269,3 +274,189 @@ The `--system-prompt` value `claudeArgs` builds SHALL end with this note, after 
 #### Scenario: The provider passes the note
 - **WHEN** a provider request whose system content is `Be kind.` is completed with a recording runner
 - **THEN** the value after `--system-prompt` SHALL be `Be kind.`, then `\n\n`, then the note exactly
+
+### Requirement: A tool step names one MCP server and allows only its tools
+With `tools: { mcpConfig, allowedTools }`, `claudeArgs` SHALL put, in place of `--safe-mode`: `--setting-sources`, `""`, `--disable-slash-commands`, `--strict-mcp-config`, `--mcp-config`, `<mcpConfig>`, `--allowedTools`, `<allowedTools joined with ",">`, `--permission-mode`, `dontAsk`. Every other argument SHALL be as without `tools`, `--tools ""` included.
+
+#### Scenario: The tool flags replace safe mode in place
+- **WHEN** `claudeArgs({ system: "s", model: "m", tools: { mcpConfig: "/x/mcp.json", allowedTools: ["mcp__agentscript__a", "mcp__agentscript__b"] } })` is called
+- **THEN** it SHALL return `-p`, then `--setting-sources`, `""`, `--disable-slash-commands`, `--strict-mcp-config`, `--mcp-config`, `/x/mcp.json`, `--allowedTools`, `mcp__agentscript__a,mcp__agentscript__b`, `--permission-mode`, `dontAsk`, then the same arguments that follow `--safe-mode` without `tools`
+
+### Requirement: The port runs offered tools through a bridge when given a tool host
+`createClaudeCodeReasoningPort` SHALL take `tools?: PiToolHost` and `bridge?: ToolBridgeFactory`; `tools` without `bridge` SHALL throw a `TypeError` naming `mcpBridge`. For a request with `tools`, it SHALL start the bridge with the offers, run one `claude -p` with the bridge's `tools` and `--max-turns` `maxTurns ?? 16`, and close the bridge on every path. Without `tools`, such a request is refused as before.
+
+#### Scenario: tools need a bridge
+- **WHEN** `createClaudeCodeReasoningPort({ tools: host })` is called without `bridge`
+- **THEN** it SHALL throw a `TypeError` whose message contains `mcpBridge`
+
+#### Scenario: A tool step passes the bridge's server and a turn bound
+- **GIVEN** a port with a tool host and a fake bridge answering `mcpConfig` `/b/mcp.json` and `allowedTools` `["mcp__agentscript__lookup"]`
+- **WHEN** a request offering `lookup` is reasoned
+- **THEN** the runner's argv SHALL contain `--mcp-config`, `/b/mcp.json`, `--allowedTools`, `mcp__agentscript__lookup` and `--max-turns`, `16`, and no `--safe-mode`
+- **AND** the bridge SHALL have been closed after the runner resolved
+
+#### Scenario: The bridge is closed when the step fails
+- **GIVEN** a port with a tool host, a fake bridge and a runner reporting `{ is_error: true, result: "boom" }`
+- **WHEN** a request offering a tool is reasoned
+- **THEN** the step SHALL fail and the bridge SHALL have been closed
+
+#### Scenario: A bridge that will not start fails the step
+- **GIVEN** a bridge factory that rejects with `no port`
+- **WHEN** a request offering a tool is reasoned
+- **THEN** the step SHALL fail `unknown` with a message containing `could not start the tool bridge: no port`, and the runner SHALL not have been called
+
+#### Scenario: An unservable tool name is refused before spawning
+- **WHEN** a request offering a tool named `has space` is reasoned by a port with a tool host and a bridge
+- **THEN** the step SHALL fail `invalid_request` with a message naming `has space`, and neither the bridge nor the runner SHALL have been called
+
+### Requirement: Calls through the bridge are checked, run on the host and recorded
+The bridge handler SHALL refuse an unoffered name unrecorded, and refuse arguments failing `checkToolArguments` with `ok: false`, recorded with `outputs: {}`. Otherwise it SHALL call the host with `{ name, tool: offer.action, inputs: { ...args, ...offer.bound } }`, a throw being `ok: false`, and answer `JSON.stringify(outputs)` or the message. An answered step SHALL carry every recorded call in arrival order as `toolCalls`.
+
+#### Scenario: A call runs on the host with bound inputs winning
+- **GIVEN** an offer `lookup` for action `orders/lookup` with bound `{ region: "eu" }`, and a runner that calls the handler with `lookup` and `{ id: "7", region: "us" }` before answering `done`
+- **WHEN** the request is reasoned
+- **THEN** the host SHALL be called with `{ name: "lookup", tool: "orders/lookup", inputs: { id: "7", region: "eu" } }`
+- **AND** the step SHALL be answered `done` with one `toolCalls` entry carrying those inputs and the host's outputs
+
+#### Scenario: Bad arguments never reach the host
+- **GIVEN** a runner that calls the handler with an offered tool and a missing required input
+- **WHEN** the request is reasoned
+- **THEN** the handler SHALL answer `ok: false` with `missing required input`, the host SHALL not be called, and `toolCalls` SHALL hold one entry with `ok: false` and `outputs: {}`
+
+#### Scenario: A listening run sees the bridge's calls
+- **GIVEN** a stream sink passed to `reason`, and a runner that makes one good call through the handler
+- **WHEN** the request is reasoned
+- **THEN** the sink SHALL receive `tool_call` with the merged inputs, then `tool_result` with `ok: true` and the outputs
+
+### Requirement: mcpBridge serves a step's tools to claude over loopback HTTP
+`mcpBridge()` from `@specsesh/agent/node` SHALL return a `ToolBridgeFactory` whose bridge serves Streamable HTTP MCP on `127.0.0.1` only, refusing a request without its random bearer token with `401`. Its `mcpConfig` SHALL be a mode-`0600` file naming the server `agentscript`; `allowedTools` SHALL be `mcp__agentscript__<name>` per tool. `tools/call` SHALL answer through the handler, `!ok` or a throw as `isError`. `close` SHALL stop the server and remove the file.
+
+#### Scenario: The bridge lists and calls its tools
+- **GIVEN** a bridge for one tool `echo` whose handler answers `{ ok: true, text: "hi" }`
+- **WHEN** an MCP client connects with the URL and header from its `mcpConfig` file, lists tools and calls `echo`
+- **THEN** the list SHALL hold `echo` with its input schema, and the call SHALL answer text `hi`
+
+#### Scenario: A request without the token is refused
+- **WHEN** a POST reaches the bridge's URL without the `Authorization` header
+- **THEN** it SHALL be answered `401` and the handler SHALL not be called
+
+#### Scenario: A failing handler is an error result
+- **GIVEN** a bridge whose handler throws `nope`
+- **WHEN** a client calls the tool
+- **THEN** the result SHALL have `isError: true` and text `nope`
+
+#### Scenario: The config file is private and removed on close
+- **WHEN** a bridge is started and then closed
+- **THEN** its `mcpConfig` file SHALL have had mode `0600` while open, its `allowedTools` SHALL be `["mcp__agentscript__echo"]`, and the file SHALL not exist after `close`
+
+### Requirement: The bridge types are exported from the claude-code entry
+`@specsesh/agent/claude-code` SHALL also export the types `BridgeTool`, `BridgeReply`, `BridgeHandler`, `ToolBridge` and `ToolBridgeFactory`, and the constant `BRIDGE_SERVER` (`"agentscript"`).
+
+#### Scenario: The bridge server name is agentscript
+- **WHEN** a caller reads `BRIDGE_SERVER` from `@specsesh/agent/claude-code`
+- **THEN** it SHALL equal `"agentscript"`
+
+### Requirement: With a bridge, a request offering tools runs a held claude session
+With `bridge`, a request offering any tool not named `submit_result` SHALL start a session: the bridge serving those tools, then one process with the bridge's `tools`, `--max-turns` `16`, and `submit_result`'s parameters as `--json-schema` when offered. A name failing `^[A-Za-z0-9_-]{1,48}$` SHALL end the request as an error message, starting nothing. Any other request is unaffected.
+
+#### Scenario: A bridged request starts one session
+- **GIVEN** `claudeCodeProvider({ runner, bridge })` with a fake bridge
+- **WHEN** a request offering `lookup` and `submit_result` is completed
+- **THEN** the bridge SHALL have been started with `lookup` only, and the runner's argv SHALL contain `--mcp-config`, `--max-turns`, `16` and `--json-schema` with `submit_result`'s parameters
+
+#### Scenario: Only submit_result is not bridged
+- **WHEN** a request offering only `submit_result` is completed by a provider with `bridge`
+- **THEN** the bridge SHALL not have been started, and the argv SHALL contain `--safe-mode` and `--json-schema`
+
+#### Scenario: An unservable name starts nothing
+- **WHEN** a request offering a tool named `has space` is completed by a provider with `bridge`
+- **THEN** the message SHALL have `stopReason` `error` naming `has space`, and neither the bridge nor the runner SHALL have been called
+
+### Requirement: Held calls become pi tool calls and their results go back to claude
+While a session's process runs, each call through the bridge SHALL be held. The request SHALL end `toolUse`, carrying every held call not yet handed out, in arrival order, each with a fresh id `claude-code-<uuid>`. A later request whose trailing `toolResult`s name those ids SHALL resolve each held call with `{ ok: !isError, text }` and wait on the same session. When the process ends, the bridge SHALL close and the result SHALL map as for an unbridged request.
+
+#### Scenario: A held call is handed out, answered and continued
+- **GIVEN** a bridged session whose runner calls `lookup` with `{ id: "7" }` through the handler and answers `found it` after the reply
+- **WHEN** the first request is completed, and then a second request appending a `toolResult` for the returned id with text `{"status":"shipped"}`
+- **THEN** the first message SHALL have `stopReason` `toolUse` and one `toolCall` to `lookup` with `{ id: "7" }`
+- **AND** the handler SHALL have answered `{ ok: true, text: "{\"status\":\"shipped\"}" }`, the second message SHALL be the text `found it`, the runner SHALL have been called once, and the bridge SHALL have been closed
+
+#### Scenario: Calls made together arrive in one message
+- **GIVEN** a runner that calls `a` and `b` through the handler without awaiting the first
+- **WHEN** the request is completed
+- **THEN** the message SHALL carry two `toolCall`s, to `a` and then to `b`, with different ids
+
+#### Scenario: An error result reaches claude as an error
+- **GIVEN** a held call answered by a `toolResult` with `isError: true` and text `no such order`
+- **WHEN** the request carrying it is completed
+- **THEN** the handler SHALL have answered `{ ok: false, text: "no such order" }`
+
+#### Scenario: A structured answer ends as a submit_result call
+- **GIVEN** a bridged session offering `submit_result`, whose process answers with `structured_output` `{ ok: true }` after one held call
+- **WHEN** the request carrying that call's result is completed
+- **THEN** the message SHALL have `stopReason` `toolUse` and one `toolCall` to `submit_result` with `{ ok: true }`
+
+#### Scenario: Calls one after another share one process
+- **GIVEN** a bridged session whose runner calls `lookup` with `{ id: "1" }`, awaits the reply, then calls it with `{ id: "2" }`
+- **WHEN** three requests are completed, each appending the previous message and a `toolResult` for its call (texts `one`, then `two`)
+- **THEN** the second message SHALL carry one `toolCall` to `lookup` with `{ id: "2" }`, the third SHALL be the runner's text, the handler SHALL have answered `one` then `two`, the runner SHALL have been called once, and the bridge closed once
+
+#### Scenario: Results for calls made together are all handed back
+- **GIVEN** a runner that calls `lookup` twice without awaiting the first and answers with both replies' texts joined
+- **WHEN** the request carrying both calls' `toolResult`s (`A`, `B`) is completed
+- **THEN** the message SHALL be the text `AB`
+
+#### Scenario: A process that exits while a call is held ends the session
+- **GIVEN** a runner that calls `lookup` without awaiting it, then exits with code `1` and no JSON
+- **WHEN** the call is handed out, and a request carrying its `toolResult` is completed
+- **THEN** that request SHALL end as an error message, the bridge SHALL have been closed once, and the runner SHALL have been called at most twice
+
+### Requirement: Results that name no live session start a fresh process
+A bridged request whose trailing `toolResult`s name no live session's held call SHALL start a new session whose prompt is `promptOf` of the whole transcript, prior calls and results included, so a resumed run continues after a crash.
+
+#### Scenario: A resumed transcript goes to a fresh process
+- **GIVEN** a new provider and a request whose transcript holds a `lookup` call with id `claude-code-old` and its `toolResult`
+- **WHEN** the request is completed
+- **THEN** the runner SHALL have been called with a prompt containing `[called lookup with` and `Tool lookup returned:`
+
+### Requirement: An aborted request ends its session
+When a request's `StreamOptions.signal` aborts while it waits on a session, the provider SHALL abort the session's runner signal, close the bridge, drop the session, and end the message `stopReason` `aborted`.
+
+#### Scenario: Aborting kills the held process
+- **GIVEN** a bridged session whose runner waits on its signal
+- **WHEN** the request's signal is aborted
+- **THEN** the message SHALL have `stopReason` `aborted`, the runner's signal SHALL be aborted, and the bridge SHALL have been closed
+
+### Requirement: pnpm test:claude-code re-checks tool steps against the real claude
+`pnpm test:claude-code` SHALL run, on the user's own logged-in `claude` and never in `pnpm test`, checks that tool steps' isolation matches `--safe-mode` (input tokens, and a project CLAUDE.md sentinel with a positive control), that a real tool call reaches the host, and that a durable run records its call. It SHALL skip, saying why, when `claude` is missing or not logged in.
+
+#### Scenario: Tool-step isolation costs what safe mode costs
+- **WHEN** the same question runs under `--safe-mode` and under the tool-step flags with a bridge serving no tools
+- **THEN** their input tokens SHALL be within 10% plus 100 of each other
+
+#### Scenario: A project CLAUDE.md does not reach a tool step
+- **GIVEN** a directory whose `CLAUDE.md` names the codeword `PERIWINKLE-4417`, and plain `claude -p` there answering with it
+- **WHEN** a one-tool step runs through the port in that directory, asked for any codeword
+- **THEN** the answer SHALL NOT contain `PERIWINKLE-4417`
+
+#### Scenario: A real claude calls a bridged tool
+- **GIVEN** the port with `mcpBridge()` and a host whose `secret_number` answers `{ value: 4817 }`
+- **WHEN** a step offering `secret_number` asks for the number
+- **THEN** the host SHALL have been called once and the answer SHALL contain `4817`
+
+#### Scenario: A real durable run records its call
+- **WHEN** the durable bin runs the tools example on `--provider claude-code --model haiku --json`
+- **THEN** it SHALL exit `0` with one `word_count` call recorded and `count` `6`
+
+### Requirement: A tool step's environment also drops CLAUDE_CODE_SAFE_MODE
+`toolStepEnv(parent)` SHALL return `claudeCodeEnv(parent)` without `CLAUDE_CODE_SAFE_MODE`, which an inherited `claude --safe-mode` session sets and which turns off `--mcp-config` servers. The port's tool steps and the provider's sessions SHALL spawn with it; steps without tools keep `claudeCodeEnv`. `CLAUDE_CODE_DISABLE_CLAUDE_MDS` and every other variable SHALL be kept.
+
+#### Scenario: An inherited safe mode is dropped for a tool step
+- **WHEN** `toolStepEnv({ PATH: "/bin", CLAUDE_CODE_SAFE_MODE: "1", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", CLAUDECODE: "1" })` is called
+- **THEN** it SHALL return `{ PATH: "/bin", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1" }`
+
+#### Scenario: The port and the provider spawn tool steps with it
+- **GIVEN** `process.env.CLAUDE_CODE_SAFE_MODE` set to `1`
+- **WHEN** the port runs a tool step, and the provider starts a bridged session
+- **THEN** neither runner's environment SHALL have `CLAUDE_CODE_SAFE_MODE`
+- **AND** a step without tools through the port SHALL still be handed `CLAUDE_CODE_SAFE_MODE` unchanged

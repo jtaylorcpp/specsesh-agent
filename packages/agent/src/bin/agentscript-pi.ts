@@ -5,10 +5,18 @@
  *   agentscript-pi run <file> [--provider anthropic] [--model claude-haiku-4-5]
  *                              [--entry <subagent>]... [--var name=value]...
  *                              [--max-tokens 4096] [--json]
+ *                              [--tools <module>]... [--mcp <file>]...
+ *                              [--workspace <dir>]
  *   agentscript-pi models [provider]
  *
  * Provider and model also come from AGENTSCRIPT_PROVIDER / AGENTSCRIPT_MODEL.
  * Credentials are pi's: ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, ...
+ *
+ * `--tools` loads host actions from the user's modules (see ./tools.ts); the
+ * script's actions are checked against them before any port is created, and
+ * they back both `run` statements and tools offered to the model. `--mcp` adds
+ * the tools of the MCP servers its files name, as `mcpTool://<server>/<tool>`;
+ * every connection is closed when the command ends.
  *
  * `--provider claude-code` runs each step through your own `claude` binary on
  * your Claude subscription instead of through pi (see src/claude-code/).
@@ -17,10 +25,15 @@
  */
 
 import { readFileSync, realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { run, type VariableValue } from "../interpreter/index.js";
 import type { ReasoningPort } from "../interpreter/index.js";
+import { ActionBindingError, checkBindings } from "../durable/actions.js";
+import { registryHost, type RegistryHost } from "../durable/tool-host.js";
+import { loadActions, reportSkipped } from "./tools.js";
+import { mcpBridge } from "../node/mcp-bridge.js";
 import type { AssistantMessage, MutableModels } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { CLAUDE_CODE_PROVIDER, createClaudeCodeReasoningPort } from "../claude-code/index.js";
@@ -32,6 +45,7 @@ const OLLAMA_PROVIDER = "ollama";
 const USAGE = `usage:
   agentscript-pi run <file> [--provider <id>] [--model <id>] [--entry <subagent>]...
                             [--var name=value]... [--max-tokens <n>] [--json]
+                            [--tools <module>]... [--mcp <file>]... [--workspace <dir>]
   agentscript-pi models [provider]
 providers: any pi provider, claude-code, or ollama (at OLLAMA_HOST, default http://localhost:11434)`;
 
@@ -83,6 +97,9 @@ export async function main(argv: string[]): Promise<number> {
 			var: { type: "string", multiple: true },
 			"max-tokens": { type: "string" },
 			json: { type: "boolean", default: false },
+			tools: { type: "string", multiple: true },
+			mcp: { type: "string", multiple: true },
+			workspace: { type: "string" },
 		},
 	});
 	const file = positionals[0];
@@ -90,7 +107,44 @@ export async function main(argv: string[]): Promise<number> {
 		console.error(USAGE);
 		return 2;
 	}
+	const source = readFileSync(file, "utf8");
 
+	// Tools and MCP servers are loaded and bound before any provider or port, so a refusal makes no model request.
+	const toolPaths = values.tools ?? [];
+	const mcpFiles = values.mcp ?? [];
+	if (toolPaths.length === 0 && mcpFiles.length === 0) return runScript(source, values, undefined);
+	const workspace = resolve(values.workspace ?? ".");
+	const loaded = await loadActions(toolPaths, mcpFiles, { cwd: process.cwd(), workspace });
+	if (!loaded.ok) {
+		console.error(loaded.message);
+		return 2;
+	}
+	try {
+		reportSkipped(loaded.mcp.skipped, process.stderr);
+		try {
+			checkBindings(source, loaded.registry);
+		} catch (error) {
+			if (!(error instanceof ActionBindingError)) throw error;
+			console.error(error.message);
+			return 2;
+		}
+		return await runScript(source, values, registryHost(loaded.registry, { workspace }));
+	} finally {
+		await loaded.mcp.close();
+	}
+}
+
+interface RunValues {
+	readonly provider?: string | undefined;
+	readonly model?: string | undefined;
+	readonly entry?: string[] | undefined;
+	readonly var?: string[] | undefined;
+	readonly "max-tokens"?: string | undefined;
+	readonly json?: boolean | undefined;
+}
+
+async function runScript(source: string, values: RunValues, hosts: RegistryHost | undefined): Promise<number> {
+	const models = builtinModels();
 	const provider = values.provider ?? process.env.AGENTSCRIPT_PROVIDER ?? DEFAULT_PROVIDER;
 	const modelId = values.model ?? process.env.AGENTSCRIPT_MODEL ?? DEFAULT_MODEL;
 	const maxTokens = values["max-tokens"] !== undefined ? Number(values["max-tokens"]) : undefined;
@@ -100,6 +154,7 @@ export async function main(argv: string[]): Promise<number> {
 	if (provider === CLAUDE_CODE_PROVIDER) {
 		port = createClaudeCodeReasoningPort({
 			model: modelId,
+			...(hosts !== undefined ? { tools: hosts.toolHost, bridge: mcpBridge() } : {}),
 			onResult: (r) => {
 				usage.in += r.usage?.input_tokens ?? 0;
 				usage.out += r.usage?.output_tokens ?? 0;
@@ -113,6 +168,7 @@ export async function main(argv: string[]): Promise<number> {
 			models,
 			model,
 			...(maxTokens !== undefined ? { maxTokens } : {}),
+			...(hosts !== undefined ? { tools: hosts.toolHost } : {}),
 			onMessage: (m: AssistantMessage) => {
 				usage.in += m.usage.input;
 				usage.out += m.usage.output;
@@ -121,8 +177,9 @@ export async function main(argv: string[]): Promise<number> {
 		});
 	}
 
-	const result = await run(readFileSync(file, "utf8"), {
+	const result = await run(source, {
 		port,
+		...(hosts !== undefined ? { actionHost: hosts.actionHost } : {}),
 		...(values.entry !== undefined ? { entry: values.entry } : {}),
 		...(values.var !== undefined ? { variables: Object.fromEntries(values.var.map(parseVar)) } : {}),
 	});

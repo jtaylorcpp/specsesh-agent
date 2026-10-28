@@ -4,6 +4,7 @@ export {
 	claudeCodeEnv,
 	createClaudeCodeReasoningPort,
 	toClaudeCodeOutcome,
+	toolStepEnv,
 	type ClaudeCodeReasoningPortOptions,
 	type ClaudeCodeResult,
 	type ProcessResult,
@@ -20,3 +21,11 @@ export {
 	toolsOf,
 	type ClaudeCodeProviderOptions,
 } from "./claude-code-provider.js";
+export {
+	BRIDGE_SERVER,
+	type BridgeHandler,
+	type BridgeReply,
+	type BridgeTool,
+	type ToolBridge,
+	type ToolBridgeFactory,
+} from "./tool-bridge.js";

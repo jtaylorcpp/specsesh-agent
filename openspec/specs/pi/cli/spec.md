@@ -132,3 +132,63 @@ With provider `ollama`, `models` and `run` SHALL first call `registerOllama`, an
 - **GIVEN** `OLLAMA_HOST` pointing at a port nothing listens on
 - **WHEN** the CLI runs `run x.agent --provider ollama --model qwen3:8b`
 - **THEN** stderr SHALL start with `ollama: not reachable at ` and the exit code SHALL be `1`
+
+### Requirement: run loads tools from --tools modules
+`run` SHALL also take `--tools <path>` (repeatable) and `--workspace <dir>` (default the working directory), and the usage SHALL list both. Each module, resolved from the working directory, SHALL export as `default`, else `tools`, a `HostAction[]` or a function of `{ workspace }` returning one, sync or async. The modules' actions, in flag order, form one registry.
+
+#### Scenario: A script calls a tool from a module
+- **GIVEN** a module exporting `echo` (`{ text } → { text }`) and a script whose deterministic subagent runs `@actions.echo` and sets `@variables.out`
+- **WHEN** the CLI runs `run <script> --tools <module>`
+- **THEN** the exit code SHALL be `0` and `out` SHALL be the echoed text
+
+#### Scenario: The model calls an offered tool from a module
+- **GIVEN** a faux model that calls `echo`, then answers, and a script offering `echo` under `reasoning.actions`
+- **WHEN** the CLI runs `run <script> --tools <module>`
+- **THEN** `echo`'s `execute` SHALL run once and the run SHALL end `completed`
+
+#### Scenario: A function export gets the workspace
+- **GIVEN** a module whose `tools` export is a function, and `--workspace <dir>`
+- **WHEN** the CLI runs
+- **THEN** the function SHALL be called once with `{ workspace: <dir resolved> }`
+
+### Requirement: A bad tools module or binding is refused before any model call
+A module that fails to import, an entry that is not a valid executed `HostAction` (a `durable` one or a `delegate/` name included), or a duplicate name SHALL print `--tools <path>: <problem>` and exit `2`. A script whose actions don't bind to the loaded tools SHALL print the `ActionBindingError` message and exit `2`. Neither path SHALL make a model request.
+
+#### Scenario: An entry without execute is refused
+- **WHEN** the CLI runs with a module whose entry has no `execute`
+- **THEN** stderr SHALL contain `--tools` and the module's path and `execute`, the exit code SHALL be `2`, and no model request SHALL be made
+
+#### Scenario: A script naming a missing tool is refused
+- **WHEN** a script targets `mcpTool://nowhere` and the module lacks it
+- **THEN** stderr SHALL contain `not registered on this host`, and the exit code SHALL be `2` with no model request
+
+#### Scenario: Without --tools nothing changes
+- **WHEN** a script with no actions runs without `--tools`
+- **THEN** it SHALL run exactly as before, with no tool host on the port
+
+### Requirement: run loads MCP servers from --mcp files
+`run` SHALL also take `--mcp <file>` (repeatable), and the usage SHALL list it. Each file is JSON with a top-level `mcpServers` object, and the servers of every file are merged and passed to `mcpTools`. The resulting actions join the `--tools` actions in one registry. Each skipped tool SHALL be printed to stderr as `mcp: skipped <server>/<tool>: <reason>` before the run, and every connection SHALL be closed when the command ends.
+
+#### Scenario: A script calls an MCP tool
+- **GIVEN** an `--mcp` file naming the fixture server `fx` and a script whose subagent runs `mcpTool://fx/echo`
+- **WHEN** the CLI runs `run <script> --mcp <file>`
+- **THEN** the exit code SHALL be `0`, the echoed text SHALL be in the variables, and the server process SHALL have exited
+
+### Requirement: A bad --mcp file or server is refused before any model call
+A file that is not JSON with an `mcpServers` object, a server name repeated across files, or a server `mcpTools` rejects SHALL print the problem prefixed `--mcp <file>:` (or the `McpServerError` message) and exit `2`, with no model request made and every connection closed.
+
+#### Scenario: A file without mcpServers is refused
+- **WHEN** the CLI runs with an `--mcp` file holding `{}`
+- **THEN** stderr SHALL contain `--mcp` and `mcpServers`, and the exit code SHALL be `2`
+
+#### Scenario: A server that will not start is refused
+- **WHEN** an `--mcp` file names a server whose command exits at once
+- **THEN** stderr SHALL name the server, the exit code SHALL be `2`, and no model request SHALL be made
+
+### Requirement: claude-code runs offered tools through mcpBridge
+With provider `claude-code` and `--tools` or `--mcp`, `run` SHALL create the claude-code port with `tools` set to the registry's tool host and `bridge` set to `mcpBridge()`, so a step's offered tools are called by Claude Code and run on this host. Without either flag the port is created as before.
+
+#### Scenario: A claude-code run calls a --tools tool through the bridge
+- **GIVEN** a fake `claude` that reads its `--mcp-config` file, calls the first allowed tool over MCP with fixed arguments, and answers with the tool's text as `result`
+- **WHEN** the CLI runs `run <script offering echo> --provider claude-code --tools <echo module>`
+- **THEN** the exit code SHALL be `0`, stdout SHALL contain the echoed text, and the fake's argv SHALL contain no `--safe-mode`

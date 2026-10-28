@@ -11,8 +11,9 @@ import { OLLAMA_PROVIDER_ID, registerOllama, type RegisterOllamaResult } from ".
 export async function cliModels(): Promise<MutableModels> {
 	const { builtinModels } = await import("@earendil-works/pi-ai/providers/all");
 	const { claudeCodeProvider } = await import("../claude-code/index.js");
+	const { mcpBridge } = await import("../node/mcp-bridge.js");
 	const models = builtinModels();
-	models.setProvider(claudeCodeProvider());
+	models.setProvider(claudeCodeProvider({ bridge: mcpBridge() }));
 	return models;
 }
 

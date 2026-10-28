@@ -6,13 +6,18 @@ The single injected boundary a reasoning step leaves through: a stateless reques
 ## Requirements
 
 ### Requirement: One reasoning step leaves through one injected port
-The interpreter SHALL send every reasoning step through a caller-supplied `ReasoningPort`, exported from `@specsesh/agent/interpreter`, which has exactly one method: `reason(request: ReasoningRequest): Promise<StepOutcome>`. The runner SHALL call `reason` once per dispatched step. `src/authoring/` and `src/interpreter/` SHALL hold exactly one `.reason(` call site, in `src/interpreter/run.ts`.
+The interpreter SHALL send every reasoning step through a caller-supplied `ReasoningPort`, exported from `@specsesh/agent/interpreter`, which has exactly one method: `reason(request: ReasoningRequest, stream?: { onDelta(delta: StreamDelta): void }): Promise<StepOutcome>`. The runner SHALL call `reason` once per dispatched step. `src/authoring/` and `src/interpreter/` SHALL hold exactly one `.reason(` call site, in `src/interpreter/run.ts`.
 
 #### Scenario: A reasoning step runs through the injected port
 - **GIVEN** a document with one subagent holding a prompt line
 - **WHEN** it is run with a recording port
 - **THEN** the port SHALL receive exactly one request
 - **AND** the result's single step SHALL carry that request and the port's outcome
+
+#### Scenario: A port that ignores the stream still runs
+- **GIVEN** a port whose `reason` takes one parameter
+- **WHEN** a script runs through `streamRun` with it
+- **THEN** the run SHALL complete with `step_start`, `step_end` and `run_end` events and no deltas
 
 ### Requirement: There is no default port
 The interpreter SHALL construct no default port. `run` with no `port` SHALL reject with `NoReasoningPortError` before parsing or dispatching anything. The error's `name` SHALL be `"NoReasoningPortError"`, its message SHALL begin `no reasoning port was provided`, say that the package constructs no default, and name the package as `@specsesh/agent`, never `@coopcli/agentscript`.
@@ -32,7 +37,7 @@ The interpreter SHALL construct no default port. `run` with no `port` SHALL reje
 - **AND** it SHALL NOT contain `@coopcli`
 
 ### Requirement: A request has exactly three fields
-Each dispatched `ReasoningRequest` SHALL hold `systemInstructions` (string), `prompt` (string), `outputSchema` (a JSON Schema object) only for a step that writes variables from its result, and `tools` (a non-empty `ToolOffer[]`) only for a step with reasoning actions. No other key SHALL be present. The type SHALL hold no executor or turn bound: `tools` are declarations, and the package SHALL execute no tool and count no rounds.
+Each dispatched `ReasoningRequest` SHALL hold `systemInstructions` (string), `prompt` (string), `outputSchema` (a JSON Schema object) only for a step that writes variables from its result, and `tools` (a non-empty `ToolOffer[]`) only for a step with reasoning actions. No other key SHALL be present. The type SHALL hold no executor or turn bound: `tools` are declarations, and the interpreter SHALL execute no tool and count no rounds.
 
 #### Scenario: Only the three fields cross the boundary
 - **WHEN** a plain step and a structured step are dispatched
@@ -194,9 +199,27 @@ An answered step that offered tools SHALL carry `toolCalls`: one `{ name, inputs
 - **THEN** its `toolCalls` entry SHALL have `ok` `false` and `outputs` `{}`
 
 ### Requirement: A port that cannot run tools refuses a request that offers them
-A port implementation that cannot run a tool loop SHALL answer any request carrying `tools` with `{ kind: "failed", category: "invalid_request" }` and a message saying tools need the durable host, without contacting a model. The pi reasoning port and the claude-code port are such ports.
+A port that cannot run a tool loop SHALL answer any request carrying `tools` with `{ kind: "failed", category: "invalid_request" }` and the `TOOLS_NEED_DURABLE_HOST` message, which names the durable host, a pi port given a tool host, and a claude-code port given tools and a bridge, without contacting a model. The pi and claude-code ports created without `tools` are such ports.
 
 #### Scenario: The pi port refuses a tool request
-- **GIVEN** the pi reasoning port and a request with `tools`
+- **GIVEN** the pi reasoning port created without `tools`, and a request with `tools`
 - **WHEN** `reason` is called
 - **THEN** it SHALL resolve failed with category `invalid_request`, and no model request SHALL be made
+- **AND** the message SHALL contain `durable host` and `tool host`
+
+#### Scenario: The claude-code port without tools refuses a tool request
+- **GIVEN** the claude-code reasoning port created without `tools`, and a request with `tools`
+- **WHEN** `reason` is called
+- **THEN** it SHALL resolve failed with category `invalid_request` and a message containing `claude-code port given tools`, and the runner SHALL not have been called
+
+### Requirement: The stream argument is passed only to a listening run
+The runner SHALL pass `reason` its second argument only when the run has a listener (`onEvent` or `streamRun`), and otherwise call `reason(request)` with one argument. A `StreamDelta` is `text_delta { delta }`, `thinking_delta { delta }`, `tool_call { name, inputs }` or `tool_result { name, ok, outputs }`. A delta reported after `reason` settles SHALL be dropped.
+
+#### Scenario: An unlistened run passes one argument
+- **WHEN** a script runs through `run` with no `onEvent`
+- **THEN** every `reason` call SHALL receive exactly one argument
+
+#### Scenario: A late delta is dropped
+- **GIVEN** a port that reports a `text_delta` after its promise resolves
+- **WHEN** the run is streamed
+- **THEN** that delta SHALL NOT appear among the events

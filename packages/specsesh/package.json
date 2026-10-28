@@ -1,6 +1,6 @@
 {
   "name": "specsesh",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "The specsesh command: draft, approve, build and close OpenSpec changes with an agent, and run Agent Script files durably.",
   "license": "Apache-2.0",
   "type": "module",
@@ -27,6 +27,7 @@
     "@specsesh/agent": "workspace:*",
     "@earendil-works/chord": "1.1.0",
     "@earendil-works/pi-ai": "1.1.0",
-    "@earendil-works/pi-durable": "1.1.0"
+    "@earendil-works/pi-durable": "1.1.0",
+    "@modelcontextprotocol/sdk": "1.32.1"
   }
 }

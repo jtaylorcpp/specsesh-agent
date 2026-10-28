@@ -28,6 +28,8 @@ export {
 	type ToolCallRecord,
 } from "./port.js";
 
+export type { RunEvent, StreamDelta, StreamSink } from "./events.js";
+
 export {
 	BOOLEAN_LITERALS,
 	READABLE_NAMESPACES,
@@ -89,7 +91,9 @@ export {
 	UnparsedDocumentError,
 	UnreadableDocumentError,
 	run,
+	streamRun,
 	type RunOptions,
 	type RunResult,
+	type RunStream,
 	type StepReport,
 } from "./run.js";
