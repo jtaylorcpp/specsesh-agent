@@ -4,6 +4,7 @@ export {
 	claudeCodeEnv,
 	createClaudeCodeReasoningPort,
 	toClaudeCodeOutcome,
+	toolStepEnv,
 	type ClaudeCodeReasoningPortOptions,
 	type ClaudeCodeResult,
 	type ProcessResult,

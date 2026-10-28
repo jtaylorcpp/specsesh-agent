@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { createModels, Type, type Message } from "@earendil-works/pi-ai";
 import type { ActionResult, ReasoningRequest, StreamDelta, ToolOffer } from "../../src/interpreter/index.js";
 import {
+	claudeCodeProvider,
 	createClaudeCodeReasoningPort,
 	type BridgeHandler,
 	type BridgeReply,
@@ -207,5 +209,41 @@ describe("the claude-code port's tool path", () => {
 		expect(state.replies[0]!.ok).toBe(false);
 		expect(calls).toEqual([]);
 		expect(outcome.kind === "answered" ? outcome.toolCalls : undefined).toEqual([]);
+	});
+});
+
+describe("A tool step's environment also drops CLAUDE_CODE_SAFE_MODE", () => {
+	it("Scenario: The port and the provider spawn tool steps with it", async () => {
+		const saved = process.env.CLAUDE_CODE_SAFE_MODE;
+		process.env.CLAUDE_CODE_SAFE_MODE = "1";
+		try {
+			const envs: NodeJS.ProcessEnv[] = [];
+			const capturing: Runner = async (_args, _input, env) => {
+				envs.push(env);
+				return success;
+			};
+
+			const port = createClaudeCodeReasoningPort({ tools: fakeHost().host, bridge: fakeBridge().factory, runner: capturing });
+			await port.reason(request());
+			expect(envs[0]).not.toHaveProperty("CLAUDE_CODE_SAFE_MODE");
+
+			const models = createModels();
+			models.setProvider(claudeCodeProvider({ runner: () => capturing, bridge: fakeBridge().factory }));
+			const lookupTool = { name: "lookup", description: "Finds an order.", parameters: Type.Object({ id: Type.String() }) };
+			const message = await models.complete(models.getModel("claude-code", "claude-haiku-4-5")!, {
+				messages: [
+					{ role: "system", content: "Be kind.", sections: {}, toolsAdded: [lookupTool], timestamp: 0 } as Message,
+					{ role: "user", content: "Find order 7", timestamp: 0 },
+				],
+			});
+			expect(message.stopReason).toBe("stop");
+			expect(envs[1]).not.toHaveProperty("CLAUDE_CODE_SAFE_MODE");
+
+			await createClaudeCodeReasoningPort({ runner: capturing }).reason({ systemInstructions: "s", prompt: "p" });
+			expect(envs[2]!.CLAUDE_CODE_SAFE_MODE).toBe("1");
+		} finally {
+			if (saved === undefined) delete process.env.CLAUDE_CODE_SAFE_MODE;
+			else process.env.CLAUDE_CODE_SAFE_MODE = saved;
+		}
 	});
 });

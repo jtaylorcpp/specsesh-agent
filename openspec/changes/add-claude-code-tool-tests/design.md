@@ -37,3 +37,15 @@
   - **`CLAUDE_CODE_DISABLE_CLAUDE_MDS` is kept.** It only adds isolation.
   - **The live test.** It still strips every `CLAUDE_CODE_*` variable, so it measures the flags rather than the session it runs in.
   - **The spec.** This is an ADDED requirement; `claudeCodeEnv`'s own requirement is unchanged. It is exported from `./claude-code`, beside `claudeCodeEnv`.
+
+## Verified live
+
+2026-10-28, Claude Code 2.1.310, Haiku, on the subscription.
+
+- **`pnpm test:claude-code`:** 4 passed, about 30 s.
+  - **Isolation by tokens:** `--safe-mode` 619 input tokens, tool-step flags 620.
+  - **Isolation by a sentinel:** the positive control saw `PERIWINKLE-4417`; the tool step answered `NONE`.
+  - **The real bridged tool call** and **the durable run** both passed.
+- **The inherited `CLAUDE_CODE_SAFE_MODE`.**
+  - **Before the fix:** `CLAUDE_CODE_SAFE_MODE=1 agentscript-pi run examples/tools/tools.agent … --provider claude-code --json` ended `completed` with `toolCalls: []`.
+  - **After it:** the same run, and the same run through `agentscript-durable`, each recorded one `word_count` call, with outputs `{ count: 6 }` and `count = 6`.

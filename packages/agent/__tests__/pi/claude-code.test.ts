@@ -12,6 +12,7 @@ import {
 	claudeCodeEnv,
 	createClaudeCodeReasoningPort,
 	toClaudeCodeOutcome,
+	toolStepEnv,
 	type ProcessResult,
 	type Runner,
 } from "../../src/claude-code/claude-code.js";
@@ -122,6 +123,14 @@ describe("claudeCodeEnv", () => {
 			else process.env.ANTHROPIC_API_KEY = saved;
 		}
 		expect(calls[0]!.env.ANTHROPIC_API_KEY).toBeUndefined();
+	});
+});
+
+describe("A tool step's environment also drops CLAUDE_CODE_SAFE_MODE", () => {
+	it("Scenario: An inherited safe mode is dropped for a tool step", () => {
+		expect(
+			toolStepEnv({ PATH: "/bin", CLAUDE_CODE_SAFE_MODE: "1", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", CLAUDECODE: "1" }),
+		).toEqual({ PATH: "/bin", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1" });
 	});
 });
 

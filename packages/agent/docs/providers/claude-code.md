@@ -38,6 +38,8 @@ In place of `--safe-mode`, a tool step passes:
 
 The rest of the argv is unchanged, `--tools ""` included, so Claude Code's built-in tools stay off. A step that offers no tools keeps the `--safe-mode` argv exactly. `--bare` is never passed.
 
+Tool steps and provider sessions also drop an inherited `CLAUDE_CODE_SAFE_MODE` (set under a `claude --safe-mode` session) from the child's environment, because it would turn off the `--mcp-config` bridge; steps without tools keep it.
+
 Why, measured on Claude Code 2.1.310:
 
 - `--safe-mode` turns off every MCP server, including the ones `--mcp-config` names, so the step's own server would vanish.

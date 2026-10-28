@@ -9,7 +9,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { claudeArgs, claudeCodeEnv, type ClaudeInvocation, type ProcessResult, type Runner } from "./claude-code.js";
+import { claudeArgs, toolStepEnv, type ClaudeInvocation, type ProcessResult, type Runner } from "./claude-code.js";
 import type { BridgeHandler, BridgeReply, BridgeTool, ToolBridge, ToolBridgeFactory } from "./tool-bridge.js";
 
 /** A call Claude Code made through the bridge, handed out to pi under `id`. */
@@ -102,7 +102,7 @@ export class ProviderSession {
 			tools: { mcpConfig: running.mcpConfig, allowedTools: running.allowedTools },
 		});
 		this.#ended = options
-			.runnerFor(this.controller.signal)(args, options.prompt, claudeCodeEnv(process.env))
+			.runnerFor(this.controller.signal)(args, options.prompt, toolStepEnv(process.env))
 			.catch((error: unknown): ProcessResult => ({
 				code: null,
 				stdout: "",

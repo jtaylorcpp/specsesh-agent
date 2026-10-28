@@ -181,6 +181,16 @@ export function claudeCodeEnv(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	return env;
 }
 
+/**
+ * A tool step's environment: `claudeCodeEnv`, minus `CLAUDE_CODE_SAFE_MODE`. An inherited
+ * `claude --safe-mode` session sets it, and it turns off `--mcp-config` servers.
+ */
+export function toolStepEnv(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	const env = claudeCodeEnv(parent);
+	delete env.CLAUDE_CODE_SAFE_MODE;
+	return env;
+}
+
 export function createClaudeCodeReasoningPort(options: ClaudeCodeReasoningPortOptions = {}): ReasoningPort {
 	if (options.tools !== undefined && options.bridge === undefined) {
 		throw new TypeError("tools need a bridge: pass bridge: mcpBridge() from @specsesh/agent/node");
@@ -288,7 +298,7 @@ async function runToolStep(
 			mcpConfig: running.mcpConfig,
 			allowedTools: running.allowedTools,
 		});
-		const processResult = await runner(args, request.prompt, claudeCodeEnv(process.env));
+		const processResult = await runner(args, request.prompt, toolStepEnv(process.env));
 		const outcome = toClaudeCodeOutcome(processResult, request.outputSchema !== undefined);
 		if (outcome.parsed !== undefined) options.onResult?.(outcome.parsed);
 		return outcome.step.kind === "answered" ? { ...outcome.step, toolCalls: [...toolCalls] } : outcome.step;
