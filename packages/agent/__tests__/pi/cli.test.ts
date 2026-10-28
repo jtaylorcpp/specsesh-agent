@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { closedPortUrl, startFakeOllama, type FakeOllama } from "./fake-ollama.js";
@@ -83,12 +84,46 @@ afterEach(async () => {
 	ollama = undefined;
 });
 
-/** A `claude` stand-in: records argv, then prints a `claude -p --output-format json` result. */
+/** The SDK client modules, by absolute path: the fake `claude` runs from a temp dir. */
+const requireFromTest = createRequire(import.meta.url);
+const SDK_CLIENT = requireFromTest.resolve("@modelcontextprotocol/sdk/client/index.js");
+const SDK_HTTP = requireFromTest.resolve("@modelcontextprotocol/sdk/client/streamableHttp.js");
+
+/**
+ * A `claude` stand-in: records argv, then prints a `claude -p --output-format json` result.
+ * Given `--mcp-config`, it first calls the first allowed tool over MCP and answers with its text.
+ */
 const FAKE_CLAUDE = (log: string) => `#!${process.execPath}
 const fs = require("node:fs");
-fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)) + "\\n");
+const argv = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(argv) + "\\n");
+async function callFirstTool() {
+	const config = JSON.parse(fs.readFileSync(argv[argv.indexOf("--mcp-config") + 1], "utf8"));
+	const { url, headers } = config.mcpServers.agentscript;
+	const name = argv[argv.indexOf("--allowedTools") + 1].split(",")[0].replace(/^mcp__agentscript__/, "");
+	const { Client } = require(${JSON.stringify(SDK_CLIENT)});
+	const { StreamableHTTPClientTransport } = require(${JSON.stringify(SDK_HTTP)});
+	const client = new Client({ name: "fake-claude", version: "0.0.0" });
+	await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } }));
+	try {
+		const result = await client.callTool({ name, arguments: { text: "bridged-hello" } });
+		return result.content.map((c) => c.text).join("");
+	} finally {
+		await client.close();
+	}
+}
 process.stdin.resume();
-process.stdin.on("end", () => {
+process.stdin.on("end", async () => {
+	if (argv.includes("--mcp-config")) {
+		const text = await callFirstTool();
+		console.log(JSON.stringify({
+			type: "result", subtype: "success", is_error: false, num_turns: 2,
+			result: text,
+			usage: { input_tokens: 10, output_tokens: 5 },
+			total_cost_usd: 0.001,
+		}));
+		return;
+	}
 	if (process.env.FAKE_CLAUDE_MODE === "error") {
 		console.log(JSON.stringify({ type: "result", subtype: "success", is_error: true, api_error_status: 429, result: "rate limited" }));
 		return;
@@ -279,6 +314,18 @@ describe("claude-code runs steps through the claude binary instead of pi", () =>
 		const call = argvCalls().at(-1)!;
 		expect(flag(call, "--model")).toBe("sonnet");
 		expect(call).toContain("--safe-mode");
+	});
+
+	it("Scenario: A claude-code run calls a --tools tool through the bridge", async () => {
+		const { script } = scriptAndWorkspace("claude-offer-echo", OFFER_ECHO);
+		const r = await cli(["run", script, "--provider", "claude-code", "--tools", join(TOOLS, "echo.mjs")], {}, true);
+		expect(r.stderr).toBe("");
+		expect(r.code).toBe(0);
+		expect(r.stdout).toContain("bridged-hello");
+		const call = argvCalls().at(-1)!;
+		expect(call).not.toContain("--safe-mode");
+		expect(call).toContain("--mcp-config");
+		expect(flag(call, "--allowedTools")).toBe("mcp__agentscript__say");
 	});
 
 	it("Scenario: A script runs on a pulled ollama model", async () => {

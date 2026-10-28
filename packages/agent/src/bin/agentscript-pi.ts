@@ -33,6 +33,7 @@ import type { ReasoningPort } from "../interpreter/index.js";
 import { ActionBindingError, checkBindings } from "../durable/actions.js";
 import { registryHost, type RegistryHost } from "../durable/tool-host.js";
 import { loadActions, reportSkipped } from "./tools.js";
+import { mcpBridge } from "../node/mcp-bridge.js";
 import type { AssistantMessage, MutableModels } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { CLAUDE_CODE_PROVIDER, createClaudeCodeReasoningPort } from "../claude-code/index.js";
@@ -46,8 +47,7 @@ const USAGE = `usage:
                             [--var name=value]... [--max-tokens <n>] [--json]
                             [--tools <module>]... [--mcp <file>]... [--workspace <dir>]
   agentscript-pi models [provider]
-providers: any pi provider, claude-code, or ollama (at OLLAMA_HOST, default http://localhost:11434)
-tools: under --provider claude-code, a step that offers tools fails invalid_request`;
+providers: any pi provider, claude-code, or ollama (at OLLAMA_HOST, default http://localhost:11434)`;
 
 /** Register the local Ollama server's pulled models; report an unreachable one on stderr. */
 async function ensureOllama(models: MutableModels): Promise<boolean> {
@@ -154,6 +154,7 @@ async function runScript(source: string, values: RunValues, hosts: RegistryHost 
 	if (provider === CLAUDE_CODE_PROVIDER) {
 		port = createClaudeCodeReasoningPort({
 			model: modelId,
+			...(hosts !== undefined ? { tools: hosts.toolHost, bridge: mcpBridge() } : {}),
 			onResult: (r) => {
 				usage.in += r.usage?.input_tokens ?? 0;
 				usage.out += r.usage?.output_tokens ?? 0;

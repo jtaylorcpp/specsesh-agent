@@ -179,13 +179,20 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
   with `ANTHROPIC_API_KEY` stripped so the subscription login is used. **Never** read or forward
   Claude Code's OAuth token to pi or any other client: that is against Anthropic's terms (coopcli
   withdrew exactly that in `simplify-specsketch-workbench`), and a test pins its absence.
-  `--safe-mode` is required: without it your global CLAUDE.md leaks into every step. Never `--bare`
-  (it forces API-key auth). Each step runs in a fresh empty directory under `os.tmpdir()`, removed
+  `--safe-mode` on every step that offers no tools: without it your global CLAUDE.md leaks into
+  every step. A tool step passes the measured replacement (`--setting-sources "" --disable-slash-commands
+  --strict-mcp-config`) instead, because `--safe-mode` also turns off the step's MCP server
+  (`add-claude-code-tools`, design decision 1). Never `--bare` (it forces API-key auth), and
+  `ANTHROPIC_API_KEY` is still stripped on tool steps. Each step runs in a fresh empty directory under `os.tmpdir()`, removed
   after (or in the port's or provider's `cwd` option), and the system prompt ends with a fixed
   no-workspace note, because Claude Code's environment block (working directory, git status,
   platform) can't be turned off. First live run: 2026-10-10, triage example, Haiku 4.5, completed.
-  (This is the reasoning port, which offers no tools; a delegate's `claudeCodeRunner` is different,
-  see Hard lines.)
+  Tools and MCP work on one-shot runs (`agent run --tools`/`--mcp`): the port, given `tools` and
+  `bridge: mcpBridge()` (`src/node/mcp-bridge.ts`), serves the step's offers to `claude` as one
+  loopback MCP server, `agentscript`, plus `--mcp-config`, `--allowedTools mcp__agentscript__…` and
+  `--permission-mode dontAsk`; Claude Code calls them, possibly in parallel, and each runs on our
+  host. Not on durable runs yet (`add-durable-claude-code-tools`). Claude Code's built-in tools stay
+  off (`--tools ""`); a delegate's `claudeCodeRunner` is different, see Hard lines.
 
 - **Step machine** (`start` / `next` / `apply` in `run.ts`): the run's state is plain JSON (`RunState`),
   `next` is pure, and `run()` is a loop over the three. A failed step rolls back only its own logic

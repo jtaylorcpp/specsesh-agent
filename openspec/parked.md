@@ -52,7 +52,11 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 
 ## Run streaming (from add-run-streaming)
 
-- **claude-code deltas through `--output-format stream-json`.** The claude-code port ignores `reason`'s stream argument, so a streamed run on it gets step and action events only. Reading `claude -p --output-format stream-json` would let it map text and thinking deltas to `onDelta`. Deferred from add-run-streaming, whose scope was the pi port. Source: the change's proposal, Out of scope.
+- **claude-code deltas through `--output-format stream-json`.** The claude-code port uses `reason`'s stream argument only for a tool step's `tool_call` and `tool_result` (from add-claude-code-tools), so a streamed run on it gets no text or thinking deltas. Reading `claude -p --output-format stream-json` would let it map text and thinking deltas to `onDelta`. Deferred from add-run-streaming, whose scope was the pi port. Source: the change's proposal, Out of scope.
+
+## Claude Code tools (from add-claude-code-tools)
+
+- **Back to `--safe-mode` on tool steps.** `--safe-mode` turns off every MCP server, `--mcp-config` included (Claude Code 2.1.310), so a tool step passes `--setting-sources "" --disable-slash-commands --strict-mcp-config` instead. That replacement is an observed equivalence (the same 642-token context), not a documented one. If a later Claude Code keeps `--mcp-config` servers under `--safe-mode`, tool steps should go back to it. Watch Claude Code's release notes, and re-run the change's probes (design, Probes) on each new version. Source: the change's design, Risks.
 
 ## Durable streaming (from add-durable-streaming)
 

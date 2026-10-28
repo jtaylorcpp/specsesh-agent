@@ -27,7 +27,7 @@ The loops are Agent Script (`.agent`) files. These commands show the bundled one
 None of the commands stream: `agentscript-pi`, `-durable`, `-task` and `-change` print what they always printed. From code, `streamRun(source, options)` from `@specsesh/agent/interpreter` yields a run's events for `for await`, with a `result` promise; `run(source, { ..., onEvent })` is the callback form.
 
 - **Events** (`RunEvent`): `step_start`, `step_end` (with the outcome), `text_delta`, `thinking_delta`, `tool_call`, `tool_result`, `action_start`, `action_end` and `run_end` (with the result). Each but `run_end` names its `step` and `subagent`.
-- **The pi port** streams text and thinking deltas and reports each tool-loop call and result. **The claude-code port** gives step and action events only, no deltas.
+- **The pi port** streams text and thinking deltas and reports each tool-loop call and result. **The claude-code port** gives step and action events, and `tool_call`/`tool_result` on a tool step, but no deltas.
 - Partial structured results (`toolcall_delta` fragments of `submit_result`) are not forwarded.
 
 ## Tools (`--tools`)
@@ -45,7 +45,9 @@ specsesh agent run tools.agent --entry echo_it --entry count_it --tools ./tools.
 - Without `--tools` nothing changes: a script with no actions runs as before, and one with actions fails as it always did.
 - The workspace built-ins (`read_file`, `edit_file`, `run_command`) are not registered by the CLI. A module can add them itself: `import { builtinActions } from "@specsesh/agent/node"; export default ({ workspace }) => builtinActions({ workspace });`.
 - From code, `registryHost(registry, { workspace, signal? })` from `@specsesh/agent/durable` turns a registry (`createActionRegistry(actions)`) into `{ actionHost, toolHost }`: pass `actionHost` to `run()` and `toolHost` as the pi port's `tools`.
-- `--provider claude-code` runs `run @actions.x` statements, but a step that offers tools (`reasoning.actions`) still fails `invalid_request` on it. Use a pi provider for those steps.
+- **`--provider claude-code` with `--tools` or `--mcp`** offers a step's tools (`reasoning.actions`) to Claude Code through a local MCP bridge, `mcpBridge()` from `@specsesh/agent/node`. Claude Code calls them itself, in its own loop, possibly in parallel (the pi loop runs one at a time). Each call is still checked against its offer's schema, bound inputs win, and it runs on this host; `toolCalls` are in arrival order. A tool step defaults `--max-turns` to 16; reaching it ends the step `cut-short`.
+- From code, `createClaudeCodeReasoningPort({ model, tools, bridge: mcpBridge() })`; `tools` without `bridge` throws a `TypeError`. `@specsesh/agent/claude-code` exports the bridge types (`BridgeTool`, `BridgeReply`, `BridgeHandler`, `ToolBridge`, `ToolBridgeFactory`) and `BRIDGE_SERVER` (`"agentscript"`).
+- **Not durable yet.** `specsesh durable` on claude-code still fails a step that offers tools with `invalid_request`, pointing to the durable host. `run @actions.x` statements work there.
 
 ## MCP servers (`--mcp`)
 

@@ -80,3 +80,16 @@ Transport: a Streamable HTTP server on `127.0.0.1` (the fixture's `startHttp`), 
 - **The isolation flags are an observed equivalence, not a documented one.** A later Claude Code could load something from a source these flags don't cover. Mitigations: tool steps only, the exact measurement recorded here, and the live check re-running it. A later Claude Code flag that keeps MCP under `--safe-mode` would let us go back to `--safe-mode` everywhere. Park that as something to watch.
 - **The bridge is a local HTTP port.** It binds loopback only, needs a per-bridge random token that never appears in argv, and lives only for one step.
 - **Parallel calls.** Claude Code may call tools concurrently. The host then sees concurrent calls, and records are in arrival order. The pi loop is sequential, so this is a difference worth noting in the docs.
+
+## Verified live
+
+2026-10-28, Claude Code 2.1.310, `--model haiku`, on the subscription (`ANTHROPIC_API_KEY` unset).
+
+```bash
+node packages/agent/dist/bin/agentscript-pi.js run packages/agent/examples/tools/tools.agent \
+  --entry echo_it --entry count_it --tools packages/agent/examples/tools/tools.mjs --provider claude-code --model haiku --json
+```
+
+- **The tools example:** exit `0`, `completed`. Claude Code called `word_count` natively through the bridge. The step's `toolCalls` was `[{ name: "word_count", inputs: { text: "Agent Script runs your own tools" }, ok: true, outputs: { count: 6 } }]`, and `count = 6`. No `agentscript-bridge-*` directory was left in the temp directory.
+- **The isolation probe, re-run through a real tool step** (a one-step script offering `word_count`, asking for the first sentence of any CLAUDE.md or user instructions): it answered `NONE`. The only tool it listed was `mcp__agentscript__word_count`.
+- **Account metadata:** the model reported an email address in its context. A `--safe-mode` step reports the same, so this is Claude Code's baseline, not something the tool flags add.
