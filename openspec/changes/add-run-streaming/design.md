@@ -36,7 +36,16 @@
 
 - **Providers whose streamed and completed outputs differ.** pi builds `complete()` from the stream for every API, so the final message is the same object shape. The equality test pins it on faux.
 - **Unbounded buffering.** A consumer that never reads holds every event of one run in memory. That is bounded by one run's output, and the docs say so.
+- **Text deltas, live (a follow-up check).** On the same day and model, a one-step text-only script (`Say hello in one short sentence.`) ran through `streamRun`. It emitted `step_start`, 201 `thinking_delta`, 2 `text_delta`, `step_end` and `run_end`. The text deltas joined to `Hello!`, equal to the outcome's text, and the run `completed`.
 
 ## Decisions made during the build
 
 - **A failed `tool_result` keeps the recorded outputs.** Group 2 first emitted `outputs: { error: <message> }` for a failed call, which disagreed with the call's record (`outputs: {}`), and `add-durable-streaming` builds `tool_result` from those records. The recommended path was to make the event match the record exactly. `outputs` is now always as recorded, and a failed call carries the reason in an optional `message` field (`StreamDelta`, `RunEvent`).
+
+## Verified live
+
+- **When and on what.** 2026-10-28, Ollama `qwen3.5:latest` at the default `http://localhost:11434`. A throwaway script (`/tmp/stream-triage.mjs`, not committed) built a pi port with `registerOllama` and `createPiReasoningPort` from the built `dist/`, and ran `packages/agent/examples/triage.agent` once through `streamRun`, with no tools.
+- **Events.** `step_start` 1, `thinking_delta` 354, `step_end` 1, `run_end` 1, in that order (every delta came between the step's boundaries), with `step` `0` and `subagent` `triage`. No `text_delta`, `tool_call` or `tool_result`.
+- **Deltas against the step's text.** Triage is a structured step: the model answers through `submit_result`, so the outcome's `text` is `""` and there were no text deltas. They match, but only trivially; this run doesn't exercise "Deltas concatenate to the step's text" with real text. The 354 thinking deltas (1675 characters) are the model's reasoning, which `qwen3.5` emits by default.
+- **Result.** `kind` `completed`; `severity` `medium` and a one-sentence `summary` from the structured outcome, as an unstreamed run gives. `for await` saw every event and then `await stream.result` resolved, confirming "for await sees every event, then the result" on a real provider.
+- **Unexpected.** Nothing failed. The `submit_result` arguments stream as `toolcall_delta`, which are not forwarded (by design), so a structured-only script shows no text at all while it runs; only thinking deltas give live progress.

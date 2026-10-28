@@ -9,6 +9,6 @@
 
 ## 3. Docs
 
-- [ ] 3.1 `packages/agent/README.md`: a `streamRun` example printing text deltas, next to `## Run it once`'s library example. `docs/llm/agent.md`: streaming is library-only, and the CLIs don't stream. `openspec/parked.md`: claude-code `stream-json` deltas. `CLAUDE.md`'s `./interpreter` bullet names `streamRun`. Run `pnpm docs:check`, `pnpm check`, `pnpm test`, and stream the triage example once live on Ollama (`qwen3.5:latest`) from a scratch script, recording the result in `design.md` under "Verified live"
+- [x] 3.1 `packages/agent/README.md`: a `streamRun` example printing text deltas, next to `## Run it once`'s library example. `docs/llm/agent.md`: streaming is library-only, and the CLIs don't stream. `openspec/parked.md`: claude-code `stream-json` deltas. `CLAUDE.md`'s `./interpreter` bullet names `streamRun`. Run `pnpm docs:check`, `pnpm check`, `pnpm test`, and stream the triage example once live on Ollama (`qwen3.5:latest`) from a scratch script, recording the result in `design.md` under "Verified live"
 
 The change ends with `pnpm change close add-run-streaming`.

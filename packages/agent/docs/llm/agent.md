@@ -22,6 +22,14 @@ The loops are Agent Script (`.agent`) files. These commands show the bundled one
 - `--entry <subagent>` (repeatable) picks where it starts. `--var name=value` (repeatable) seeds a variable: `True` and `False` become booleans and numbers numbers.
 - `--json` prints the result as JSON. `specsesh agent models [provider]` lists a provider's models.
 
+## Streaming (library only)
+
+None of the commands stream: `agentscript-pi`, `-durable`, `-task` and `-change` print what they always printed. From code, `streamRun(source, options)` from `@specsesh/agent/interpreter` yields a run's events for `for await`, with a `result` promise; `run(source, { ..., onEvent })` is the callback form.
+
+- **Events** (`RunEvent`): `step_start`, `step_end` (with the outcome), `text_delta`, `thinking_delta`, `tool_call`, `tool_result`, `action_start`, `action_end` and `run_end` (with the result). Each but `run_end` names its `step` and `subagent`.
+- **The pi port** streams text and thinking deltas and reports each tool-loop call and result. **The claude-code port** gives step and action events only, no deltas.
+- Partial structured results (`toolcall_delta` fragments of `submit_result`) are not forwarded.
+
 ## Tools (`--tools`)
 
 A script's actions (`run @actions.x`, and tools offered under `reasoning.actions`) call tools you write in a JavaScript module:

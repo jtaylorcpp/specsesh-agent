@@ -167,7 +167,7 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
 - `./authoring` — parse, mutate with undo/redo, lint, over `@sf-agentscript/*`. Was used by
   specsketch's settings tab as a prompt editor.
 - `./interpreter` — subset scan, prompt composition, logic lines, structured state, three step
-  outcomes. Core tests drive a recording port; pi tests drive pi's faux provider.
+  outcomes; `run`, and `streamRun` (or `run`'s `onEvent`) for its `RunEvent`s. Core tests drive a recording port; pi tests drive pi's faux provider.
 - `./pi` — without `tools`, one `reason()` = one pi `complete()`. Structured steps offer a single
   `submit_result` tool and force it per wire API (`forceTool`). Failure categories come only from
   `stopReason` and the HTTP status, never from message text. It loops only when given `tools` (a

@@ -150,6 +150,28 @@ Swap in `claudeCodeProvider()` from `@specsesh/agent/claude-code` (model provide
 `claude-code`) to run each step through `claude -p` on your subscription. It never uses
 `--bare`, strips `ANTHROPIC_API_KEY`, and never reads Claude Code's OAuth token.
 
+**Streamed.** `streamRun` takes the same arguments as `run` and yields the run's events as they
+happen: step boundaries, text and thinking deltas, tool calls and results, `run` actions, then
+`run_end`.
+
+```ts
+import { streamRun } from "@specsesh/agent/interpreter";
+
+const stream = streamRun(readFileSync("hello.agent", "utf8"), {
+  port,
+  entry: ["greet", "decide", "sign_off"],
+  variables: { name: "Ada" },
+});
+for await (const e of stream) {
+  if (e.type === "text_delta") process.stdout.write(e.delta);
+}
+const result = await stream.result;   // equal to what run() resolves
+```
+
+Events are buffered, so a slow reader loses none, and a stream nobody reads keeps one run's events
+in memory. A stream can be iterated only once. `run(source, { ..., onEvent })` is the callback
+form. The claude-code port reports step and action events only, no deltas.
+
 **With your own tools.** Give the port a tool host, and a step with `reasoning.actions` loops:
 each tool the model calls runs on the host, and its result goes back to the model.
 

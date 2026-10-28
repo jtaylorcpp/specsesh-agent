@@ -50,6 +50,10 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 
 - **An offer named `submit_result` shadows the result tool.** On a structured step, a pi port given a tool host offers `submit_result` beside the step's tool offers. The scan doesn't forbid a reasoning action named `submit_result`, so the two would collide. The scan or `composeToolOffers` could reject the name. Source: the change's design, Risks.
 
+## Run streaming (from add-run-streaming)
+
+- **claude-code deltas through `--output-format stream-json`.** The claude-code port ignores `reason`'s stream argument, so a streamed run on it gets step and action events only. Reading `claude -p --output-format stream-json` would let it map text and thinking deltas to `onDelta`. Deferred from add-run-streaming, whose scope was the pi port. Source: the change's proposal, Out of scope.
+
 ## Task loop (from add-task-agent)
 
 - **A crash between ticking and the judge's commit reports `ticked: false`.** The judge phase writes tasks.md, then commits the outcome. If the process dies in between, the re-run judge finds the line already ticked and reports `ticked: false` with "already ticked", though this loop ticked it. Recording the tick's intent in the checkpoint first would close it.
