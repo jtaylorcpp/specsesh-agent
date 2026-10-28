@@ -199,7 +199,7 @@ async function runToolLoop(
 				context.messages.push(toolResult(call, `no tool named "${call.name}" is offered on this step`, true));
 				continue;
 			}
-			const problems = checkArguments(offer.inputSchema, call.arguments);
+			const problems = checkToolArguments(offer.inputSchema, call.arguments);
 			if (problems.length > 0) {
 				// Never reaches the host: the model is told what was wrong and can call again.
 				const message = problems.join("; ");
@@ -266,7 +266,7 @@ async function runToolLoop(
  * which `composeToolOffers` always builds as a closed object of scalar
  * properties: a missing required key, an extra key, or a mismatched JSON type.
  */
-function checkArguments(schema: Readonly<Record<string, unknown>>, args: Record<string, unknown>): string[] {
+export function checkToolArguments(schema: Readonly<Record<string, unknown>>, args: Record<string, unknown>): string[] {
 	const properties = (schema.properties ?? {}) as Record<string, { type?: unknown }>;
 	const required = (schema.required ?? []) as readonly string[];
 	const problems: string[] = [];

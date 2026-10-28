@@ -11,12 +11,21 @@
  *
  *   --safe-mode               no CLAUDE.md, skills, plugins, hooks or MCP. Without it
  *                             your global CLAUDE.md leaks into every step (measured:
- *                             ~9.3k tokens of LifeOS context vs ~500 with it).
- *   --tools ""                no tools; the step is reasoning only
+ *                             ~9.3k tokens of LifeOS context vs ~500 with it). On every
+ *                             step that offers no tools; a tool step replaces it (below).
+ *   --tools ""                no built-in tools
  *   --system-prompt           the document's system block, as its own channel, then
  *                             the no-workspace note (below)
  *   --json-schema             when the step writes variables
  *   --no-session-persistence  the port is stateless
+ *
+ * --safe-mode also turns off the servers --mcp-config names (measured on Claude Code
+ * 2.1.310), so a step that offers tools passes, in its place, the flags measured to
+ * give the same context: --setting-sources "" --disable-slash-commands
+ * --strict-mcp-config, then --mcp-config <the bridge's file>, --allowedTools with the
+ * bridge's tools comma-joined (the flag is variadic and would swallow the next one),
+ * and --permission-mode dontAsk. The bridge's token stays in its 0600 config file and
+ * never appears in argv. --bare is never passed: it forces API-key auth.
  *
  * ANTHROPIC_API_KEY is removed from the child's environment, so Claude Code uses
  * the subscription login rather than silently billing an API key; CLAUDECODE is
@@ -84,12 +93,17 @@ export interface ClaudeCodeResult {
 	readonly usage?: { readonly input_tokens?: number; readonly output_tokens?: number };
 }
 
-export function claudeCodeArgs(request: ReasoningRequest, options: ClaudeCodeReasoningPortOptions): string[] {
+export function claudeCodeArgs(
+	request: ReasoningRequest,
+	options: ClaudeCodeReasoningPortOptions,
+	tools?: ClaudeInvocation["tools"],
+): string[] {
 	return claudeArgs({
 		system: request.systemInstructions,
 		model: options.model ?? "claude-haiku-4-5",
 		...(request.outputSchema !== undefined ? { schema: request.outputSchema } : {}),
 		...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
+		...(tools !== undefined ? { tools } : {}),
 	});
 }
 
@@ -99,6 +113,8 @@ export interface ClaudeInvocation {
 	readonly model: string;
 	readonly schema?: Record<string, unknown>;
 	readonly maxTurns?: number;
+	/** A tool step: the bridge's config file and the tools it allows. */
+	readonly tools?: { readonly mcpConfig: string; readonly allowedTools: readonly string[] };
 }
 
 /** Appended to every system prompt: Claude Code's environment block can't be turned off. */
@@ -106,9 +122,25 @@ const NO_WORKSPACE_NOTE =
 	"This step has no workspace. The environment details you may see (working directory, whether it is a git repository, platform) describe the process running this step, not the project the step is about; ignore them.";
 
 export function claudeArgs(invocation: ClaudeInvocation): string[] {
+	const { tools } = invocation;
+	const isolation =
+		tools === undefined
+			? ["--safe-mode"]
+			: [
+					"--setting-sources",
+					"",
+					"--disable-slash-commands",
+					"--strict-mcp-config",
+					"--mcp-config",
+					tools.mcpConfig,
+					"--allowedTools",
+					tools.allowedTools.join(","),
+					"--permission-mode",
+					"dontAsk",
+				];
 	const args = [
 		"-p",
-		"--safe-mode",
+		...isolation,
 		"--model",
 		invocation.model,
 		"--tools",

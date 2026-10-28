@@ -20,3 +20,11 @@ export {
 	toolsOf,
 	type ClaudeCodeProviderOptions,
 } from "./claude-code-provider.js";
+export {
+	BRIDGE_SERVER,
+	type BridgeHandler,
+	type BridgeReply,
+	type BridgeTool,
+	type ToolBridge,
+	type ToolBridgeFactory,
+} from "./tool-bridge.js";

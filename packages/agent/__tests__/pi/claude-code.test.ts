@@ -210,6 +210,56 @@ describe("Each turn is one headless claude -p invocation with a fixed argv", () 
 	});
 });
 
+const TOOLS = { mcpConfig: "/x/mcp.json", allowedTools: ["mcp__agentscript__a", "mcp__agentscript__b"] };
+
+describe("--bare is never passed and --safe-mode always is", () => {
+	it("Scenario: Never bare", () => {
+		for (const args of [
+			claudeArgs({ system: "s", model: "m" }),
+			claudeArgs({ system: "s", model: "m", schema: { type: "object" }, maxTurns: 1 }),
+		]) {
+			expect(args).not.toContain("--bare");
+			expect(args).toContain("--safe-mode");
+		}
+	});
+
+	it("Scenario: A tool step is isolated without safe mode", () => {
+		const args = claudeArgs({ system: "s", model: "m", schema: { type: "object" }, tools: TOOLS });
+		expect(args).not.toContain("--bare");
+		expect(args).not.toContain("--safe-mode");
+		expect(flag(args, "--setting-sources")).toBe("");
+		expect(args).toContain("--disable-slash-commands");
+		expect(args).toContain("--strict-mcp-config");
+	});
+});
+
+describe("A tool step names one MCP server and allows only its tools", () => {
+	it("Scenario: The tool flags replace safe mode in place", () => {
+		const noTools = claudeArgs({ system: "s", model: "m" });
+		expect(claudeArgs({ system: "s", model: "m", tools: TOOLS })).toEqual([
+			"-p",
+			"--setting-sources",
+			"",
+			"--disable-slash-commands",
+			"--strict-mcp-config",
+			"--mcp-config",
+			"/x/mcp.json",
+			"--allowedTools",
+			"mcp__agentscript__a,mcp__agentscript__b",
+			"--permission-mode",
+			"dontAsk",
+			...noTools.slice(2),
+		]);
+	});
+});
+
+describe("The bridge types are exported from the claude-code entry", () => {
+	it("Scenario: The bridge server name is agentscript", async () => {
+		const entry = await import("../../src/claude-code/index.js");
+		expect(entry.BRIDGE_SERVER).toBe("agentscript");
+	});
+});
+
 describe("The system prompt ends with the no-workspace note", () => {
 	it("Scenario: The note follows the system text", () => {
 		expect(flag(claudeArgs({ system: "s", model: "m" }), "--system-prompt")).toBe(`s\n\n${NOTE}`);
