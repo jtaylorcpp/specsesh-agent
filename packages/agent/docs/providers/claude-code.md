@@ -24,6 +24,14 @@ On Node, wherever `claude` is installed and logged in: `specsesh agent`, `durabl
 
 Each step runs in a fresh empty directory under the system temp directory, removed after, and its system prompt ends with a note that Claude Code's environment block (working directory, git status, platform) describes the process, not the project.
 
+### From code
+
+`createClaudeCodeReasoningPort(options)` from `@specsesh/agent/claude-code` takes:
+
+- `model`, `binary`, `maxTurns`, `timeoutMs` (default 300000), `cwd`, `runner`, `onResult`;
+- `tools` and `bridge` (see [Tool steps](#tool-steps));
+- `signal?: AbortSignal`, as on the pi port. It is port-wide: there is no per-step signal, and once it aborts every step fails `unrecognised` with "the claude-code step was aborted". Already aborted, nothing is spawned and no bridge is started. Aborted mid-step, `claude` gets `SIGTERM` and the step fails without waiting for it to exit. A custom `runner` gets no signal and isn't killed, but the step still fails at once.
+
 ### Tool steps
 
 `specsesh agent run --provider claude-code --tools <module>` (or `--mcp <file>`) serves a step's offered tools to Claude Code as one MCP server, `agentscript`, and Claude Code calls them in its own loop, possibly in parallel. Each call is checked against its offer's schema, bound inputs win, and it runs on this host. A tool step defaults `--max-turns` to 16; reaching it ends the step `cut-short`.
@@ -50,6 +58,8 @@ Why, measured on Claude Code 2.1.310:
 - `--permission-mode dontAsk` means no permission prompts: a tool outside `--allowedTools` is denied.
 
 The bridge (`mcpBridge()` from `@specsesh/agent/node`) is Streamable HTTP on `127.0.0.1`, port 0, with a random bearer token per bridge. A request without the token gets `401`. The config naming the URL and the header is written to a mode-`0600` file in a private `mkdtemp` directory, so the token never appears in argv or `ps`. The bridge lives for one step and is closed on every path.
+
+On abort, the bridge is closed before `reason` resolves, and any later tool call is answered as an error ("the claude-code step was aborted") without reaching the host. A host call already in flight is not cancelled.
 
 An offered tool's name must match `^[A-Za-z0-9_-]{1,48}$`, so `mcp__agentscript__<name>` stays within 64 characters; otherwise the step fails `invalid_request` before anything is spawned.
 

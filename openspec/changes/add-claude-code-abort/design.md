@@ -20,3 +20,7 @@
 - **Text steps:** a fake `claude` script that writes its pid to a file and sleeps 30 s, through the real `spawnRunner` (`binary` option). With `signal` aborted 100 ms in, `reason` resolves failed within 2 s and the pid is gone (`process.kill(pid, 0)` throws).
 - **Tool steps:** the fake bridge from `claude-code-tools.test.ts`, plus a runner that never resolves and keeps the handler. The tests assert that, after an abort, `reason` resolves failed, `close` has run, and a handler call answers not-ok without reaching the host.
 - **Already aborted:** no runner call and no bridge start.
+
+## Decisions made during the build
+
+- **An abort during `mkdtemp`.** `spawnRunner` awaits `mkdtemp` before it spawns. A signal aborted in that gap would spawn a `claude` that the `abort` listener never kills, because a listener added to an aborted signal never fires, while `reason` has already resolved. `spawnIn` now kills the child at once when the signal is already aborted at spawn. Found in review. No test exercises this gap, which is a few milliseconds wide and hard to time; the pre-abort and mid-step scenarios still pass with the guard.

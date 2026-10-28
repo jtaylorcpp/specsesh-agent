@@ -37,6 +37,14 @@
  * prompt ends with a note saying those details describe the process, not the
  * project the step is about.
  *
+ * `signal` is port-wide, like the pi port's. Already aborted, a step fails at once
+ * with `toFailureCategory("aborted")` (`unrecognised`) and "the claude-code step was
+ * aborted": nothing is spawned and no bridge is started. Aborted mid-step, `claude`
+ * gets SIGTERM, a tool step's bridge is closed before `reason` resolves, and `reason`
+ * doesn't wait for the process to exit. A custom `runner` gets no signal and keeps
+ * running, but `reason` still resolves and the bridge still closes. After an abort
+ * the bridge answers every call not-ok without reaching the host.
+ *
  * Claude Code owns its own turn loop and bound, so unlike the pi port this one
  * CAN report `cut-short` — when Claude Code says it stopped at max turns.
  */
@@ -94,6 +102,40 @@ export interface ClaudeCodeReasoningPortOptions {
 	readonly tools?: PiToolHost;
 	/** Serves a step's offers to `claude` as one MCP server. Required with `tools`. */
 	readonly bridge?: ToolBridgeFactory;
+	/**
+	 * Stops the port's steps, as on the pi port: it is port-wide, so once aborted every
+	 * step fails as aborted. It kills the spawned `claude`; a custom `runner` gets no
+	 * signal and keeps running, but `reason` still resolves and the bridge is closed.
+	 */
+	readonly signal?: AbortSignal;
+}
+
+const ABORT_MESSAGE = "the claude-code step was aborted";
+
+function abortedOutcome(): StepOutcome {
+	return { kind: "failed", category: toFailureCategory("aborted"), message: ABORT_MESSAGE };
+}
+
+const ABORTED = Symbol("aborted");
+
+/**
+ * The runner's result, or `ABORTED` as soon as the signal fires. The runner's promise is
+ * left to settle by itself, and the listener is removed either way.
+ */
+async function raceAbort(running: Promise<ProcessResult>, signal: AbortSignal | undefined): Promise<ProcessResult | typeof ABORTED> {
+	if (signal === undefined) return running;
+	running.catch(() => {});
+	let onAbort: (() => void) | undefined;
+	const aborted = new Promise<typeof ABORTED>((resolve) => {
+		onAbort = () => resolve(ABORTED);
+		if (signal.aborted) resolve(ABORTED);
+		else signal.addEventListener("abort", onAbort, { once: true });
+	});
+	try {
+		return await Promise.race([running, aborted]);
+	} finally {
+		signal.removeEventListener("abort", onAbort!);
+	}
 }
 
 /** The fields of `claude -p --output-format json` this port reads. */
@@ -195,18 +237,23 @@ export function createClaudeCodeReasoningPort(options: ClaudeCodeReasoningPortOp
 	if (options.tools !== undefined && options.bridge === undefined) {
 		throw new TypeError("tools need a bridge: pass bridge: mcpBridge() from @specsesh/agent/node");
 	}
-	const runner = options.runner ?? spawnRunner(options.binary ?? "claude", options.timeoutMs ?? 300_000, undefined, options.cwd);
+	const runner = options.runner ?? spawnRunner(options.binary ?? "claude", options.timeoutMs ?? 300_000, options.signal, options.cwd);
 	return {
 		// `claude -p --output-format json` reports no text until the step ends; the stream
 		// only hears of tool calls, which the bridge sees as they happen.
 		async reason(request: ReasoningRequest, stream?: StreamSink): Promise<StepOutcome> {
+			if (options.signal?.aborted === true) return abortedOutcome();
 			if (request.tools !== undefined) {
 				if (options.tools === undefined || options.bridge === undefined) {
 					return { kind: "failed", category: "invalid_request", message: TOOLS_NEED_DURABLE_HOST };
 				}
 				return runToolStep(request, request.tools, options.tools, options.bridge, runner, options, stream);
 			}
-			const processResult = await runner(claudeCodeArgs(request, options), request.prompt, claudeCodeEnv(process.env));
+			const processResult = await raceAbort(
+				runner(claudeCodeArgs(request, options), request.prompt, claudeCodeEnv(process.env)),
+				options.signal,
+			);
+			if (processResult === ABORTED) return abortedOutcome();
 			const outcome = toClaudeCodeOutcome(processResult, request.outputSchema !== undefined);
 			if (outcome.parsed !== undefined) options.onResult?.(outcome.parsed);
 			return outcome.step;
@@ -243,7 +290,11 @@ async function runToolStep(
 
 	const byName = new Map(offers.map((offer) => [offer.name, offer]));
 	const toolCalls: ToolCallRecord[] = [];
+	const { signal } = options;
+	const aborted = (): boolean => signal?.aborted === true;
 	const handler: BridgeHandler = async (name, args) => {
+		// Not recorded and never run: once aborted, nothing more reaches the host.
+		if (aborted()) return { ok: false, text: ABORT_MESSAGE };
 		const offer = byName.get(name);
 		if (offer === undefined) {
 			// Not recorded, as in the pi loop: the model can recover.
@@ -265,6 +316,8 @@ async function runToolStep(
 		} catch (error) {
 			result = { ok: false, message: error instanceof Error ? error.message : String(error) };
 		}
+		// A call in flight at the abort: the step has already failed, so its result goes nowhere.
+		if (aborted()) return { ok: false, text: ABORT_MESSAGE };
 		stream?.onDelta(
 			result.ok
 				? { type: "tool_result", name: offer.name, ok: true, outputs: result.outputs }
@@ -298,7 +351,9 @@ async function runToolStep(
 			mcpConfig: running.mcpConfig,
 			allowedTools: running.allowedTools,
 		});
-		const processResult = await runner(args, request.prompt, toolStepEnv(process.env));
+		const processResult = await raceAbort(runner(args, request.prompt, toolStepEnv(process.env)), signal);
+		// The bridge closes in `finally`, before the aborted outcome is returned.
+		if (processResult === ABORTED) return abortedOutcome();
 		const outcome = toClaudeCodeOutcome(processResult, request.outputSchema !== undefined);
 		if (outcome.parsed !== undefined) options.onResult?.(outcome.parsed);
 		return outcome.step.kind === "answered" ? { ...outcome.step, toolCalls: [...toolCalls] } : outcome.step;
@@ -387,15 +442,23 @@ function spawnIn(
 		let stdout = "";
 		let stderr = "";
 		const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
-		signal?.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });
+		const onAbort = () => child.kill("SIGTERM");
+		signal?.addEventListener("abort", onAbort, { once: true });
+		// Aborted while the directory was being made: the listener above will never fire.
+		if (signal?.aborted === true) onAbort();
+		// A port-wide signal outlives the step, so its listener goes with the process.
+		const settle = () => {
+			clearTimeout(timer);
+			signal?.removeEventListener("abort", onAbort);
+		};
 		child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
 		child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
 		child.on("error", (spawnError) => {
-			clearTimeout(timer);
+			settle();
 			resolve({ code: null, stdout, stderr, spawnError });
 		});
 		child.on("close", (code) => {
-			clearTimeout(timer);
+			settle();
 			resolve({ code, stdout, stderr });
 		});
 		child.stdin.end(input);
