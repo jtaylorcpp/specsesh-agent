@@ -42,6 +42,10 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 - Offered tool names collide across concurrent runs in one harness. pi-durable resolves a conversation's tools by name, and `agentScriptExtensions` keeps one live tool per offer name (last registered wins). Two runs offering the same name (`note`, say) with different descriptions or input schemas share whichever definition was registered last, so one run's model can see the other's description and have its arguments validated against the other's schema. Execution is still correct: each call reads its own offer (bound inputs, action) from its step conversation's `agentscript.step-actions` doc. Since `bound-step-results`, `submit_result`'s parameters are live the same way, so concurrent structured steps can show a provider another step's schema; the tool still checks against its own step doc's `schema`. A crash during a model-callable tool call is also not yet tested (the act phase's crashes are).
 - `agentscript-durable` installs the plain extensions, so a script with actions is refused there. Propose `--workspace <dir>` (plus `--allow` / `--check`) to install `agentScriptExtensions({ actions: builtinActions(...), workspace })`; the task CLI will install its own registry.
 
+## Pi tool loop (from add-pi-tool-loop)
+
+- **An offer named `submit_result` shadows the result tool.** On a structured step, a pi port given a tool host offers `submit_result` beside the step's tool offers. The scan doesn't forbid a reasoning action named `submit_result`, so the two would collide. The scan or `composeToolOffers` could reject the name. Source: the change's design, Risks.
+
 ## Task loop (from add-task-agent)
 
 - **A crash between ticking and the judge's commit reports `ticked: false`.** The judge phase writes tasks.md, then commits the outcome. If the process dies in between, the re-run judge finds the line already ticked and reports `ticked: false` with "already ticked", though this loop ticked it. Recording the tick's intent in the checkpoint first would close it.

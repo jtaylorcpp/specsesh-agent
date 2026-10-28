@@ -135,6 +135,24 @@ Swap in `claudeCodeProvider()` from `@specsesh/agent/claude-code` (model provide
 `claude-code`) to run each step through `claude -p` on your subscription. It never uses
 `--bare`, strips `ANTHROPIC_API_KEY`, and never reads Claude Code's OAuth token.
 
+**With your own tools.** Give the port a tool host, and a step with `reasoning.actions` loops:
+each tool the model calls runs on the host, and its result goes back to the model.
+
+```ts
+import { readFile } from "node:fs/promises";
+import { createPiReasoningPort, resolveModel, type PiToolHost } from "@specsesh/agent/pi";
+
+const tools: PiToolHost = async ({ name, inputs }) =>
+  name === "read" ? { ok: true, outputs: { content: await readFile(String(inputs.path), "utf8") } } : { ok: false, message: `no ${name}` };
+const port = createPiReasoningPort({ models, model: resolveModel(models, "anthropic", "claude-haiku-4-5"), tools });
+// then run(source, { port, ... }) as above
+```
+
+Each call is checked against its offer's input schema before the host sees it, with the
+action's bound inputs merged in. `maxRounds` (default 16) bounds a step's model requests;
+reaching it ends the step `cut-short`. Without `tools`, a request that offers tools is still
+refused.
+
 ## Discover from the CLI
 
 Each command below prints Markdown, or JSON with `--json`, so a person or an agent like Claude

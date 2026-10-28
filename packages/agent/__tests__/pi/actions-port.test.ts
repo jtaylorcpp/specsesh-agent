@@ -40,7 +40,9 @@ describe("core/reasoning-port: A port that cannot run tools refuses a request th
 		const outcome = await port.reason(TOOL_REQUEST);
 
 		expect(outcome).toEqual({ kind: "failed", category: "invalid_request", message: TOOLS_NEED_DURABLE_HOST });
-		expect(TOOLS_NEED_DURABLE_HOST).toContain("durable host");
+		if (outcome.kind !== "failed") throw new Error("expected a failed outcome");
+		expect(outcome.message).toContain("durable host");
+		expect(outcome.message).toContain("tool host");
 		expect(requests).toBe(0);
 	});
 

@@ -139,7 +139,8 @@ export interface ReasoningRequest {
 /** The message a port that cannot run a tool loop answers a request offering tools with. */
 export const TOOLS_NEED_DURABLE_HOST =
 	"this step offers tools, and this port runs one model request with no tool loop. Tools need " +
-	"the durable host (@specsesh/agent/durable), which runs each call and owns the loop.";
+	"the durable host (@specsesh/agent/durable), or a pi reasoning port given a tool host (tools), " +
+	"which runs each call and owns the loop.";
 
 /**
  * The injected boundary. One method, because one reasoning step is the whole

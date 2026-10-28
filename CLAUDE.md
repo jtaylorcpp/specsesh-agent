@@ -168,10 +168,12 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
   specsketch's settings tab as a prompt editor.
 - `./interpreter` — subset scan, prompt composition, logic lines, structured state, three step
   outcomes. Core tests drive a recording port; pi tests drive pi's faux provider.
-- `./pi` — one `reason()` = one pi `complete()`. Structured steps offer a single
+- `./pi` — without `tools`, one `reason()` = one pi `complete()`. Structured steps offer a single
   `submit_result` tool and force it per wire API (`forceTool`). Failure categories come only from
-  `stopReason` and the HTTP status, never from message text. The port has no round bound, so it
-  never reports `cut-short`.
+  `stopReason` and the HTTP status, never from message text. It loops only when given `tools` (a
+  `PiToolHost`): offered tools run on the host and their results go back to the model, a
+  structured step that never called `submit_result` gets one forced settling request, and
+  `maxRounds` (default 16) bounds it, ending `cut-short`. Without `tools`, a tool request is refused.
 - `--provider claude-code` (`src/claude-code.ts`) — the subscription option. Each step spawns your own
   `claude -p --safe-mode --tools "" --no-session-persistence --output-format json [--json-schema]`,
   with `ANTHROPIC_API_KEY` stripped so the subscription login is used. **Never** read or forward

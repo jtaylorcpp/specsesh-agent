@@ -22,6 +22,8 @@ The loops are Agent Script (`.agent`) files. These commands show the bundled one
 - `--entry <subagent>` (repeatable) picks where it starts. `--var name=value` (repeatable) seeds a variable: `True` and `False` become booleans and numbers numbers.
 - `--json` prints the result as JSON. `specsesh agent models [provider]` lists a provider's models.
 
+Model-callable actions (`reasoning.actions`) don't run here yet: the CLIs load no tools, so a step that offers them fails with `invalid_request`. In a one-shot run, offered tools run only from code, through the tool host you give the pi port (`createPiReasoningPort({ models, model, tools })`, see the package README's "Run it once"). `--provider claude-code` refuses them either way.
+
 ## Task scripts
 
 A script used by `specsesh task` must keep the task contract:
