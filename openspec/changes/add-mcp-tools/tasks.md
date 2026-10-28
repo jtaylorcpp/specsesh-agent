@@ -5,8 +5,8 @@
 
 ## 2. mcpTools
 
-- [ ] 2.1 `packages/agent/src/node/mcp.ts`: `mcpTools`, `McpServerError`, `mapTool` and the config types (`design.md` decisions 1–5), exported from `src/node/index.ts`. Tests in `__tests__/node/mcp.test.ts`: "Scenario: A stdio server's tool becomes an action", "Scenario: An HTTP server's tool runs", "Scenario: close ends the stdio process", "Scenario: A crashing server is named", "Scenario: A header takes its token from the environment", "Scenario: A missing variable is named"
-- [ ] 2.2 Mapping. In `__tests__/node/mcp.test.ts`: "Scenario: Structured outputs are read from structuredContent", "Scenario: A tool with an array parameter is skipped", "Scenario: An error result is a failed call", "Scenario: Annotations choose kind and replay"
+- [x] 2.1 `packages/agent/src/node/mcp.ts`: `mcpTools`, `McpServerError`, `mapTool` and the config types (`design.md` decisions 1–5), exported from `src/node/index.ts`. Tests in `__tests__/node/mcp.test.ts`: "Scenario: A stdio server's tool becomes an action", "Scenario: An HTTP server's tool runs", "Scenario: close ends the stdio process", "Scenario: A crashing server is named", "Scenario: A header takes its token from the environment", "Scenario: A missing variable is named"
+- [x] 2.2 Mapping. In `__tests__/node/mcp.test.ts`: "Scenario: Structured outputs are read from structuredContent", "Scenario: A tool with an array parameter is skipped", "Scenario: An error result is a failed call", "Scenario: Annotations choose kind and replay"
 
 ## 3. The CLIs
 
