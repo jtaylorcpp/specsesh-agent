@@ -1,6 +1,6 @@
 {
   "name": "specsesh",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "The specsesh command: draft, approve, build and close OpenSpec changes with an agent, and run Agent Script files durably.",
   "license": "Apache-2.0",
   "type": "module",
