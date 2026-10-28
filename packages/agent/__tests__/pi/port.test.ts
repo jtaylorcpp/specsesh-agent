@@ -268,6 +268,7 @@ describe("The pi adapter exports its port, mapping and model helpers", () => {
 		expect(entry.RESULT_TOOL).toBe("submit_result");
 		expect(Object.keys(entry).sort()).toEqual(
 			[
+				"DEFAULT_MAX_ROUNDS",
 				"DEFAULT_MODEL",
 				"DEFAULT_PROVIDER",
 				"RESULT_TOOL",
