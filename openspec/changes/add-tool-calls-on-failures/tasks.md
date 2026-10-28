@@ -4,8 +4,8 @@
 
 ## 2. The ports
 
-- [ ] 2.1 `src/pi/port.ts` `runToolLoop`: every exit after the first request carries `toolCalls` (decision 4). Tests in `__tests__/pi/tool-loop.test.ts`: "Scenario: A model that never stops calling tools is cut short", "Scenario: An error reply mid-loop fails the step"
-- [ ] 2.2 `src/claude-code/claude-code.ts` `runToolStep`: failed, cut-short and aborted outcomes after the bridge started carry the calls recorded so far (decision 5). Tests in `__tests__/pi/claude-code-tools.test.ts`: "Scenario: A tool step that fails keeps its calls"; in `__tests__/pi/claude-code-abort.test.ts`, an abort after one call keeps it
+- [x] 2.1 `src/pi/port.ts` `runToolLoop`: every exit after the first request carries `toolCalls` (decision 4). Tests in `__tests__/pi/tool-loop.test.ts`: "Scenario: A model that never stops calling tools is cut short", "Scenario: An error reply mid-loop fails the step"
+- [x] 2.2 `src/claude-code/claude-code.ts` `runToolStep`: failed, cut-short and aborted outcomes after the bridge started carry the calls recorded so far (decision 5). Tests in `__tests__/pi/claude-code-tools.test.ts`: "Scenario: A tool step that fails keeps its calls"; in `__tests__/pi/claude-code-abort.test.ts`, an abort after one call keeps it
 
 ## 3. Durable and the consumers
 

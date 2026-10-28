@@ -305,15 +305,19 @@ describe("pi/port: A structured step ends on submit_result or one forced settlin
 describe("pi/port: maxRounds bounds a step's model requests", () => {
 	it("Scenario: A model that never stops calling tools is cut short", async () => {
 		const h = harness();
-		const { host } = recordingHost(() => ({ ok: true, outputs: { content: "hi" } }));
-		h.faux.setResponses(Array.from({ length: 5 }, () => toolUse(fauxToolCall("read", { path: "a.txt" }))));
+		const { host, calls } = recordingHost(() => ({ ok: true, outputs: { content: "hi" } }));
+		h.faux.setResponses(Array.from({ length: 5 }, (_, i) => toolUse(fauxToolCall("read", { path: `${i}.txt` }))));
 
 		const outcome = await createPiReasoningPort({ ...h, tools: host, maxRounds: 3 }).reason(
 			request(offer("read", "read_file")),
 		);
 
 		expect(h.sent).toHaveLength(3);
+		expect(calls).toHaveLength(3);
 		expect(outcome).toMatchObject({ kind: "cut-short", turns: 3 });
+		expect(outcome.kind === "cut-short" ? outcome.toolCalls : undefined).toEqual(
+			[0, 1, 2].map((i) => ({ name: "read", inputs: { path: `${i}.txt` }, ok: true, outputs: { content: "hi" } })),
+		);
 	});
 
 	it("Scenario: An error reply mid-loop fails the step", async () => {
@@ -338,5 +342,8 @@ describe("pi/port: maxRounds bounds a step's model requests", () => {
 
 		expect(h.sent).toHaveLength(2);
 		expect(outcome).toMatchObject({ kind: "failed", category: "rate_limit" });
+		expect(outcome.kind === "failed" ? outcome.toolCalls : undefined).toEqual([
+			{ name: "read", inputs: { path: "a.txt" }, ok: true, outputs: { content: "hi" } },
+		]);
 	});
 });

@@ -182,7 +182,7 @@ async function runToolLoop(
 		options.onMessage?.(reply);
 		last = reply;
 		if (reply.stopReason === "length" || reply.stopReason === "aborted" || reply.stopReason === "error") {
-			return toOutcome(reply, structuredStep);
+			return { ...toOutcome(reply, structuredStep), toolCalls };
 		}
 		context.messages.push(reply);
 
@@ -241,16 +241,15 @@ async function runToolLoop(
 	}
 
 	const text = textOf(last);
-	if (stillCalling) return { kind: "cut-short", text, turns: maxRounds };
+	if (stillCalling) return { kind: "cut-short", text, turns: maxRounds, toolCalls };
 
 	if (structuredStep && structured === undefined) {
 		// The settling request counts toward the bound too.
-		if (rounds >= maxRounds) return { kind: "cut-short", text, turns: maxRounds };
+		if (rounds >= maxRounds) return { kind: "cut-short", text, turns: maxRounds, toolCalls };
 		const settling: Context = { ...context, tools: [resultTool(request.outputSchema!)] };
 		const reply = await send(models, model, settling, { ...requestOptions, ...forceTool(model) }, stream);
 		options.onMessage?.(reply);
-		const outcome = toOutcome(reply, true);
-		return outcome.kind === "answered" ? { ...outcome, toolCalls } : outcome;
+		return { ...toOutcome(reply, true), toolCalls };
 	}
 
 	return {

@@ -110,6 +110,7 @@ describe("the claude-code port's signal", () => {
 		expect(outcome.kind).toBe("failed");
 		expect(outcome.kind === "failed" ? outcome.category : undefined).toBe("unrecognised");
 		expect(outcome.kind === "failed" ? outcome.message : "").toMatch(/aborted/);
+		expect(outcome).not.toHaveProperty("toolCalls");
 		expect(state.calls).toBe(0);
 		expect(bridge.state.started).toBe(0);
 	});
@@ -143,6 +144,31 @@ describe("the claude-code port's signal", () => {
 
 		expect(outcome.kind).toBe("failed");
 		expect(outcome.kind === "failed" ? outcome.message : "").toMatch(/aborted/);
+		expect(bridge.state.closed).toBe(1);
+	});
+
+	it("an abort after one call keeps it", async () => {
+		const controller = new AbortController();
+		const bridge = fakeBridge();
+		const host = fakeHost();
+		const replies: { ok: boolean; text: string }[] = [];
+		// One good call through the bridge, then a `claude` that never finishes.
+		const runner: Runner = async () => {
+			replies.push(await bridge.state.handler!("lookup", { id: "A1" }));
+			return new Promise<ProcessResult>(() => {});
+		};
+		const port = createClaudeCodeReasoningPort({ tools: host.host, bridge: bridge.factory, runner, signal: controller.signal });
+		const reasoning = port.reason(toolRequest);
+		while (replies.length === 0) await new Promise((resolve) => setTimeout(resolve, 1));
+		controller.abort();
+		const outcome = await reasoning;
+
+		expect(outcome.kind).toBe("failed");
+		expect(outcome.kind === "failed" ? outcome.category : undefined).toBe("unrecognised");
+		expect(outcome.kind === "failed" ? outcome.message : "").toMatch(/aborted/);
+		expect(outcome.kind === "failed" ? outcome.toolCalls : undefined).toEqual([
+			{ name: "lookup", inputs: { id: "A1" }, ok: true, outputs: { status: "shipped" } },
+		]);
 		expect(bridge.state.closed).toBe(1);
 	});
 

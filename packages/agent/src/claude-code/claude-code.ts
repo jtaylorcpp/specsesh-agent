@@ -352,11 +352,13 @@ async function runToolStep(
 			allowedTools: running.allowedTools,
 		});
 		const processResult = await raceAbort(runner(args, request.prompt, toolStepEnv(process.env)), signal);
+		// Once the bridge has started, every outcome carries the calls recorded so far.
+		// After an abort the handler records nothing more, so this copy is final.
 		// The bridge closes in `finally`, before the aborted outcome is returned.
-		if (processResult === ABORTED) return abortedOutcome();
+		if (processResult === ABORTED) return { ...abortedOutcome(), toolCalls: [...toolCalls] };
 		const outcome = toClaudeCodeOutcome(processResult, request.outputSchema !== undefined);
 		if (outcome.parsed !== undefined) options.onResult?.(outcome.parsed);
-		return outcome.step.kind === "answered" ? { ...outcome.step, toolCalls: [...toolCalls] } : outcome.step;
+		return { ...outcome.step, toolCalls: [...toolCalls] };
 	} finally {
 		await running.close();
 	}
