@@ -18,6 +18,7 @@ export {
 	type McpTools,
 	type McpToolsOptions,
 } from "./mcp.js";
+export { mcpBridge } from "./mcp-bridge.js";
 
 /** The runners a Node host grants from: `claude-code` and `agent`. */
 export const defaultRunners: Runners = { "claude-code": claudeCodeRunner(), agent: agentRunner() };

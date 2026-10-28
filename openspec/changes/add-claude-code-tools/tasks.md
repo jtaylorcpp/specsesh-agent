@@ -10,7 +10,7 @@
 
 ## 3. mcpBridge
 
-- [ ] 3.1 `packages/agent/src/node/mcp-bridge.ts`: `mcpBridge()` (decision 3), exported from `src/node/index.ts`, with the SDK's server modules loaded lazily. Tests in a new `__tests__/node/mcp-bridge.test.ts`, using the SDK `Client` and `StreamableHTTPClientTransport`: "Scenario: The bridge lists and calls its tools", "Scenario: A request without the token is refused", "Scenario: A failing handler is an error result", "Scenario: The config file is private and removed on close". `pnpm pack:check` still passes (every Node entry imports without the SDK)
+- [x] 3.1 `packages/agent/src/node/mcp-bridge.ts`: `mcpBridge()` (decision 3), exported from `src/node/index.ts`, with the SDK's server modules loaded lazily. Tests in a new `__tests__/node/mcp-bridge.test.ts`, using the SDK `Client` and `StreamableHTTPClientTransport`: "Scenario: The bridge lists and calls its tools", "Scenario: A request without the token is refused", "Scenario: A failing handler is an error result", "Scenario: The config file is private and removed on close". `pnpm pack:check` still passes (every Node entry imports without the SDK)
 
 ## 4. The CLI and docs
 
