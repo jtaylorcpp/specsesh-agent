@@ -1,0 +1,11 @@
+## 1. The tool loop
+
+- [ ] 1.1 `packages/agent/src/pi/port.ts`: the `tools` and `maxRounds` options, `PiToolHost`, `PiToolCall` and `DEFAULT_MAX_ROUNDS` (exported from `src/pi/index.ts`), and the loop (`design.md` decisions 1–3 and 5). A port without `tools` keeps today's single request unchanged. Tests in `__tests__/pi/tool-loop.test.ts` on pi's faux provider, recording each context: "Scenario: A tool call runs on the host and its result reaches the model", "Scenario: A step's tool calls are recorded in call order", "Scenario: A set on a reasoning action applies from the loop", "Scenario: A request with tools and no tool host is still refused", "Scenario: A host failure is fed back and the loop goes on", "Scenario: An unoffered tool name is not recorded". The existing `__tests__/pi/` tests still pass
+- [ ] 1.2 Argument checking, the structured end and the bounds (`design.md` decisions 3, 4 and 6). In `__tests__/pi/tool-loop.test.ts`: "Scenario: Bound inputs override the model's arguments", "Scenario: A call with a wrong type never reaches the host", "Scenario: submit_result after a tool call ends the step", "Scenario: A model that stops without a result is asked once, forced", "Scenario: A model that never stops calling tools is cut short", "Scenario: An error reply mid-loop fails the step"
+
+## 2. The port contract and docs
+
+- [ ] 2.1 `packages/agent/src/interpreter/port.ts`: `TOOLS_NEED_DURABLE_HOST` adds `, or a pi reasoning port given a tool host (tools)` (`design.md` decision 7). Update `__tests__/pi/actions-port.test.ts` to "Scenario: The pi port refuses a tool request" as modified, asserting `durable host` and `tool host`. Rename the modified `pi/port` requirement's tests only if their scenario names changed (they didn't). Add a parked note to `openspec/parked.md`: an offer named `submit_result` shadows the result tool
+- [ ] 2.2 Docs: `packages/agent/README.md` `## Run it once` gains a short library example of `createPiReasoningPort({ models, model, tools })` with a two-line host; `packages/agent/docs/llm/agent.md` says offered tools run in a one-shot run only through the library's tool host until `add-cli-tools`; `CLAUDE.md`'s `./pi` bullet under "Where it stands" says the port loops only when given `tools`. Run `pnpm docs:check`, `pnpm check` and `pnpm test`
+
+The change ends with `pnpm change close add-pi-tool-loop`.
