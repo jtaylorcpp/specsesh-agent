@@ -1,7 +1,7 @@
 ## 1. The dependency and the fixture
 
-- [ ] 1.1 Add `@modelcontextprotocol/sdk` (`design.md` decision 7): `packages/agent/package.json` dev `1.32.1`, peer `^1.32.1` with `optional: true`; `packages/specsesh/package.json` dependency `1.32.1`; `pnpm install`. `__tests__/package/layers.test.ts`: `src/node` may import it. `manifest.test.ts` follows the modified requirements. Tests: "Scenario: The specsesh manifest is exact", "Scenario: Every peer is optional", "Scenario: The layer graph holds", "Scenario: Only the node layer speaks MCP". `pnpm pack:check` still passes
-- [ ] 1.2 `packages/agent/__tests__/fixtures/mcp/server.mjs`: an `McpServer` with `echo`, `add` (with `outputSchema`), `fail`, `tags` (required array) and one read-only idempotent tool, over stdio when run, or exporting a `startHttp()` on port 0 that records request headers; `CRASH=1` exits before the handshake (`design.md` "Testing")
+- [x] 1.1 Add `@modelcontextprotocol/sdk` (`design.md` decision 7): `packages/agent/package.json` dev `1.32.1`, peer `^1.32.1` with `optional: true`; `packages/specsesh/package.json` dependency `1.32.1`; `pnpm install`. `__tests__/package/layers.test.ts`: `src/node` may import it. `manifest.test.ts` follows the modified requirements. Tests: "Scenario: The specsesh manifest is exact", "Scenario: Every peer is optional", "Scenario: The layer graph holds", "Scenario: Only the node layer speaks MCP". `pnpm pack:check` still passes
+- [x] 1.2 `packages/agent/__tests__/fixtures/mcp/server.mjs`: an `McpServer` with `echo`, `add` (with `outputSchema`), `fail`, `tags` (required array) and one read-only idempotent tool, over stdio when run, or exporting a `startHttp()` on port 0 that records request headers; `CRASH=1` exits before the handshake (`design.md` "Testing")
 
 ## 2. mcpTools
 

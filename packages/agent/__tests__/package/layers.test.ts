@@ -50,7 +50,8 @@ const DURABLE = [
 	"src/openspec",
 	"src/durable",
 ];
-const NODE = [...DURABLE, "node", "src/claude-code", "src/node"];
+const MCP_SDK = "@modelcontextprotocol/sdk";
+const NODE = [...DURABLE, "node", "src/claude-code", MCP_SDK, "src/node"];
 const TASK = [...NODE, "src/task"];
 const CLOUDFLARE = [...DURABLE, "agents", "cloudflare:workers", "src/cloudflare"];
 const OPENSPEC = ["typebox", "src/openspec"];
@@ -87,6 +88,17 @@ describe("Each layer imports only its own peers and the layers beneath it", () =
 			}
 		}
 	});
+
+	it("Scenario: Only the node layer speaks MCP", () => {
+		const files = filesUnder(SRC).filter((file) => !file.startsWith(`${join(SRC, "node")}/`));
+		expect(files.length).toBeGreaterThan(0);
+		for (const file of files) {
+			for (const spec of importsOf(file)) {
+				expect(reduce(file, spec), `${relative(PKG_DIR, file)} imports ${spec}`).not.toBe(MCP_SDK);
+			}
+		}
+	});
+
 	it("Scenario: The durable layer records with the ontology", () => {
 		const files = filesUnder(join(SRC, "durable"));
 		expect(files.length).toBeGreaterThan(0);

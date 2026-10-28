@@ -24,6 +24,7 @@ const PEERS = {
 	"@earendil-works/pi-durable": "^1.1.0",
 	"@earendil-works/chord": "^1.1.0",
 	agents: "^0.28.0",
+	"@modelcontextprotocol/sdk": "^1.32.1",
 };
 
 // [directory under packages/, package name]: the two that publish.

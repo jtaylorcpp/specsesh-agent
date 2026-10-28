@@ -18,7 +18,8 @@ const specsesh = readJson(join(SPECSESH_DIR, "package.json"));
 const binText = readFileSync(BIN, "utf8");
 const readme = readFileSync(join(SPECSESH_DIR, "README.md"), "utf8");
 
-const PI = ["@earendil-works/pi-ai", "@earendil-works/pi-durable", "@earendil-works/chord"];
+// The Node dependencies specsesh carries, each at the agent's dev version.
+const NODE_DEPS = ["@earendil-works/pi-ai", "@earendil-works/pi-durable", "@earendil-works/chord", "@modelcontextprotocol/sdk"];
 
 function importSpecifiers(source: string): string[] {
 	const patterns = [
@@ -41,10 +42,10 @@ describe("specsesh package", () => {
 		expect(specsesh.bin).toEqual({ specsesh: "./bin/specsesh.js" });
 		expect(specsesh.files).toEqual(["bin", "README.md", "LICENSE"]);
 		expect(specsesh.exports).toEqual({ "./package.json": "./package.json" });
-		expect(Object.keys(specsesh.dependencies).sort()).toEqual(["@specsesh/agent", ...PI].sort());
+		expect(Object.keys(specsesh.dependencies).sort()).toEqual(["@specsesh/agent", ...NODE_DEPS].sort());
 		expect(specsesh.dependencies["@specsesh/agent"]).toBe("workspace:*");
 		expect(specsesh.peerDependencies).toBeUndefined();
-		for (const name of PI) {
+		for (const name of NODE_DEPS) {
 			expect(agent.devDependencies[name], name).toBeDefined();
 			expect(specsesh.dependencies[name], name).toBe(agent.devDependencies[name]);
 		}

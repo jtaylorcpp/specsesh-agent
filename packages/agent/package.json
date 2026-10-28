@@ -86,6 +86,7 @@
     "@earendil-works/chord": "^1.1.0",
     "@earendil-works/pi-ai": "^1.1.0",
     "@earendil-works/pi-durable": "^1.1.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "agents": "^0.28.0"
   },
   "peerDependenciesMeta": {
@@ -98,6 +99,9 @@
     "@earendil-works/pi-durable": {
       "optional": true
     },
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
     "agents": {
       "optional": true
     }
@@ -107,6 +111,7 @@
     "@earendil-works/chord": "1.1.0",
     "@earendil-works/pi-ai": "1.1.0",
     "@earendil-works/pi-durable": "1.1.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@types/node": "^22.0.0",
     "agents": "0.28.0",
     "typescript": "^5.7.0",
