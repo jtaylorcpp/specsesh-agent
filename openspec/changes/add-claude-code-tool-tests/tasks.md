@@ -1,7 +1,7 @@
 ## 1. Session and crash tests
 
-- [ ] 1.1 In `packages/agent/__tests__/pi/claude-code-sessions.test.ts`, with the existing fake bridge and scripted runner: "Scenario: Calls one after another share one process", "Scenario: Results for calls made together are all handed back", "Scenario: A process that exits while a call is held ends the session". Test only; if one fails, the fix in `src/claude-code/provider-session.ts` is in scope
-- [ ] 1.2 `packages/agent/__tests__/fixtures/tools/crash-echo.mjs`, and the fake `claude` in `__tests__/durable/claude-code-tools.test.ts` gaining the transcript answer, `$FAKE_CLAUDE_LOG` and exit-on-MCP-failure (`design.md` decision 1). In that file: "Scenario: A claude-code run killed during a tool call resumes", "Scenario: A durable claude-code run calls a --tools tool"
+- [x] 1.1 In `packages/agent/__tests__/pi/claude-code-sessions.test.ts`, with the existing fake bridge and scripted runner: "Scenario: Calls one after another share one process", "Scenario: Results for calls made together are all handed back", "Scenario: A process that exits while a call is held ends the session". Test only; if one fails, the fix in `src/claude-code/provider-session.ts` is in scope
+- [x] 1.2 `packages/agent/__tests__/fixtures/tools/crash-echo.mjs`, and the fake `claude` in `__tests__/durable/claude-code-tools.test.ts` gaining the transcript answer, `$FAKE_CLAUDE_LOG` and exit-on-MCP-failure (`design.md` decision 1). In that file: "Scenario: A claude-code run killed during a tool call resumes", "Scenario: A durable claude-code run calls a --tools tool"
 
 ## 2. The live check
 

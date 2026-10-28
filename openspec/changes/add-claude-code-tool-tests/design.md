@@ -22,3 +22,12 @@
    - **The script.** `pnpm test:claude-code`, in the root and in `packages/agent`, runs `vitest run --config vitest.live.config.ts __tests__/live/claude-code-tools.live.test.ts`. `pnpm test:live` also picks the file up, by its glob.
    - **Cost.** About six Haiku requests: notional on a subscription, a few minutes of wall time.
 3. **Spec.** The scenarios are added to the existing requirements, which are otherwise unchanged. The live check is one ADDED requirement in `pi/claude-code`, as `test:live` is specified in `task/headless`.
+
+## Decisions made during the build
+
+- **A bug the new scenario found.** "A process that exits while a call is held ends the session" failed against `add-durable-claude-code-tools`'s code. The failure:
+  - `nextEvent` waits one event-loop turn before handing out queued calls;
+  - if the process ended in that turn, `end()` had already answered and emptied the queue;
+  - so the request ended `toolUse` with no calls.
+
+  The fix, in `src/claude-code/provider-session.ts`: after that turn, an empty queue returns the process's `done` event, so the request maps the result (here an error). The scenario and a second test both fail without the fix and pass with it. The throwaway probe run before this change didn't catch the bug: it only logged that path.

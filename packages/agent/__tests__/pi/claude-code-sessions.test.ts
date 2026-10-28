@@ -195,6 +195,94 @@ describe("Held calls become pi tool calls and their results go back to claude", 
 		expect(calls).toHaveLength(1);
 		expect(calls[0]).toMatchObject({ name: "submit_result", arguments: { ok: true } });
 	});
+
+	it("Scenario: Calls one after another share one process", async () => {
+		const replies: BridgeReply[] = [];
+		const h = harness(async (handler) => {
+			replies.push(await handler("lookup", { id: "1" }));
+			replies.push(await handler("lookup", { id: "2" }));
+			return ok({ result: "done" });
+		});
+		const messages = [system([lookup]), user("Find orders 1 and 2")];
+		const first = await h.models.complete(h.model, { messages });
+		const firstCalls = callsOf(first);
+		expect(first.stopReason).toBe("toolUse");
+		expect(firstCalls).toHaveLength(1);
+		expect(firstCalls[0]).toMatchObject({ name: "lookup", arguments: { id: "1" } });
+
+		const afterFirst = [...messages, first, resultFor(firstCalls[0]!, "one")];
+		const second = await h.models.complete(h.model, { messages: afterFirst });
+		const secondCalls = callsOf(second);
+		expect(second.stopReason).toBe("toolUse");
+		expect(secondCalls).toHaveLength(1);
+		expect(secondCalls[0]).toMatchObject({ name: "lookup", arguments: { id: "2" } });
+		expect(secondCalls[0]!.id).not.toBe(firstCalls[0]!.id);
+
+		const third = await h.models.complete(h.model, { messages: [...afterFirst, second, resultFor(secondCalls[0]!, "two")] });
+
+		expect(third.stopReason).toBe("stop");
+		expect(third.content).toEqual([{ type: "text", text: "done" }]);
+		expect(replies).toEqual([
+			{ ok: true, text: "one" },
+			{ ok: true, text: "two" },
+		]);
+		expect(h.runner.calls).toHaveLength(1);
+		expect(h.bridge.state.closes).toBe(1);
+	});
+
+	it("Scenario: Results for calls made together are all handed back", async () => {
+		const h = harness(async (handler) => {
+			const [r1, r2] = await Promise.all([handler("lookup", { id: "1" }), handler("lookup", { id: "2" })]);
+			return ok({ result: r1.text + r2.text });
+		});
+		const messages = [system([lookup]), user("Find orders 1 and 2")];
+		const first = await h.models.complete(h.model, { messages });
+		const calls = callsOf(first);
+		expect(calls).toHaveLength(2);
+		expect(calls[0]!.id).not.toBe(calls[1]!.id);
+
+		const second = await h.models.complete(h.model, { messages: [...messages, first, resultFor(calls[0]!, "A"), resultFor(calls[1]!, "B")] });
+
+		expect(second.stopReason).toBe("stop");
+		expect(second.content).toEqual([{ type: "text", text: "AB" }]);
+	});
+
+	it("Scenario: A process that exits while a call is held ends the session", async () => {
+		let exit!: () => void;
+		const exited = new Promise<void>((resolve) => (exit = resolve));
+		const h = harness(async (handler) => {
+			void handler("lookup", { id: "7" });
+			await exited;
+			return { code: 1, stdout: "", stderr: "crashed" };
+		});
+		const messages = [system([lookup]), user("Find order 7")];
+		const first = await h.models.complete(h.model, { messages });
+		const calls = callsOf(first);
+		expect(first.stopReason).toBe("toolUse");
+		expect(calls).toHaveLength(1);
+
+		const pending = h.models.complete(h.model, { messages: [...messages, first, resultFor(calls[0]!, "shipped")] });
+		exit();
+		const second = await pending;
+
+		expect(second.stopReason).toBe("error");
+		// A fresh process on the transcript has its own bridge: each session's bridge closes once.
+		expect(h.bridge.state.closes).toBe(h.bridge.state.starts.length);
+		expect(h.runner.calls.length).toBeLessThanOrEqual(2);
+	});
+
+	it("a process that exits before its call is handed out ends the request as an error", async () => {
+		const h = harness(async (handler) => {
+			void handler("lookup", { id: "7" });
+			await Promise.resolve();
+			return { code: 1, stdout: "", stderr: "crashed" };
+		});
+		const message = await h.models.complete(h.model, { messages: [system([lookup]), user("Find order 7")] });
+
+		expect(message.stopReason).toBe("error");
+		expect(h.bridge.state.closes).toBe(1);
+		expect(h.runner.calls).toHaveLength(1);
+	});
 });
 
 describe("Results that name no live session start a fresh process", () => {

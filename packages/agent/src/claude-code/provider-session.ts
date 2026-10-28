@@ -154,6 +154,8 @@ export class ProviderSession {
 		}
 		// One more turn of the event loop, so calls Claude Code made together go out together.
 		await new Promise<void>((resolve) => setImmediate(resolve));
+		// The process ended meanwhile, and `end()` answered the calls it had queued.
+		if (this.#queue.length === 0) return { kind: "done", result: await ended };
 		const calls = this.#queue.splice(0).map((call): HandedCall => {
 			const id = `claude-code-${randomUUID()}`;
 			this.#held.set(id, call.resolve);
