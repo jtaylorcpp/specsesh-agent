@@ -88,12 +88,24 @@ export type StepOutcome =
 			readonly text: string;
 			/** The implementation's own count, carried through unchanged. */
 			readonly turns: number;
+			/**
+			 * Present only when the step offered tools and its tool path ran: every
+			 * call made, in call order. A port that refused before running anything
+			 * carries none.
+			 */
+			readonly toolCalls?: readonly ToolCallRecord[];
 	  }
 	| {
 			readonly kind: "failed";
 			readonly category: FailureCategory;
 			/** What the layer said, kept verbatim even when the category is known. */
 			readonly message: string;
+			/**
+			 * Present only when the step offered tools and its tool path ran: every
+			 * call made, in call order. A port that refused before running anything
+			 * carries none.
+			 */
+			readonly toolCalls?: readonly ToolCallRecord[];
 	  };
 
 /**

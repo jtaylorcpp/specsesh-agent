@@ -1,10 +1,32 @@
 import { describe, expect, it } from "vitest";
 import { run } from "../../src/interpreter/index.js";
 import { IN_SUBSET, STRUCTURED, TWO_STEPS } from "./helpers/fixtures.js";
-import { CHECK, OFFERS, recordingHost, taskAgentFile } from "./helpers/actions.js";
+import { CHECK, OFFERS, recordingHost, subagentDocument, taskAgentFile } from "./helpers/actions.js";
 import { answered, recordingPort } from "./helpers/recording-port.js";
 
 const ALLOWED_KEYS = ["systemInstructions", "prompt", "outputSchema", "tools"];
+
+/** A step offering `read`, whose output sets `content`; `structured` adds a `verdict` result. */
+function reads(structured: boolean): string {
+	return subagentDocument({
+		variables: `content: mutable string = ""\nverdict: mutable string = ""`,
+		actions: `    actions:
+        read_file:
+            description: "Read a file"
+            inputs:
+                path: string
+            outputs:
+                content: string
+            target: "mcpTool://read_file"
+`,
+		instructions: structured ? "| Read it.\nset @variables.verdict = @outputs.verdict" : "| Read it.",
+		reasoningActions: `read: @actions.read_file
+    with path = ...
+    set @variables.content = @outputs.content`,
+	});
+}
+
+const READ_CALL = { name: "read", inputs: { path: "a.md" }, ok: true, outputs: { content: "hello" } };
 
 describe("core/reasoning-port: A tool offer declares, and never executes", () => {
 	it("Scenario: An unoffered tool call fails the step", async () => {
@@ -21,6 +43,22 @@ describe("core/reasoning-port: A tool offer declares, and never executes", () =>
 		expect(outcome).toMatchObject({ kind: "failed", category: "unknown" });
 		expect(outcome?.kind === "failed" ? outcome.message : "").toContain('"delete"');
 		expect(result.variables["edited"]).toBe(true);
+		expect(outcome && "toolCalls" in outcome).toBe(false);
+	});
+
+	it("Scenario: An unoffered call on a failed outcome is still refused", async () => {
+		const source = OFFERS.replace(/            shell:[\s\S]*?(?=            edit:)/, "");
+		const { port } = recordingPort({
+			kind: "failed",
+			category: "rate_limit",
+			message: "429",
+			toolCalls: [{ name: "delete", inputs: { path: "src" }, ok: true, outputs: { ok: true } }],
+		});
+		const result = await run(source, { port });
+		const outcome = result.steps[0]?.outcome;
+		expect(outcome).toMatchObject({ kind: "failed", category: "unknown" });
+		expect(outcome?.kind === "failed" ? outcome.message : "").toContain('"delete"');
+		expect(outcome && "toolCalls" in outcome).toBe(false);
 	});
 });
 
@@ -70,6 +108,15 @@ describe("core/reasoning-port: A step ends answered, cut short, or failed", () =
 		expect(recorded?.map((c) => c.name)).toEqual(["shell", "shell"]);
 		expect(recorded).toEqual(calls);
 	});
+
+	it("Scenario: A failed step keeps the tools it called", async () => {
+		const calls = [{ name: "shell", inputs: { command: "pnpm test" }, ok: true, outputs: { exit_code: 0, output: "ok" } }];
+		const { port } = recordingPort({ kind: "failed", category: "rate_limit", message: "429", toolCalls: calls });
+		const result = await run(OFFERS, { port });
+		expect(result.kind).toBe("failed");
+		expect(result.steps[0]?.outcome).toEqual({ kind: "failed", category: "rate_limit", message: "429", toolCalls: calls });
+		expect(result.variables["last_exit"]).toBe(99);
+	});
 });
 
 describe("core/reasoning-port: An answer records its tool calls", () => {
@@ -81,6 +128,26 @@ describe("core/reasoning-port: An answer records its tool calls", () => {
 		expect(outcome?.kind).toBe("answered");
 		const recorded = outcome?.kind === "answered" ? outcome.toolCalls : undefined;
 		expect(recorded).toEqual([{ name: "shell", inputs: { command: "rm -rf src" }, ok: false, outputs: {} }]);
+	});
+
+	it("Scenario: A cut-short step keeps its calls and sets nothing", async () => {
+		const { port, requests } = recordingPort({ kind: "cut-short", text: "partial", turns: 16, toolCalls: [READ_CALL] });
+		const result = await run(reads(false), { port });
+		expect(requests[0]?.tools?.map((t) => t.name)).toEqual(["read"]);
+		expect(result.kind).toBe("cut-short");
+		expect(result.steps[0]?.outcome).toEqual({ kind: "cut-short", text: "partial", turns: 16, toolCalls: [READ_CALL] });
+		expect(result.variables["content"]).toBe("");
+	});
+
+	it("Scenario: A failure derived from an answer keeps its calls", async () => {
+		const { port, requests } = recordingPort({ kind: "answered", text: "read it", toolCalls: [READ_CALL] });
+		const result = await run(reads(true), { port });
+		expect(requests[0]?.outputSchema).toBeDefined();
+		expect(result.kind).toBe("failed");
+		const outcome = result.steps[0]?.outcome;
+		expect(outcome).toMatchObject({ kind: "failed", category: "unknown", toolCalls: [READ_CALL] });
+		expect(outcome?.kind === "failed" ? outcome.message : "").toContain("received none");
+		expect(result.variables["content"]).toBe("");
 	});
 });
 

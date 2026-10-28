@@ -1,6 +1,6 @@
 ## 1. The core
 
-- [ ] 1.1 `packages/agent/src/interpreter/port.ts`: `toolCalls?` on `cut-short` and `failed` (`design.md` decision 1). `run.ts`: `normalise` keeps a failed outcome's `toolCalls`, and `settle` checks them on every kind and keeps them on derived failures (decisions 2 and 3). Tests in `__tests__/core/` (beside the existing tool-call tests), with a recording port: "Scenario: A failed step keeps the tools it called", "Scenario: A cut-short step keeps its calls and sets nothing", "Scenario: A failure derived from an answer keeps its calls", "Scenario: An unoffered call on a failed outcome is still refused", plus the existing "Scenario: An unoffered tool call fails the step" and "Scenario: A refused call is recorded as not ok"
+- [x] 1.1 `packages/agent/src/interpreter/port.ts`: `toolCalls?` on `cut-short` and `failed` (`design.md` decision 1). `run.ts`: `normalise` keeps a failed outcome's `toolCalls`, and `settle` checks them on every kind and keeps them on derived failures (decisions 2 and 3). Tests in `__tests__/core/` (beside the existing tool-call tests), with a recording port: "Scenario: A failed step keeps the tools it called", "Scenario: A cut-short step keeps its calls and sets nothing", "Scenario: A failure derived from an answer keeps its calls", "Scenario: An unoffered call on a failed outcome is still refused", plus the existing "Scenario: An unoffered tool call fails the step" and "Scenario: A refused call is recorded as not ok"
 
 ## 2. The ports
 
