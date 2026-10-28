@@ -44,6 +44,7 @@ import {
 	type ReasoningPort,
 	type ReasoningRequest,
 	type StepOutcome,
+	type ToolCallRecord,
 	isFailureCategory,
 	toFailureCategory,
 } from "./port.js";
@@ -954,6 +955,8 @@ function normalise(outcome: StepOutcome): StepOutcome {
 		// `message` is read the same defensive way as `category` and `kind`: the
 		// port is typed and the object answering it is not.
 		const message = (outcome as { message?: unknown }).message;
+		// Copied as reported, unchecked: `settle` validates it.
+		const toolCalls = (outcome as { toolCalls?: unknown }).toolCalls;
 		return {
 			kind: "failed",
 			// The port is typed to report OUR category, so one we recognise is kept as-is.
@@ -963,6 +966,7 @@ function normalise(outcome: StepOutcome): StepOutcome {
 					? reported
 					: toFailureCategory(typeof reported === "string" ? reported : undefined),
 			message: typeof message === "string" ? message : "the port reported a failure with no message",
+			...(toolCalls !== undefined ? { toolCalls: toolCalls as readonly ToolCallRecord[] } : {}),
 		};
 	}
 	return failure(
@@ -988,27 +992,22 @@ function settle(
 	variables: Map<string, VariableValue>,
 	choices: Readonly<Record<string, readonly string[]>> | undefined,
 ): StepOutcome {
+	// Checked on every kind: a failed or cut-short step keeps its calls, so they
+	// must be as trustworthy as an answer's. A bad list is dropped, not kept.
+	const refused = checkToolCalls(outcome, awaiting);
+	if (refused !== undefined) return failure(refused);
 	if (outcome.kind !== "answered") return outcome;
 	const pending = awaiting.pending;
 	const staged = new Map<string, VariableValue>();
-
-	const offered = new Set((awaiting.request.tools ?? []).map((tool) => tool.name));
 	const calls = outcome.toolCalls ?? [];
-	if (!Array.isArray(calls)) return failure("the port reported toolCalls that are not a list. No variable was set.");
-	for (const call of calls) {
-		const name = isNode(call) ? call["name"] : undefined;
-		if (typeof name !== "string" || !offered.has(name)) {
-			return failure(
-				`the step reported a call to ${JSON.stringify(name)}, which it was not offered ` +
-					`(offered: ${[...offered].join(", ") || "none"}). No variable was set.`,
-			);
-		}
-	}
+	// A failure derived from the answer keeps the calls it made: they still ran.
+	const fail = (message: string): StepOutcome =>
+		outcome.toolCalls !== undefined ? { ...failure(message), toolCalls: outcome.toolCalls } : failure(message);
 
 	if (pending.length > 0) {
 		const structured = outcome.structured;
 		if (!isNode(structured)) {
-			return failure(
+			return fail(
 				`the step was asked for a structured result naming ${pending
 					.map((p) => p.field)
 					.join(", ")} and received none. No variable was set, and the returned text was not ` +
@@ -1018,7 +1017,7 @@ function settle(
 		for (const assignment of pending) {
 			const value = structured[assignment.field];
 			if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
-				return failure(
+				return fail(
 					`the structured result carries no usable "${assignment.field}" for ` +
 						`@variables.${assignment.variable}. No variable was set.`,
 				);
@@ -1027,7 +1026,7 @@ function settle(
 			// reads the state's own choices, so a resumed run enforces them the same.
 			const allowed = choices?.[assignment.variable];
 			if (allowed !== undefined && (typeof value !== "string" || !allowed.includes(value))) {
-				return failure(
+				return fail(
 					`Field "${assignment.field}" for @variables.${assignment.variable} must be one of ` +
 						`${allowed.map((choice) => JSON.stringify(choice)).join(", ")}, got ${JSON.stringify(value)}. ` +
 						"No variable was set.",
@@ -1044,7 +1043,7 @@ function settle(
 		if (last === undefined) continue;
 		const value = isNode(last.outputs) ? last.outputs[assignment.field] : undefined;
 		if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
-			return failure(
+			return fail(
 				`the last successful call to ${assignment.tool} has no usable output "${assignment.field}" for ` +
 					`@variables.${assignment.variable}. No variable was set.`,
 			);
@@ -1055,6 +1054,24 @@ function settle(
 	// leave the first two written and the run half-updated.
 	for (const [name, value] of staged) variables.set(name, value);
 	return outcome;
+}
+
+/** Why the outcome's reported `toolCalls` can't be trusted, or `undefined` when they can. */
+function checkToolCalls(outcome: StepOutcome, awaiting: AwaitingStep): string | undefined {
+	const calls: unknown = outcome.toolCalls;
+	if (calls === undefined || calls === null) return undefined;
+	if (!Array.isArray(calls)) return "the port reported toolCalls that are not a list. No variable was set.";
+	const offered = new Set((awaiting.request.tools ?? []).map((tool) => tool.name));
+	for (const call of calls) {
+		const name = isNode(call) ? call["name"] : undefined;
+		if (typeof name !== "string" || !offered.has(name)) {
+			return (
+				`the step reported a call to ${JSON.stringify(name)}, which it was not offered ` +
+				`(offered: ${[...offered].join(", ") || "none"}). No variable was set.`
+			);
+		}
+	}
+	return undefined;
 }
 
 function failure(message: string): StepOutcome {

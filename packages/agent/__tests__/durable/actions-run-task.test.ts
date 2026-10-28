@@ -252,7 +252,63 @@ describe("durable/run-task: A step's tool calls reach the machine in call order"
 		// The reasoning-action set took the last call's exit code.
 		expect(result.variables["last_exit"]).toBe(0);
 	});
+
+	it("Scenario: A step whose result is refused reports its calls", async () => {
+		const shell = hostAction("run_command", async () => ({ ok: true, outputs: { exit_code: 0, output: "ran" } }));
+		const { env } = withActions([shell]);
+		const refused = fauxAssistantMessage([fauxToolCall("submit_result", { done: "yes" })], { stopReason: "toolUse" });
+		env.faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("shell", { command: "pnpm test" })], { stopReason: "toolUse" }),
+			...Array.from({ length: 10 }, () => refused),
+		]);
+		const harness = await openHarness(new MemoryStorage(), env);
+		const result = await runScript(harness, STRUCTURED_OFFERING, { model: env.model }, context);
+		await harness.close(context);
+
+		const outcome = result.steps[0]?.outcome;
+		expect(outcome).toMatchObject({ kind: "failed", message: expect.stringContaining("refused 3 times") });
+		expect(outcome?.toolCalls).toEqual([
+			{ name: "shell", inputs: { command: "pnpm test" }, ok: true, outputs: { exit_code: 0, output: "ran" } },
+		]);
+		// A failed step sets nothing from its calls.
+		expect(result.variables["last_exit"]).toBe(99);
+	});
 });
+
+/** A structured step offering `shell`: its result is the boolean `done`. */
+const STRUCTURED_OFFERING = `config:
+    agent_name: "structured-offering"
+
+system:
+    instructions: |
+        You act in a workspace.
+
+variables:
+    last_exit: mutable number = 99
+    done: mutable boolean = False
+
+subagent act:
+    description: "Act"
+
+    actions:
+        run_command:
+            description: "Run an allowed command in the workspace"
+            inputs:
+                command: string
+            outputs:
+                exit_code: number
+                output: string
+            target: "mcpTool://run_command"
+
+    reasoning:
+        instructions: ->
+            | Do the work.
+            set @variables.done = @outputs.done
+        actions:
+            shell: @actions.run_command
+                with command = ...
+                set @variables.last_exit = @outputs.exit_code
+`;
 
 describe("durable/run-task: Checkpoints have exactly four phases", () => {
 	it("Scenario: A deterministic subagent walks next, act, next", async () => {

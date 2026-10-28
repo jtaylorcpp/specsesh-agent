@@ -365,12 +365,17 @@ Each `ToolOffer` SHALL be registered on the step conversation as a pi-durable to
 - **AND** the call SHALL be reported with `ok` false, `last_exit` SHALL keep its value, and the step SHALL end answered
 
 ### Requirement: A step's tool calls reach the machine in call order
-When a step with offered tools settles answered, the await phase SHALL read every action tool call in the step conversation, in call order, and report them as the outcome's `toolCalls`: `name`, the merged `inputs`, `ok` (false for an error result), the host's `outputs` (`{}` for an error result), and the host's `record`. Calls to `submit_result` SHALL NOT be listed.
+When a step with offered tools settles, answered or failed, the await phase SHALL read every action tool call in the step conversation, in call order, and report them as the outcome's `toolCalls`: `name`, the merged `inputs`, `ok` (false for an error result), the host's `outputs` (`{}` for an error result), and the host's `record`. Calls to `submit_result` SHALL NOT be listed.
 
 #### Scenario: Two shell calls are reported
 - **GIVEN** an `act` step in which the model called `shell` twice and then answered
 - **WHEN** the await phase folds the answer in
 - **THEN** the outcome's `toolCalls` SHALL hold two `shell` entries, in order, with `ok` true and their outputs
+
+#### Scenario: A step whose result is refused reports its calls
+- **GIVEN** an `act` step in which the model called `shell` once and then had `submit_result` refused three times
+- **WHEN** the await phase settles it
+- **THEN** the outcome SHALL be `failed` and its `toolCalls` SHALL hold the one `shell` call
 
 ### Requirement: The result tool's parameters are the step's schema
 On a structured step, the offered `submit_result` SHALL have `parameters` equal to the request's `outputSchema`, `replay: "safe"` and the description `Submit this step's result as an object with exactly the fields the system prompt lists. Call it once; it ends the step.` Every call MUST reach the tool, which checks the arguments as sent (bypassing pi's validation and coercion) with `checkResult` against the doc's `schema`.

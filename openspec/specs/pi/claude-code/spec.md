@@ -310,7 +310,7 @@ With `tools: { mcpConfig, allowedTools }`, `claudeArgs` SHALL put, in place of `
 - **THEN** the step SHALL fail `invalid_request` with a message naming `has space`, and neither the bridge nor the runner SHALL have been called
 
 ### Requirement: Calls through the bridge are checked, run on the host and recorded
-The bridge handler SHALL refuse an unoffered name unrecorded, and refuse arguments failing `checkToolArguments` with `ok: false`, recorded with `outputs: {}`. Otherwise it SHALL call the host with `{ name, tool: offer.action, inputs: { ...args, ...offer.bound } }`, a throw being `ok: false`, and answer `JSON.stringify(outputs)` or the message. An answered step SHALL carry every recorded call in arrival order as `toolCalls`.
+The bridge handler SHALL refuse an unoffered name unrecorded, and refuse arguments failing `checkToolArguments` with `ok: false`, recorded with `outputs: {}`. Otherwise it SHALL call the host with `{ name, tool: offer.action, inputs: { ...args, ...offer.bound } }`, a throw being `ok: false`, and answer `JSON.stringify(outputs)` or the message. Once the bridge has started, every outcome of the step SHALL carry every recorded call in arrival order as `toolCalls`.
 
 #### Scenario: A call runs on the host with bound inputs winning
 - **GIVEN** an offer `lookup` for action `orders/lookup` with bound `{ region: "eu" }`, and a runner that calls the handler with `lookup` and `{ id: "7", region: "us" }` before answering `done`
@@ -327,6 +327,11 @@ The bridge handler SHALL refuse an unoffered name unrecorded, and refuse argumen
 - **GIVEN** a stream sink passed to `reason`, and a runner that makes one good call through the handler
 - **WHEN** the request is reasoned
 - **THEN** the sink SHALL receive `tool_call` with the merged inputs, then `tool_result` with `ok: true` and the outputs
+
+#### Scenario: A tool step that fails keeps its calls
+- **GIVEN** a runner that makes one good call through the handler, then reports `{ is_error: true, result: "boom" }`
+- **WHEN** the request is reasoned
+- **THEN** the step SHALL be failed with `boom`, and `toolCalls` SHALL hold that call with the host's outputs
 
 ### Requirement: mcpBridge serves a step's tools to claude over loopback HTTP
 `mcpBridge()` from `@specsesh/agent/node` SHALL return a `ToolBridgeFactory` whose bridge serves Streamable HTTP MCP on `127.0.0.1` only, refusing a request without its random bearer token with `401`. Its `mcpConfig` SHALL be a mode-`0600` file naming the server `agentscript`; `allowedTools` SHALL be `mcp__agentscript__<name>` per tool. `tools/call` SHALL answer through the handler, `!ok` or a throw as `isError`. `close` SHALL stop the server and remove the file.
@@ -460,3 +465,29 @@ When a request's `StreamOptions.signal` aborts while it waits on a session, the 
 - **WHEN** the port runs a tool step, and the provider starts a bridged session
 - **THEN** neither runner's environment SHALL have `CLAUDE_CODE_SAFE_MODE`
 - **AND** a step without tools through the port SHALL still be handed `CLAUDE_CODE_SAFE_MODE` unchanged
+
+### Requirement: A signal stops the port's steps
+`createClaudeCodeReasoningPort` SHALL take `signal?: AbortSignal`, passed to the runner it spawns with. When it is aborted before or during a step, `reason` SHALL resolve `{ kind: "failed", category: toFailureCategory("aborted"), message: "the claude-code step was aborted" }` without waiting for the process. Before a step, nothing is spawned and no bridge started. During a tool step, the bridge SHALL be closed before `reason` resolves.
+
+#### Scenario: An aborted signal starts nothing
+- **GIVEN** a port with a tool host, a fake bridge, a recording runner and an already aborted `signal`
+- **WHEN** a request offering a tool is reasoned
+- **THEN** the step SHALL fail with category `unrecognised` and a message containing `aborted`, and neither the runner nor the bridge SHALL have been called
+
+#### Scenario: Aborting a text step kills claude
+- **GIVEN** a port whose `binary` is a fake `claude` that records its pid and sleeps 30 s, and a `signal`
+- **WHEN** the signal is aborted 100 ms into a text step
+- **THEN** `reason` SHALL resolve failed with a message containing `aborted` within 2 s, and the recorded process SHALL no longer exist
+
+#### Scenario: Aborting a tool step closes the bridge
+- **GIVEN** a port with a tool host, a fake bridge, a runner that never resolves, and a `signal`
+- **WHEN** the signal is aborted during a tool step
+- **THEN** `reason` SHALL resolve failed with a message containing `aborted`, and the bridge SHALL have been closed
+
+### Requirement: The bridge refuses calls once the step is aborted
+After the port's `signal` aborts, the bridge handler SHALL answer every call `{ ok: false, text: "the claude-code step was aborted" }` without calling the host and without recording it.
+
+#### Scenario: A call after the abort never reaches the host
+- **GIVEN** a tool step whose runner keeps the bridge handler, and the port's `signal` aborted
+- **WHEN** the handler is called with an offered tool and valid arguments
+- **THEN** it SHALL answer `ok: false` with `aborted`, and the host SHALL not have been called

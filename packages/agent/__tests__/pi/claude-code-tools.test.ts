@@ -134,7 +134,22 @@ describe("the claude-code port's tool path", () => {
 
 		expect(outcome).toMatchObject({ kind: "failed", category: "unknown" });
 		expect(outcome.kind === "failed" ? outcome.message : "").toContain("could not start the tool bridge: no port");
+		expect(outcome).not.toHaveProperty("toolCalls");
 		expect(ran).toBe(false);
+	});
+
+	it("Scenario: A tool step that fails keeps its calls", async () => {
+		const bridge = fakeBridge();
+		const { runner } = fakeRunner(bridge, { calls: [["lookup", { id: "7" }]], result: failure });
+		const port = createClaudeCodeReasoningPort({ tools: fakeHost().host, bridge: bridge.factory, runner });
+
+		const outcome = await port.reason(request());
+
+		expect(outcome.kind).toBe("failed");
+		expect(outcome.kind === "failed" ? outcome.message : "").toContain("boom");
+		expect(outcome.kind === "failed" ? outcome.toolCalls : undefined).toEqual([
+			{ name: "lookup", inputs: { id: "7" }, ok: true, outputs: { status: "shipped" } },
+		]);
 	});
 
 	it("Scenario: An unservable tool name is refused before spawning", async () => {
@@ -146,6 +161,7 @@ describe("the claude-code port's tool path", () => {
 
 		expect(outcome).toMatchObject({ kind: "failed", category: "invalid_request" });
 		expect(outcome.kind === "failed" ? outcome.message : "").toContain("has space");
+		expect(outcome).not.toHaveProperty("toolCalls");
 		expect(bridge.state.tools).toEqual([]);
 		expect(state.argv).toEqual([]);
 	});

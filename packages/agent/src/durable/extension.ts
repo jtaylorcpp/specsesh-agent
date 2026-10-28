@@ -497,12 +497,12 @@ async function attempt<T>(call: () => Promise<T>): Promise<T | { ok: false; mess
 
 /**
  * The calls of host action `name` the run has reported: its `run` calls, and its
- * steps' tool calls whose offer targets `name`. Read from the run state alone.
+ * steps' tool calls whose offer targets `name`, whatever the step's outcome.
+ * Read from the run state alone.
  */
 function reportedCalls(state: RunState, name: string): number {
 	let count = state.actions.filter((report) => report.call.tool === name).length;
 	for (const step of state.steps) {
-		if (step.outcome.kind !== "answered") continue;
 		const offers = step.request.tools ?? [];
 		for (const call of step.outcome.toolCalls ?? []) {
 			if (offers.find((offer) => offer.name === call.name)?.action === name) count += 1;
@@ -624,11 +624,24 @@ async function answerStep(
 		context,
 	);
 	const settled = await submission.wait(context);
+	// Every settled outcome of a step that offered tools reports the calls it made.
+	const stepCalls = async (): Promise<{ toolCalls?: ToolCallRecord[] }> =>
+		request.tools !== undefined
+			? {
+					toolCalls: await actionCalls(
+						runtime,
+						conversationId,
+						await runtime.snapshot(AgentScriptStepActions, conversationId, context),
+						context,
+					),
+				}
+			: {};
 	if (settled.status !== "done" || settled.answer === undefined) {
 		return {
 			kind: "failed",
 			category: "unknown",
 			message: `the step was not answered: ${settled.reason ?? settled.status}${detailText(settled.detail)}`,
+			...(await stepCalls()),
 		};
 	}
 
@@ -638,13 +651,11 @@ async function answerStep(
 			kind: "failed",
 			category: "unknown",
 			message: `the step's result was refused ${MAX_REFUSALS} times; last: ${await lastRefusal(runtime, conversationId, context)}`,
+			...(await stepCalls()),
 		};
 	}
 	const text = await answerText(runtime, conversationId, settled.answer, context);
-	const toolCalls =
-		request.tools !== undefined
-			? await actionCalls(runtime, conversationId, await runtime.snapshot(AgentScriptStepActions, conversationId, context), context)
-			: undefined;
+	const { toolCalls } = await stepCalls();
 	return {
 		kind: "answered",
 		text,

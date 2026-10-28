@@ -110,7 +110,7 @@ function hostRecords(result: RunResult, entries: readonly string[]): { actions: 
 	for (const subagent of new Set(entries)) {
 		for (const report of result.actions) if (report.subagent === subagent) take(report.result.record);
 		for (const step of result.steps) {
-			if (step.subagent !== subagent || step.outcome.kind !== "answered") continue;
+			if (step.subagent !== subagent) continue;
 			for (const call of step.outcome.toolCalls ?? []) take(call.record);
 		}
 	}
