@@ -61,3 +61,16 @@ While a session's process runs, each call through the bridge SHALL be held. The 
 #### Scenario: A real durable run records its call
 - **WHEN** the durable bin runs the tools example on `--provider claude-code --model haiku --json`
 - **THEN** it SHALL exit `0` with one `word_count` call recorded and `count` `6`
+
+### Requirement: A tool step's environment also drops CLAUDE_CODE_SAFE_MODE
+`toolStepEnv(parent)` SHALL return `claudeCodeEnv(parent)` without `CLAUDE_CODE_SAFE_MODE`, which an inherited `claude --safe-mode` session sets and which turns off `--mcp-config` servers. The port's tool steps and the provider's sessions SHALL spawn with it; steps without tools keep `claudeCodeEnv`. `CLAUDE_CODE_DISABLE_CLAUDE_MDS` and every other variable SHALL be kept.
+
+#### Scenario: An inherited safe mode is dropped for a tool step
+- **WHEN** `toolStepEnv({ PATH: "/bin", CLAUDE_CODE_SAFE_MODE: "1", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", CLAUDECODE: "1" })` is called
+- **THEN** it SHALL return `{ PATH: "/bin", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1" }`
+
+#### Scenario: The port and the provider spawn tool steps with it
+- **GIVEN** `process.env.CLAUDE_CODE_SAFE_MODE` set to `1`
+- **WHEN** the port runs a tool step, and the provider starts a bridged session
+- **THEN** neither runner's environment SHALL have `CLAUDE_CODE_SAFE_MODE`
+- **AND** a step without tools through the port SHALL still be handed `CLAUDE_CODE_SAFE_MODE` unchanged

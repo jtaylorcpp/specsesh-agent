@@ -31,3 +31,9 @@
   - so the request ended `toolUse` with no calls.
 
   The fix, in `src/claude-code/provider-session.ts`: after that turn, an empty queue returns the process's `done` event, so the request maps the result (here an error). The scenario and a second test both fail without the fix and pass with it. The throwaway probe run before this change didn't catch the bug: it only logged that path.
+- **A product bug the live check found: an inherited `CLAUDE_CODE_SAFE_MODE`.** A `claude` started under a `claude --safe-mode` session inherits `CLAUDE_CODE_SAFE_MODE=1`. Examples are a `claudeCodeRunner` delegate's commands, or a user's own safe-mode session. That variable turns off `--mcp-config` servers just as the flag does. Reproduced: `CLAUDE_CODE_SAFE_MODE=1 agentscript-pi run examples/tools/tools.agent … --provider claude-code` ended `completed` with `toolCalls: []`, and the model made up its answer.
+  - **The fix.** `toolStepEnv(parent)` in `claude-code.ts` is `claudeCodeEnv(parent)` minus `CLAUDE_CODE_SAFE_MODE`. The port's tool steps (`runToolStep`) and the provider's sessions (`ProviderSession.run`) spawn with it.
+  - **Steps without tools keep `claudeCodeEnv`.** They pass `--safe-mode` anyway, so the variable changes nothing there.
+  - **`CLAUDE_CODE_DISABLE_CLAUDE_MDS` is kept.** It only adds isolation.
+  - **The live test.** It still strips every `CLAUDE_CODE_*` variable, so it measures the flags rather than the session it runs in.
+  - **The spec.** This is an ADDED requirement; `claudeCodeEnv`'s own requirement is unchanged. It is exported from `./claude-code`, beside `claudeCodeEnv`.
