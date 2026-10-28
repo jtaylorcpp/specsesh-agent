@@ -5,7 +5,7 @@
 
 ## 2. agentscript-pi
 
-- [ ] 2.1 `packages/agent/src/bin/agentscript-pi.ts`: `--tools` and `--workspace`, the usage text, binding check before any port, `actionHost` and the port's `tools` from `registryHost` (`design.md` decision 4). Tests in `__tests__/pi/cli.test.ts`: "Scenario: A script calls a tool from a module", "Scenario: The model calls an offered tool from a module", "Scenario: A function export gets the workspace", "Scenario: An entry without execute is refused", "Scenario: A script naming a missing tool is refused", "Scenario: Without --tools nothing changes". Existing scenarios still pass
+- [x] 2.1 `packages/agent/src/bin/agentscript-pi.ts`: `--tools` and `--workspace`, the usage text, binding check before any port, `actionHost` and the port's `tools` from `registryHost` (`design.md` decision 4). Tests in `__tests__/pi/cli.test.ts`: "Scenario: A script calls a tool from a module", "Scenario: The model calls an offered tool from a module", "Scenario: A function export gets the workspace", "Scenario: An entry without execute is refused", "Scenario: A script naming a missing tool is refused", "Scenario: Without --tools nothing changes". Existing scenarios still pass
 
 ## 3. agentscript-durable
 
