@@ -45,8 +45,7 @@ export const USAGE = `usage:
   agentscript-durable run <file> --db <path> [--provider <id>] [--model <id>] [--entry <subagent>]... [--var name=value]... [--json]
                           [--tools <module>]... [--mcp <file>]... [--workspace <dir>]
   agentscript-durable resume <task-id> --db <path> [--json] [--tools <module>]... [--mcp <file>]... [--workspace <dir>]
-tools: JavaScript modules (compile TypeScript first); resume needs the same --tools and --mcp as run
-tools: under --provider claude-code, a step that offers tools fails invalid_request`;
+tools: JavaScript modules (compile TypeScript first); resume needs the same --tools and --mcp as run`;
 
 export interface CliDeps {
 	/** The pi-ai model collection. Defaults to every built-in provider. */

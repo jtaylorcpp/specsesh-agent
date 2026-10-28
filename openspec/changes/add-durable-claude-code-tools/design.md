@@ -44,3 +44,20 @@
 - **Held processes.** A host that stops calling back (a hung harness) leaves `claude` waiting until `timeoutMs`. That bound is the backstop.
 - **A crash re-renders the transcript.** The fresh process sees prior calls as text, not as native tool turns, so it may re-plan. Each call's result is still from the original run. Nothing is executed twice by the provider, and pi-durable's replay rules govern interrupted calls.
 - **Parallel calls reach pi-durable as one message**, and pi-durable runs them in its own order.
+
+## Verified live
+
+2026-10-28, Claude Code 2.1.310, `--model haiku`, on the subscription (`ANTHROPIC_API_KEY` unset).
+
+```bash
+node packages/agent/dist/bin/agentscript-durable.js run packages/agent/examples/tools/tools.agent \
+  --db .agentscript/cc-live/runs.sqlite --entry echo_it --entry count_it \
+  --tools packages/agent/examples/tools/tools.mjs --provider claude-code --model haiku --json
+```
+
+- **A durable run:** exit `0`, `completed`. Claude Code called `word_count` through the bridge, and pi-durable ran it as a host action. The step's `toolCalls` was `[{ name: "word_count", inputs: { text: "Agent Script runs your own tools" }, ok: true, outputs: { count: 6 } }]`, and `count = 6`.
+- **Killed mid-step and resumed.**
+  - **The kill.** The run used a copy of the tools in which `word_count` writes a marker and then sleeps 30 s (`.agentscript/cc-live/slow.mjs`). The bin was sent `SIGKILL` 6 s in, after the marker appeared, so pi-durable was running the call Claude Code had made.
+  - **The resume.** `resume 7 --db … --tools packages/agent/examples/tools/tools.mjs --json` completed, with one `word_count` call recorded (outputs `{ count: 6 }`) and `count = 6`. The interrupted call replays `safe`, so it ran again; it was not run twice.
+  - **The held `claude -p`** outlived the killed bin, as Risks expected, and exited by itself once its bridge was gone. None was left running after the resume.
+  - **Left behind:** the dead bridge's directory (`/tmp/agentscript-bridge-*`, mode `0700`, its `mcp.json` `0600`, whose token names a closed port). Killed runs also leave `agentscript-claude-*` step directories, which already happened before this change. Both are parked.

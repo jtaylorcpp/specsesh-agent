@@ -53,11 +53,20 @@ An offered tool's name must match `^[A-Za-z0-9_-]{1,48}$`, so `mcp__agentscript_
 
 This isolation is an observed equivalence, not a documented one: a later Claude Code could load something these flags don't cover. It applies to tool steps only, and the live check re-runs the measurement.
 
-Durable runs (`durable`, `task`, `change`) don't run tool steps on claude-code yet: pi-durable must run and checkpoint each call itself.
+### Durable tool steps
+
+`specsesh durable run`/`resume --provider claude-code --tools <module>` (or `--mcp <file>`) offers a step's tools to Claude Code too. Claude Code calls them, but pi-durable runs each call as a checkpointed host action: under its replay rule, recorded in the step's actions, and seen by `watchScript`. The bins register the pi provider as `claudeCodeProvider({ bridge: mcpBridge() })`; the bridge's SDK loads only when a request offers tools.
+
+- **Bridged requests.** With `bridge`, a request offering any tool other than `submit_result` starts a held session: the bridge serves those tools, and one `claude -p` runs with the tool-step flags above, `--max-turns 16`, and `submit_result`'s parameters as `--json-schema` when offered. Reaching the turn limit ends the request as an error. Tool names must match `^[A-Za-z0-9_-]{1,48}$`; otherwise the request ends as an error and nothing starts. A request offering only `submit_result`, or nothing, runs the one-shot `--safe-mode` argv as before, with no `--max-turns`.
+- **Held calls.** Each call Claude Code makes through the bridge is held, and the request ends `stopReason` `toolUse` with it as a pi `toolCall`, id `claude-code-<uuid>`. Calls made together arrive in one message, in arrival order. The next request's `toolResult`s go back to the held calls as `{ ok: !isError, text }`, and Claude Code continues. A `toolUse` message carries zero usage.
+- **The end.** When the process ends, its answer maps as for any request: text, a `submit_result` call, or an error. The bridge closes and the session is dropped.
+- **Crash behaviour.** The held process doesn't survive a crash. On `resume`, results that name no live session start a fresh process with the whole transcript, prior calls and results included, rendered as text by `promptOf`. Every finished call keeps its original result and isn't repeated; pi-durable's replay rules govern a call the crash interrupted. The fresh process sees prior calls as text, so it may re-plan.
+- **Abort and timeout.** Aborting the request kills the process (`SIGTERM`), closes the bridge and ends the message `aborted`. `timeoutMs` (default 300000) bounds the whole session, tool time included.
 
 ## Limits
 
-- One tool per step on durable runs. The pi provider behind `durable`, `task` and `change` takes at most one tool per request, sent as `--json-schema` and returned as a call to that tool; a request offering more is refused, so a step that offers an action as a tool and also writes variables fails.
+- Without `bridge`, the pi provider takes at most one tool per request, sent as `--json-schema` and returned as a call to that tool. More is refused before anything spawns: `the claude-code provider runs at most one pi tool per request without a bridge; this one offered <n> (<names>)`. The bins always pass `bridge: mcpBridge()`.
+- No Cloudflare host for tool steps (no `claude` binary there), no streaming text, and a held session doesn't survive a crash (see above).
 - A step is killed after 5 minutes by default.
 - The cost it prints is what Claude Code reports, notional on a subscription.
 - For local work. On a server, use an [API-key provider](api-keys.md).

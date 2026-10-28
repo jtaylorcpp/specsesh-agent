@@ -47,7 +47,7 @@ specsesh agent run tools.agent --entry echo_it --entry count_it --tools ./tools.
 - From code, `registryHost(registry, { workspace, signal? })` from `@specsesh/agent/durable` turns a registry (`createActionRegistry(actions)`) into `{ actionHost, toolHost }`: pass `actionHost` to `run()` and `toolHost` as the pi port's `tools`.
 - **`--provider claude-code` with `--tools` or `--mcp`** offers a step's tools (`reasoning.actions`) to Claude Code through a local MCP bridge, `mcpBridge()` from `@specsesh/agent/node`. Claude Code calls them itself, in its own loop, possibly in parallel (the pi loop runs one at a time). Each call is still checked against its offer's schema, bound inputs win, and it runs on this host; `toolCalls` are in arrival order. A tool step defaults `--max-turns` to 16; reaching it ends the step `cut-short`.
 - From code, `createClaudeCodeReasoningPort({ model, tools, bridge: mcpBridge() })`; `tools` without `bridge` throws a `TypeError`. `@specsesh/agent/claude-code` exports the bridge types (`BridgeTool`, `BridgeReply`, `BridgeHandler`, `ToolBridge`, `ToolBridgeFactory`) and `BRIDGE_SERVER` (`"agentscript"`).
-- **Not durable yet.** `specsesh durable` on claude-code still fails a step that offers tools with `invalid_request`, pointing to the durable host. `run @actions.x` statements work there.
+- **Durable runs too.** `specsesh durable run`/`resume --provider claude-code` with `--tools` or `--mcp` offer a step's tools the same way, with each call run and checkpointed by the harness: see [Durable tool steps](../providers/claude-code.md#durable-tool-steps).
 
 ## MCP servers (`--mcp`)
 

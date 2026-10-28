@@ -58,6 +58,11 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 
 - **Back to `--safe-mode` on tool steps.** `--safe-mode` turns off every MCP server, `--mcp-config` included (Claude Code 2.1.310), so a tool step passes `--setting-sources "" --disable-slash-commands --strict-mcp-config` instead. That replacement is an observed equivalence (the same 642-token context), not a documented one. If a later Claude Code keeps `--mcp-config` servers under `--safe-mode`, tool steps should go back to it. Watch Claude Code's release notes, and re-run the change's probes (design, Probes) on each new version. Source: the change's design, Risks.
 
+## Durable claude-code tools (from add-durable-claude-code-tools)
+
+- **Temp directories survive a killed process.** A `SIGKILL`ed bin leaves its bridge's `/tmp/agentscript-bridge-*` (mode `0700`, a dead token) and `spawnRunner`'s `agentscript-claude-*` step directories, which also predates the change. A sweep at startup could remove the ones whose owning pid is gone, if the pid went into the directory name. Source: the change's design, Verified live.
+- **A held `claude -p` outlives a killed host** until its bridge calls fail or `timeoutMs` passes. Spawning it in its own process group, and killing the group on exit, would tighten that. Source: the same.
+
 ## Durable streaming (from add-durable-streaming)
 
 - **A streaming route on `defineAgentHost`.** An SSE (or similar) route that streams a run's `RunEvent`s, built on `watchScript`. Deferred from add-durable-streaming, which is library-only. Source: the change's proposal, Out of scope.

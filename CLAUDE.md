@@ -191,7 +191,8 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
   `bridge: mcpBridge()` (`src/node/mcp-bridge.ts`), serves the step's offers to `claude` as one
   loopback MCP server, `agentscript`, plus `--mcp-config`, `--allowedTools mcp__agentscript__…` and
   `--permission-mode dontAsk`; Claude Code calls them, possibly in parallel, and each runs on our
-  host. Not on durable runs yet (`add-durable-claude-code-tools`). Claude Code's built-in tools stay
+  host. Durable runs (`durable run`/`resume --tools`/`--mcp`) work too, through the claude-code pi
+  provider's held sessions (below), each call a host action of the harness. Claude Code's built-in tools stay
   off (`--tools ""`); a delegate's `claudeCodeRunner` is different, see Hard lines.
 
 - **Step machine** (`start` / `next` / `apply` in `run.ts`): the run's state is plain JSON (`RunState`),
@@ -213,7 +214,13 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
 - **claude-code pi provider** (`src/claude-code/claude-code-provider.ts`): lets any pi host,
   pi-durable included, run on your subscription locally. Flattens system sections into
   `--system-prompt`, the transcript into the stdin prompt, and one offered tool into
-  `--json-schema` (returned as a tool call). Refuses requests offering more than one tool.
+  `--json-schema` (returned as a tool call). Without a `bridge` option, refuses requests offering
+  more than one tool. With `bridge`, a request offering any tool other than `submit_result` starts
+  a held session (`src/claude-code/provider-session.ts`): one `claude -p` with the tool-step flags
+  and `--max-turns 16`, each call Claude Code makes through the bridge handed to pi as a `toolCall`
+  (id `claude-code-<uuid>`) and its `toolResult` handed back, so pi-durable runs and checkpoints
+  every call. After a crash, results naming no live session start a fresh process on the whole
+  transcript. `cliModels` (`src/bin/models.ts`) registers it with `bridge: mcpBridge()`.
 - **This is a library** consumed from other projects, not a deployed service. `examples/` holds
   consumers. `pnpm build` (tsc) emits `packages/agent/dist/`, which the exports, the bins and the examples use;
   `pnpm pack:check` proves the packed tarball installs and runs in an empty project. Cloudflare is not
