@@ -12,9 +12,11 @@
  *   one offered tool → --json-schema with the tool's parameters; the structured
  *                      result comes back as a call to that tool, so pi executes it
  *
- * Claude Code runs its own tools, not pi's, so a request offering more than one
- * tool is refused with an error message rather than half-supported. That covers
- * Agent Script's steps, which offer at most `submit_result`.
+ * Without a `bridge`, a request offering more than one tool is refused with an
+ * error message rather than half-supported. With one, a request offering any
+ * tool other than `submit_result` runs a held session (provider-session.ts):
+ * Claude Code calls the tools through the bridge, each call is handed to pi as a
+ * `toolCall`, and pi runs it.
  *
  * For local development. On a server, use a real provider and an API key.
  */
@@ -31,14 +33,19 @@ import {
 	type StreamOptions,
 	type Tool,
 } from "@earendil-works/pi-ai";
+import { DEFAULT_MAX_ROUNDS } from "../pi/port.js";
 import {
+	SERVABLE_NAME,
 	claudeArgs,
 	claudeCodeEnv,
 	spawnRunner,
 	toClaudeCodeOutcome,
 	type ClaudeCodeResult,
+	type ProcessResult,
 	type Runner,
 } from "./claude-code.js";
+import { SessionRegistry, startSession, type ProviderSession, type SessionEvent } from "./provider-session.js";
+import type { ToolBridgeFactory } from "./tool-bridge.js";
 
 export const CLAUDE_CODE_API = "claude-code";
 export const CLAUDE_CODE_PROVIDER_ID = "claude-code";
@@ -48,9 +55,14 @@ export interface ClaudeCodeProviderOptions {
 	readonly timeoutMs?: number;
 	/** Where `claude` runs. Defaults to a fresh empty directory per request, removed after. Ignored with `runner`. */
 	readonly cwd?: string;
-	/** Replaces process spawning, for tests. Receives the request's abort signal. */
+	/** Replaces process spawning, for tests. Receives the request's abort signal, or a bridged session's own. */
 	readonly runner?: (signal: AbortSignal | undefined) => Runner;
+	/** Serves a request's tools to `claude` (`mcpBridge()` from `./node`), so Claude Code can call them through pi. */
+	readonly bridge?: ToolBridgeFactory;
 }
+
+/** The structured answer's tool, by its fixed name. */
+const SUBMIT_RESULT = "submit_result";
 
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
@@ -82,10 +94,11 @@ export function claudeCodeModel(id: string): Model<typeof CLAUDE_CODE_API> {
 }
 
 export function claudeCodeProvider(options: ClaudeCodeProviderOptions = {}): Provider<typeof CLAUDE_CODE_API> {
-	const runnerFor =
-		options.runner ?? ((signal) => spawnRunner(options.binary ?? "claude", options.timeoutMs ?? 300_000, signal, options.cwd));
+	const runnerFor = (signal: AbortSignal | undefined): Runner =>
+		options.runner?.(signal) ?? spawnRunner(options.binary ?? "claude", options.timeoutMs ?? 300_000, signal, options.cwd);
+	const sessions = new SessionRegistry();
 	const stream = (model: Model<Api>, context: { messages: Message[] }, streamOptions?: StreamOptions) =>
-		streamClaude(model, context.messages, runnerFor(streamOptions?.signal));
+		streamClaude(model, context.messages, { runnerFor, bridge: options.bridge, sessions, signal: streamOptions?.signal });
 	return createProvider({
 		id: CLAUDE_CODE_PROVIDER_ID,
 		name: "Claude Code (your subscription)",
@@ -141,7 +154,14 @@ function textOf(content: string | readonly { type: string; text?: string }[]): s
 	return content.map((b) => (b.type === "text" ? (b.text ?? "") : "")).join("");
 }
 
-function streamClaude(model: Model<Api>, messages: readonly Message[], runner: Runner): AssistantMessageEventStream {
+interface StreamContext {
+	readonly runnerFor: (signal: AbortSignal | undefined) => Runner;
+	readonly bridge: ToolBridgeFactory | undefined;
+	readonly sessions: SessionRegistry;
+	readonly signal: AbortSignal | undefined;
+}
+
+function streamClaude(model: Model<Api>, messages: readonly Message[], context: StreamContext): AssistantMessageEventStream {
 	const events = createAssistantMessageEventStream();
 	const base: AssistantMessage = {
 		role: "assistant",
@@ -153,19 +173,74 @@ function streamClaude(model: Model<Api>, messages: readonly Message[], runner: R
 		stopReason: "pending",
 		timestamp: Date.now(),
 	};
+	const finish = (message: AssistantMessage) => {
+		if (message.stopReason === "error" || message.stopReason === "aborted") events.push({ type: "error", reason: message.stopReason, error: message });
+		else events.push({ type: "done", reason: message.stopReason as "stop" | "toolUse", message });
+		events.end(message);
+	};
+	const refuse = (errorMessage: string) => finish({ ...base, stopReason: "error", errorMessage });
+	const aborted: AssistantMessage = { ...base, stopReason: "aborted", errorMessage: "Request was aborted" };
+	/** The session's next event as a message, unless the request's signal aborts first: then the session ends and `aborted` wins. */
+	const waitOn = async (session: ProviderSession, toolName: string | undefined): Promise<AssistantMessage> => {
+		const signal = context.signal;
+		let onAbort: (() => void) | undefined;
+		const abort = new Promise<"aborted">((resolve) => {
+			onAbort = () => resolve("aborted");
+			if (signal?.aborted) onAbort();
+			else signal?.addEventListener("abort", onAbort, { once: true });
+		});
+		try {
+			const event = await Promise.race([session.nextEvent(), abort]);
+			if (event !== "aborted" && !signal?.aborted) return messageFromEvent(base, event, toolName);
+		} finally {
+			signal?.removeEventListener("abort", onAbort!);
+		}
+		await session.end().catch(() => undefined);
+		return aborted;
+	};
 
 	void (async () => {
 		const tools = toolsOf(messages);
+		const others = tools.filter((t) => t.name !== SUBMIT_RESULT);
+		if (context.bridge !== undefined && others.length > 0) {
+			const unservable = others.find((t) => !SERVABLE_NAME.test(t.name));
+			if (unservable !== undefined) return refuse(`offered tool name ${unservable.name} can't be served to claude`);
+			events.push({ type: "start", partial: base });
+			const submit = tools.find((t) => t.name === SUBMIT_RESULT);
+			const continued = continueSession(messages, context.sessions);
+			if (continued !== undefined) return finish(await waitOn(continued, submit?.name));
+			if (context.signal?.aborted) return finish(aborted);
+			// No result names a live session: a first request, or a resumed run whose process died with the crash.
+			let session: ProviderSession;
+			try {
+				session = await startSession({
+					bridge: context.bridge,
+					tools: others.map((t) => ({ name: t.name, description: t.description, inputSchema: t.parameters as unknown as Record<string, unknown> })),
+					invocation: {
+						system: systemPromptOf(messages),
+						model: model.id,
+						...(submit !== undefined ? { schema: submit.parameters as unknown as Record<string, unknown> } : {}),
+						maxTurns: DEFAULT_MAX_ROUNDS,
+					},
+					prompt: promptOf(messages),
+					runnerFor: context.runnerFor,
+					registry: context.sessions,
+				});
+			} catch (error) {
+				return refuse(`could not start the tool bridge: ${error instanceof Error ? error.message : String(error)}`);
+			}
+			return finish(await waitOn(session, submit?.name));
+		}
+
 		if (tools.length > 1) {
-			const error = { ...base, stopReason: "error" as const, errorMessage: `the claude-code provider runs at most one pi tool per request; this one offered ${tools.length} (${tools.map((t) => t.name).join(", ")})` };
-			events.push({ type: "error", reason: "error", error });
-			events.end(error);
-			return;
+			return refuse(
+				`the claude-code provider runs at most one pi tool per request without a bridge; this one offered ${tools.length} (${tools.map((t) => t.name).join(", ")})`,
+			);
 		}
 		const tool = tools[0];
 		events.push({ type: "start", partial: base });
 
-		const processResult = await runner(
+		const processResult = await context.runnerFor(context.signal)(
 			claudeArgs({
 				system: systemPromptOf(messages),
 				model: model.id,
@@ -174,39 +249,68 @@ function streamClaude(model: Model<Api>, messages: readonly Message[], runner: R
 			promptOf(messages),
 			claudeCodeEnv(process.env),
 		);
-		const { step, parsed } = toClaudeCodeOutcome(processResult, tool !== undefined);
-		const usage = usageOf(parsed);
-
-		if (step.kind === "failed" || step.kind === "cut-short") {
-			const status = parsed?.api_error_status ?? undefined;
-			const error: AssistantMessage = {
-				...base,
-				usage,
-				stopReason: "error",
-				errorMessage: step.kind === "failed" ? step.message : `claude stopped at its turn limit after ${step.turns} turns`,
-				...(status !== undefined && status !== null
-					? { diagnostics: [{ type: "claude-code", timestamp: Date.now(), error: { message: "api error", code: status } }] }
-					: {}),
-			};
-			events.push({ type: "error", reason: "error", error });
-			events.end(error);
-			return;
-		}
-
-		const message: AssistantMessage =
-			tool !== undefined && step.structured !== undefined
-				? {
-						...base,
-						usage,
-						stopReason: "toolUse",
-						content: [{ type: "toolCall", id: `claude-code-${Date.now()}`, name: tool.name, arguments: step.structured as Record<string, never> }],
-					}
-				: { ...base, usage, stopReason: "stop", content: [{ type: "text", text: step.text }] };
-		events.push({ type: "done", reason: message.stopReason as "stop" | "toolUse", message });
-		events.end(message);
+		finish(messageFromResult(base, processResult, tool?.name));
 	})();
 
 	return events;
+}
+
+/**
+ * Hands the trailing `toolResult`s (those after the last assistant message) to
+ * the held calls they answer, and returns the live session they belong to.
+ * Unknown ids are ignored; undefined when none names a live session.
+ */
+function continueSession(messages: readonly Message[], sessions: SessionRegistry): ProviderSession | undefined {
+	let start = messages.length;
+	while (start > 0 && messages[start - 1]?.role !== "assistant") start -= 1;
+	let continued: ProviderSession | undefined;
+	for (const message of messages.slice(start)) {
+		if (message.role !== "toolResult") continue;
+		const session = sessions.sessionOf(message.toolCallId);
+		if (session?.resolve(message.toolCallId, { ok: !message.isError, text: textOf(message.content) })) continued ??= session;
+	}
+	return continued;
+}
+
+/** A session's event as one message: its held calls as `toolCall`s with zero usage, or the process's result. */
+function messageFromEvent(base: AssistantMessage, event: SessionEvent, toolName: string | undefined): AssistantMessage {
+	if (event.kind === "done") return messageFromResult(base, event.result, toolName);
+	return {
+		...base,
+		stopReason: "toolUse",
+		content: event.calls.map((call) => ({ type: "toolCall" as const, id: call.id, name: call.name, arguments: call.args as Record<string, never> })),
+	};
+}
+
+/**
+ * One process's result as a message: an error with diagnostics, a call to
+ * `toolName` carrying the structured output when that tool was offered, or text.
+ */
+function messageFromResult(base: AssistantMessage, processResult: ProcessResult, toolName: string | undefined): AssistantMessage {
+	const { step, parsed } = toClaudeCodeOutcome(processResult, toolName !== undefined);
+	const usage = usageOf(parsed);
+
+	if (step.kind === "failed" || step.kind === "cut-short") {
+		const status = parsed?.api_error_status ?? undefined;
+		return {
+			...base,
+			usage,
+			stopReason: "error",
+			errorMessage: step.kind === "failed" ? step.message : `claude stopped at its turn limit after ${step.turns} turns`,
+			...(status !== undefined && status !== null
+				? { diagnostics: [{ type: "claude-code", timestamp: Date.now(), error: { message: "api error", code: status } }] }
+				: {}),
+		};
+	}
+
+	return toolName !== undefined && step.structured !== undefined
+		? {
+				...base,
+				usage,
+				stopReason: "toolUse",
+				content: [{ type: "toolCall", id: `claude-code-${Date.now()}`, name: toolName, arguments: step.structured as Record<string, never> }],
+			}
+		: { ...base, usage, stopReason: "stop", content: [{ type: "text", text: step.text }] };
 }
 
 function usageOf(parsed: ClaudeCodeResult | undefined): AssistantMessage["usage"] {

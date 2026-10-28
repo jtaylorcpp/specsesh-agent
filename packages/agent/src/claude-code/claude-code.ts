@@ -205,7 +205,7 @@ export function createClaudeCodeReasoningPort(options: ClaudeCodeReasoningPortOp
 }
 
 /** Offer names that keep `mcp__agentscript__<name>` within Claude Code's 64 characters. */
-const SERVABLE_NAME = /^[A-Za-z0-9_-]{1,48}$/;
+export const SERVABLE_NAME = /^[A-Za-z0-9_-]{1,48}$/;
 
 /**
  * One tool step: the offers are served through a bridge, and one `claude -p`

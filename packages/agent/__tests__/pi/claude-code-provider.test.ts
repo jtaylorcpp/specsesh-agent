@@ -1,7 +1,7 @@
 import { chmodSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createModels, Type, type Context, type Message } from "@earendil-works/pi-ai";
 import type { ProcessResult, Runner } from "../../src/claude-code/claude-code.js";
 import { CLAUDE_CODE_API, CLAUDE_CODE_PROVIDER, CLAUDE_CODE_PROVIDER_ID } from "../../src/claude-code/index.js";
@@ -57,15 +57,6 @@ describe("the claude-code pi provider", () => {
 		expect(message.stopReason).toBe("toolUse");
 		expect(message.content[0]).toMatchObject({ type: "toolCall", name: "submit_result", arguments: { greeting: "Hello, World!" } });
 		expect(JSON.parse(flag(h.calls[0]!.args, "--json-schema")!)).toMatchObject({ properties: { greeting: { type: "string" } } });
-	});
-
-	it("refuses a request offering more than one tool, without spawning", async () => {
-		const h = harness(ok({ result: "x" }));
-		const t = (name: string) => ({ name, description: "", parameters: Type.Object({}) });
-		const message = await h.models.complete(h.model, { messages: [system({}, "", [t("a"), t("b")]), user("x")] });
-		expect(message.stopReason).toBe("error");
-		expect(message.errorMessage).toMatch(/at most one pi tool.*a, b/);
-		expect(h.calls).toHaveLength(0);
 	});
 
 	it("reports an API error with its status, for the port's category mapping", async () => {
@@ -148,7 +139,45 @@ describe("The system prompt ends with the no-workspace note", () => {
 	});
 });
 
+describe("The provider refuses more than one pi tool without spawning", () => {
+	it("Scenario: Two tools are refused", async () => {
+		const h = harness(ok({ result: "x" }));
+		const t = (name: string) => ({ name, description: "", parameters: Type.Object({}) });
+		const message = await h.models.complete(h.model, { messages: [system({}, "", [t("a"), t("b")]), user("x")] });
+		expect(message.stopReason).toBe("error");
+		expect(message.errorMessage).toMatch(/at most one pi tool/);
+		expect(message.errorMessage).toMatch(/without a bridge/);
+		expect(message.errorMessage).toContain("a, b");
+		expect(h.calls).toHaveLength(0);
+	});
+});
+
 describe("The provider spawns per request with the request's abort signal", () => {
+	it("Scenario: A test runner replaces spawning", async () => {
+		const seen: { args: readonly string[]; input: string; env: NodeJS.ProcessEnv; signal: AbortSignal | undefined }[] = [];
+		const models = createModels();
+		models.setProvider(
+			claudeCodeProvider({
+				runner: (signal) => async (args, input, env) => {
+					seen.push({ args, input, env, signal });
+					return ok({ result: "faked" });
+				},
+			}),
+		);
+		const controller = new AbortController();
+		vi.stubEnv("ANTHROPIC_API_KEY", "sk-test-not-forwarded");
+		const message = await models
+			.complete(models.getModel("claude-code", "claude-haiku-4-5")!, { messages: [user("Say hi")] }, { signal: controller.signal })
+			.finally(() => vi.unstubAllEnvs());
+		expect(message.content).toEqual([{ type: "text", text: "faked" }]);
+		expect(seen).toHaveLength(1);
+		expect(seen[0]!.args).toContain("-p");
+		expect(seen[0]!.args).not.toContain("--max-turns");
+		expect(seen[0]!.input).toBe("Say hi");
+		expect(seen[0]!.env.ANTHROPIC_API_KEY).toBeUndefined();
+		expect(seen[0]!.signal).toBe(controller.signal);
+	});
+
 	it("Scenario: The provider runs claude in its cwd option", async () => {
 		const binary = join(mkdtempSync(join(tmpdir(), "agentscript-fake-claude-")), "claude");
 		writeFileSync(binary, `#!${process.execPath}\nprocess.stdin.resume();\nprocess.stdin.on("end", () => process.stdout.write(JSON.stringify({ type: "result", is_error: false, result: process.cwd() })));\n`);
