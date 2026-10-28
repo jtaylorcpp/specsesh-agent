@@ -31,7 +31,7 @@ A watcher attached to a started run SHALL first receive `step_start` and `step_e
 - **THEN** it SHALL yield every step's `step_start` and `step_end`, then `run_end`, and end
 
 ### Requirement: Watching never changes the run
-Watchers SHALL only read. Several watchers MAY attach to one run, each receiving every event independently and buffered. `stop()` SHALL end that watcher's iterator and detach it, leaving the run and other watchers unaffected. An id that is not an `agentscript.run` task SHALL reject `result` and throw from the iterator with `waitForScript`'s message.
+Watchers SHALL only read. Several watchers MAY attach to one run, each receiving every event independently and buffered. `stop()` SHALL end that watcher's iterator and detach it, leaving the run and other watchers unaffected. An id naming another kind of task SHALL reject `result` and throw from the iterator with `task <id> is a <kind> task, not agentscript.run`.
 
 #### Scenario: Two watchers see the same events
 - **WHEN** two watchers follow one run, one reading slowly
