@@ -56,7 +56,7 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 
 ## Claude Code tools (from add-claude-code-tools)
 
-- **Back to `--safe-mode` on tool steps.** `--safe-mode` turns off every MCP server, `--mcp-config` included (Claude Code 2.1.310), so a tool step passes `--setting-sources "" --disable-slash-commands --strict-mcp-config` instead. That replacement is an observed equivalence (the same 642-token context), not a documented one. If a later Claude Code keeps `--mcp-config` servers under `--safe-mode`, tool steps should go back to it. Watch Claude Code's release notes, and re-run the change's probes (design, Probes) on each new version. Source: the change's design, Risks.
+- **Back to `--safe-mode` on tool steps.** `--safe-mode` turns off every MCP server, `--mcp-config` included (Claude Code 2.1.310), so a tool step passes `--setting-sources "" --disable-slash-commands --strict-mcp-config` instead. That replacement is an observed equivalence (the same 642-token context), not a documented one. If a later Claude Code keeps `--mcp-config` servers under `--safe-mode`, tool steps should go back to it. Watch Claude Code's release notes, and run `pnpm test:claude-code` on each new version: it re-checks the isolation against `--safe-mode` (input tokens, and a project CLAUDE.md sentinel), a real bridged tool call and a durable run. Source: the change's design, Risks.
 
 ## Durable claude-code tools (from add-durable-claude-code-tools)
 

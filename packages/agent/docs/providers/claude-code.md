@@ -53,6 +53,14 @@ An offered tool's name must match `^[A-Za-z0-9_-]{1,48}$`, so `mcp__agentscript_
 
 This isolation is an observed equivalence, not a documented one: a later Claude Code could load something these flags don't cover. It applies to tool steps only, and the live check re-runs the measurement.
 
+After updating Claude Code, run `pnpm test:claude-code` from this repository. It is opt-in, runs on your own subscription (Haiku, about six requests) and skips, saying why, when `claude` is missing or not logged in. It checks:
+
+- the isolation, by input tokens against `--safe-mode`, and by a project CLAUDE.md sentinel with a positive control;
+- a real tool call through `mcpBridge()`;
+- a durable run through the bin.
+
+If it fails, tool steps may be loading your configuration, or Claude Code may no longer serve `--mcp-config` tools under these flags.
+
 ### Durable tool steps
 
 `specsesh durable run`/`resume --provider claude-code --tools <module>` (or `--mcp <file>`) offers a step's tools to Claude Code too. Claude Code calls them, but pi-durable runs each call as a checkpointed host action: under its replay rule, recorded in the step's actions, and seen by `watchScript`. The bins register the pi provider as `claudeCodeProvider({ bridge: mcpBridge() })`; the bridge's SDK loads only when a request offers tools.

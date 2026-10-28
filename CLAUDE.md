@@ -249,6 +249,8 @@ pnpm --filter cloudflare-worker-example dev    # wrangler dev; add --var AGENTSC
 pnpm test:cloudflare            # opt-in, not in `pnpm test`: crash/resume (kill -9 mid-step) + route scripts, local DO storage
 pnpm test:ollama                # opt-in, not in `pnpm test`, built bins: a durable run killed mid-step and resumed, then a one-task
                                 # loop, on a local Ollama model (OLLAMA_TEST_MODEL or the first pulled); skips when no server answers
+pnpm test:claude-code           # opt-in, not in `pnpm test`, your subscription: claude-code tool steps on Haiku (about six requests),
+                                # __tests__/live/claude-code-tools.live.test.ts; skips, saying why, without a logged-in `claude`
 pnpm spec:check                 # openspec validate --all --strict
 pnpm change close <change-id>   # end a built change: guard, trial fold, archive (see "Specs")
 pnpm spec:archive <change-id>   # this repo's own script: validate, trial fold, archive; no database
