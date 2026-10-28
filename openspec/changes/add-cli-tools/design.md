@@ -35,3 +35,17 @@ Fixture modules in `__tests__/fixtures/tools/`: a default array, a named `tools`
 
 - **A resumed run with different tools.** If the stored script still binds, a resume with a different module that has the same names is accepted. That is the user's choice, like resuming with a different binary, and the docs say to pass the same flags.
 - **Module side effects at import.** They are the user's code, run once per process.
+
+## Verified live
+
+2026-10-27, from the repo root, on a local Ollama server, `qwen3.5:latest`:
+
+- **One-shot.** `node packages/agent/dist/bin/agentscript-pi.js run packages/agent/examples/tools/tools.agent --entry echo_it --entry count_it --tools packages/agent/examples/tools/tools.mjs --provider ollama --model qwen3.5:latest --json` exited `0`, kind `completed`:
+  - `echo` ran from `echo_it`'s `run` statement, with no model call, and set `echoed` to `"Agent Script runs your own tools"`.
+  - In `count_it`, the model called the offered `word_count` once with that text. The call answered `{ count: 6 }`, and the step ended `answered` (`"6"`).
+  - Final variables: `text` and `echoed` were `"Agent Script runs your own tools"`, and `count` was `6`.
+- **Durable.** `node packages/agent/dist/bin/agentscript-durable.js run packages/agent/examples/tools/tools.agent --db /tmp/add-cli-tools-live.db --entry echo_it --entry count_it --tools packages/agent/examples/tools/tools.mjs --provider ollama --model qwen3.5:latest` ended `# task 7 — completed` with `count = 6`. Its stderr hint was `agentscript-durable resume 7 --db /tmp/add-cli-tools-live.db --tools packages/agent/examples/tools/tools.mjs`. The process wasn't killed, so `resume` wasn't exercised live.
+
+## Decisions made during the build
+
+- **A flaky group check.** Group 4's first group check failed only on `task/worktree.test.ts` "Two tasks run at once": a git worktree lock race, outside this change. The recommended path was to rerun the checks and accept the group if they passed. They passed (group loop 636), and the race is parked in `openspec/parked.md`.

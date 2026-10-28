@@ -1,0 +1,53 @@
+config:
+    agent_name: "tools-demo"
+
+system:
+    instructions: |
+        You count words with the word_count tool. Be brief.
+
+variables:
+    text: mutable string = "Agent Script runs your own tools"
+        description: "the text to echo and count"
+    echoed: mutable string = ""
+        description: "the text, as echo returned it"
+    count: mutable number = 0
+        description: "the number of words in echoed"
+
+subagent echo_it:
+    description: "Run echo, without the model"
+
+    actions:
+        echo:
+            description: "Echo the text"
+            inputs:
+                text: string
+            outputs:
+                text: string
+            target: "mcpTool://echo"
+
+    reasoning:
+        instructions: ->
+            run @actions.echo
+                with text = @variables.text
+                set @variables.echoed = @outputs.text
+
+subagent count_it:
+    description: "Ask the model to count the words with a tool"
+
+    actions:
+        word_count:
+            description: "Count the words in a text"
+            inputs:
+                text: string
+            outputs:
+                count: number
+            target: "mcpTool://word_count"
+
+    reasoning:
+        instructions: ->
+            | Count the words in this text by calling the word_count tool once: {!@variables.echoed}
+            | Then reply with the count.
+        actions:
+            word_count: @actions.word_count
+                with text = ...
+                set @variables.count = @outputs.count

@@ -22,7 +22,22 @@ The loops are Agent Script (`.agent`) files. These commands show the bundled one
 - `--entry <subagent>` (repeatable) picks where it starts. `--var name=value` (repeatable) seeds a variable: `True` and `False` become booleans and numbers numbers.
 - `--json` prints the result as JSON. `specsesh agent models [provider]` lists a provider's models.
 
-Model-callable actions (`reasoning.actions`) don't run here yet: the CLIs load no tools, so a step that offers them fails with `invalid_request`. In a one-shot run, offered tools run only from code, through the tool host you give the pi port (`createPiReasoningPort({ models, model, tools })`, see the package README's "Run it once"). `--provider claude-code` refuses them either way.
+## Tools (`--tools`)
+
+A script's actions (`run @actions.x`, and tools offered under `reasoning.actions`) call tools you write in a JavaScript module:
+
+```bash
+specsesh agent run tools.agent --entry echo_it --entry count_it --tools ./tools.mjs --provider ollama --model qwen3.5:latest
+```
+
+- `--tools <path>` (repeatable) loads a module, resolved from the working directory. It must be JavaScript: `.mjs` or `.js` (ESM), or `.cjs`. TypeScript is not loaded, so compile it first. Several modules form one set of tools, in flag order.
+- `--workspace <dir>` (default the working directory) is the `workspace` given to each module function and to every `execute`.
+- **The module shape.** The `default` export, else the `tools` export, is a `HostAction[]`, or a function of `{ workspace }` returning one, sync or async. Each entry is `{ name, kind, inputs, outputs, replay, execute }`: `kind` is `read`, `edit`, `command` or `delegate`; `inputs` and `outputs` map names to `"string"`, `"number"` or `"boolean"`; `replay` is `"safe"` or `"unsafe"`; `execute(inputs, { workspace, signal })` answers `{ ok: true, outputs }` or `{ ok: false, message }`. A script's action binds by its `target`: `mcpTool://<name>`.
+- **Refusals, exit `2`, before any model call.** A module that fails to import, an entry that fails the shape check, a `durable` entry, a `delegate/` name or a duplicate name prints `--tools <path>: <problem>`. A script whose actions don't match the loaded tools (a missing name, different inputs or outputs) prints the binding error, such as `mcpTool://<name> is not registered on this host`.
+- Without `--tools` nothing changes: a script with no actions runs as before, and one with actions fails as it always did.
+- The workspace built-ins (`read_file`, `edit_file`, `run_command`) are not registered by the CLI. A module can add them itself: `import { builtinActions } from "@specsesh/agent/node"; export default ({ workspace }) => builtinActions({ workspace });`.
+- From code, `registryHost(registry, { workspace, signal? })` from `@specsesh/agent/durable` turns a registry (`createActionRegistry(actions)`) into `{ actionHost, toolHost }`: pass `actionHost` to `run()` and `toolHost` as the pi port's `tools`.
+- `--provider claude-code` runs `run @actions.x` statements, but a step that offers tools (`reasoning.actions`) still fails `invalid_request` on it. Use a pi provider for those steps.
 
 ## Task scripts
 

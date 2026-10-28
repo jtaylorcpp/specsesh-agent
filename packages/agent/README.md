@@ -109,6 +109,14 @@ agentscript-pi models ollama
 agentscript-pi run hello.agent --entry greet --entry decide --entry sign_off --provider ollama --model qwen3:8b
 ```
 
+**With tools from a module**, `--tools` (repeatable) loads your `HostAction`s from a JavaScript
+module for both `run @actions.x` and offered tools ([`examples/tools/`](examples/tools/)):
+
+```bash
+agentscript-pi run examples/tools/tools.agent --entry echo_it --entry count_it \
+  --tools examples/tools/tools.mjs --provider ollama --model qwen3.5:latest
+```
+
 **From code.** The interpreter holds no credential and imports no model client: reasoning leaves
 through a `ReasoningPort` you inject. `@specsesh/agent/pi` builds one on pi-ai:
 

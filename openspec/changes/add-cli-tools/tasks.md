@@ -14,6 +14,6 @@
 
 ## 4. Docs and example
 
-- [ ] 4.1 `packages/agent/examples/tools/`: `tools.mjs` (an `echo` and a `word_count`) and `tools.agent`, which runs one tool and offers the other. `docs/llm/agent.md` and `docs/llm/durable.md`: the flags, the module shape, and that `claude-code` still refuses offered tools. README `## Run it once`: a two-line `--tools` example. `openspec/parked.md`: replace the `agentscript-durable … refused there` note with what remains (built-ins from the CLI). `scripts/check-assets.mjs` if it lists examples. Run `pnpm docs:check`, `pnpm check`, `pnpm test`, and run the example once live on Ollama (`--provider ollama --model qwen3.5:latest`), recording the result in `design.md` under "Verified live"
+- [x] 4.1 `packages/agent/examples/tools/`: `tools.mjs` (an `echo` and a `word_count`) and `tools.agent`, which runs one tool and offers the other. `docs/llm/agent.md` and `docs/llm/durable.md`: the flags, the module shape, and that `claude-code` still refuses offered tools. README `## Run it once`: a two-line `--tools` example. `openspec/parked.md`: replace the `agentscript-durable … refused there` note with what remains (built-ins from the CLI). `scripts/check-assets.mjs` if it lists examples. Run `pnpm docs:check`, `pnpm check`, `pnpm test`, and run the example once live on Ollama (`--provider ollama --model qwen3.5:latest`), recording the result in `design.md` under "Verified live"
 
 The change ends with `pnpm change close add-cli-tools`.

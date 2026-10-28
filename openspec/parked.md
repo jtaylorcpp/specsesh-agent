@@ -40,7 +40,7 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 ## Actions (from add-agentscript-actions)
 
 - Offered tool names collide across concurrent runs in one harness. pi-durable resolves a conversation's tools by name, and `agentScriptExtensions` keeps one live tool per offer name (last registered wins). Two runs offering the same name (`note`, say) with different descriptions or input schemas share whichever definition was registered last, so one run's model can see the other's description and have its arguments validated against the other's schema. Execution is still correct: each call reads its own offer (bound inputs, action) from its step conversation's `agentscript.step-actions` doc. Since `bound-step-results`, `submit_result`'s parameters are live the same way, so concurrent structured steps can show a provider another step's schema; the tool still checks against its own step doc's `schema`. A crash during a model-callable tool call is also not yet tested (the act phase's crashes are).
-- `agentscript-durable` installs the plain extensions, so a script with actions is refused there. Propose `--workspace <dir>` (plus `--allow` / `--check`) to install `agentScriptExtensions({ actions: builtinActions(...), workspace })`; the task CLI will install its own registry.
+- **The durable CLI doesn't register the workspace built-ins** (`read_file`, `edit_file`, `run_command`). Since `add-cli-tools`, `--tools` and `--workspace` install `agentScriptExtensions({ actions, workspace })` with a module's tools, and a module can register the built-ins itself with `builtinActions({ workspace })`. A flag for them (plus `--allow` / `--check`) would need no module; the task CLI installs its own registry.
 
 ## Pi tool loop (from add-pi-tool-loop)
 
@@ -55,6 +55,7 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 
 ## Headless runner (from add-headless-task-runner)
 
+- **`task/worktree.test.ts` "Two tasks run at once" can race** (seen in add-cli-tools group 4). `git worktree list` failed because `.git/worktrees/tiny-1.2/locked` vanished while two worktrees were being added at once. A rerun passed. Serialising `git worktree add` per repository, or retrying `worktree list` on that error, would close it.
 - **`group-ended.changed` after a group `resume` is measured from the resume.** A group has no baseline of its own; its task loops' `loop-ended.changed` are measured from each task loop's start (`judge-sees-loop-changes`).
 - **`--json` carries neither `changed` nor the worktree's review lines.** Both are on the event stream (`loop-ended`) and in the text outcome; the JSON outcome stays `{ loop, ...outcome }`.
 - **`worktreeSetup` commands have no timeout**, and their output is shown only when one fails.
