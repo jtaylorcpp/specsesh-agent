@@ -15,7 +15,14 @@ export type StreamDelta =
 	| { readonly type: "text_delta"; readonly delta: string }
 	| { readonly type: "thinking_delta"; readonly delta: string }
 	| { readonly type: "tool_call"; readonly name: string; readonly inputs: Readonly<Record<string, unknown>> }
-	| { readonly type: "tool_result"; readonly name: string; readonly ok: boolean; readonly outputs: unknown };
+	/** `outputs` as the call is recorded (`{}` when not ok); `message` says why a call failed. */
+	| {
+			readonly type: "tool_result";
+			readonly name: string;
+			readonly ok: boolean;
+			readonly outputs: unknown;
+			readonly message?: string;
+	  };
 
 /** The second argument to `reason`, passed only when the run has a listener. */
 export interface StreamSink {

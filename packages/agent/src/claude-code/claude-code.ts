@@ -36,7 +36,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ReasoningPort, ReasoningRequest, StepOutcome } from "../interpreter/index.js";
+import type { ReasoningPort, ReasoningRequest, StepOutcome, StreamSink } from "../interpreter/index.js";
 import { TOOLS_NEED_DURABLE_HOST, toFailureCategory } from "../interpreter/index.js";
 import { categoryFromStatus } from "../pi/categories.js";
 
@@ -135,7 +135,8 @@ export function claudeCodeEnv(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 export function createClaudeCodeReasoningPort(options: ClaudeCodeReasoningPortOptions = {}): ReasoningPort {
 	const runner = options.runner ?? spawnRunner(options.binary ?? "claude", options.timeoutMs ?? 300_000, undefined, options.cwd);
 	return {
-		async reason(request: ReasoningRequest): Promise<StepOutcome> {
+		// `claude -p --output-format json` reports nothing until the step ends, so `_stream` is unused.
+		async reason(request: ReasoningRequest, _stream?: StreamSink): Promise<StepOutcome> {
 			// One `claude -p` per step, tools off: nothing here can run a tool loop.
 			if (request.tools !== undefined) {
 				return { kind: "failed", category: "invalid_request", message: TOOLS_NEED_DURABLE_HOST };

@@ -36,3 +36,7 @@
 
 - **Providers whose streamed and completed outputs differ.** pi builds `complete()` from the stream for every API, so the final message is the same object shape. The equality test pins it on faux.
 - **Unbounded buffering.** A consumer that never reads holds every event of one run in memory. That is bounded by one run's output, and the docs say so.
+
+## Decisions made during the build
+
+- **A failed `tool_result` keeps the recorded outputs.** Group 2 first emitted `outputs: { error: <message> }` for a failed call, which disagreed with the call's record (`outputs: {}`), and `add-durable-streaming` builds `tool_result` from those records. The recommended path was to make the event match the record exactly. `outputs` is now always as recorded, and a failed call carries the reason in an optional `message` field (`StreamDelta`, `RunEvent`).

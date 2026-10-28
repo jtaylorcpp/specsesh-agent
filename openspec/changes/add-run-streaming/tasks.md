@@ -5,7 +5,7 @@
 
 ## 2. The pi port
 
-- [ ] 2.1 `packages/agent/src/pi/port.ts`: the streamed path and delta forwarding, plus tool-loop events (decision 5). `claude-code.ts`: signature only. Tests in `__tests__/pi/streaming.test.ts` on the faux provider: "Scenario: Deltas concatenate to the step's text", "Scenario: Streamed and unstreamed runs agree", "Scenario: An unstreamed step never calls stream", "Scenario: A tool call is reported around its execution". Existing `__tests__/pi/` tests (both `pi/port` scenarios under the modified requirement included) still pass
+- [x] 2.1 `packages/agent/src/pi/port.ts`: the streamed path and delta forwarding, plus tool-loop events (decision 5). `claude-code.ts`: signature only. Tests in `__tests__/pi/streaming.test.ts` on the faux provider: "Scenario: Deltas concatenate to the step's text", "Scenario: Streamed and unstreamed runs agree", "Scenario: An unstreamed step never calls stream", "Scenario: A tool call is reported around its execution". Existing `__tests__/pi/` tests (both `pi/port` scenarios under the modified requirement included) still pass
 
 ## 3. Docs
 

@@ -9,6 +9,11 @@
  * Given a tool host, a step that offers tools runs a loop (`runToolLoop`),
  * bounded by `maxRounds`; only that bound reports `cut-short`.
  *
+ * Given a stream (`reason`'s second argument), every request goes through
+ * `models.stream()` instead of `complete()`: text and thinking deltas are
+ * forwarded, and the final message is mapped exactly as `complete()`'s would be.
+ * The tool loop also reports each call and its result.
+ *
  * Mapping, all from structured fields and never from message text:
  *
  *   stopReason "stop" / "toolUse"  → answered (structured = the result tool's arguments)
@@ -26,6 +31,7 @@ import type {
 	ReasoningPort,
 	ReasoningRequest,
 	StepOutcome,
+	StreamSink,
 	ToolCallRecord,
 	ToolOffer,
 } from "../interpreter/index.js";
@@ -80,9 +86,9 @@ export const DEFAULT_MAX_ROUNDS = 16;
 export function createPiReasoningPort(options: PiReasoningPortOptions): ReasoningPort {
 	const { models, model } = options;
 	return {
-		async reason(request: ReasoningRequest): Promise<StepOutcome> {
+		async reason(request: ReasoningRequest, stream?: StreamSink): Promise<StepOutcome> {
 			if (request.tools !== undefined && options.tools !== undefined) {
-				return runToolLoop(request, request.tools, options.tools, options);
+				return runToolLoop(request, request.tools, options.tools, options, stream);
 			}
 			// Single-shot: there is no loop here to feed a tool's result back.
 			if (request.tools !== undefined) {
@@ -94,16 +100,37 @@ export function createPiReasoningPort(options: PiReasoningPortOptions): Reasonin
 			};
 			if (request.outputSchema !== undefined) context.tools = [resultTool(request.outputSchema)];
 
-			const message = await models.complete(model, context, {
+			const message = await send(models, model, context, {
 				maxTokens: options.maxTokens ?? 4096,
 				...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
 				...(options.signal !== undefined ? { signal: options.signal } : {}),
 				...(request.outputSchema !== undefined ? forceTool(model) : {}),
-			});
+			}, stream);
 			options.onMessage?.(message);
 			return toOutcome(message, request.outputSchema !== undefined);
 		},
 	};
+}
+
+/**
+ * One model request: `complete()` without a stream, `stream()` with one. Only
+ * text and thinking deltas are forwarded; `toolcall_delta` is a half-parsed call.
+ */
+async function send(
+	models: Models,
+	model: Model<Api>,
+	context: Context,
+	requestOptions: Record<string, unknown>,
+	stream: StreamSink | undefined,
+): Promise<AssistantMessage> {
+	if (stream === undefined) return models.complete(model, context, requestOptions);
+	const events = models.stream(model, context, requestOptions);
+	for await (const event of events) {
+		if (event.type === "text_delta" || event.type === "thinking_delta") {
+			stream.onDelta({ type: event.type, delta: event.delta });
+		}
+	}
+	return events.result();
 }
 
 /**
@@ -118,6 +145,7 @@ async function runToolLoop(
 	offers: readonly ToolOffer[],
 	host: PiToolHost,
 	options: PiReasoningPortOptions,
+	stream: StreamSink | undefined,
 ): Promise<StepOutcome> {
 	const { models, model } = options;
 	const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
@@ -149,7 +177,7 @@ async function runToolLoop(
 	let stillCalling = false;
 
 	while (rounds < maxRounds) {
-		const reply = await models.complete(model, context, requestOptions);
+		const reply = await send(models, model, context, requestOptions, stream);
 		rounds += 1;
 		options.onMessage?.(reply);
 		last = reply;
@@ -174,12 +202,15 @@ async function runToolLoop(
 			const problems = checkArguments(offer.inputSchema, call.arguments);
 			if (problems.length > 0) {
 				// Never reaches the host: the model is told what was wrong and can call again.
-				context.messages.push(toolResult(call, problems.join("; "), true));
+				const message = problems.join("; ");
+				context.messages.push(toolResult(call, message, true));
 				toolCalls.push({ name: offer.name, inputs: call.arguments, ok: false, outputs: {} });
+				stream?.onDelta({ type: "tool_result", name: offer.name, ok: false, outputs: {}, message });
 				continue;
 			}
 			// Bound inputs win over the model's, as under the durable host.
 			const inputs = { ...call.arguments, ...offer.bound };
+			stream?.onDelta({ type: "tool_call", name: offer.name, inputs });
 			let result: ActionResult;
 			try {
 				result = await host({ name: offer.name, tool: offer.action, inputs });
@@ -190,6 +221,11 @@ async function runToolLoop(
 				result.ok
 					? toolResult(call, JSON.stringify(result.outputs), false)
 					: toolResult(call, result.message, true),
+			);
+			stream?.onDelta(
+				result.ok
+					? { type: "tool_result", name: offer.name, ok: true, outputs: result.outputs }
+					: { type: "tool_result", name: offer.name, ok: false, outputs: {}, message: result.message },
 			);
 			toolCalls.push({
 				name: offer.name,
@@ -211,7 +247,7 @@ async function runToolLoop(
 		// The settling request counts toward the bound too.
 		if (rounds >= maxRounds) return { kind: "cut-short", text, turns: maxRounds };
 		const settling: Context = { ...context, tools: [resultTool(request.outputSchema!)] };
-		const reply = await models.complete(model, settling, { ...requestOptions, ...forceTool(model) });
+		const reply = await send(models, model, settling, { ...requestOptions, ...forceTool(model) }, stream);
 		options.onMessage?.(reply);
 		const outcome = toOutcome(reply, true);
 		return outcome.kind === "answered" ? { ...outcome, toolCalls } : outcome;
