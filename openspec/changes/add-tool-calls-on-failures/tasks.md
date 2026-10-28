@@ -10,6 +10,6 @@
 ## 3. Durable and the consumers
 
 - [x] 3.1 `src/durable/extension.ts`: both failed returns of the await phase report `actionCalls` when the step offered tools (decision 6), and `reportedCalls` counts every outcome's calls (decision 7). `src/task/iteration.ts` `hostRecords`: every outcome's records (decision 7). Tests: "Scenario: A step whose result is refused reports its calls" (in `__tests__/durable/`, beside the existing "Scenario: Two shell calls are reported"); and a `hostRecords` test in `__tests__/task/` showing a failed step's record is collected
-- [ ] 3.2 Docs: `packages/agent/docs/llm/agent.md` and `docs/llm/durable.md` say `toolCalls` is on every outcome of a step that ran tools; the `StepOutcome` doc comments. Run `pnpm docs:check`, `pnpm check`, `pnpm test`
+- [x] 3.2 Docs: `packages/agent/docs/llm/agent.md` and `docs/llm/durable.md` say `toolCalls` is on every outcome of a step that ran tools; the `StepOutcome` doc comments. Run `pnpm docs:check`, `pnpm check`, `pnpm test`
 
 The change ends with `pnpm change close add-tool-calls-on-failures`.

@@ -68,6 +68,16 @@ export type FailureCategory =
 /**
  * How a step ended. A discriminated union, so a caller distinguishes the cases
  * without reading message text — prose is not a protocol.
+ *
+ * `toolCalls` follows one rule on every member: present when the step offered
+ * tools and the port ran its tool path, one `ToolCallRecord` per call, in call
+ * order. A port that refuses before its tool path runs (TOOLS_NEED_DURABLE_HOST,
+ * an unservable name, an already-aborted signal, a bridge that won't start)
+ * carries none. `run()` checks `toolCalls` on every kind: a name the request
+ * did not offer fails the step with category `unknown` and no `toolCalls`. A
+ * failure `run()` derives from an answer (no usable structured result, a value
+ * outside `choices`) keeps the answer's calls. Outputs are applied only from an
+ * answered step: a cut-short or failed step sets nothing.
  */
 export type StepOutcome =
 	| {
@@ -75,7 +85,7 @@ export type StepOutcome =
 			readonly text: string;
 			/** Present only when the step requested one. */
 			readonly structured?: unknown;
-			/** Present only when the step offered tools: every call made, in call order. */
+			/** Present when the step offered tools and its tool path ran: every call made, in call order. */
 			readonly toolCalls?: readonly ToolCallRecord[];
 	  }
 	/**
@@ -88,11 +98,7 @@ export type StepOutcome =
 			readonly text: string;
 			/** The implementation's own count, carried through unchanged. */
 			readonly turns: number;
-			/**
-			 * Present only when the step offered tools and its tool path ran: every
-			 * call made, in call order. A port that refused before running anything
-			 * carries none.
-			 */
+			/** As on `answered`; never applied to variables. */
 			readonly toolCalls?: readonly ToolCallRecord[];
 	  }
 	| {
@@ -100,11 +106,7 @@ export type StepOutcome =
 			readonly category: FailureCategory;
 			/** What the layer said, kept verbatim even when the category is known. */
 			readonly message: string;
-			/**
-			 * Present only when the step offered tools and its tool path ran: every
-			 * call made, in call order. A port that refused before running anything
-			 * carries none.
-			 */
+			/** As on `answered`; never applied to variables. */
 			readonly toolCalls?: readonly ToolCallRecord[];
 	  };
 

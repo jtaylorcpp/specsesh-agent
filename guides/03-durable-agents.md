@@ -104,7 +104,7 @@ A script the interpreter refuses (a construct outside the supported subset, an u
 `runScript` resolves to a `RunResult`:
 
 - `kind` is `"completed"`, `"failed"` or `"cut-short"`. A step that fails (a provider error, a result the model could not get right in three tries) ends the run `failed`, and **the promise still resolves**: the task completed, the script did not. Check `kind`.
-- `steps` has one entry per model step, with the subagent, the request it sent and its `outcome` (`answered` with `text`, `structured` and any `toolCalls`, or `failed` with a `category` and `message`). Logic-only subagents make no entry.
+- `steps` has one entry per model step, with the subagent, the request it sent and its `outcome` (`answered` with `text`, `structured` and any `toolCalls`, or `failed` with a `category`, `message` and any `toolCalls`). Logic-only subagents make no entry.
 - `actions` lists every action call a `run` statement made.
 - `variables` holds the final values, including those set by steps that finished before a failure.
 
