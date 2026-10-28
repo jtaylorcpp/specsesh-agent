@@ -5,8 +5,8 @@
 
 ## 2. The port's tool path
 
-- [ ] 2.1 `createClaudeCodeReasoningPort`'s `tools` and `bridge` options and the tool path (decision 4), in `src/claude-code/claude-code.ts`. Tests in a new `__tests__/pi/claude-code-tools.test.ts`, with a fake bridge factory and a runner that drives the captured handler: "Scenario: tools need a bridge", "Scenario: A tool step passes the bridge's server and a turn bound", "Scenario: The bridge is closed when the step fails", "Scenario: A bridge that will not start fails the step", "Scenario: An unservable tool name is refused before spawning"
-- [ ] 2.2 In the same file: "Scenario: A call runs on the host with bound inputs winning", "Scenario: Bad arguments never reach the host", "Scenario: A listening run sees the bridge's calls"
+- [x] 2.1 `createClaudeCodeReasoningPort`'s `tools` and `bridge` options and the tool path (decision 4), in `src/claude-code/claude-code.ts`. Tests in a new `__tests__/pi/claude-code-tools.test.ts`, with a fake bridge factory and a runner that drives the captured handler: "Scenario: tools need a bridge", "Scenario: A tool step passes the bridge's server and a turn bound", "Scenario: The bridge is closed when the step fails", "Scenario: A bridge that will not start fails the step", "Scenario: An unservable tool name is refused before spawning"
+- [x] 2.2 In the same file: "Scenario: A call runs on the host with bound inputs winning", "Scenario: Bad arguments never reach the host", "Scenario: A listening run sees the bridge's calls"
 
 ## 3. mcpBridge
 
