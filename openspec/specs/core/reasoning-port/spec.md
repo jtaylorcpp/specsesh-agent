@@ -32,7 +32,7 @@ The interpreter SHALL construct no default port. `run` with no `port` SHALL reje
 - **AND** it SHALL NOT contain `@coopcli`
 
 ### Requirement: A request has exactly three fields
-Each dispatched `ReasoningRequest` SHALL hold `systemInstructions` (string), `prompt` (string), `outputSchema` (a JSON Schema object) only for a step that writes variables from its result, and `tools` (a non-empty `ToolOffer[]`) only for a step with reasoning actions. No other key SHALL be present. The type SHALL hold no executor or turn bound: `tools` are declarations, and the package SHALL execute no tool and count no rounds.
+Each dispatched `ReasoningRequest` SHALL hold `systemInstructions` (string), `prompt` (string), `outputSchema` (a JSON Schema object) only for a step that writes variables from its result, and `tools` (a non-empty `ToolOffer[]`) only for a step with reasoning actions. No other key SHALL be present. The type SHALL hold no executor or turn bound: `tools` are declarations, and the interpreter SHALL execute no tool and count no rounds.
 
 #### Scenario: Only the three fields cross the boundary
 - **WHEN** a plain step and a structured step are dispatched
@@ -194,9 +194,10 @@ An answered step that offered tools SHALL carry `toolCalls`: one `{ name, inputs
 - **THEN** its `toolCalls` entry SHALL have `ok` `false` and `outputs` `{}`
 
 ### Requirement: A port that cannot run tools refuses a request that offers them
-A port implementation that cannot run a tool loop SHALL answer any request carrying `tools` with `{ kind: "failed", category: "invalid_request" }` and a message saying tools need the durable host, without contacting a model. The pi reasoning port and the claude-code port are such ports.
+A port that cannot run a tool loop SHALL answer any request carrying `tools` with `{ kind: "failed", category: "invalid_request" }` and the `TOOLS_NEED_DURABLE_HOST` message, which names the durable host and a pi port given a tool host, without contacting a model. The claude-code port, and the pi port created without `tools`, are such ports.
 
 #### Scenario: The pi port refuses a tool request
-- **GIVEN** the pi reasoning port and a request with `tools`
+- **GIVEN** the pi reasoning port created without `tools`, and a request with `tools`
 - **WHEN** `reason` is called
 - **THEN** it SHALL resolve failed with category `invalid_request`, and no model request SHALL be made
+- **AND** the message SHALL contain `durable host` and `tool host`
