@@ -5,7 +5,7 @@
 
 ## 2. Live check and docs
 
-- [ ] 2.1 "Scenario: A real claude streams a step's text" in `__tests__/live/claude-code-tools.live.test.ts` (skips without a logged-in `claude`, like its neighbours; not run by `pnpm test`)
-- [ ] 2.2 Docs: `packages/agent/docs/llm/agent.md` (the claude-code bullets: a listening run streams text), `packages/agent/docs/providers/claude-code.md` (streaming: when it happens, the flags, structured steps stream no text, the pi provider doesn't stream), the port's module comment in `claude-code.ts`, and the `--provider claude-code` paragraph of `CLAUDE.md`. Park "claude-code pi provider text streaming (held sessions, durable runs)" in `openspec/parked.md`, replacing the existing claude-code text streaming entry. Run `pnpm docs:check`, `pnpm check`, `pnpm test`
+- [x] 2.1 "Scenario: A real claude streams a step's text" in `__tests__/live/claude-code-tools.live.test.ts` (skips without a logged-in `claude`, like its neighbours; not run by `pnpm test`)
+- [x] 2.2 Docs: `packages/agent/docs/llm/agent.md` (the claude-code bullets: a listening run streams text), `packages/agent/docs/providers/claude-code.md` (streaming: when it happens, the flags, structured steps stream no text, the pi provider doesn't stream), the port's module comment in `claude-code.ts`, and the `--provider claude-code` paragraph of `CLAUDE.md`. Park "claude-code pi provider text streaming (held sessions, durable runs)" in `openspec/parked.md`, replacing the existing claude-code text streaming entry. Run `pnpm docs:check`, `pnpm check`, `pnpm test`
 
 The change ends with `pnpm change close add-claude-code-text-streaming`.

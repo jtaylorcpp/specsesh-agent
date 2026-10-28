@@ -45,6 +45,15 @@
  * running, but `reason` still resolves and the bridge still closes. After an abort
  * the bridge answers every call not-ok without reaching the host.
  *
+ * A step streams when `reason` is given a sink: --output-format json becomes
+ * --output-format stream-json --verbose --include-partial-messages, in the same place,
+ * and no other flag changes. The runner's `onStdout` feeds a line reader that passes
+ * each non-empty text and thinking delta to the sink; the outcome comes from the last
+ * `type: "result"` line, mapped as the json output is. A structured step streams no
+ * text (its value is StructuredOutput tool input), and a tool step's calls still reach
+ * the sink only from the bridge. The reader closes when the step settles, so chunks a
+ * dying process flushes after an abort are dropped. Without a sink the argv is unchanged.
+ *
  * Claude Code owns its own turn loop and bound, so unlike the pi port this one
  * CAN report `cut-short` — when Claude Code says it stopped at max turns.
  */
