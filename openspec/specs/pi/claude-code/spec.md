@@ -310,7 +310,7 @@ With `tools: { mcpConfig, allowedTools }`, `claudeArgs` SHALL put, in place of `
 - **THEN** the step SHALL fail `invalid_request` with a message naming `has space`, and neither the bridge nor the runner SHALL have been called
 
 ### Requirement: Calls through the bridge are checked, run on the host and recorded
-The bridge handler SHALL refuse an unoffered name unrecorded, and refuse arguments failing `checkToolArguments` with `ok: false`, recorded with `outputs: {}`. Otherwise it SHALL call the host with `{ name, tool: offer.action, inputs: { ...args, ...offer.bound } }`, a throw being `ok: false`, and answer `JSON.stringify(outputs)` or the message. An answered step SHALL carry every recorded call in arrival order as `toolCalls`.
+The bridge handler SHALL refuse an unoffered name unrecorded, and refuse arguments failing `checkToolArguments` with `ok: false`, recorded with `outputs: {}`. Otherwise it SHALL call the host with `{ name, tool: offer.action, inputs: { ...args, ...offer.bound } }`, a throw being `ok: false`, and answer `JSON.stringify(outputs)` or the message. Once the bridge has started, every outcome of the step SHALL carry every recorded call in arrival order as `toolCalls`.
 
 #### Scenario: A call runs on the host with bound inputs winning
 - **GIVEN** an offer `lookup` for action `orders/lookup` with bound `{ region: "eu" }`, and a runner that calls the handler with `lookup` and `{ id: "7", region: "us" }` before answering `done`
@@ -327,6 +327,11 @@ The bridge handler SHALL refuse an unoffered name unrecorded, and refuse argumen
 - **GIVEN** a stream sink passed to `reason`, and a runner that makes one good call through the handler
 - **WHEN** the request is reasoned
 - **THEN** the sink SHALL receive `tool_call` with the merged inputs, then `tool_result` with `ok: true` and the outputs
+
+#### Scenario: A tool step that fails keeps its calls
+- **GIVEN** a runner that makes one good call through the handler, then reports `{ is_error: true, result: "boom" }`
+- **WHEN** the request is reasoned
+- **THEN** the step SHALL be failed with `boom`, and `toolCalls` SHALL hold that call with the host's outputs
 
 ### Requirement: mcpBridge serves a step's tools to claude over loopback HTTP
 `mcpBridge()` from `@specsesh/agent/node` SHALL return a `ToolBridgeFactory` whose bridge serves Streamable HTTP MCP on `127.0.0.1` only, refusing a request without its random bearer token with `401`. Its `mcpConfig` SHALL be a mode-`0600` file naming the server `agentscript`; `allowedTools` SHALL be `mcp__agentscript__<name>` per tool. `tools/call` SHALL answer through the handler, `!ok` or a throw as `isError`. `close` SHALL stop the server and remove the file.

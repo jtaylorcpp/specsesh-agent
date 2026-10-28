@@ -60,7 +60,7 @@ Every request SHALL carry the full system instructions and its own full composed
 - **AND** its `prompt` SHALL be the second subagent's composed prompt in full
 
 ### Requirement: A step ends answered, cut short, or failed
-`StepOutcome` SHALL be a union on `kind` with exactly three members: `{ kind: "answered", text, structured?, toolCalls? }`, where `structured` is present only when the step asked for one and `toolCalls` only when it offered tools (see "An answer records its tool calls"); `{ kind: "cut-short", text, turns }`, where `turns` is the implementation's own count; and `{ kind: "failed", category, message }`, where `message` is the layer's own words, verbatim.
+`StepOutcome` SHALL be a union on `kind` with exactly three members: `{ kind: "answered", text, structured?, toolCalls? }`, where `structured` is present only when the step asked for one and `toolCalls` only when it offered tools (see "An answer records its tool calls"); `{ kind: "cut-short", text, turns, toolCalls? }`, where `turns` is the implementation's own count; and `{ kind: "failed", category, message, toolCalls? }`, where `message` is the layer's own words, verbatim.
 
 #### Scenario: The implementation reports a step stopped at its bound
 - **WHEN** the port answers `{ kind: "cut-short", text: "partial", turns: 7 }`
@@ -70,6 +70,10 @@ Every request SHALL carry the full system instructions and its own full composed
 #### Scenario: An answer records the tools it called
 - **WHEN** a step offering `shell` is answered after two calls to it
 - **THEN** `toolCalls` SHALL hold two entries named `shell`, in call order, each with its `inputs`, `ok` and `outputs`
+
+#### Scenario: A failed step keeps the tools it called
+- **WHEN** a step offering `shell` is reported `failed` after one call to it
+- **THEN** the step's outcome SHALL be `failed` with `toolCalls` holding that one call
 
 ### Requirement: A run's kind comes from its last step
 A run's `kind` SHALL be `completed` when every dispatched step answered and every action call succeeded, or nothing was dispatched. Otherwise it SHALL be the last step's `cut-short` or `failed`, or `failed` for a failed action call, because either ends the run. The interpreter SHALL impose no bound of its own and pass none to the port.
@@ -183,20 +187,35 @@ Every import in `src/authoring/`, `src/interpreter/` and `__tests__/core/` SHALL
 - **THEN** each SHALL be a declared dependency, a `node:` built-in or a relative path inside those directories
 
 ### Requirement: A tool offer declares, and never executes
-`ToolOffer` SHALL be `{ name, description, inputSchema, action, bound }` (`core/composition`). The core SHALL never call a tool: it offers declarations and reads back `toolCalls` only to apply outputs. A recorded call naming a tool the request did not offer SHALL make the step failed, with category `unknown`.
+`ToolOffer` SHALL be `{ name, description, inputSchema, action, bound }` (`core/composition`). The core SHALL never call a tool: it offers declarations and reads back `toolCalls` only to apply outputs. A recorded call, on any outcome, naming a tool the request did not offer SHALL make the step failed, with category `unknown` and no `toolCalls`.
 
 #### Scenario: An unoffered tool call fails the step
 - **GIVEN** a step offering only `edit`
 - **WHEN** it is answered with a `toolCalls` entry named `delete`
 - **THEN** the step SHALL be failed, naming `delete`, and nothing SHALL be set from it
 
+#### Scenario: An unoffered call on a failed outcome is still refused
+- **GIVEN** a step offering only `edit`
+- **WHEN** it is reported `failed` with a `toolCalls` entry named `delete`
+- **THEN** the step SHALL be failed, naming `delete`, with no `toolCalls`
+
 ### Requirement: An answer records its tool calls
-An answered step that offered tools SHALL carry `toolCalls`: one `{ name, inputs, ok, outputs, record? }` per call, in call order. `ok` SHALL be `false` for a refused, failed or interrupted call, whose `outputs` are `{}`; `record` is the host's opaque `Action`/`Evidence` record, carried through unchanged.
+A step that offered tools and whose tool path ran SHALL carry `toolCalls` on whatever outcome it ends with: one `{ name, inputs, ok, outputs, record? }` per call, in call order. `ok` SHALL be `false` for a refused, failed or interrupted call, whose `outputs` are `{}`; `record` is the host's opaque `Action`/`Evidence` record, carried through unchanged. A failure `run()` derives from an answer SHALL keep its calls; outputs SHALL be applied only from an answered step.
 
 #### Scenario: A refused call is recorded as not ok
 - **GIVEN** a step offering `shell`
 - **WHEN** the host refuses a call to it
 - **THEN** its `toolCalls` entry SHALL have `ok` `false` and `outputs` `{}`
+
+#### Scenario: A cut-short step keeps its calls and sets nothing
+- **GIVEN** a step whose reasoning action `read` sets `@variables.content = @outputs.content`
+- **WHEN** the port reports `cut-short` with one `read` call whose outputs carry `content`
+- **THEN** the step's outcome SHALL keep that call, and `content` SHALL stay unset
+
+#### Scenario: A failure derived from an answer keeps its calls
+- **GIVEN** a structured step offering `read`
+- **WHEN** it is answered with one `read` call and no structured result
+- **THEN** the step SHALL be failed and its outcome SHALL keep that call
 
 ### Requirement: A port that cannot run tools refuses a request that offers them
 A port that cannot run a tool loop SHALL answer any request carrying `tools` with `{ kind: "failed", category: "invalid_request" }` and the `TOOLS_NEED_DURABLE_HOST` message, which names the durable host, a pi port given a tool host, and a claude-code port given tools and a bridge, without contacting a model. The pi and claude-code ports created without `tools` are such ports.
