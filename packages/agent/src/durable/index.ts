@@ -16,6 +16,7 @@ export {
 export {
 	ActionBindingError,
 	checkBindings,
+	checkDeclaredOutputs,
 	createActionRegistry,
 	DELETE_NOT_GRANTED,
 	deleteActions,
@@ -74,3 +75,4 @@ export type { AgentConfig, AgentHarness, AgentHarnessOptions, ModelFactory } fro
 export { createAgentHarness } from "./harness.js";
 export { runScript, startScript, waitForScript, type StartScriptOptions } from "./host.js";
 export { checkResult } from "./result.js";
+export { registryHost, type RegistryHost, type RegistryHostOptions } from "./tool-host.js";

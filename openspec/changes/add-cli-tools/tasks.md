@@ -1,7 +1,7 @@
 ## 1. The adapter and the loader
 
-- [ ] 1.1 `packages/agent/src/durable/tool-host.ts`: `registryHost` (`design.md` decision 3), exported from `src/durable/index.ts`, sharing the declared-outputs check with `extension.ts` (move it into `actions.ts` if it is private). Tests in `__tests__/durable/tool-host.test.ts`: "Scenario: A registered tool runs through both hosts", "Scenario: An unregistered tool is refused", "Scenario: Wrong outputs are refused", plus a durable action answered `runs only in a durable host`
-- [ ] 1.2 `packages/agent/src/bin/tools.ts`: `loadTools(paths, { cwd, workspace })` (`design.md` decisions 1–2) answering `{ ok: true, registry, actions }` or `{ ok: false, message }`. Fixture modules under `__tests__/fixtures/tools/`: `echo.mjs` (default array), `fn.mjs` (named `tools` function recording its argument), `throws.mjs`, `no-execute.mjs`, `durable.mjs`, `dupe.mjs`. Unit tests in `__tests__/pi/tools-loader.test.ts` for each refusal's message
+- [x] 1.1 `packages/agent/src/durable/tool-host.ts`: `registryHost` (`design.md` decision 3), exported from `src/durable/index.ts`, sharing the declared-outputs check with `extension.ts` (move it into `actions.ts` if it is private). Tests in `__tests__/durable/tool-host.test.ts`: "Scenario: A registered tool runs through both hosts", "Scenario: An unregistered tool is refused", "Scenario: Wrong outputs are refused", plus a durable action answered `runs only in a durable host`
+- [x] 1.2 `packages/agent/src/bin/tools.ts`: `loadTools(paths, { cwd, workspace })` (`design.md` decisions 1–2) answering `{ ok: true, registry, actions }` or `{ ok: false, message }`. Fixture modules under `__tests__/fixtures/tools/`: `echo.mjs` (default array), `fn.mjs` (named `tools` function recording its argument), `throws.mjs`, `no-execute.mjs`, `durable.mjs`, `dupe.mjs`. Unit tests in `__tests__/pi/tools-loader.test.ts` for each refusal's message
 
 ## 2. agentscript-pi
 
