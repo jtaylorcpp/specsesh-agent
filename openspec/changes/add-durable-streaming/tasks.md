@@ -5,6 +5,6 @@
 
 ## 2. Docs
 
-- [ ] 2.1 `packages/agent/README.md` durable section and `docs/llm/durable.md`: a `watchScript` example, history on attach, coarser deltas, library-only. `openspec/parked.md`: an SSE route on `defineAgentHost` built on `watchScript`, and watching across processes. `CLAUDE.md`'s `src/durable` row names `watch.ts`. Run `pnpm docs:check`, `pnpm check`, `pnpm test`, and watch one durable run live on Ollama (`qwen3.5:latest`), recording it in `design.md` under "Verified live"
+- [x] 2.1 `packages/agent/README.md` durable section and `docs/llm/durable.md`: a `watchScript` example, history on attach, coarser deltas, library-only. `openspec/parked.md`: an SSE route on `defineAgentHost` built on `watchScript`, and watching across processes. `CLAUDE.md`'s `src/durable` row names `watch.ts`. Run `pnpm docs:check`, `pnpm check`, `pnpm test`, and watch one durable run live on Ollama (`qwen3.5:latest`), recording it in `design.md` under "Verified live"
 
 The change ends with `pnpm change close add-durable-streaming`.

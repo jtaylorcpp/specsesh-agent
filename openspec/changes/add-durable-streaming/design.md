@@ -63,6 +63,15 @@ On memory storage (`openMemoryStorage` or equivalent) and node SQLite, with pi's
 - **`watchEvents` is marked experimental in pi-durable 1.1.0.** Pin the behaviour with tests. A pi-durable bump that breaks it fails them, and that is a decision under the exact-pin rule.
 - **Per-call outputs.** If the step-actions doc can't be read at `tool_execution_end`, emit `tool_result` from the tool's result entry instead, and record the difference here.
 
+## Verified live
+
+2026-10-28, Ollama `qwen3.5:latest`, from a throwaway script (not committed):
+- **Setup.** A two-step text script (`greet`, `bye`) started with `startScript` on a `MemoryStorage` harness, with the plain extensions and `registerOllama`. It was watched with `watchScript` before `harness.resume()`.
+- **Events.** `step_start:0`, `step_end:0`, `step_start:1`, `step_end:1`, `run_end`, in that order. Between them came 541 `thinking_delta` and 2 `text_delta`.
+- **Text.** Each step's text deltas joined to its outcome's text: `Hello!` and `Goodbye!`.
+- **Result.** `completed`, and `w.result` was equal to `waitForScript`'s result.
+- **Not exercised live:** late attachment and tool steps. They are covered by `__tests__/durable/watch.test.ts`.
+
 ## Decisions made during the build
 
 - **The task loop blocked on two questions** (group loop 974); the recommended path was taken on both.

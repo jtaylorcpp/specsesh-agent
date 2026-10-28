@@ -54,6 +54,11 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 
 - **claude-code deltas through `--output-format stream-json`.** The claude-code port ignores `reason`'s stream argument, so a streamed run on it gets step and action events only. Reading `claude -p --output-format stream-json` would let it map text and thinking deltas to `onDelta`. Deferred from add-run-streaming, whose scope was the pi port. Source: the change's proposal, Out of scope.
 
+## Durable streaming (from add-durable-streaming)
+
+- **A streaming route on `defineAgentHost`.** An SSE (or similar) route that streams a run's `RunEvent`s, built on `watchScript`. Deferred from add-durable-streaming, which is library-only. Source: the change's proposal, Out of scope.
+- **Watching from a process that doesn't run the harness.** pi-durable's events are in-process, so `watchScript` can't follow a run another process owns. Doing so is a storage-level question. Source: the change's proposal, Out of scope.
+
 ## Task loop (from add-task-agent)
 
 - **A crash between ticking and the judge's commit reports `ticked: false`.** The judge phase writes tasks.md, then commits the outcome. If the process dies in between, the re-run judge finds the line already ticked and reports `ticked: false` with "already ticked", though this loop ticked it. Recording the tick's intent in the checkpoint first would close it.

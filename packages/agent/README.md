@@ -324,6 +324,28 @@ in a pi-durable `Harness` over `openNodeSqliteStorage`, then `runScript` (or `st
 `waitForScript`); `harness.resume()` finishes runs whose process died. The full program is
 [`examples/hello-world`](../../examples/hello-world).
 
+### Watching a run
+
+`watchScript(harness, id, context)` yields a durable run's events: the same `RunEvent`s and
+iterable-plus-`result` shape as `streamRun`, with `result` settling as `waitForScript` would.
+
+```ts
+const w = watchScript(harness, id, context);   // from @specsesh/agent/durable
+for await (const ev of w) {
+  if (ev.type === "text_delta") process.stdout.write(ev.delta);
+  else if (ev.type === "run_end") console.log(ev.result.kind);
+  else console.log(`\n${ev.type}`, "name" in ev ? ev.name : "subagent" in ev ? ev.subagent : "");
+}
+const result = await w.result;   // w.stop() only detaches; the run carries on
+```
+
+A late watcher first gets the history (`step_start`/`step_end` per applied step, `action_start`/
+`action_end` per settled action, no deltas), then the in-flight step's text so far as one
+`text_delta`, then live events. Deltas come at pi-durable's commit pace (`partialIntervalMs`),
+coarser than `streamRun`'s, but a step watched from its start joins to its text. Watching only
+reads; slow readers and extra watchers lose nothing. Library-only and in-process (no CLI or host
+route streams, no `node:` imports); an id that isn't a run fails `task <id> is a <kind> task, not agentscript.run`.
+
 Setup, providers, the task and change loops and worktrees: [running locally](docs/deploy/local.md).
 
 ## Actions: let a script do work
