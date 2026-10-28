@@ -25,3 +25,7 @@ Measured on Claude Code 2.1.310, Haiku 4.5, with `--output-format stream-json --
 - `__tests__/pi/claude-code-stream.test.ts`, with fake runners that call `onStdout` with recorded stream-json lines, split across chunk boundaries, then resolve with the whole stdout.
 - One `spawnRunner` scenario with a fake `claude` script that writes a line, waits, then writes another: `onStdout` sees the first before the process exits.
 - Live: one more Haiku request in `pnpm test:claude-code`, a text step reasoned with a sink, asserting at least one `text_delta` arrived and their concatenation equals the outcome's text.
+
+## Decisions made during the build
+
+- **The reader closes when the step settles.** Found in review of group 1: after an abort, `reason` resolves without waiting for the process, and a dying `claude` may still flush stdout. Its deltas would have reached the sink after `step_end`, and the runner would tag them to the next step. `streamJsonReader` now returns `{ onStdout, close }`, and the port closes it as soon as the runner's result or the abort is in, so later chunks are dropped. Covered by a test in `claude-code-stream.test.ts` ("deltas a process reports after an abort never reach the sink"), not a spec scenario: it is the abort requirement holding, not new behaviour.
