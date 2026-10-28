@@ -396,6 +396,21 @@ While a session's process runs, each call through the bridge SHALL be held. The 
 - **WHEN** the request carrying that call's result is completed
 - **THEN** the message SHALL have `stopReason` `toolUse` and one `toolCall` to `submit_result` with `{ ok: true }`
 
+#### Scenario: Calls one after another share one process
+- **GIVEN** a bridged session whose runner calls `lookup` with `{ id: "1" }`, awaits the reply, then calls it with `{ id: "2" }`
+- **WHEN** three requests are completed, each appending the previous message and a `toolResult` for its call (texts `one`, then `two`)
+- **THEN** the second message SHALL carry one `toolCall` to `lookup` with `{ id: "2" }`, the third SHALL be the runner's text, the handler SHALL have answered `one` then `two`, the runner SHALL have been called once, and the bridge closed once
+
+#### Scenario: Results for calls made together are all handed back
+- **GIVEN** a runner that calls `lookup` twice without awaiting the first and answers with both replies' texts joined
+- **WHEN** the request carrying both calls' `toolResult`s (`A`, `B`) is completed
+- **THEN** the message SHALL be the text `AB`
+
+#### Scenario: A process that exits while a call is held ends the session
+- **GIVEN** a runner that calls `lookup` without awaiting it, then exits with code `1` and no JSON
+- **WHEN** the call is handed out, and a request carrying its `toolResult` is completed
+- **THEN** that request SHALL end as an error message, the bridge SHALL have been closed once, and the runner SHALL have been called at most twice
+
 ### Requirement: Results that name no live session start a fresh process
 A bridged request whose trailing `toolResult`s name no live session's held call SHALL start a new session whose prompt is `promptOf` of the whole transcript, prior calls and results included, so a resumed run continues after a crash.
 
@@ -411,3 +426,37 @@ When a request's `StreamOptions.signal` aborts while it waits on a session, the 
 - **GIVEN** a bridged session whose runner waits on its signal
 - **WHEN** the request's signal is aborted
 - **THEN** the message SHALL have `stopReason` `aborted`, the runner's signal SHALL be aborted, and the bridge SHALL have been closed
+
+### Requirement: pnpm test:claude-code re-checks tool steps against the real claude
+`pnpm test:claude-code` SHALL run, on the user's own logged-in `claude` and never in `pnpm test`, checks that tool steps' isolation matches `--safe-mode` (input tokens, and a project CLAUDE.md sentinel with a positive control), that a real tool call reaches the host, and that a durable run records its call. It SHALL skip, saying why, when `claude` is missing or not logged in.
+
+#### Scenario: Tool-step isolation costs what safe mode costs
+- **WHEN** the same question runs under `--safe-mode` and under the tool-step flags with a bridge serving no tools
+- **THEN** their input tokens SHALL be within 10% plus 100 of each other
+
+#### Scenario: A project CLAUDE.md does not reach a tool step
+- **GIVEN** a directory whose `CLAUDE.md` names the codeword `PERIWINKLE-4417`, and plain `claude -p` there answering with it
+- **WHEN** a one-tool step runs through the port in that directory, asked for any codeword
+- **THEN** the answer SHALL NOT contain `PERIWINKLE-4417`
+
+#### Scenario: A real claude calls a bridged tool
+- **GIVEN** the port with `mcpBridge()` and a host whose `secret_number` answers `{ value: 4817 }`
+- **WHEN** a step offering `secret_number` asks for the number
+- **THEN** the host SHALL have been called once and the answer SHALL contain `4817`
+
+#### Scenario: A real durable run records its call
+- **WHEN** the durable bin runs the tools example on `--provider claude-code --model haiku --json`
+- **THEN** it SHALL exit `0` with one `word_count` call recorded and `count` `6`
+
+### Requirement: A tool step's environment also drops CLAUDE_CODE_SAFE_MODE
+`toolStepEnv(parent)` SHALL return `claudeCodeEnv(parent)` without `CLAUDE_CODE_SAFE_MODE`, which an inherited `claude --safe-mode` session sets and which turns off `--mcp-config` servers. The port's tool steps and the provider's sessions SHALL spawn with it; steps without tools keep `claudeCodeEnv`. `CLAUDE_CODE_DISABLE_CLAUDE_MDS` and every other variable SHALL be kept.
+
+#### Scenario: An inherited safe mode is dropped for a tool step
+- **WHEN** `toolStepEnv({ PATH: "/bin", CLAUDE_CODE_SAFE_MODE: "1", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", CLAUDECODE: "1" })` is called
+- **THEN** it SHALL return `{ PATH: "/bin", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1" }`
+
+#### Scenario: The port and the provider spawn tool steps with it
+- **GIVEN** `process.env.CLAUDE_CODE_SAFE_MODE` set to `1`
+- **WHEN** the port runs a tool step, and the provider starts a bridged session
+- **THEN** neither runner's environment SHALL have `CLAUDE_CODE_SAFE_MODE`
+- **AND** a step without tools through the port SHALL still be handed `CLAUDE_CODE_SAFE_MODE` unchanged
