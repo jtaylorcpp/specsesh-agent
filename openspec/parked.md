@@ -42,6 +42,10 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 - Offered tool names collide across concurrent runs in one harness. pi-durable resolves a conversation's tools by name, and `agentScriptExtensions` keeps one live tool per offer name (last registered wins). Two runs offering the same name (`note`, say) with different descriptions or input schemas share whichever definition was registered last, so one run's model can see the other's description and have its arguments validated against the other's schema. Execution is still correct: each call reads its own offer (bound inputs, action) from its step conversation's `agentscript.step-actions` doc. Since `bound-step-results`, `submit_result`'s parameters are live the same way, so concurrent structured steps can show a provider another step's schema; the tool still checks against its own step doc's `schema`. A crash during a model-callable tool call is also not yet tested (the act phase's crashes are).
 - **The durable CLI doesn't register the workspace built-ins** (`read_file`, `edit_file`, `run_command`). Since `add-cli-tools`, `--tools` and `--workspace` install `agentScriptExtensions({ actions, workspace })` with a module's tools, and a module can register the built-ins itself with `builtinActions({ workspace })`. A flag for them (plus `--allow` / `--check`) would need no module; the task CLI installs its own registry.
 
+## MCP tools (from add-mcp-tools)
+
+- **Optional MCP tool parameters.** Only a tool's required scalar parameters map to inputs, so its optional parameters can't be reached, and a tool whose useful behaviour needs one can't be driven fully. A later change could add per-tool input selection in the `.mcp.json` entry. Source: the change's design, Risks.
+
 ## Pi tool loop (from add-pi-tool-loop)
 
 - **An offer named `submit_result` shadows the result tool.** On a structured step, a pi port given a tool host offers `submit_result` beside the step's tool offers. The scan doesn't forbid a reasoning action named `submit_result`, so the two would collide. The scan or `composeToolOffers` could reject the name. Source: the change's design, Risks.

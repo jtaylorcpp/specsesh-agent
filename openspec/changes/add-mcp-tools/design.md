@@ -41,3 +41,26 @@ The fixture is runnable over stdio (spawned with `node`), or over Streamable HTT
 - **Optional parameters are unreachable.** A tool whose useful behaviour needs one can't be driven fully. A later change could add per-tool input selection in the config. Park it.
 - **Long-lived servers in durable resumes.** Each process reconnects, and tool state on the server side is the server's business. An unsafe call interrupted by a crash is reported, not repeated (the replay rule).
 - **SDK churn.** The pin is exact, and bumping it is a deliberate change with the fixture tests as the check.
+
+## Verified live
+
+2026-10-28, against a third-party stdio server, `@modelcontextprotocol/server-everything` 2026.8.31 (launched through `pnpm dlx … stdio`), on Ollama `qwen3.5:latest`. The `--mcp` file named it `everything`; the script ran `mcpTool://everything/echo` (input `message`, output `text`) once with `run`, without the model, and once offered under `reasoning.actions` for the model to call.
+
+```bash
+node packages/agent/dist/bin/agentscript-pi.js run .agentscript/mcp-live/echo.agent --entry echo_it --entry ask_model \
+  --mcp .agentscript/mcp-live/servers.json --provider ollama --model qwen3.5:latest --json
+node packages/agent/dist/bin/agentscript-durable.js run .agentscript/mcp-live/echo.agent \
+  --db .agentscript/mcp-live/runs.sqlite --entry echo_it --entry ask_model \
+  --mcp .agentscript/mcp-live/servers.json --provider ollama --model qwen3.5:latest
+```
+
+`servers.json` was `{ "mcpServers": { "everything": { "command": "pnpm", "args": ["dlx", "@modelcontextprotocol/server-everything@2026.8.31", "stdio"] } } }`, in the gitignored `.agentscript/`.
+
+- **`agentscript-pi run`:** exit `0`, `completed`. The `run` call answered `{ ok: true, outputs: { text: "Echo: hello from Agent Script" } }`; the model called `echo` with `{ message: "ollama says hi" }` and got `Echo: ollama says hi`. Both landed in the variables (`echoed`, `model_echoed`).
+- **`agentscript-durable run`:** exit `0`, `completed`, the same variables. The resume hint repeated the flag: `resume with: agentscript-durable resume 7 --db .agentscript/mcp-live/runs.sqlite --mcp .agentscript/mcp-live/servers.json`.
+- **Skipped:** no `mcp: skipped` line on either run; every tool the server listed mapped.
+- **Lifecycle:** after each command, no `server-everything` process was left running.
+
+## Decisions made during the build
+
+- **The SDK is loaded lazily.** As first built, `src/node/mcp.ts` imported the SDK statically, so importing `./node` (and `./task`, which builds on it) failed without the optional peer installed. Group 4 covered for this by adding the SDK to the pack test's Node peers. The recommended path was to keep the peer optional for real: `mcp.ts` imports only types at load time, and `mcpTools` imports the SDK's runtime classes on first call. A missing SDK then rejects with `mcpTools needs the optional peer @modelcontextprotocol/sdk`. The pack test went back to installing only pi-ai, pi-durable and chord, which proves that every Node entry imports without the SDK. `specsesh` still depends on it, so the CLI's `--mcp` always has it.

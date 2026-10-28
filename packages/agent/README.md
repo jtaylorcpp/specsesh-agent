@@ -117,6 +117,13 @@ agentscript-pi run examples/tools/tools.agent --entry echo_it --entry count_it \
   --tools examples/tools/tools.mjs --provider ollama --model qwen3.5:latest
 ```
 
+**With tools from MCP servers**, `--mcp` (repeatable) connects the servers in a `.mcp.json`, the
+same file Claude Code reads, and a script calls them as `mcpTool://<server>/<tool>`:
+
+```bash
+agentscript-pi run issue.agent --mcp .mcp.json --provider ollama --model qwen3.5:latest
+```
+
 **From code.** The interpreter holds no credential and imports no model client: reasoning leaves
 through a `ReasoningPort` you inject. `@specsesh/agent/pi` builds one on pi-ai:
 

@@ -39,6 +39,26 @@ specsesh agent run tools.agent --entry echo_it --entry count_it --tools ./tools.
 - From code, `registryHost(registry, { workspace, signal? })` from `@specsesh/agent/durable` turns a registry (`createActionRegistry(actions)`) into `{ actionHost, toolHost }`: pass `actionHost` to `run()` and `toolHost` as the pi port's `tools`.
 - `--provider claude-code` runs `run @actions.x` statements, but a step that offers tools (`reasoning.actions`) still fails `invalid_request` on it. Use a pi provider for those steps.
 
+## MCP servers (`--mcp`)
+
+A script's actions can also call the tools of MCP servers, with no module:
+
+```bash
+specsesh agent run issue.agent --mcp .mcp.json --provider ollama --model qwen3.5:latest
+```
+
+- `--mcp <file>` (repeatable) works beside or instead of `--tools`. The file is JSON with a top-level `mcpServers` object, the shape of Claude Code's `.mcp.json`, so an existing one works unchanged. The servers of every file are merged.
+- **A server** is `{ command, args?, env?, cwd? }` (stdio) or `{ url, headers? }` (Streamable HTTP). An optional `type` of `stdio` or `http` is checked against the shape; `sse` is refused.
+- **`${VAR}` and `${VAR:-default}`** in any string expand from the environment, so keys stay out of the file (`"Authorization": "Bearer ${GITHUB_TOKEN}"`). An unset variable with no default is an error naming the server and the variable. A stdio server gets the SDK's default environment plus its own `env`, not the whole parent environment.
+- **Naming.** Each tool becomes the action `<server>/<tool>`, targeted as `mcpTool://github/create_issue`. Server names must match `^[A-Za-z0-9_-]+$` and must not be `delegate`. A tool name that doesn't match `^[A-Za-z0-9_.-]+$` is skipped.
+- **Inputs** are the tool's required scalar parameters only: `string`, `number`, `integer` (as `number`) and `boolean`. A required parameter of any other type skips the tool. Optional parameters are never sent.
+- **Outputs** are the scalar fields of the tool's `outputSchema`, read from `structuredContent`, when it declares them all scalar. Otherwise a single `text` output: the result's text items joined with `\n`.
+- **Errors.** An `isError` result or a transport error answers `ok: false` with the server's text.
+- **Kind and replay** come from the annotations: `readOnlyHint` gives `read`, replaying `safe` only when `idempotentHint` is also set. Anything else is `command`, replaying `unsafe`.
+- **Before any model call** every server is connected and listed. A server that fails to start, hand-shake or list within 30 s exits `2`, naming it. A bad file, or a server name repeated across files, exits `2` with `--mcp <file>: <problem>`. Each skipped tool prints on stderr as `mcp: skipped <server>/<tool>: <reason>`.
+- Every connection is closed when the command ends, on every path.
+- From code, `mcpTools(servers, options?)` from `@specsesh/agent/node` connects the same `mcpServers` object and returns `{ actions, skipped, close }`: pass `actions` to `createActionRegistry`, and call `close()` when done.
+
 ## Task scripts
 
 A script used by `specsesh task` must keep the task contract:

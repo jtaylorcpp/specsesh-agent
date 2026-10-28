@@ -8,9 +8,9 @@
  * rejects with `McpServerError`, naming the server.
  */
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+// Types only at load time: the SDK is an optional peer, so importing `./node` must not need it.
+// `loadSdk` imports it when `mcpTools` is first called.
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ActionResult, VariableValue } from "../interpreter/index.js";
@@ -102,13 +102,14 @@ export async function mcpTools(servers: McpServers, options: McpToolsOptions = {
 	const resolved = Object.entries(servers).map(([name, config]) => [name, resolveServer(name, config, env)] as const);
 
 	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+	const sdk = await loadSdk();
 	const opened: Client[] = [];
 	const settled = await Promise.allSettled(
 		resolved.map(async ([name, server]) => {
-			const client = new Client({ name: options.clientName ?? "@specsesh/agent", version: "0" });
+			const client = new sdk.Client({ name: options.clientName ?? "@specsesh/agent", version: "0" });
 			opened.push(client);
 			const stderr: string[] = [];
-			const transport = createTransport(server, stderr);
+			const transport = createTransport(sdk, server, stderr);
 			try {
 				const tools = await withTimeout(connectAndList(client, transport), timeoutMs);
 				return { name, client, tools };
@@ -258,14 +259,37 @@ function resolveServer(name: string, config: unknown, env: Readonly<Record<strin
 	return refuse("it has neither command (stdio) nor url (http)");
 }
 
-function createTransport(server: Resolved, stderr: string[]): Transport {
-	if (server.kind === "http") {
-		return new StreamableHTTPClientTransport(server.url, { requestInit: { headers: server.headers } });
+type Sdk = Awaited<ReturnType<typeof loadSdk>>;
+
+/** The SDK's runtime classes, imported on first use; a missing optional peer is named. */
+async function loadSdk() {
+	try {
+		const [client, stdio, http] = await Promise.all([
+			import("@modelcontextprotocol/sdk/client/index.js"),
+			import("@modelcontextprotocol/sdk/client/stdio.js"),
+			import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
+		]);
+		return {
+			Client: client.Client,
+			StdioClientTransport: stdio.StdioClientTransport,
+			getDefaultEnvironment: stdio.getDefaultEnvironment,
+			StreamableHTTPClientTransport: http.StreamableHTTPClientTransport,
+		};
+	} catch (error) {
+		throw new Error(
+			`mcpTools needs the optional peer @modelcontextprotocol/sdk; install it (${messageOf(error)})`,
+		);
 	}
-	const transport = new StdioClientTransport({
+}
+
+function createTransport(sdk: Sdk, server: Resolved, stderr: string[]): Transport {
+	if (server.kind === "http") {
+		return new sdk.StreamableHTTPClientTransport(server.url, { requestInit: { headers: server.headers } });
+	}
+	const transport = new sdk.StdioClientTransport({
 		command: server.command,
 		args: server.args,
-		env: { ...getDefaultEnvironment(), ...server.env },
+		env: { ...sdk.getDefaultEnvironment(), ...server.env },
 		...(server.cwd !== undefined ? { cwd: server.cwd } : {}),
 		stderr: "pipe",
 	});

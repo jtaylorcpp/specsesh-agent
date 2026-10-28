@@ -15,6 +15,6 @@
 
 ## 4. Docs
 
-- [ ] 4.1 `docs/llm/agent.md` and `docs/llm/durable.md`: `--mcp`, `<server>/<tool>` naming, the mapping rules (required scalar inputs only; `text` or structured outputs), and that an existing `.mcp.json` works. README `## Run it once`: a `--mcp .mcp.json` line. `CLAUDE.md`'s `src/node` row names `mcp.ts`. `openspec/parked.md`: optional MCP parameters. Run `pnpm docs:check`, `pnpm check`, `pnpm test`, `pnpm pack:check`, and run a script once live against a real stdio MCP server on Ollama, recording it in `design.md` under "Verified live"
+- [x] 4.1 `docs/llm/agent.md` and `docs/llm/durable.md`: `--mcp`, `<server>/<tool>` naming, the mapping rules (required scalar inputs only; `text` or structured outputs), and that an existing `.mcp.json` works. README `## Run it once`: a `--mcp .mcp.json` line. `CLAUDE.md`'s `src/node` row names `mcp.ts`. `openspec/parked.md`: optional MCP parameters. Run `pnpm docs:check`, `pnpm check`, `pnpm test`, `pnpm pack:check`, and run a script once live against a real stdio MCP server on Ollama, recording it in `design.md` under "Verified live"
 
 The change ends with `pnpm change close add-mcp-tools`.
