@@ -30,7 +30,7 @@
 5. **The claude-code port.** In `runToolStep`, once the bridge has started, a `failed` or `cut-short` outcome carries the calls recorded so far. The abort outcome from `add-claude-code-abort` is one of these. It is the abort path that resolves without waiting for the process, so the calls are copied at that moment. Refusals before the bridge (decision 1) carry none.
 6. **Durable.** In the await phase, when `request.tools` is set, both failed returns read `actionCalls` from the step conversation and step-actions doc, as the answered path does. Those returns are "the step was not answered" and "the step's result was refused 3 times". `actionCalls` already marks an interrupted or errored call `ok: false` with `outputs: {}`.
 7. **Consumers.**
-   - **`reportedCalls`** counts the `toolCalls` of every step outcome, not only answered ones. So calls in a failed step count toward a delegate's `maxCalls`. That closes the gap of a failing step that kept calling a delegate.
+   - **`reportedCalls`** counts the `toolCalls` of every step outcome, not only answered ones, so the count matches what the run reports. No caller can observe this today (see "Decisions made during the build").
    - **`hostRecords`** takes `record`s from every outcome's `toolCalls`, so the task loop's evidence includes what a failed iteration did.
 8. **Events and results.** `step_end` and `RunResult.steps` carry the outcome as they are, with nothing new needed. `RunState` is plain JSON, so a resumed run keeps the calls.
 
@@ -39,4 +39,8 @@
 - **Core:** a recording port answers `failed`, then `cut-short`, each with `toolCalls`. The run's steps keep them, a variable set by an action's output stays unset, and a bad name still fails the step. An answer with calls and no structured result becomes a failure that keeps the calls.
 - **pi:** the faux provider. A tool call followed by an error reply fails, with one call recorded. `maxRounds: 2` with a model that always calls gives `cut-short` with two calls recorded.
 - **claude-code:** the fake bridge with a runner that calls the handler once, then reports an error result: the step fails with one call recorded. An abort after one call gives the aborted failure with that call.
-- **Durable:** in the durable tests' helpers, a step whose model calls a tool and then has `submit_result` refused three times fails with the call reported. A delegate grant with `maxCalls: 1` called inside a step that then fails, followed by a second step calling it, gets the limit answer.
+- **Durable:** in the durable tests' helpers, a step whose model calls a tool and then has `submit_result` refused three times fails with the call reported.
+
+## Decisions made during the build
+
+- **The `actions/delegation` delta was dropped.** Group 3's delegate found that its scenario ("A call in a failed step counts toward the limit") can't happen. A failed or cut-short step stops the run (`run.ts`, the step loop and `stopped`), so no later step in the same run can call the delegate again. Calls within the failing step were already bounded by `stepPriorCalls`. The recommended path was taken: the delta is removed, and `actions/delegation` keeps its current text. The `reportedCalls` change stays, as internal consistency with no public behaviour, so the proposal lists four capabilities. Options not taken: rewording the scenario into a restatement of `durable/run-task`'s, and letting a run continue past a failed step, which is a separate change.

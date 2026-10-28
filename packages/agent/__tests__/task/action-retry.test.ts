@@ -143,3 +143,35 @@ describe("task/agent: A run ended by a failed action is retried within budget", 
 		expect(r.notes[0]).toMatch(/^the run ended failed/);
 	});
 });
+
+describe("task/agent: an iteration's records include its failed and cut-short steps' calls", () => {
+	const recorded = (summary: string) => ({
+		name: "shell",
+		inputs: { command: summary },
+		ok: true,
+		outputs: {},
+		record: { action: { kind: "command", summary, refs: [] }, evidence: [] },
+	});
+
+	it("a failed step's tool call record is collected", () => {
+		const result: RunResult = {
+			kind: "failed",
+			steps: [
+				{ subagent: "act", request: {} as never, outcome: { kind: "failed", category: "unknown", message: "refused", toolCalls: [recorded("pnpm test")] } },
+			],
+			actions: [],
+			variables: { plan: "p" },
+		};
+		expect(readRun(result, undefined, ["act"]).actions).toEqual([{ kind: "command", summary: "pnpm test", refs: [] }]);
+	});
+
+	it("a cut-short step's tool call record is collected", () => {
+		const result: RunResult = {
+			kind: "cut-short",
+			steps: [{ subagent: "act", request: {} as never, outcome: { kind: "cut-short", text: "", turns: 2, toolCalls: [recorded("pnpm check")] } }],
+			actions: [],
+			variables: {},
+		};
+		expect(readRun(result, undefined, ["act"]).actions).toEqual([{ kind: "command", summary: "pnpm check", refs: [] }]);
+	});
+});

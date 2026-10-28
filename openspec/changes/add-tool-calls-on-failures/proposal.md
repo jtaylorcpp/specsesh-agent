@@ -3,7 +3,7 @@
 Feedback on 0.4.0: `toolCalls` appears only on an `answered` outcome. A step that ran tools and then failed or was cut short loses its record of what it did. Examples: a 429 mid-loop, `maxRounds` reached, a refused `submit_result`, an aborted claude-code step. Those calls still happened: files were edited and commands run. A host auditing the run, or showing it to someone, can't see them.
 
 There is a second effect. Every consumer that counts calls reads only answered steps:
-- a delegate's `maxCalls` budget (`reportedCalls` in `src/durable/extension.ts`), so calls made inside a failed step don't count against it;
+- a delegate's `maxCalls` budget (`reportedCalls` in `src/durable/extension.ts`);
 - the task loop's action and evidence records (`hostRecords` in `src/task/iteration.ts`).
 
 ## What Changes
@@ -30,8 +30,7 @@ There is a second effect. Every consumer that counts calls reads only answered s
   - `core/reasoning-port`;
   - `pi/port`;
   - `pi/claude-code`;
-  - `durable/run-task`;
-  - `actions/delegation`.
+  - `durable/run-task`.
 
 ## Impact
 
