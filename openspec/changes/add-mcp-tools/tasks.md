@@ -10,8 +10,8 @@
 
 ## 3. The CLIs
 
-- [ ] 3.1 `packages/agent/src/bin/tools.ts`: `--mcp` files read, checked, merged and passed to `mcpTools`, the actions joined with `--tools` in one registry, and the skipped lines (`design.md` decision 6). `agentscript-pi.ts` wires it and closes in `finally`. Tests in `__tests__/pi/cli.test.ts`: "Scenario: A script calls an MCP tool", "Scenario: A file without mcpServers is refused", "Scenario: A server that will not start is refused"
-- [ ] 3.2 `agentscript-durable.ts`: `--mcp` on both commands, closed after the harness, repeated in the resume hint. Tests in `__tests__/durable/cli.test.ts`: "Scenario: A durable run calls an MCP tool", "Scenario: A resume without the MCP file is refused"
+- [x] 3.1 `packages/agent/src/bin/tools.ts`: `--mcp` files read, checked, merged and passed to `mcpTools`, the actions joined with `--tools` in one registry, and the skipped lines (`design.md` decision 6). `agentscript-pi.ts` wires it and closes in `finally`. Tests in `__tests__/pi/cli.test.ts`: "Scenario: A script calls an MCP tool", "Scenario: A file without mcpServers is refused", "Scenario: A server that will not start is refused"
+- [x] 3.2 `agentscript-durable.ts`: `--mcp` on both commands, closed after the harness, repeated in the resume hint. Tests in `__tests__/durable/cli.test.ts`: "Scenario: A durable run calls an MCP tool", "Scenario: A resume without the MCP file is refused"
 
 ## 4. Docs
 

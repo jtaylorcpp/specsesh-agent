@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { closedPortUrl, startFakeOllama, type FakeOllama } from "./fake-ollama.js";
 
@@ -436,6 +436,92 @@ describe("A bad tools module or binding is refused before any model call", () =>
 		const r = await cli(["run", script]);
 		expect(r.stderr).toContain("NoActionHostError");
 		expect(r.code).toBe(1);
+	});
+});
+
+const MCP_FIXTURE = join(PKG_DIR, "__tests__", "fixtures", "mcp", "server.mjs");
+const MCP_PID = join(PKG_DIR, "__tests__", "fixtures", "mcp", "pid.mjs");
+
+/** An `--mcp` file in `dir` holding `content` as JSON. */
+function mcpFile(name: string, content: unknown): string {
+	const path = join(dir, `${name}.mcp.json`);
+	writeFileSync(path, JSON.stringify(content));
+	return path;
+}
+
+/** The stdio fixture as an `mcpServers` entry, writing its pid to `pidFile`. */
+const fixtureServer = (pidFile: string, env: Record<string, string> = {}) => ({
+	command: process.execPath,
+	args: ["--import", pathToFileURL(MCP_PID).href, MCP_FIXTURE],
+	env: { PID_FILE: pidFile, ...env },
+});
+
+function alive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Whether `pid` exits within a short grace period. */
+async function exited(pid: number): Promise<boolean> {
+	for (const deadline = Date.now() + 2000; Date.now() < deadline; await new Promise((r) => setTimeout(r, 20))) {
+		if (!alive(pid)) return true;
+	}
+	return !alive(pid);
+}
+
+describe("run loads MCP servers from --mcp files", () => {
+	it("Scenario: A script calls an MCP tool", async () => {
+		ollama = await startFakeOllama({ models: ["qwen3:8b"], reply: { text: "unused" } });
+		const { script, workspace } = scriptAndWorkspace("run-mcp-echo", RUN_ECHO("fx/echo"));
+		const pidFile = join(workspace, "fx.pid");
+		const mcp = mcpFile("fx", { mcpServers: { fx: fixtureServer(pidFile) } });
+		const r = await cli(["run", script, "--provider", "ollama", "--model", "qwen3:8b", "--mcp", mcp, "--json"], {
+			OLLAMA_HOST: ollama.url,
+		});
+		expect(r.code).toBe(0);
+		const out = JSON.parse(r.stdout) as { kind: string; variables: Record<string, unknown> };
+		expect(out.kind).toBe("completed");
+		expect(out.variables.out).toBe("hi");
+		expect(r.stderr).toContain("mcp: skipped fx/tags: required parameter tags is array");
+		expect(await exited(Number(readFileSync(pidFile, "utf8")))).toBe(true);
+	});
+});
+
+describe("A bad --mcp file or server is refused before any model call", () => {
+	it("Scenario: A file without mcpServers is refused", async () => {
+		ollama = await startFakeOllama({ models: ["qwen3:8b"], reply: { text: "never" } });
+		const r = await cli(["run", hello, "--provider", "ollama", "--model", "qwen3:8b", "--mcp", mcpFile("empty", {})], {
+			OLLAMA_HOST: ollama.url,
+		});
+		expect(r.stderr).toContain("--mcp");
+		expect(r.stderr).toContain("mcpServers");
+		expect(r.code).toBe(2);
+		expect(ollama.requests).toEqual([]);
+	});
+
+	it("Scenario: A server that will not start is refused", async () => {
+		ollama = await startFakeOllama({ models: ["qwen3:8b"], reply: { text: "never" } });
+		const pidFile = join(dir, "bad.pid");
+		const mcp = mcpFile("bad", { mcpServers: { bad: fixtureServer(pidFile, { CRASH: "1" }) } });
+		const r = await cli(["run", hello, "--provider", "ollama", "--model", "qwen3:8b", "--mcp", mcp], {
+			OLLAMA_HOST: ollama.url,
+		});
+		expect(r.stderr).toContain('mcp server "bad"');
+		expect(r.code).toBe(2);
+		expect(r.stdout).toBe("");
+		expect(ollama.requests).toEqual([]);
+	});
+
+	it("a server name repeated across files is refused", async () => {
+		const first = mcpFile("dup-a", { mcpServers: { fx: { command: "never-run" } } });
+		const second = mcpFile("dup-b", { mcpServers: { fx: { command: "never-run" } } });
+		const r = await cli(["run", hello, "--mcp", first, "--mcp", second]);
+		expect(r.stderr).toContain(`--mcp ${second}: server "fx" is already defined in ${first}`);
+		expect(r.code).toBe(2);
 	});
 });
 

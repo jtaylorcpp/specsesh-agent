@@ -4,8 +4,9 @@
  *
  *   agentscript-durable run <file> --db <runs.sqlite> [--provider anthropic] [--model claude-haiku-4-5]
  *                                  [--entry <subagent>]... [--var name=value]... [--json]
- *                                  [--tools <module>]... [--workspace <dir>]
- *   agentscript-durable resume <task-id> --db <runs.sqlite> [--json] [--tools <module>]... [--workspace <dir>]
+ *                                  [--tools <module>]... [--mcp <file>]... [--workspace <dir>]
+ *   agentscript-durable resume <task-id> --db <runs.sqlite> [--json] [--tools <module>]... [--mcp <file>]...
+ *                                  [--workspace <dir>]
  *
  * `run` prints the task ID before the first model call. If the process dies,
  * `resume` with that ID on the same database finishes the run from its last step.
@@ -14,6 +15,8 @@
  * `--tools` loads host actions from the user's modules (see ./tools.ts) before the
  * database opens. The tools are not stored: `resume` must be given them again (the
  * resume hint repeats the flags), and re-checks the stored script against them.
+ * `--mcp` adds the tools of the MCP servers its files name, the same way; every
+ * connection is closed after the harness.
  *
  * Credentials are pi-ai's (ANTHROPIC_API_KEY, OPENAI_API_KEY, ...).
  * `--provider claude-code` runs each step through your own `claude` binary on your
@@ -33,16 +36,16 @@ import { ActionBindingError, checkBindings, createActionRegistry, type ActionReg
 import { AgentScript, agentScriptExtensions, AgentScriptStepExtension, type RunInput } from "../durable/extension.js";
 import { startScript, waitForScript } from "../durable/host.js";
 import { cliModels, ollamaSuffix, withOllama } from "./models.js";
-import { loadTools } from "./tools.js";
+import { loadActions, reportSkipped } from "./tools.js";
 
 export const DEFAULT_PROVIDER = "anthropic";
 export const DEFAULT_MODEL = "claude-haiku-4-5";
 
 export const USAGE = `usage:
   agentscript-durable run <file> --db <path> [--provider <id>] [--model <id>] [--entry <subagent>]... [--var name=value]... [--json]
-                          [--tools <module>]... [--workspace <dir>]
-  agentscript-durable resume <task-id> --db <path> [--json] [--tools <module>]... [--workspace <dir>]
-tools: JavaScript modules (compile TypeScript first); resume needs the same --tools as run
+                          [--tools <module>]... [--mcp <file>]... [--workspace <dir>]
+  agentscript-durable resume <task-id> --db <path> [--json] [--tools <module>]... [--mcp <file>]... [--workspace <dir>]
+tools: JavaScript modules (compile TypeScript first); resume needs the same --tools and --mcp as run
 tools: under --provider claude-code, a step that offers tools fails invalid_request`;
 
 export interface CliDeps {
@@ -83,6 +86,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 			var: { type: "string", multiple: true },
 			json: { type: "boolean", default: false },
 			tools: { type: "string", multiple: true },
+			mcp: { type: "string", multiple: true },
 			workspace: { type: "string" },
 		},
 	});
@@ -92,26 +96,60 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 		return 2;
 	}
 
-	// Tools are loaded before the database opens, so a bad module leaves no task behind.
+	// Tools and MCP servers are loaded before the database opens, so a bad module or
+	// server leaves no task behind.
 	const toolPaths = values.tools ?? [];
+	const mcpFiles = values.mcp ?? [];
 	let actions: ActionRegistry = createActionRegistry([]);
+	let closeMcp = async (): Promise<void> => {};
 	const registry = createRegistry();
-	if (toolPaths.length > 0) {
+	if (toolPaths.length > 0 || mcpFiles.length > 0) {
 		const workspace = resolve(values.workspace ?? ".");
-		const loaded = await loadTools(toolPaths, { cwd: process.cwd(), workspace });
+		const loaded = await loadActions(toolPaths, mcpFiles, { cwd: process.cwd(), workspace });
 		if (!loaded.ok) {
 			err(loaded.message);
 			return 2;
 		}
 		actions = loaded.registry;
+		const mcp = loaded.mcp;
+		closeMcp = () => mcp.close();
 		const extensions = agentScriptExtensions({ actions, workspace });
 		registry.install(extensions.run);
 		registry.install(extensions.step);
+		reportSkipped(mcp.skipped, { write: (line: string) => err(line.replace(/\n$/, "")) });
 	} else {
 		registry.install(AgentScript);
 		registry.install(AgentScriptStepExtension);
 	}
 
+	// The connections outlive the harness: it may still be calling a tool until it closes.
+	try {
+		return await runOnHarness(command, target, { ...values, db: values.db }, toolPaths, mcpFiles, actions, registry, deps, out, err);
+	} finally {
+		await closeMcp();
+	}
+}
+
+async function runOnHarness(
+	command: "run" | "resume",
+	target: string,
+	values: {
+		readonly db: string;
+		readonly provider?: string;
+		readonly model?: string;
+		readonly entry?: string[];
+		readonly var?: string[];
+		readonly json?: boolean;
+		readonly workspace?: string;
+	},
+	toolPaths: readonly string[],
+	mcpFiles: readonly string[],
+	actions: ActionRegistry,
+	registry: ReturnType<typeof createRegistry>,
+	deps: CliDeps,
+	out: (line: string) => void,
+	err: (line: string) => void,
+): Promise<number> {
 	const context = BACKGROUND_CONTEXT;
 	const models = await (deps.models ?? cliModels)();
 	const harness = await Harness.open(await openNodeSqliteStorage(values.db), { models, registry }, context);
@@ -145,8 +183,9 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 			// Before any model call, so a crash still leaves you the ID to resume. The tools
 			// are not stored, so the hint repeats the flags as they were given.
 			const toolFlags = toolPaths.map((path) => ` --tools ${path}`).join("");
+			const mcpFlags = mcpFiles.map((file) => ` --mcp ${file}`).join("");
 			const workspaceFlag = values.workspace !== undefined ? ` --workspace ${values.workspace}` : "";
-			err(`task ${id} — resume with: agentscript-durable resume ${id} --db ${values.db}${toolFlags}${workspaceFlag}`);
+			err(`task ${id} — resume with: agentscript-durable resume ${id} --db ${values.db}${toolFlags}${mcpFlags}${workspaceFlag}`);
 		} else {
 			id = Number(target) as TaskId<RunResult>;
 			const task = Number.isInteger(id) ? await harness.getTask(id, context) : undefined;

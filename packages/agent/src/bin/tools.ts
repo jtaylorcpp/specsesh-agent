@@ -5,15 +5,93 @@
  * a function of `{ workspace }` returning one, sync or async. Every entry is
  * shape-checked here, so a bad module is refused with `--tools <path>: <problem>`
  * before any registry, harness or model is touched. Shared by both bins.
+ *
+ * `--mcp <file>`: JSON files holding `mcpServers`, merged and connected through
+ * `mcpTools`; their actions join the `--tools` actions in one registry.
  */
 
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createActionRegistry, type ActionRegistry, type HostAction } from "../durable/actions.js";
+import type { McpServerConfig, McpSkipped, McpTools } from "../node/mcp.js";
 
 export type LoadToolsResult =
 	| { readonly ok: true; readonly registry: ActionRegistry; readonly actions: HostAction[] }
 	| { readonly ok: false; readonly message: string };
+
+export type LoadMcpResult = { readonly ok: true; readonly mcp: McpTools } | { readonly ok: false; readonly message: string };
+
+export type LoadActionsResult =
+	| { readonly ok: true; readonly registry: ActionRegistry; readonly mcp: McpTools }
+	| { readonly ok: false; readonly message: string };
+
+const NO_MCP: McpTools = { actions: [], skipped: [], close: async () => {} };
+
+/**
+ * Read each `--mcp` file (resolved from `cwd`), merge their `mcpServers` and
+ * connect them with `mcpTools`. A bad file or a server repeated across files is
+ * refused as `--mcp <file>: <problem>`; an `McpServerError`'s own message is
+ * answered as it is. With no files, nothing is imported or connected.
+ */
+export async function loadMcp(files: readonly string[], options: { readonly cwd: string }): Promise<LoadMcpResult> {
+	if (files.length === 0) return { ok: true, mcp: NO_MCP };
+	const servers: Record<string, McpServerConfig> = {};
+	const firstFile = new Map<string, string>();
+	for (const file of files) {
+		const refuse = (problem: string): LoadMcpResult => ({ ok: false, message: `--mcp ${file}: ${problem}` });
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(readFileSync(resolve(options.cwd, file), "utf8"));
+		} catch (err) {
+			return refuse(`${err instanceof Error ? err.message : String(err)}; expected JSON with a top-level "mcpServers" object`);
+		}
+		if (!isPlainObject(parsed) || !isPlainObject(parsed.mcpServers)) {
+			return refuse('expected a top-level "mcpServers" object');
+		}
+		for (const [name, config] of Object.entries(parsed.mcpServers)) {
+			const first = firstFile.get(name);
+			if (first !== undefined) return refuse(`server "${name}" is already defined in ${first}`);
+			firstFile.set(name, file);
+			servers[name] = config as McpServerConfig;
+		}
+	}
+	// Imported only when asked for, so the SDK stays an optional peer.
+	const { mcpTools, McpServerError } = await import("../node/mcp.js");
+	try {
+		return { ok: true, mcp: await mcpTools(servers) };
+	} catch (err) {
+		if (err instanceof McpServerError) return { ok: false, message: err.message };
+		throw err;
+	}
+}
+
+/**
+ * `--tools` modules and `--mcp` files in one registry, which refuses a name both
+ * define. On success the caller owns `mcp` and must `close()` it; on a refusal
+ * every connection is already closed.
+ */
+export async function loadActions(
+	toolPaths: readonly string[],
+	mcpFiles: readonly string[],
+	options: { readonly cwd: string; readonly workspace: string },
+): Promise<LoadActionsResult> {
+	const tools = await loadTools(toolPaths, options);
+	if (!tools.ok) return tools;
+	const loaded = await loadMcp(mcpFiles, options);
+	if (!loaded.ok) return loaded;
+	try {
+		return { ok: true, registry: createActionRegistry([...tools.actions, ...loaded.mcp.actions]), mcp: loaded.mcp };
+	} catch (err) {
+		await loaded.mcp.close();
+		return { ok: false, message: `${mcpFiles.length > 0 ? "--mcp" : "--tools"}: ${err instanceof Error ? err.message : String(err)}` };
+	}
+}
+
+/** One stderr line per tool `mcpTools` could not map. */
+export function reportSkipped(skipped: readonly McpSkipped[], stderr: { write(line: string): unknown }): void {
+	for (const { server, tool, reason } of skipped) stderr.write(`mcp: skipped ${server}/${tool}: ${reason}\n`);
+}
 
 /** Keyed by `HostAction["kind"]`, so a fifth kind fails to compile until it is listed. */
 const KINDS: Readonly<Record<HostAction["kind"], true>> = { read: true, edit: true, command: true, delegate: true };

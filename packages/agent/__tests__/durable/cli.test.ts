@@ -286,6 +286,47 @@ describe("resume re-checks the stored script against its tools", () => {
 	}, 90_000);
 });
 
+describe("run and resume take --mcp", () => {
+	const MCP_FIXTURE = join(HERE, "..", "fixtures", "mcp", "server.mjs");
+
+	/** RUN_ECHO against the fixture's `fx/echo`, and an `--mcp` file naming the stdio fixture as `fx`. */
+	function mcpWorkdir() {
+		const w = echoWorkdir();
+		writeFileSync(w.script, RUN_ECHO.replace("mcpTool://echo", "mcpTool://fx/echo"));
+		const mcp = join(w.dir, "fx.mcp.json");
+		writeFileSync(mcp, JSON.stringify({ mcpServers: { fx: { command: process.execPath, args: [MCP_FIXTURE] } } }));
+		return { ...w, mcp };
+	}
+
+	it("Scenario: A durable run calls an MCP tool", async () => {
+		const { script, db, mcp } = mcpWorkdir();
+		const env = setup();
+
+		const r = await cli(["run", script, "--db", db, ...fauxArgs(env), "--mcp", mcp, "--json"], env);
+
+		expect(r.code).toBe(0);
+		const id = /^task (\d+) /m.exec(r.err)?.[1];
+		expect(id).toMatch(/^\d+$/);
+		expect(r.err).toContain(`agentscript-durable resume ${id} --db ${db} --mcp ${mcp}`);
+		expect(r.err).toContain("mcp: skipped fx/tags:");
+		expect(JSON.parse(r.out).variables.out).toBe("hi");
+		expect(env.requests).toHaveLength(0);
+	}, 30_000);
+
+	it("Scenario: A resume without the MCP file is refused", async () => {
+		const { script, db, mcp } = mcpWorkdir();
+		const env = setup();
+		const first = await cli(["run", script, "--db", db, ...fauxArgs(env), "--mcp", mcp], env);
+		const id = /^task (\d+) /m.exec(first.err)?.[1] ?? "";
+		expect(id).toMatch(/^\d+$/);
+
+		const r = await cli(["resume", id, "--db", db]);
+
+		expect(r.err).toContain("not registered on this host");
+		expect(r.code).toBe(2);
+	}, 30_000);
+});
+
 describe("The model collection defaults to every built-in provider plus claude-code", () => {
 	it("Scenario: claude-code is a selectable provider", async () => {
 		const { script, db } = workdir();

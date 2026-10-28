@@ -5,7 +5,8 @@
  *   agentscript-pi run <file> [--provider anthropic] [--model claude-haiku-4-5]
  *                              [--entry <subagent>]... [--var name=value]...
  *                              [--max-tokens 4096] [--json]
- *                              [--tools <module>]... [--workspace <dir>]
+ *                              [--tools <module>]... [--mcp <file>]...
+ *                              [--workspace <dir>]
  *   agentscript-pi models [provider]
  *
  * Provider and model also come from AGENTSCRIPT_PROVIDER / AGENTSCRIPT_MODEL.
@@ -13,7 +14,9 @@
  *
  * `--tools` loads host actions from the user's modules (see ./tools.ts); the
  * script's actions are checked against them before any port is created, and
- * they back both `run` statements and tools offered to the model.
+ * they back both `run` statements and tools offered to the model. `--mcp` adds
+ * the tools of the MCP servers its files name, as `mcpTool://<server>/<tool>`;
+ * every connection is closed when the command ends.
  *
  * `--provider claude-code` runs each step through your own `claude` binary on
  * your Claude subscription instead of through pi (see src/claude-code/).
@@ -29,7 +32,7 @@ import { run, type VariableValue } from "../interpreter/index.js";
 import type { ReasoningPort } from "../interpreter/index.js";
 import { ActionBindingError, checkBindings } from "../durable/actions.js";
 import { registryHost, type RegistryHost } from "../durable/tool-host.js";
-import { loadTools } from "./tools.js";
+import { loadActions, reportSkipped } from "./tools.js";
 import type { AssistantMessage, MutableModels } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { CLAUDE_CODE_PROVIDER, createClaudeCodeReasoningPort } from "../claude-code/index.js";
@@ -41,7 +44,7 @@ const OLLAMA_PROVIDER = "ollama";
 const USAGE = `usage:
   agentscript-pi run <file> [--provider <id>] [--model <id>] [--entry <subagent>]...
                             [--var name=value]... [--max-tokens <n>] [--json]
-                            [--tools <module>]... [--workspace <dir>]
+                            [--tools <module>]... [--mcp <file>]... [--workspace <dir>]
   agentscript-pi models [provider]
 providers: any pi provider, claude-code, or ollama (at OLLAMA_HOST, default http://localhost:11434)
 tools: under --provider claude-code, a step that offers tools fails invalid_request`;
@@ -95,6 +98,7 @@ export async function main(argv: string[]): Promise<number> {
 			"max-tokens": { type: "string" },
 			json: { type: "boolean", default: false },
 			tools: { type: "string", multiple: true },
+			mcp: { type: "string", multiple: true },
 			workspace: { type: "string" },
 		},
 	});
@@ -105,15 +109,18 @@ export async function main(argv: string[]): Promise<number> {
 	}
 	const source = readFileSync(file, "utf8");
 
-	// Tools are loaded and bound before any provider or port, so a refusal makes no model request.
-	let hosts: RegistryHost | undefined;
-	if (values.tools !== undefined && values.tools.length > 0) {
-		const workspace = resolve(values.workspace ?? ".");
-		const loaded = await loadTools(values.tools, { cwd: process.cwd(), workspace });
-		if (!loaded.ok) {
-			console.error(loaded.message);
-			return 2;
-		}
+	// Tools and MCP servers are loaded and bound before any provider or port, so a refusal makes no model request.
+	const toolPaths = values.tools ?? [];
+	const mcpFiles = values.mcp ?? [];
+	if (toolPaths.length === 0 && mcpFiles.length === 0) return runScript(source, values, undefined);
+	const workspace = resolve(values.workspace ?? ".");
+	const loaded = await loadActions(toolPaths, mcpFiles, { cwd: process.cwd(), workspace });
+	if (!loaded.ok) {
+		console.error(loaded.message);
+		return 2;
+	}
+	try {
+		reportSkipped(loaded.mcp.skipped, process.stderr);
 		try {
 			checkBindings(source, loaded.registry);
 		} catch (error) {
@@ -121,9 +128,23 @@ export async function main(argv: string[]): Promise<number> {
 			console.error(error.message);
 			return 2;
 		}
-		hosts = registryHost(loaded.registry, { workspace });
+		return await runScript(source, values, registryHost(loaded.registry, { workspace }));
+	} finally {
+		await loaded.mcp.close();
 	}
+}
 
+interface RunValues {
+	readonly provider?: string | undefined;
+	readonly model?: string | undefined;
+	readonly entry?: string[] | undefined;
+	readonly var?: string[] | undefined;
+	readonly "max-tokens"?: string | undefined;
+	readonly json?: boolean | undefined;
+}
+
+async function runScript(source: string, values: RunValues, hosts: RegistryHost | undefined): Promise<number> {
+	const models = builtinModels();
 	const provider = values.provider ?? process.env.AGENTSCRIPT_PROVIDER ?? DEFAULT_PROVIDER;
 	const modelId = values.model ?? process.env.AGENTSCRIPT_MODEL ?? DEFAULT_MODEL;
 	const maxTokens = values["max-tokens"] !== undefined ? Number(values["max-tokens"]) : undefined;
