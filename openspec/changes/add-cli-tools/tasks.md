@@ -9,8 +9,8 @@
 
 ## 3. agentscript-durable
 
-- [ ] 3.1 `packages/agent/src/bin/agentscript-durable.ts`: `--tools`/`--workspace` on both commands, loaded before the harness opens; `agentScriptExtensions` in place of the plain pair when given; the resume hint repeats them (`design.md` decision 5). Tests in `__tests__/durable/cli.test.ts`: "Scenario: The harness is closed after a refusal" (still), "Scenario: A durable run calls a tool from a module", "Scenario: The resume hint repeats the tools", "Scenario: A bad tools module is refused before the database opens"
-- [ ] 3.2 `resume` re-checks bindings against the stored script before `harness.resume()`. A crash fixture under `__tests__/durable/fixtures/` running a tool script with `--tools`, killed with `exit(137)` mid-step. Tests: "Scenario: A crashed tool run resumes with its tools", "Scenario: A resume without the tools is refused"
+- [x] 3.1 `packages/agent/src/bin/agentscript-durable.ts`: `--tools`/`--workspace` on both commands, loaded before the harness opens; `agentScriptExtensions` in place of the plain pair when given; the resume hint repeats them (`design.md` decision 5). Tests in `__tests__/durable/cli.test.ts`: "Scenario: The harness is closed after a refusal" (still), "Scenario: A durable run calls a tool from a module", "Scenario: The resume hint repeats the tools", "Scenario: A bad tools module is refused before the database opens"
+- [x] 3.2 `resume` re-checks bindings against the stored script before `harness.resume()`. A crash fixture under `__tests__/durable/fixtures/` running a tool script with `--tools`, killed with `exit(137)` mid-step. Tests: "Scenario: A crashed tool run resumes with its tools", "Scenario: A resume without the tools is refused"
 
 ## 4. Docs and example
 

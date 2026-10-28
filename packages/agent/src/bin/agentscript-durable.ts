@@ -4,11 +4,16 @@
  *
  *   agentscript-durable run <file> --db <runs.sqlite> [--provider anthropic] [--model claude-haiku-4-5]
  *                                  [--entry <subagent>]... [--var name=value]... [--json]
- *   agentscript-durable resume <task-id> --db <runs.sqlite> [--json]
+ *                                  [--tools <module>]... [--workspace <dir>]
+ *   agentscript-durable resume <task-id> --db <runs.sqlite> [--json] [--tools <module>]... [--workspace <dir>]
  *
  * `run` prints the task ID before the first model call. If the process dies,
  * `resume` with that ID on the same database finishes the run from its last step.
  * The script is stored in the task, so `resume` does not need the file.
+ *
+ * `--tools` loads host actions from the user's modules (see ./tools.ts) before the
+ * database opens. The tools are not stored: `resume` must be given them again (the
+ * resume hint repeats the flags), and re-checks the stored script against them.
  *
  * Credentials are pi-ai's (ANTHROPIC_API_KEY, OPENAI_API_KEY, ...).
  * `--provider claude-code` runs each step through your own `claude` binary on your
@@ -16,6 +21,7 @@
  */
 
 import { readFileSync, realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import type { RunResult, VariableValue } from "../interpreter/index.js";
@@ -23,16 +29,21 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, type ModelRef, type TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { AgentScript, AgentScriptStepExtension } from "../durable/extension.js";
+import { ActionBindingError, checkBindings, createActionRegistry, type ActionRegistry } from "../durable/actions.js";
+import { AgentScript, agentScriptExtensions, AgentScriptStepExtension, type RunInput } from "../durable/extension.js";
 import { startScript, waitForScript } from "../durable/host.js";
 import { cliModels, ollamaSuffix, withOllama } from "./models.js";
+import { loadTools } from "./tools.js";
 
 export const DEFAULT_PROVIDER = "anthropic";
 export const DEFAULT_MODEL = "claude-haiku-4-5";
 
 export const USAGE = `usage:
   agentscript-durable run <file> --db <path> [--provider <id>] [--model <id>] [--entry <subagent>]... [--var name=value]... [--json]
-  agentscript-durable resume <task-id> --db <path> [--json]`;
+                          [--tools <module>]... [--workspace <dir>]
+  agentscript-durable resume <task-id> --db <path> [--json] [--tools <module>]... [--workspace <dir>]
+tools: JavaScript modules (compile TypeScript first); resume needs the same --tools as run
+tools: under --provider claude-code, a step that offers tools fails invalid_request`;
 
 export interface CliDeps {
 	/** The pi-ai model collection. Defaults to every built-in provider. */
@@ -71,6 +82,8 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 			entry: { type: "string", multiple: true },
 			var: { type: "string", multiple: true },
 			json: { type: "boolean", default: false },
+			tools: { type: "string", multiple: true },
+			workspace: { type: "string" },
 		},
 	});
 	const target = positionals[0];
@@ -79,11 +92,28 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 		return 2;
 	}
 
+	// Tools are loaded before the database opens, so a bad module leaves no task behind.
+	const toolPaths = values.tools ?? [];
+	let actions: ActionRegistry = createActionRegistry([]);
+	const registry = createRegistry();
+	if (toolPaths.length > 0) {
+		const workspace = resolve(values.workspace ?? ".");
+		const loaded = await loadTools(toolPaths, { cwd: process.cwd(), workspace });
+		if (!loaded.ok) {
+			err(loaded.message);
+			return 2;
+		}
+		actions = loaded.registry;
+		const extensions = agentScriptExtensions({ actions, workspace });
+		registry.install(extensions.run);
+		registry.install(extensions.step);
+	} else {
+		registry.install(AgentScript);
+		registry.install(AgentScriptStepExtension);
+	}
+
 	const context = BACKGROUND_CONTEXT;
 	const models = await (deps.models ?? cliModels)();
-	const registry = createRegistry();
-	registry.install(AgentScript);
-	registry.install(AgentScriptStepExtension);
 	const harness = await Harness.open(await openNodeSqliteStorage(values.db), { models, registry }, context);
 
 	try {
@@ -96,24 +126,44 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 				err(`no model "${modelId}" on provider "${provider}"${ollamaSuffix(ollama, provider)}`);
 				return 2;
 			}
-			id = await startScript(
-				harness,
-				readFileSync(target, "utf8"),
-				{
-					model: { provider, modelId },
-					...(values.entry !== undefined ? { entry: values.entry } : {}),
-					...(values.var !== undefined ? { variables: Object.fromEntries(values.var.map(parseVar)) } : {}),
-				},
-				context,
-			);
-			// Before any model call, so a crash still leaves you the ID to resume.
-			err(`task ${id} — resume with: agentscript-durable resume ${id} --db ${values.db}`);
+			try {
+				id = await startScript(
+					harness,
+					readFileSync(target, "utf8"),
+					{
+						model: { provider, modelId },
+						...(values.entry !== undefined ? { entry: values.entry } : {}),
+						...(values.var !== undefined ? { variables: Object.fromEntries(values.var.map(parseVar)) } : {}),
+					},
+					context,
+				);
+			} catch (error) {
+				if (!(error instanceof ActionBindingError)) throw error;
+				err(error.message);
+				return 2;
+			}
+			// Before any model call, so a crash still leaves you the ID to resume. The tools
+			// are not stored, so the hint repeats the flags as they were given.
+			const toolFlags = toolPaths.map((path) => ` --tools ${path}`).join("");
+			const workspaceFlag = values.workspace !== undefined ? ` --workspace ${values.workspace}` : "";
+			err(`task ${id} — resume with: agentscript-durable resume ${id} --db ${values.db}${toolFlags}${workspaceFlag}`);
 		} else {
 			id = Number(target) as TaskId<RunResult>;
 			const task = Number.isInteger(id) ? await harness.getTask(id, context) : undefined;
 			if (task === undefined) {
 				err(`no task ${target} in ${values.db}`);
 				return 2;
+			}
+			// The tools are not stored: the stored script must still bind to the ones given now.
+			const input = task.input as RunInput | null;
+			if (input !== null) {
+				try {
+					checkBindings(input.source, actions, input.scope);
+				} catch (error) {
+					if (!(error instanceof ActionBindingError)) throw error;
+					err(error.message);
+					return 2;
+				}
 			}
 			// Before resuming, so a run started on a pulled model finds it again.
 			const stored = (task.input as { model?: ModelRef } | null)?.model;

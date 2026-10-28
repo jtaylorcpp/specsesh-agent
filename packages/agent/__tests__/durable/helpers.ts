@@ -72,6 +72,39 @@ subagent farewell:
 
 export const HELLO_ENTRIES = ["greet", "farewell"];
 
+/** `act` runs `echo` (`fixtures/tools/echo.mjs`) with no model, then `respond` asks the model. */
+export const ECHO_THEN_RESPOND = `config:
+    agent_name: "echo-then-respond"
+
+variables:
+    out: mutable string = ""
+
+subagent act:
+    description: "Echo without the model"
+
+    actions:
+        echo:
+            description: "Echo the text"
+            inputs:
+                text: string
+            outputs:
+                text: string
+            target: "mcpTool://echo"
+
+    reasoning:
+        instructions: ->
+            run @actions.echo
+                with text = "hi"
+                set @variables.out = @outputs.text
+
+subagent respond:
+    description: "Answer"
+
+    reasoning:
+        instructions: ->
+            | Say {!@variables.out}.
+`;
+
 /** One model step that writes a string variable, the kind a caller gives `choices`. */
 export const JUDGE = `config:
     agent_name: "judge"
@@ -119,7 +152,7 @@ export async function openHarness(
 }
 
 /** Calls `onRequest` with the running count before each model request. */
-function counting(models: Models, onRequest: (count: number) => void): Models {
+export function counting(models: Models, onRequest: (count: number) => void): Models {
 	let count = 0;
 	return new Proxy(models, {
 		get(target, prop, receiver) {
