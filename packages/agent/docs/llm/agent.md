@@ -27,7 +27,8 @@ The loops are Agent Script (`.agent`) files. These commands show the bundled one
 None of the commands stream: `agentscript-pi`, `-durable`, `-task` and `-change` print what they always printed. From code, `streamRun(source, options)` from `@specsesh/agent/interpreter` yields a run's events for `for await`, with a `result` promise; `run(source, { ..., onEvent })` is the callback form.
 
 - **Events** (`RunEvent`): `step_start`, `step_end` (with the outcome), `text_delta`, `thinking_delta`, `tool_call`, `tool_result`, `action_start`, `action_end` and `run_end` (with the result). Each but `run_end` names its `step` and `subagent`.
-- **The pi port** streams text and thinking deltas and reports each tool-loop call and result. **The claude-code port** gives step and action events, and `tool_call`/`tool_result` on a tool step, but no deltas.
+- **The pi port** streams text and thinking deltas and reports each tool-loop call and result.
+- **The claude-code port**, with a listener (`run({ onEvent })` or `streamRun()`), streams a step's text as `text_delta` and its non-empty thinking as `thinking_delta`, through `claude -p --output-format stream-json --verbose --include-partial-messages`. A structured (`--json-schema`) step streams no text. A tool step streams text between calls, and each call is reported once, by the bridge, as `tool_call`/`tool_result`. Without a listener nothing changes. The claude-code pi provider (durable runs) streams no text. See [Streaming](../providers/claude-code.md#streaming).
 - Partial structured results (`toolcall_delta` fragments of `submit_result`) are not forwarded.
 
 ## Tools (`--tools`)

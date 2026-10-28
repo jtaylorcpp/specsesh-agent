@@ -194,6 +194,10 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
   host. Durable runs (`durable run`/`resume --tools`/`--mcp`) work too, through the claude-code pi
   provider's held sessions (below), each call a host action of the harness. Claude Code's built-in tools stay
   off (`--tools ""`); a delegate's `claudeCodeRunner` is different, see Hard lines.
+  A listening run (`run({ onEvent })`, `streamRun()`) swaps `--output-format json` for
+  `stream-json --verbose --include-partial-messages` and streams `text_delta`/`thinking_delta`
+  (`add-claude-code-text-streaming`); without a listener the argv is unchanged. Structured steps
+  stream no text, and the claude-code pi provider doesn't stream.
 
 - **Step machine** (`start` / `next` / `apply` in `run.ts`): the run's state is plain JSON (`RunState`),
   `next` is pure, and `run()` is a loop over the three. A failed step rolls back only its own logic

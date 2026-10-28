@@ -45,6 +45,15 @@
  * running, but `reason` still resolves and the bridge still closes. After an abort
  * the bridge answers every call not-ok without reaching the host.
  *
+ * A step streams when `reason` is given a sink: --output-format json becomes
+ * --output-format stream-json --verbose --include-partial-messages, in the same place,
+ * and no other flag changes. The runner's `onStdout` feeds a line reader that passes
+ * each non-empty text and thinking delta to the sink; the outcome comes from the last
+ * `type: "result"` line, mapped as the json output is. A structured step streams no
+ * text (its value is StructuredOutput tool input), and a tool step's calls still reach
+ * the sink only from the bridge. The reader closes when the step settles, so chunks a
+ * dying process flushes after an abort are dropped. Without a sink the argv is unchanged.
+ *
  * Claude Code owns its own turn loop and bound, so unlike the pi port this one
  * CAN report `cut-short` — when Claude Code says it stopped at max turns.
  */
@@ -78,7 +87,16 @@ export interface ProcessResult {
 	readonly spawnError?: Error;
 }
 
-export type Runner = (args: readonly string[], input: string, env: NodeJS.ProcessEnv) => Promise<ProcessResult>;
+/**
+ * Runs one `claude -p`. `onStdout`, when given, may be called with each stdout chunk as
+ * it arrives; the result's `stdout` is still the whole output. A runner may ignore it.
+ */
+export type Runner = (
+	args: readonly string[],
+	input: string,
+	env: NodeJS.ProcessEnv,
+	onStdout?: (chunk: string) => void,
+) => Promise<ProcessResult>;
 
 export interface ClaudeCodeReasoningPortOptions {
 	/** Model id or alias passed to `--model`. Defaults to claude-haiku-4-5. */
@@ -156,6 +174,7 @@ export function claudeCodeArgs(
 	request: ReasoningRequest,
 	options: ClaudeCodeReasoningPortOptions,
 	tools?: ClaudeInvocation["tools"],
+	stream = false,
 ): string[] {
 	return claudeArgs({
 		system: request.systemInstructions,
@@ -163,6 +182,7 @@ export function claudeCodeArgs(
 		...(request.outputSchema !== undefined ? { schema: request.outputSchema } : {}),
 		...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
 		...(tools !== undefined ? { tools } : {}),
+		...(stream ? { stream } : {}),
 	});
 }
 
@@ -174,6 +194,8 @@ export interface ClaudeInvocation {
 	readonly maxTurns?: number;
 	/** A tool step: the bridge's config file and the tools it allows. */
 	readonly tools?: { readonly mcpConfig: string; readonly allowedTools: readonly string[] };
+	/** Stream-json output with partial messages, in place of `--output-format json`. */
+	readonly stream?: boolean;
 }
 
 /** Appended to every system prompt: Claude Code's environment block can't be turned off. */
@@ -206,7 +228,7 @@ export function claudeArgs(invocation: ClaudeInvocation): string[] {
 		"",
 		"--no-session-persistence",
 		"--output-format",
-		"json",
+		...(invocation.stream === true ? ["stream-json", "--verbose", "--include-partial-messages"] : ["json"]),
 		"--system-prompt",
 		invocation.system === "" ? NO_WORKSPACE_NOTE : `${invocation.system}\n\n${NO_WORKSPACE_NOTE}`,
 	];
@@ -239,8 +261,9 @@ export function createClaudeCodeReasoningPort(options: ClaudeCodeReasoningPortOp
 	}
 	const runner = options.runner ?? spawnRunner(options.binary ?? "claude", options.timeoutMs ?? 300_000, options.signal, options.cwd);
 	return {
-		// `claude -p --output-format json` reports no text until the step ends; the stream
-		// only hears of tool calls, which the bridge sees as they happen.
+		// With a sink, the step runs with stream-json output and its text and thinking deltas
+		// go to the sink as they arrive; without one, the argv is `--output-format json`.
+		// Tool calls reach the sink only through the bridge, which sees them as they happen.
 		async reason(request: ReasoningRequest, stream?: StreamSink): Promise<StepOutcome> {
 			if (options.signal?.aborted === true) return abortedOutcome();
 			if (request.tools !== undefined) {
@@ -249,12 +272,17 @@ export function createClaudeCodeReasoningPort(options: ClaudeCodeReasoningPortOp
 				}
 				return runToolStep(request, request.tools, options.tools, options.bridge, runner, options, stream);
 			}
+			const streaming = stream !== undefined;
+			const args = claudeCodeArgs(request, options, undefined, streaming);
+			const env = claudeCodeEnv(process.env);
+			const reader = streaming ? streamJsonReader(stream) : undefined;
 			const processResult = await raceAbort(
-				runner(claudeCodeArgs(request, options), request.prompt, claudeCodeEnv(process.env)),
+				reader !== undefined ? runner(args, request.prompt, env, reader.onStdout) : runner(args, request.prompt, env),
 				options.signal,
 			);
+			reader?.close();
 			if (processResult === ABORTED) return abortedOutcome();
-			const outcome = toClaudeCodeOutcome(processResult, request.outputSchema !== undefined);
+			const outcome = toClaudeCodeOutcome(processResult, request.outputSchema !== undefined, streaming);
 			if (outcome.parsed !== undefined) options.onResult?.(outcome.parsed);
 			return outcome.step;
 		},
@@ -347,16 +375,25 @@ async function runToolStep(
 		};
 	}
 	try {
-		const args = claudeCodeArgs(request, { ...options, maxTurns: options.maxTurns ?? DEFAULT_MAX_ROUNDS }, {
-			mcpConfig: running.mcpConfig,
-			allowedTools: running.allowedTools,
-		});
-		const processResult = await raceAbort(runner(args, request.prompt, toolStepEnv(process.env)), signal);
+		const streaming = stream !== undefined;
+		const args = claudeCodeArgs(
+			request,
+			{ ...options, maxTurns: options.maxTurns ?? DEFAULT_MAX_ROUNDS },
+			{ mcpConfig: running.mcpConfig, allowedTools: running.allowedTools },
+			streaming,
+		);
+		const env = toolStepEnv(process.env);
+		const reader = streaming ? streamJsonReader(stream) : undefined;
+		const processResult = await raceAbort(
+			reader !== undefined ? runner(args, request.prompt, env, reader.onStdout) : runner(args, request.prompt, env),
+			signal,
+		);
+		reader?.close();
 		// Once the bridge has started, every outcome carries the calls recorded so far.
 		// After an abort the handler records nothing more, so this copy is final.
 		// The bridge closes in `finally`, before the aborted outcome is returned.
 		if (processResult === ABORTED) return { ...abortedOutcome(), toolCalls: [...toolCalls] };
-		const outcome = toClaudeCodeOutcome(processResult, request.outputSchema !== undefined);
+		const outcome = toClaudeCodeOutcome(processResult, request.outputSchema !== undefined, streaming);
 		if (outcome.parsed !== undefined) options.onResult?.(outcome.parsed);
 		return { ...outcome.step, toolCalls: [...toolCalls] };
 	} finally {
@@ -364,9 +401,67 @@ async function runToolStep(
 	}
 }
 
+/** A parsed stdout line, or undefined when it isn't a JSON object. */
+function parseObjectLine(line: string): Record<string, unknown> | undefined {
+	try {
+		const value: unknown = JSON.parse(line);
+		return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** The last stream-json line that is a `result` object, as `--output-format json` would print it. */
+function findResultLine(stdout: string): ClaudeCodeResult | undefined {
+	const lines = stdout.split("\n");
+	for (let i = lines.length - 1; i >= 0; i--) {
+		const line = lines[i]!.trim();
+		if (line === "") continue;
+		const parsed = parseObjectLine(line);
+		if (parsed?.type === "result") return parsed as ClaudeCodeResult;
+	}
+	return undefined;
+}
+
+/**
+ * Splits stream-json chunks into lines and passes each non-empty text or thinking delta
+ * on to the sink. Everything else (tool_use blocks, input_json_delta, signatures, lines
+ * that aren't JSON) is skipped: the bridge reports calls, and the outcome comes from the
+ * result line. Once closed (the step has settled, aborted included), later chunks are
+ * dropped, so a dying process can't report deltas into the next step.
+ */
+function streamJsonReader(sink: StreamSink): { onStdout: (chunk: string) => void; close: () => void } {
+	let buffered = "";
+	let open = true;
+	const onStdout = (chunk: string): void => {
+		if (!open) return;
+		buffered += chunk;
+		const lines = buffered.split("\n");
+		buffered = lines.pop()!;
+		for (const line of lines) {
+			const parsed = parseObjectLine(line);
+			if (parsed?.type !== "stream_event") continue;
+			const event = parsed.event as { type?: unknown; delta?: { type?: unknown; text?: unknown; thinking?: unknown } } | undefined;
+			if (event?.type !== "content_block_delta" || event.delta === undefined) continue;
+			const { delta } = event;
+			if (delta.type === "text_delta" && typeof delta.text === "string" && delta.text !== "") {
+				sink.onDelta({ type: "text_delta", delta: delta.text });
+			} else if (delta.type === "thinking_delta" && typeof delta.thinking === "string" && delta.thinking !== "") {
+				sink.onDelta({ type: "thinking_delta", delta: delta.thinking });
+			}
+		}
+	};
+	return { onStdout, close: () => (open = false) };
+}
+
+/**
+ * Maps one process's output to a step outcome. With `stream`, stdout is stream-json and
+ * the outcome is read from its last `result` line; without, stdout is one JSON result.
+ */
 export function toClaudeCodeOutcome(
 	processResult: ProcessResult,
 	wantsStructured: boolean,
+	stream = false,
 ): { step: StepOutcome; parsed?: ClaudeCodeResult } {
 	if (processResult.spawnError !== undefined) {
 		return {
@@ -380,7 +475,9 @@ export function toClaudeCodeOutcome(
 
 	let parsed: ClaudeCodeResult;
 	try {
-		parsed = JSON.parse(processResult.stdout) as ClaudeCodeResult;
+		const found = stream ? findResultLine(processResult.stdout) : (JSON.parse(processResult.stdout) as ClaudeCodeResult);
+		if (found === undefined) throw new Error("no result line");
+		parsed = found;
 	} catch {
 		const detail = (processResult.stderr || processResult.stdout).trim().slice(0, 500);
 		return {
@@ -413,7 +510,7 @@ export function toClaudeCodeOutcome(
 }
 
 export function spawnRunner(binary: string, timeoutMs: number, signal?: AbortSignal, cwd?: string): Runner {
-	return async (args, input, env) => {
+	return async (args, input, env, onStdout) => {
 		// Run outside any project so no project-level settings are picked up either, and
 		// in a directory of our own, so Claude Code finds nothing another process left there.
 		let dir: string;
@@ -423,7 +520,7 @@ export function spawnRunner(binary: string, timeoutMs: number, signal?: AbortSig
 			return { code: null, stdout: "", stderr: "", spawnError: error instanceof Error ? error : new Error(String(error)) };
 		}
 		try {
-			return await spawnIn(dir, binary, args, input, env, timeoutMs, signal);
+			return await spawnIn(dir, binary, args, input, env, timeoutMs, signal, onStdout);
 		} finally {
 			if (cwd === undefined) await rm(dir, { recursive: true, force: true });
 		}
@@ -438,6 +535,7 @@ function spawnIn(
 	env: NodeJS.ProcessEnv,
 	timeoutMs: number,
 	signal?: AbortSignal,
+	onStdout?: (chunk: string) => void,
 ): Promise<ProcessResult> {
 	return new Promise((resolve) => {
 		const child = spawn(binary, args, { env, cwd, stdio: ["pipe", "pipe", "pipe"] });
@@ -453,7 +551,12 @@ function spawnIn(
 			clearTimeout(timer);
 			signal?.removeEventListener("abort", onAbort);
 		};
-		child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
+		// Decoded as UTF-8 across chunks, so a character split between two reads isn't mangled.
+		child.stdout.setEncoding("utf8");
+		child.stdout.on("data", (chunk: string) => {
+			onStdout?.(chunk);
+			stdout += chunk;
+		});
 		child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
 		child.on("error", (spawnError) => {
 			settle();

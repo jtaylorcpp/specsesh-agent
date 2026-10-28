@@ -73,6 +73,18 @@ After updating Claude Code, run `pnpm test:claude-code` from this repository. It
 
 If it fails, tool steps may be loading your configuration, or Claude Code may no longer serve `--mcp-config` tools under these flags.
 
+### Streaming
+
+- **When.** A step streams exactly when `reason` is given a `StreamSink`, which happens when the run has a listener (`run({ onEvent })` or `streamRun()`). There is no separate port option: the listener works the same way on every provider.
+- **The flags.** `--output-format json` becomes `--output-format stream-json --verbose --include-partial-messages`, in the same place; every other flag and its order is unchanged. With no sink the argv is identical to before.
+- **The deltas.** Each non-empty text delta goes to the sink as `text_delta`, and each non-empty thinking delta as `thinking_delta`, in order (Claude Code currently sends thinking redacted, as empty, so usually none arrives).
+- **The outcome.** It is read from the last stdout line that is a JSON object with `type: "result"`, which carries the same fields as the `json` output, and mapped the same way: text, `structured_output`, `cut-short` at max turns, the failure categories, `onResult`. A stream with no result line fails `unknown` with `claude exited <code> without a JSON result` and the stderr.
+- **Structured steps stream no text.** The value arrives as `StructuredOutput` tool input, not text; it still comes from the result line.
+- **Tool steps.** Text deltas and the bridge's `tool_call`/`tool_result` go to one sink, in the order they happen. The stream's `tool_use` blocks are never forwarded, so each call is reported once.
+- **Custom runners.** `Runner` is `(args, input, env, onStdout?) => Promise<ProcessResult>`. `spawnRunner` calls `onStdout(chunk)` with each stdout chunk as it arrives and still resolves with the whole stdout. A runner that never calls it still settles the step, with no deltas.
+- **Abort.** The stream reader is closed as soon as the step settles, on its result or on an abort, so chunks a dying `claude` flushes later are dropped. Deltas already sent stay sent.
+- **The pi provider doesn't stream.** The claude-code pi provider (held sessions, durable runs) still runs `--output-format json`, so a durable run on it gets no text deltas.
+
 ### Durable tool steps
 
 `specsesh durable run`/`resume --provider claude-code --tools <module>` (or `--mcp <file>`) offers a step's tools to Claude Code too. Claude Code calls them, but pi-durable runs each call as a checkpointed host action: under its replay rule, recorded in the step's actions, and seen by `watchScript`. The bins register the pi provider as `claudeCodeProvider({ bridge: mcpBridge() })`; the bridge's SDK loads only when a request offers tools.
@@ -86,7 +98,7 @@ If it fails, tool steps may be loading your configuration, or Claude Code may no
 ## Limits
 
 - Without `bridge`, the pi provider takes at most one tool per request, sent as `--json-schema` and returned as a call to that tool. More is refused before anything spawns: `the claude-code provider runs at most one pi tool per request without a bridge; this one offered <n> (<names>)`. The bins always pass `bridge: mcpBridge()`.
-- No Cloudflare host for tool steps (no `claude` binary there), no streaming text, and a held session doesn't survive a crash (see above).
+- No Cloudflare host for tool steps (no `claude` binary there), no streaming text from the pi provider (see [Streaming](#streaming)), and a held session doesn't survive a crash (see above).
 - A step is killed after 5 minutes by default.
 - The cost it prints is what Claude Code reports, notional on a subscription.
 - For local work. On a server, use an [API-key provider](api-keys.md).

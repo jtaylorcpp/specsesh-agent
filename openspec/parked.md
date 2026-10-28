@@ -52,7 +52,7 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 
 ## Run streaming (from add-run-streaming)
 
-- **claude-code deltas through `--output-format stream-json`.** The claude-code port uses `reason`'s stream argument only for a tool step's `tool_call` and `tool_result` (from add-claude-code-tools), so a streamed run on it gets no text or thinking deltas. Reading `claude -p --output-format stream-json` would let it map text and thinking deltas to `onDelta`. Deferred from add-run-streaming, whose scope was the pi port. Source: the change's proposal, Out of scope.
+- **claude-code pi provider text streaming (held sessions, durable runs).** The claude-code port now streams text and thinking deltas (add-claude-code-text-streaming), but the pi provider still runs `--output-format json`, because pi-durable checkpoints whole messages. Streaming it would need stream-json in the provider and its held sessions. Source: add-claude-code-text-streaming's proposal, Out of scope.
 
 ## Claude Code tools (from add-claude-code-tools)
 

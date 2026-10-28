@@ -7,7 +7,8 @@
  * on Claude Code 2.1.310. These checks re-measure it: input tokens against
  * `--safe-mode`, and a project CLAUDE.md sentinel with a positive control. Then a
  * real tool call through `mcpBridge`, on a value the model can't guess, and one
- * durable run through the built bin. About six Haiku requests.
+ * durable run through the built bin, and a text step streamed through a sink. About seven
+ * Haiku requests.
  *
  * It needs `claude` installed and logged in, and skips saying why otherwise.
  */
@@ -19,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { claudeArgs, claudeCodeEnv, spawnRunner, type ClaudeCodeResult } from "../../src/claude-code/claude-code.js";
 import { createClaudeCodeReasoningPort } from "../../src/claude-code/index.js";
-import type { ActionResult, ToolOffer } from "../../src/interpreter/index.js";
+import type { ActionResult, StreamDelta, StreamSink, ToolOffer } from "../../src/interpreter/index.js";
 import { mcpBridge } from "../../src/node/index.js";
 import type { PiToolCall, PiToolHost } from "../../src/pi/index.js";
 import { claudeReady } from "./ready.js";
@@ -165,6 +166,31 @@ describe.skipIf(!ready.ok)("pi/claude-code: pnpm test:claude-code re-checks tool
 			expect(calls[0]).toMatchObject({ name: "secret_number" });
 			expect(outcome.toolCalls?.map((call) => call.name)).toEqual(["secret_number"]);
 			expect(outcome.text).toContain("4817");
+		},
+		STEP_MS,
+	);
+
+	it(
+		"Scenario: A real claude streams a step's text",
+		async () => {
+			const deltas: StreamDelta[] = [];
+			const sink: StreamSink = { onDelta: (delta) => deltas.push(delta) };
+			const port = createClaudeCodeReasoningPort({ model: MODEL });
+			const outcome = await port.reason(
+				{
+					systemInstructions: "You repeat what you are asked to repeat.",
+					prompt: "Reply with exactly: The quick brown fox jumps over the lazy dog.",
+				},
+				sink,
+			);
+
+			expect(outcome.kind, JSON.stringify(outcome)).toBe("answered");
+			if (outcome.kind !== "answered") return;
+			const texts = deltas.flatMap((delta) => (delta.type === "text_delta" ? [delta.delta] : []));
+			console.log(`streamed ${texts.length} text deltas: ${JSON.stringify(texts)}`);
+			expect(texts.length).toBeGreaterThanOrEqual(1);
+			expect(texts.join("")).toBe(outcome.text);
+			expect(deltas.filter((delta) => delta.type === "tool_call")).toEqual([]);
 		},
 		STEP_MS,
 	);
