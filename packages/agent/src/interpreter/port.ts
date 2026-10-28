@@ -24,6 +24,7 @@
  */
 
 import type { ToolOffer } from "./compose.js";
+import type { StreamSink } from "./events.js";
 
 /**
  * Why a step failed, when the model layer named a reason.
@@ -147,7 +148,11 @@ export const TOOLS_NEED_DURABLE_HOST =
  * contract — anything more and this becomes the thing it is avoiding.
  */
 export interface ReasoningPort {
-	reason(request: ReasoningRequest): Promise<StepOutcome>;
+	/**
+	 * `stream` is given only when the run has a listener. A port may report text,
+	 * thinking and tool-loop deltas through it; one that ignores it still works.
+	 */
+	reason(request: ReasoningRequest, stream?: StreamSink): Promise<StepOutcome>;
 }
 
 /** Raised when a run is attempted with no port. Never silently defaulted. */

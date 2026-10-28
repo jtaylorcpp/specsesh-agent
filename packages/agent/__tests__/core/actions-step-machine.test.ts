@@ -147,7 +147,7 @@ describe("core/step-machine: A failed action stops the run and rolls back its su
 
 describe("core/step-machine: The Step Machine Is Exported From The Interpreter Entry", () => {
 	it("Scenario: Every step-machine export is reachable from the entry", () => {
-		for (const name of ["start", "next", "apply", "applyAction", "run", "hashSource", "SourceMismatchError", "RunStateError"]) {
+		for (const name of ["start", "next", "apply", "applyAction", "run", "streamRun", "hashSource", "SourceMismatchError", "RunStateError"]) {
 			expect((entry as Record<string, unknown>)[name], name).toBeDefined();
 		}
 	});

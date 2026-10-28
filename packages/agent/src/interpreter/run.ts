@@ -38,6 +38,7 @@ import {
 	readSystemInstructions,
 	statementAt,
 } from "./compose.js";
+import type { RunEvent, StreamSink } from "./events.js";
 import {
 	NoReasoningPortError,
 	type ReasoningPort,
@@ -77,6 +78,11 @@ export interface RunOptions {
 	readonly actionHost?: (call: ActionCall) => Promise<ActionResult> | ActionResult;
 	/** Allowed values per string variable; see `StartOptions.choices`. */
 	readonly choices?: Readonly<Record<string, readonly string[]>>;
+	/**
+	 * Called synchronously, in order, with each event of the run. Given one, the
+	 * port also gets its stream argument. A listener that throws changes nothing.
+	 */
+	readonly onEvent?: (event: RunEvent) => void;
 }
 
 /** One action call a `run` statement makes, with its inputs evaluated where the walk reached it. */
@@ -668,15 +674,134 @@ export async function run(source: string, options: RunOptions = {}): Promise<Run
 		const acting = actingSubagents(source, state.entries);
 		if (acting.length > 0) throw new NoActionHostError(acting);
 	}
+	const onEvent = options.onEvent;
+	const emit = (event: RunEvent): void => {
+		if (onEvent === undefined) return;
+		try {
+			onEvent(event);
+		} catch {
+			// A listener never changes the run.
+		}
+	};
 	for (;;) {
 		const step = next(source, state, { persistVariables: options.persistVariables === true });
-		if (step.type === "done") return step.result;
+		if (step.type === "done") {
+			emit({ type: "run_end", result: step.result });
+			return step.result;
+		}
+		const index = step.state.steps.length;
 		if (step.type === "action") {
+			const { subagent, action, tool, inputs } = step.call;
+			emit({ type: "action_start", step: index, subagent, action, tool, inputs });
 			state = applyAction(source, step.state, await callHost(host, step.call));
+			// The result as recorded, after normalising and the output check.
+			const recorded = state.actions.at(-1)?.result;
+			const ok = recorded?.ok === true;
+			const outputs = recorded?.ok === true ? recorded.outputs : {};
+			emit({ type: "action_end", step: index, subagent, action, tool, ok, outputs });
 			continue;
 		}
-		state = apply(source, step.state, await port.reason(step.request));
+		const subagent = step.state.awaiting?.subagent ?? "";
+		emit({ type: "step_start", step: index, subagent });
+		// Passed only to a listening run; a delta after `reason` settles is dropped.
+		let open = true;
+		const stream: StreamSink = {
+			onDelta: (delta) => {
+				if (open) emit({ ...delta, step: index, subagent });
+			},
+		};
+		const args: [ReasoningRequest, StreamSink?] = onEvent === undefined ? [step.request] : [step.request, stream];
+		let outcome: StepOutcome;
+		try {
+			outcome = await port.reason(...args);
+		} finally {
+			open = false;
+		}
+		state = apply(source, step.state, outcome);
+		const settled = state.steps.at(-1)?.outcome ?? outcome;
+		emit({ type: "step_end", step: index, subagent, outcome: settled });
 	}
+}
+
+/** A run's events, for `for await`, and its result. Iterable once. */
+export interface RunStream {
+	[Symbol.asyncIterator](): AsyncIterator<RunEvent>;
+	readonly result: Promise<RunResult>;
+}
+
+/**
+ * Start a run now and buffer its events, so a slow reader loses none. Iteration
+ * ends after `run_end`, or rethrows the run's rejection once the buffer is
+ * drained. `result` settles as `run` would.
+ */
+export function streamRun(source: string, options: RunOptions = {}): RunStream {
+	const queue: RunEvent[] = [];
+	let done = false;
+	let failure: { readonly error: unknown } | undefined;
+	let wake: (() => void) | undefined;
+	const rouse = (): void => {
+		const resolve = wake;
+		wake = undefined;
+		resolve?.();
+	};
+
+	const own = options.onEvent;
+	const onEvent = (event: RunEvent): void => {
+		queue.push(event);
+		rouse();
+		if (own === undefined) return;
+		try {
+			own(event);
+		} catch {
+			// A listener never changes the run.
+		}
+	};
+	// `run` is async, so a refused start is a rejection here, never a throw.
+	const result = run(source, { ...options, onEvent });
+	result.then(
+		() => {
+			done = true;
+			rouse();
+		},
+		(error: unknown) => {
+			failure = { error };
+			rouse();
+		},
+	);
+
+	let iterated = false;
+	return {
+		result,
+		[Symbol.asyncIterator](): AsyncIterator<RunEvent> {
+			if (iterated) throw new Error("streamRun: a stream can be iterated only once");
+			iterated = true;
+			let finished = false;
+			return {
+				async next(): Promise<IteratorResult<RunEvent>> {
+					for (;;) {
+						if (finished) return { done: true, value: undefined };
+						const event = queue.shift();
+						if (event !== undefined) return { done: false, value: event };
+						if (failure !== undefined) {
+							finished = true;
+							throw failure.error;
+						}
+						if (done) {
+							finished = true;
+							return { done: true, value: undefined };
+						}
+						await new Promise<void>((resolve) => {
+							wake = resolve;
+						});
+					}
+				},
+				async return(): Promise<IteratorResult<RunEvent>> {
+					finished = true;
+					return { done: true, value: undefined };
+				},
+			};
+		},
+	};
 }
 
 async function callHost(
