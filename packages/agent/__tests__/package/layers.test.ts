@@ -161,13 +161,16 @@ describe("The model is Workers AI unless faux mode is on", () => {
 	});
 });
 
-describe("pi-ai is imported statically", () => {
-	it("Scenario: No source imports pi-ai dynamically", () => {
-		const files = filesUnder(SRC);
+describe("Library modules reach no pi-ai lazy module statically", () => {
+	it("Scenario: No library module statically imports a pi-ai lazy module", () => {
+		const entryPoints = ["bin", "cli"].map((dir) => `${join(SRC, dir)}/`);
+		const files = filesUnder(SRC).filter((file) => !entryPoints.some((dir) => file.startsWith(dir)));
 		expect(files.length).toBeGreaterThan(0);
-		// Reached both ways, a module gets a lazy initialiser in Bun bundles that can be dropped (import-pi-providers-statically).
+		// They load parts of pi-ai with import(); a static path to them breaks Bun bundles (fix-bun-lazy-pi-ai).
+		const lazy = /^@earendil-works\/pi-ai\/(api\/[^/]+\.lazy(\.js)?|providers\/.+)$/;
 		for (const file of files) {
-			expect(codeOf(file), relative(PKG_DIR, file)).not.toMatch(/\bimport\s*\(\s*["']@earendil-works\/pi-ai(\/|["'])/);
+			const statics = [...codeOf(file).matchAll(/\bfrom\s+["']([^"']+)["']|^\s*import\s+["']([^"']+)["']/gm)].map((m) => (m[1] ?? m[2]) as string);
+			for (const spec of statics) expect(spec, `${relative(PKG_DIR, file)} imports ${spec}`).not.toMatch(lazy);
 		}
 	});
 });

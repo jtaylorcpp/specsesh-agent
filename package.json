@@ -13,6 +13,7 @@
     "test:cloudflare": "pnpm --filter cloudflare-worker-example test:cloudflare",
     "test:live": "pnpm --filter @specsesh/agent test:live",
     "test:claude-code": "pnpm --filter @specsesh/agent test:claude-code",
+    "test:bun": "pnpm --filter @specsesh/agent test:bun",
     "test:ollama": "node scripts/test-ollama.mjs",
     "test:gemini": "node scripts/test-gemini.mjs",
     "agent": "node packages/agent/dist/bin/agentscript-pi.js",

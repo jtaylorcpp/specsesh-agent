@@ -549,6 +549,15 @@ peer dependencies, so a consumer of the interpreter alone installs none of them.
 
 The authoring, interpreter and openspec entries run on Node and on Workers.
 
+**Bundling with Bun** (`bun build`, including `--compile`): pass
+`--external @earendil-works/pi-ai/providers`. `pickTests` in `./task` loads pi-ai's provider
+catalogue with a dynamic `import()`, and only when it builds a pi model itself. Bundled, that
+catalogue puts pi-ai's shared modules behind lazy initialisers that Bun can drop, and the
+claude-code provider then fails with `undefined is not a constructor (evaluating 'new
+AssistantMessageEventStream')`. Kept external, a compiled binary still starts, because that import
+never runs unless `pickTests` needs it. Releases 0.3.0 to 0.4.4 fail on this even with the flag;
+use 0.4.6 or later.
+
 ## Roadmap
 
 Specified and validated in [`openspec/changes/`](../../openspec/changes), **not yet built**.

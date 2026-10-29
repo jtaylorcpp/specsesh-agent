@@ -1,5 +1,5 @@
 import { createProvider, type Model, type MutableModels, type Provider } from "@earendil-works/pi-ai";
-import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { stream, streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 
 export const OLLAMA_PROVIDER_ID = "ollama";
 const DEFAULT_BASE_URL = "http://localhost:11434";
@@ -66,7 +66,7 @@ export function ollamaProvider(options: OllamaOptions = {}): Provider<"openai-co
 		auth: { apiKey: { name: "Ollama (keyless)", resolve: async () => ({ auth: { apiKey: "ollama" }, source: "keyless" }) } },
 		models: (options.models ?? []).map((id) => ollamaModel(id, options)),
 		fetchModels: (context) => fetchPulled(options, context.signal),
-		api: openAICompletionsApi(),
+		api: { stream, streamSimple },
 	});
 }
 
