@@ -14,7 +14,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createActionRegistry, type ActionRegistry, type HostAction } from "../durable/actions.js";
-import type { McpServerConfig, McpSkipped, McpTools } from "../node/mcp.js";
+import type { McpServerConfig, McpSkipped, McpTools } from "../mcp/index.js";
+import { importMcp } from "./mcp.js";
 
 export type LoadToolsResult =
 	| { readonly ok: true; readonly registry: ActionRegistry; readonly actions: HostAction[] }
@@ -57,7 +58,7 @@ export async function loadMcp(files: readonly string[], options: { readonly cwd:
 		}
 	}
 	// Imported only when asked for, so the SDK stays an optional peer.
-	const { mcpTools, McpServerError } = await import("../node/mcp.js");
+	const { mcpTools, McpServerError } = await importMcp();
 	try {
 		return { ok: true, mcp: await mcpTools(servers) };
 	} catch (err) {

@@ -1,0 +1,6 @@
+## 1. The mcp entry
+
+- [x] 1.1 Move `packages/agent/src/node/mcp.ts` and `mcp-bridge.ts` to `src/mcp/`, importing the SDK statically (drop both `loadSdk`s, decision 1); add `src/mcp/index.ts`; drop the MCP re-exports from `src/node/index.ts`; add `./mcp` after `./node` in `package.json` `exports` (decision 5). The bins `await import("../mcp/index.js")` where they need it, and `agentscript-pi.ts` loses its static import (decision 3). Move `__tests__/node/mcp{,-bridge}.test.ts` to `__tests__/mcp/` and fix every import. Tests in `__tests__/package/layers.test.ts`: "Scenario: The layer graph holds", "Scenario: Only the mcp layer speaks MCP"; in `__tests__/package/manifest.test.ts`: "Scenario: The exports map is exact"; in a new `__tests__/package/mcp-entry.test.ts`: "Scenario: Importing ./node loads no MCP SDK module", "Scenario: The mcp entry exports the MCP tools"
+- [x] 1.2 Docs: `packages/agent/README.md` (an `@specsesh/agent/mcp` row, eleven entries, the import moves, a migration note), `docs/llm/agent.md`, `docs/providers/claude-code.md`, the `mcpBridge` hints in `src/claude-code/`, `CLAUDE.md` (eleven exports, `src/mcp` row). Test in `__tests__/package/manifest.test.ts` or wherever it lives: "Scenario: Every entry is documented". Run `pnpm docs:check`, `pnpm check`, `pnpm test`
+
+The change ends with `pnpm change close move-mcp-to-own-entry`.

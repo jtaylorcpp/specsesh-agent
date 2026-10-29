@@ -51,7 +51,8 @@ const DURABLE = [
 	"src/durable",
 ];
 const MCP_SDK = "@modelcontextprotocol/sdk";
-const NODE = [...DURABLE, "node", "src/claude-code", MCP_SDK, "src/node"];
+const NODE = [...DURABLE, "node", "src/claude-code", "src/node"];
+const MCP = [...DURABLE, "node", "src/claude-code", MCP_SDK, "src/mcp"];
 const TASK = [...NODE, "src/task"];
 const CLOUDFLARE = [...DURABLE, "agents", "cloudflare:workers", "src/cloudflare"];
 const OPENSPEC = ["typebox", "src/openspec"];
@@ -60,12 +61,13 @@ const ALLOWED: Record<string, readonly string[]> = {
 	"claude-code": CLAUDE_CODE,
 	durable: DURABLE,
 	node: NODE,
+	mcp: MCP,
 	task: TASK,
 	cloudflare: CLOUDFLARE,
 	openspec: OPENSPEC,
 };
 
-describe("Each layer imports only its own peers and the layers beneath it", () => {
+describe("The layers import only their own peers and the layers beneath them", () => {
 	it("Scenario: The layer graph holds", () => {
 		for (const [layer, allowed] of Object.entries(ALLOWED)) {
 			const files = filesUnder(join(SRC, layer));
@@ -89,13 +91,17 @@ describe("Each layer imports only its own peers and the layers beneath it", () =
 		}
 	});
 
-	it("Scenario: Only the node layer speaks MCP", () => {
-		const files = filesUnder(SRC).filter((file) => !file.startsWith(`${join(SRC, "node")}/`));
+	it("Scenario: Only the mcp layer speaks MCP", () => {
+		const files = filesUnder(SRC).filter((file) => !file.startsWith(`${join(SRC, "mcp")}/`));
 		expect(files.length).toBeGreaterThan(0);
 		for (const file of files) {
 			for (const spec of importsOf(file)) {
 				expect(reduce(file, spec), `${relative(PKG_DIR, file)} imports ${spec}`).not.toBe(MCP_SDK);
 			}
+		}
+		// A dynamic import of the SDK beside an app's static ones trips Bun's bundler (move-mcp-to-own-entry).
+		for (const file of filesUnder(SRC)) {
+			expect(codeOf(file), relative(PKG_DIR, file)).not.toMatch(/\bimport\s*\(\s*["']@modelcontextprotocol\//);
 		}
 	});
 

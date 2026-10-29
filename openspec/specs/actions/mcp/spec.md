@@ -6,7 +6,7 @@ MCP servers as a source of host actions: connect to the servers a `.mcp.json`-st
 ## Requirements
 
 ### Requirement: mcpTools connects to every server and maps their tools
-`@specsesh/agent/node` SHALL export `mcpTools(servers, options?)`. `servers` maps a name to `{ command, args?, env?, cwd? }` (stdio) or `{ url, headers? }` (Streamable HTTP). It SHALL resolve `{ actions, skipped, close }`: one `HostAction` per usable tool, named `<server>/<tool>`, each `{ server, tool, reason }` it could not map, and a `close()` that ends every connection.
+`@specsesh/agent/mcp` SHALL export `mcpTools(servers, options?)`. `servers` maps a name to `{ command, args?, env?, cwd? }` (stdio) or `{ url, headers? }` (Streamable HTTP). It SHALL resolve `{ actions, skipped, close }`: one `HostAction` per usable tool, named `<server>/<tool>`, each `{ server, tool, reason }` it could not map, and a `close()` that ends every connection.
 
 #### Scenario: A stdio server's tool becomes an action
 - **GIVEN** the fixture server over stdio, named `fx`

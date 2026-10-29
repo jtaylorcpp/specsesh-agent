@@ -334,7 +334,7 @@ The bridge handler SHALL refuse an unoffered name unrecorded, and refuse argumen
 - **THEN** the step SHALL be failed with `boom`, and `toolCalls` SHALL hold that call with the host's outputs
 
 ### Requirement: mcpBridge serves a step's tools to claude over loopback HTTP
-`mcpBridge()` from `@specsesh/agent/node` SHALL return a `ToolBridgeFactory` whose bridge serves Streamable HTTP MCP on `127.0.0.1` only, refusing a request without its random bearer token with `401`. Its `mcpConfig` SHALL be a mode-`0600` file naming the server `agentscript`; `allowedTools` SHALL be `mcp__agentscript__<name>` per tool. `tools/call` SHALL answer through the handler, `!ok` or a throw as `isError`. `close` SHALL stop the server and remove the file.
+`mcpBridge()` from `@specsesh/agent/mcp` SHALL return a `ToolBridgeFactory` whose bridge serves Streamable HTTP MCP on `127.0.0.1` only, refusing a request without its random bearer token with `401`. Its `mcpConfig` SHALL be a mode-`0600` file naming the server `agentscript`; `allowedTools` SHALL be `mcp__agentscript__<name>` per tool. `tools/call` SHALL answer through the handler, `!ok` or a throw as `isError`. `close` SHALL stop the server and remove the file.
 
 #### Scenario: The bridge lists and calls its tools
 - **GIVEN** a bridge for one tool `echo` whose handler answers `{ ok: true, text: "hi" }`

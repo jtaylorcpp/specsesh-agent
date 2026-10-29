@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExecutedHostAction } from "../../src/durable/index.js";
-import { mapTool, McpServerError, mcpTools, type McpTools } from "../../src/node/index.js";
+import { mapTool, McpServerError, mcpTools, type McpTools } from "../../src/mcp/index.js";
 // @ts-expect-error: the fixture is plain JavaScript, with no declarations.
 import { startHttp } from "../fixtures/mcp/server.mjs";
 

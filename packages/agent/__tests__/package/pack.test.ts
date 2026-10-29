@@ -14,9 +14,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const manifest = JSON.parse(readFileSync(join(PKG_DIR, "package.json"), "utf8"));
-const NODE_ENTRIES = Object.keys(manifest.exports).filter((key) => key !== "./cloudflare");
+// ./mcp imports the MCP SDK statically, so it is checked in its own project with the SDK installed.
+const NODE_ENTRIES = Object.keys(manifest.exports).filter((key) => key !== "./cloudflare" && key !== "./mcp");
+const MCP_SDK = `@modelcontextprotocol/sdk@${manifest.devDependencies["@modelcontextprotocol/sdk"]}`;
 // The peers a Node consumer of every entry but ./cloudflare installs, at the versions the tests run on.
-// The MCP SDK is left out on purpose: every Node entry must import without it (mcp.ts loads it lazily).
+// The MCP SDK is left out on purpose: every Node entry but ./mcp, and the bins, must load without it.
 const NODE_PEERS = ["@earendil-works/pi-ai", "@earendil-works/pi-durable", "@earendil-works/chord"].map(
 	(name) => `${name}@${manifest.devDependencies[name]}`,
 );
@@ -48,8 +50,8 @@ function project(name: string, tarball: string, extra: string[] = []): string {
 }
 
 /** Imports every Node entry; throws naming the first that fails. */
-function importEntries(dir: string): void {
-	for (const entry of NODE_ENTRIES) {
+function importEntries(dir: string, entries: readonly string[] = NODE_ENTRIES): void {
+	for (const entry of entries) {
 		const specifier = `@specsesh/agent/${entry.slice(2)}`;
 		const r = node(dir, `const m = await import(${JSON.stringify(specifier)}); if (Object.keys(m).length === 0) throw new Error("no exports");\n`);
 		if (r.status !== 0) {
@@ -147,7 +149,9 @@ describe("pack:check proves the tarball installs and runs", () => {
 		}
 		// Installed with the Node peers, every entry but ./cloudflare (workerd only) imports.
 		expect(() => importEntries(full)).not.toThrow();
-	});
+		// ./mcp imports beside the SDK.
+		expect(() => importEntries(project("mcp", tarball, [...NODE_PEERS, MCP_SDK]), ["./mcp"])).not.toThrow();
+	}, INSTALL_TIMEOUT);
 
 	it(
 		"Scenario: A broken entry fails by name",

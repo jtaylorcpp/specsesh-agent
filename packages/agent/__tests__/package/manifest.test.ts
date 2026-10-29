@@ -10,7 +10,7 @@ const ROOT = join(PKG_DIR, "..", "..");
 const MANIFEST_TEXT = readFileSync(join(PKG_DIR, "package.json"), "utf8");
 const manifest = JSON.parse(MANIFEST_TEXT);
 
-const ENTRIES = ["authoring", "interpreter", "pi", "claude-code", "durable", "node", "cloudflare", "openspec", "task"];
+const ENTRIES = ["authoring", "interpreter", "pi", "claude-code", "durable", "node", "mcp", "cloudflare", "openspec", "task"];
 // One entry per layer, then the command.
 const EXPORTS = [...ENTRIES, "cli"];
 const SF = {
@@ -99,6 +99,10 @@ describe("The package exports one entry per layer and the command", () => {
 		expect(manifest.exports["./node"]).toEqual({
 			types: "./dist/node/index.d.ts",
 			import: "./dist/node/index.js",
+		});
+		expect(manifest.exports["./mcp"]).toEqual({
+			types: "./dist/mcp/index.d.ts",
+			import: "./dist/mcp/index.js",
 		});
 		expect(manifest.exports["./openspec"]).toEqual({
 			types: "./dist/openspec/index.d.ts",
@@ -195,7 +199,7 @@ describe("The readme lists the entry points", () => {
 		const readme = readFileSync(join(PKG_DIR, "README.md"), "utf8");
 		expect(readme).toContain("npm install @specsesh/agent");
 		const entries = Object.keys(manifest.exports).filter((key) => key !== "./package.json");
-		expect(entries).toHaveLength(10);
+		expect(entries).toHaveLength(11);
 		for (const entry of entries) expect(readme).toContain(`@specsesh/agent/${entry.slice(2)}`);
 		expect(readme).toContain("agentscript-pi");
 		expect(readme).toContain("agentscript-durable");

@@ -21,7 +21,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { claudeArgs, claudeCodeEnv, spawnRunner, type ClaudeCodeResult } from "../../src/claude-code/claude-code.js";
 import { createClaudeCodeReasoningPort } from "../../src/claude-code/index.js";
 import type { ActionResult, StreamDelta, StreamSink, ToolOffer } from "../../src/interpreter/index.js";
-import { mcpBridge } from "../../src/node/index.js";
+import { mcpBridge } from "../../src/mcp/index.js";
 import type { PiToolCall, PiToolHost } from "../../src/pi/index.js";
 import { claudeReady } from "./ready.js";
 import { killRunning, startDetached } from "./spawn.js";

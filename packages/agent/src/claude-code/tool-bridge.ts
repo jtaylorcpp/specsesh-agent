@@ -7,7 +7,7 @@
  * through the `BridgeHandler`, which runs it on our host.
  *
  * Only the interface lives here: `src/claude-code` may not import the MCP SDK
- * (the layer rule), so the implementation is `mcpBridge` in `src/node`, and the
+ * (the layer rule), so the implementation is `mcpBridge` in `src/mcp`, and the
  * port is tested with a fake factory.
  */
 
