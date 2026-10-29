@@ -39,6 +39,7 @@ export const PROVIDERS_INDEX: string = page("docs/providers/README.md");
 export const PROVIDER_PAGES: ReadonlyMap<string, string> = new Map([
 	["api-keys", page("docs/providers/api-keys.md")],
 	["claude-code", page("docs/providers/claude-code.md")],
+	["gemini", page("docs/providers/gemini.md")],
 	["ollama", page("docs/providers/ollama.md")],
 	["workers-ai", page("docs/providers/workers-ai.md")],
 ]);
@@ -53,7 +54,7 @@ export const LLM_USAGE = `usage: specsesh llm [skill [--out <path>] | providers 
        specsesh llm                          print the guide for LLM agents
        specsesh llm skill [--out <path>]     print a starter SKILL.md, or write it to <path>
        specsesh llm providers [<name>]       print the provider matrix, or one provider's page:
-                                             api-keys, claude-code, ollama or workers-ai
+                                             api-keys, claude-code, gemini, ollama or workers-ai
        specsesh llm deploy <local|cloudflare>  print a deployment page`;
 
 export interface LlmDeps {

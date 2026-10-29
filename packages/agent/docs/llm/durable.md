@@ -24,6 +24,18 @@ specsesh durable run x.agent --db runs.sqlite --provider ollama --model qwen3:8b
 - An `ollama` model that doesn't resolve is refused before a task exists, exit `2`: `no model "<model>" on provider "ollama"`. When the server didn't answer, the line ends with ` (Ollama at <url>: <reason>)`.
 - Small models may fail a structured step (one that has to call `submit_result`). That is the model's limit, and the run ends `failed`.
 
+## Gemini
+
+```bash
+GEMINI_API_KEY=... specsesh durable run x.agent --db runs.sqlite --provider google --model gemini-3.5-flash
+```
+
+- The provider id is `google` (its page is `gemini`), on `GEMINI_API_KEY`. `--model` is required. `GEMINI_BASE_URL` overrides the base URL, default `https://generativelanguage.googleapis.com/v1beta`.
+- The key is checked only when the run's model, or the stored model on `resume`, is on `google`. Without it, the CLI prints `google: GEMINI_API_KEY is not set` and exits `2` before a task exists or a resume starts.
+- `resume` finishes a run on the model it was started on, so it needs the key too.
+- `specsesh agent models google` lists the catalog without a key.
+- Every failed Google request is reported as `unknown`: pi-ai's Google adapter gives no HTTP status.
+
 ## Watching a run (library only)
 
 `watchScript(harness, id, context)` from `@specsesh/agent/durable` streams a durable run's `RunEvent`s. No CLI streams, and no host offers a streaming route.

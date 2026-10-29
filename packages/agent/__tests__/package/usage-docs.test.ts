@@ -20,7 +20,7 @@ const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const REPO_DIR = join(PKG_DIR, "..", "..");
 const PROVIDERS = join(PKG_DIR, "docs", "providers");
 
-const PROVIDER_PAGES = ["api-keys", "claude-code", "ollama", "workers-ai"];
+const PROVIDER_PAGES = ["api-keys", "claude-code", "gemini", "ollama", "workers-ai"];
 const PROVIDER_SECTIONS = ["## Setup", "## Models", "## Where it runs", "## Limits"];
 const DEPLOY_PAGES = ["local", "cloudflare"];
 const DEPLOY_SECTIONS = ["## Setup", "## Providers", "## Running and resuming", "## Limits"];
@@ -31,7 +31,7 @@ const PAGES: { path: string; sections: string[] }[] = [
 	...DEPLOY_PAGES.map((name) => ({ path: `docs/deploy/${name}.md`, sections: DEPLOY_SECTIONS })),
 ];
 
-/** The seven shipped pages, by path relative to the package. */
+/** The eight shipped pages, by path relative to the package. */
 const ALL_PAGES = ["docs/providers/README.md", ...PAGES.map(({ path }) => path)];
 
 /**
@@ -88,12 +88,19 @@ function parseTable(markdown: string): { columns: string[]; rows: Record<string,
 const MATRIX = {
 	"api-keys": { agent: "yes", durable: "yes", task: "yes", change: "yes", cloudflare: "yes" },
 	"claude-code": { agent: "yes", durable: "yes", task: "yes", change: "yes", cloudflare: "no" },
+	gemini: { agent: "yes", durable: "yes", task: "yes", change: "yes", cloudflare: "yes" },
 	ollama: { agent: "yes", durable: "yes", task: "yes", change: "yes", cloudflare: "no" },
 	"workers-ai": { agent: "no", durable: "no", task: "no", change: "no", cloudflare: "yes" },
 };
 
-/** A matrix row's provider id in the CLIs' collection: `api-keys` stands for pi-ai's built-ins. */
-const PROVIDER_OF: Record<string, string> = { "api-keys": "anthropic", "claude-code": "claude-code", ollama: "ollama", "workers-ai": "workers-ai" };
+/** A matrix row's provider id in the CLIs' collection: `api-keys` stands for pi-ai's built-ins, and `gemini` is pi's `google`. */
+const PROVIDER_OF: Record<string, string> = {
+	"api-keys": "anthropic",
+	"claude-code": "claude-code",
+	gemini: "google",
+	ollama: "ollama",
+	"workers-ai": "workers-ai",
+};
 
 const matrixPage = () => readFileSync(join(PROVIDERS, "README.md"), "utf8");
 
@@ -127,7 +134,7 @@ describe("The matrix says which provider runs where", () => {
 		for (const [row, cells] of Object.entries(rows)) {
 			if (cells["durable"] === "yes") expect(providers, row).toContain(PROVIDER_OF[row]);
 		}
-		expect(providers).toEqual(expect.arrayContaining(["anthropic", "claude-code", "ollama"]));
+		expect(providers).toEqual(expect.arrayContaining(["anthropic", "claude-code", "google", "ollama"]));
 		expect(providers).not.toContain("workers-ai");
 	});
 
@@ -140,7 +147,7 @@ describe("The matrix says which provider runs where", () => {
 });
 
 describe("Links and scripts in the pages hold", () => {
-	it("every relative link in the seven pages resolves", () => {
+	it("every relative link in the eight pages resolves", () => {
 		const broken = ALL_PAGES.flatMap((path) => brokenLinks(path, readFileSync(join(PKG_DIR, path), "utf8"), dirname(join(PKG_DIR, path))));
 		expect(broken).toEqual([]);
 	});

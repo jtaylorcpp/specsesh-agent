@@ -14,6 +14,7 @@
     "test:live": "pnpm --filter @specsesh/agent test:live",
     "test:claude-code": "pnpm --filter @specsesh/agent test:claude-code",
     "test:ollama": "node scripts/test-ollama.mjs",
+    "test:gemini": "node scripts/test-gemini.mjs",
     "agent": "node packages/agent/dist/bin/agentscript-pi.js",
     "durable": "node packages/agent/dist/bin/agentscript-durable.js",
     "task": "node packages/specsesh/bin/specsesh.js task",

@@ -63,6 +63,10 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 - **Temp directories survive a killed process.** A `SIGKILL`ed bin leaves its bridge's `/tmp/agentscript-bridge-*` (mode `0700`, a dead token) and `spawnRunner`'s `agentscript-claude-*` step directories, which also predates the change. A sweep at startup could remove the ones whose owning pid is gone, if the pid went into the directory name. Source: the change's design, Verified live.
 - **A held `claude -p` outlives a killed host** until its bridge calls fail or `timeoutMs` passes. Spawning it in its own process group, and killing the group on exit, would tighten that. Source: the same.
 
+## Gemini (from add-gemini-provider)
+
+- **Google failure categories from HTTP status.** pi-ai's Google adapter attaches no HTTP status, so `toOutcome` reports every Google failure as `unknown`. A fix needs a pi-ai change, because parsing message text is forbidden by `pi/port`. Source: the change's design, decision 7.
+
 ## Durable streaming (from add-durable-streaming)
 
 - **A streaming route on `defineAgentHost`.** An SSE (or similar) route that streams a run's `RunEvent`s, built on `watchScript`. Deferred from add-durable-streaming, which is library-only. Source: the change's proposal, Out of scope.

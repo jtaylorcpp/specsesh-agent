@@ -32,7 +32,7 @@ The rest of this section is `packages/agent`:
 | Directory → entry | What it is |
 |---|---|
 | `src/authoring`, `src/interpreter` → `./authoring`, `./interpreter` | The core: authoring + interpreter. No model client, ever. |
-| `src/pi` → `./pi` | A `ReasoningPort` on `@earendil-works/pi-ai`, so any pi provider can run a script. Default testing model: `anthropic/claude-haiku-4-5`. `ollama.ts`: the Ollama provider (`ollamaProvider`, `registerOllama`), keyless, OpenAI-compatible. |
+| `src/pi` → `./pi` | A `ReasoningPort` on `@earendil-works/pi-ai`, so any pi provider can run a script. Default testing model: `anthropic/claude-haiku-4-5`. `ollama.ts`: the Ollama provider (`ollamaProvider`, `registerOllama`), keyless, OpenAI-compatible. `gemini.ts`: pi's built-in `google` provider on `GEMINI_API_KEY` (`registerGemini`, `geminiKeyIssue`, `geminiBaseUrl`, which reads `GEMINI_BASE_URL`). |
 | `src/claude-code` → `./claude-code` | The claude-code port and pi provider (Node only). |
 | `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). Runtime-neutral: never imports `node:` or `src/claude-code`, so `./cloudflare` can import it. Holds `workspace.ts` (`Workspace`, whose `publish` is optional and which `localWorkspace` never has; `memoryWorkspace`, `workspaceActions`, `runChecks`, `diffSnapshots`), `delegation.ts` (grants, `delegationActions`), `agent-runner.ts` (`agentRunner()`, the `agent` runner: checks a grant against the harness's models and registry, runs it as a durable host action whose child ID commits with the `act` checkpoint, answers `{ ok, summary, files_changed }`; also in node `defaultRunners`), `delegate-scripts.ts` (`READ_AGENT`, `EDIT_AGENT` as source strings, no file system, so they work in Workers; the delegate contract: `instructions` seeded, `ok` and `summary` read back) `agent-config.ts` (`AgentConfig`, `createAgentHarness`) and `watch.ts` (`watchScript`, a durable run as `RunEvent`s). |
 | `src/node` → `./node` | The Node side of `./durable`: `localWorkspace(dir)`, `builtinActions` (moved from `src/durable/builtins.ts`), `claudeCodeRunner({ binary? })` and `defaultRunners`. `mcp.ts`: `mcpTools(servers)`, MCP servers' tools as host actions `<server>/<tool>`, the only importer of `@modelcontextprotocol/sdk`. Adds `src/durable`, `src/claude-code` and the MCP SDK. |
@@ -253,6 +253,8 @@ pnpm --filter cloudflare-worker-example dev    # wrangler dev; add --var AGENTSC
 pnpm test:cloudflare            # opt-in, not in `pnpm test`: crash/resume (kill -9 mid-step) + route scripts, local DO storage
 pnpm test:ollama                # opt-in, not in `pnpm test`, built bins: a durable run killed mid-step and resumed, then a one-task
                                 # loop, on a local Ollama model (OLLAMA_TEST_MODEL or the first pulled); skips when no server answers
+pnpm test:gemini                # opt-in, not in `pnpm test`, built bins: the same two runs on google/GEMINI_TEST_MODEL
+                                # (default gemini-3.5-flash); skips without GEMINI_API_KEY
 pnpm test:claude-code           # opt-in, not in `pnpm test`, your subscription: claude-code tool steps on Haiku (about six requests),
                                 # __tests__/live/claude-code-tools.live.test.ts; skips, saying why, without a logged-in `claude`
 pnpm spec:check                 # openspec validate --all --strict
@@ -262,7 +264,9 @@ pnpm docs:check                 # docs/ concept pages: front matter, ids, README
 ```
 
 Provider/model also come from `AGENTSCRIPT_PROVIDER` / `AGENTSCRIPT_MODEL`; credentials are pi's
-env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...). The bins are compiled JavaScript;
+env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...). Gemini is provider `google`
+on `GEMINI_API_KEY` (`--model` required, e.g. `gemini-3.5-flash`); the CLIs refuse a missing key before
+anything starts. The bins are compiled JavaScript;
 nothing needs `tsx`.
 
 ## Releasing

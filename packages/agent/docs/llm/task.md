@@ -42,6 +42,15 @@
 - **Small models** may fail structured steps, such as the judge's `submit_result`. That is the model's limit, not the loop's.
 - In this repo, `pnpm test:ollama` runs a durable run and a one-task loop on a pulled model, and skips when no server answers.
 
+## Gemini
+
+- **One run.** `specsesh task <change> <task-id> --provider google --model gemini-3.5-flash` puts the judge on the Gemini API, with `GEMINI_API_KEY`. The provider id is `google` (its page is `gemini`); `--model` is required. `GEMINI_BASE_URL` overrides the base URL (default `https://generativelanguage.googleapis.com/v1beta`).
+- **In the config.** `"provider": "google"` with `"model": "gemini-3.5-flash"` under `task`, or a `models` entry `{ "provider": "google", "model": "gemini-3.5-flash" }` for an `agent` delegate.
+- **When the key is checked.** Only when the run's model, a stored loop's model (`resume`, `answer`) or a `models` entry is on `google`. Without it, the CLI prints `google: GEMINI_API_KEY is not set` and exits `2` before a loop exists or a resume starts.
+- **Models.** `specsesh agent models google` lists the catalog without a key.
+- **Failures.** Every failed Google request is reported as `unknown`: pi-ai's Google adapter gives no HTTP status.
+- In this repo, `pnpm test:gemini` runs a durable run and a one-task loop on `GEMINI_TEST_MODEL` (default `gemini-3.5-flash`), and skips without `GEMINI_API_KEY`.
+
 ## Output
 
 - **stdout:** the outcome, `# loop <id> — <status>` and one line per iteration. With `--json`, the outcome is JSON.

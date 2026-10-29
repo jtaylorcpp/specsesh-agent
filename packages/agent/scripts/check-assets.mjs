@@ -11,7 +11,7 @@ const REQUIRED = [
 	"docs/language",
 	"templates/SKILL.md",
 	...["guide", "change", "task", "agent", "durable"].map((page) => `docs/llm/${page}.md`),
-	...["README", "api-keys", "claude-code", "ollama", "workers-ai"].map((page) => `docs/providers/${page}.md`),
+	...["README", "api-keys", "claude-code", "gemini", "ollama", "workers-ai"].map((page) => `docs/providers/${page}.md`),
 	...["local", "cloudflare"].map((page) => `docs/deploy/${page}.md`),
 ];
 const missing = REQUIRED.filter((path) => !existsSync(fileURLToPath(new URL(`../${path}`, import.meta.url))));

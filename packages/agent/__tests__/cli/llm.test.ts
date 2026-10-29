@@ -139,6 +139,12 @@ describe("specsesh llm providers and deploy print the shipped pages", () => {
 		expect(text).toBe(shipped("docs/providers/ollama.md"));
 	});
 
+	it("Scenario: The gemini page prints by name", async () => {
+		const { code, text } = await printed(["llm", "providers", "gemini"]);
+		expect(code).toBe(0);
+		expect(text).toBe(shipped("docs/providers/gemini.md"));
+	});
+
 	it("Scenario: A deployment page prints by name", async () => {
 		const { code, text } = await printed(["llm", "deploy", "cloudflare"]);
 		expect(code).toBe(0);
@@ -181,7 +187,7 @@ describe("The guide and the skill ship in the package", () => {
 			mkdirSync(join(root, "docs/llm"));
 			for (const page of ["guide", ...HELP_COMMANDS]) if (page !== missing) writeFileSync(join(root, `docs/llm/${page}.md`), "");
 			mkdirSync(join(root, "docs/providers"));
-			for (const page of ["README", "api-keys", "claude-code", "ollama", "workers-ai"]) writeFileSync(join(root, `docs/providers/${page}.md`), "");
+			for (const page of ["README", "api-keys", "claude-code", "gemini", "ollama", "workers-ai"]) writeFileSync(join(root, `docs/providers/${page}.md`), "");
 			mkdirSync(join(root, "docs/deploy"));
 			for (const page of ["local", "cloudflare"]) writeFileSync(join(root, `docs/deploy/${page}.md`), "");
 			expect(existsSync(join(root, `docs/llm/${missing}.md`))).toBe(false);
