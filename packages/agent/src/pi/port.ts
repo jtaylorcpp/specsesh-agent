@@ -18,7 +18,9 @@
  *
  *   stopReason "stop" / "toolUse"  → answered (structured = the result tool's arguments)
  *   stopReason "length"            → failed, max_output_tokens
- *   stopReason "error"             → failed, category from the HTTP status if pi carried one
+ *   stopReason "error"             → failed, category from the first diagnostic error.code,
+ *                                    else the HTTP status the port recorded (no recorder on
+ *                                    Google's APIs), else unknown
  *   stopReason "aborted"           → failed, unrecognised ("aborted")
  *
  * A step that asked for a structured result and got only text comes back
@@ -100,14 +102,14 @@ export function createPiReasoningPort(options: PiReasoningPortOptions): Reasonin
 			};
 			if (request.outputSchema !== undefined) context.tools = [resultTool(request.outputSchema)];
 
-			const message = await send(models, model, context, {
+			const { message, status } = await send(models, model, context, {
 				maxTokens: options.maxTokens ?? 4096,
 				...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
 				...(options.signal !== undefined ? { signal: options.signal } : {}),
 				...(request.outputSchema !== undefined ? forceTool(model) : {}),
 			}, stream);
 			options.onMessage?.(message);
-			return toOutcome(message, request.outputSchema !== undefined);
+			return toOutcome(message, request.outputSchema !== undefined, status);
 		},
 	};
 }
@@ -115,6 +117,10 @@ export function createPiReasoningPort(options: PiReasoningPortOptions): Reasonin
 /**
  * One model request: `complete()` without a stream, `stream()` with one. Only
  * text and thinking deltas are forwarded; `toolcall_delta` is a half-parsed call.
+ *
+ * Each request gets its own `fetch` that records the last response's HTTP
+ * status, which pi's adapters work out and then drop. Google's adapters refuse
+ * any custom `fetch`, so they get none and no status is recorded.
  */
 async function send(
 	models: Models,
@@ -122,15 +128,29 @@ async function send(
 	context: Context,
 	requestOptions: Record<string, unknown>,
 	stream: StreamSink | undefined,
-): Promise<AssistantMessage> {
-	if (stream === undefined) return models.complete(model, context, requestOptions);
-	const events = models.stream(model, context, requestOptions);
+): Promise<{ message: AssistantMessage; status: number | undefined }> {
+	let status: number | undefined;
+	const fetch = async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit): Promise<Response> => {
+		// Read at call time, so a stubbed or Worker `fetch` is the one used.
+		const response = await globalThis.fetch(input, init);
+		status = response.status;
+		return response;
+	};
+	const options = model.api === "google-generative-ai" || model.api === "google-vertex"
+		? requestOptions
+		: { ...requestOptions, fetch };
+	if (stream === undefined) {
+		const message = await models.complete(model, context, options);
+		return { message, status };
+	}
+	const events = models.stream(model, context, options);
 	for await (const event of events) {
 		if (event.type === "text_delta" || event.type === "thinking_delta") {
 			stream.onDelta({ type: event.type, delta: event.delta });
 		}
 	}
-	return events.result();
+	const message = await events.result();
+	return { message, status };
 }
 
 /**
@@ -177,12 +197,12 @@ async function runToolLoop(
 	let stillCalling = false;
 
 	while (rounds < maxRounds) {
-		const reply = await send(models, model, context, requestOptions, stream);
+		const { message: reply, status } = await send(models, model, context, requestOptions, stream);
 		rounds += 1;
 		options.onMessage?.(reply);
 		last = reply;
 		if (reply.stopReason === "length" || reply.stopReason === "aborted" || reply.stopReason === "error") {
-			return { ...toOutcome(reply, structuredStep), toolCalls };
+			return { ...toOutcome(reply, structuredStep, status), toolCalls };
 		}
 		context.messages.push(reply);
 
@@ -247,9 +267,9 @@ async function runToolLoop(
 		// The settling request counts toward the bound too.
 		if (rounds >= maxRounds) return { kind: "cut-short", text, turns: maxRounds, toolCalls };
 		const settling: Context = { ...context, tools: [resultTool(request.outputSchema!)] };
-		const reply = await send(models, model, settling, { ...requestOptions, ...forceTool(model) }, stream);
+		const { message: reply, status } = await send(models, model, settling, { ...requestOptions, ...forceTool(model) }, stream);
 		options.onMessage?.(reply);
-		return { ...toOutcome(reply, true), toolCalls };
+		return { ...toOutcome(reply, true, status), toolCalls };
 	}
 
 	return {
@@ -355,7 +375,7 @@ export function forceTool(model: Model<Api>): Record<string, unknown> {
 	}
 }
 
-export function toOutcome(message: AssistantMessage, wantsStructured: boolean): StepOutcome {
+export function toOutcome(message: AssistantMessage, wantsStructured: boolean, status?: number): StepOutcome {
 	const text = message.content
 		.filter((block) => block.type === "text")
 		.map((block) => block.text)
@@ -383,10 +403,11 @@ export function toOutcome(message: AssistantMessage, wantsStructured: boolean): 
 				message: message.errorMessage ?? "the request was aborted",
 			};
 		default: {
-			const status = message.diagnostics?.map((d) => d.error?.code).find((code) => code !== undefined);
+			// A diagnostic code wins; the recorded status is the fallback.
+			const code = message.diagnostics?.map((d) => d.error?.code).find((code) => code !== undefined) ?? status;
 			return {
 				kind: "failed",
-				category: toFailureCategory(categoryFromStatus(status)),
+				category: toFailureCategory(categoryFromStatus(code)),
 				message: message.errorMessage ?? `the request ended with stopReason "${message.stopReason}"`,
 			};
 		}
