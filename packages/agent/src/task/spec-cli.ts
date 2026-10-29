@@ -26,6 +26,7 @@ import type { Models } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, type ModelRef } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { LoopOutcome } from "../openspec/index.js";
+import { GEMINI_PROVIDER, type GeminiEnv, type RegisterGeminiResult } from "../pi/gemini.js";
 import { OLLAMA_PROVIDER_ID, type RegisterOllamaResult } from "../pi/ollama.js";
 import { DEFAULT_CHANGES_DIR, DEFAULT_MODEL, DEFAULT_PROVIDER, resolveDb, type LoadedConfig } from "./config.js";
 import { ApprovalsFileError } from "./errors.js";
@@ -53,6 +54,8 @@ export interface SpecIo {
 	readonly models: () => Promise<Models> | Models;
 	/** Adds `ollama` to `models` when a ref is on it (the bins' `withOllama`), before the model is checked. */
 	readonly withOllama?: (models: Models, refs: readonly ModelRef[]) => Promise<RegisterOllamaResult | undefined>;
+	/** Points `google` at its URL and checks its key when a ref is on it (the bins' `withGemini`), before the model is checked. */
+	readonly withGemini?: (models: Models, refs: readonly ModelRef[], env: GeminiEnv) => Promise<RegisterGeminiResult | undefined>;
 	/** The stages, in order. Defaults to `SPEC_STAGES`. */
 	readonly stages?: readonly SpecStage[];
 }
@@ -239,6 +242,8 @@ export async function runSpec(args: readonly string[], config: LoadedConfig, io:
 	const models = await io.models();
 	const namedRefs = Object.values(config.models).map((entry): ModelRef => ({ provider: entry.provider, modelId: entry.model }));
 	const ollama = await io.withOllama?.(models, [model, ...namedRefs]);
+	const gemini = await io.withGemini?.(models, [model, ...namedRefs], io.env);
+	if (gemini !== undefined && !gemini.ok) return refuse(`${GEMINI_PROVIDER}: ${gemini.reason}`);
 	if (models.getProvider(model.provider) === undefined || models.getModel(model.provider, model.modelId) === undefined) {
 		const unreachable = model.provider === OLLAMA_PROVIDER_ID && ollama?.ok === false ? ` (Ollama at ${ollama.baseUrl}: ${ollama.reason})` : "";
 		return refuse(`no model "${model.modelId}" on provider "${model.provider}"${unreachable}`);

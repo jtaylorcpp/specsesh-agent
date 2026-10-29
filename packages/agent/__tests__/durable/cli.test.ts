@@ -11,6 +11,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, main, parseVar } from "../../src/bin/agentscript-durable.js";
 import { RESULT_TOOL, startScript, waitForScript } from "../../src/durable/index.js";
 import { closedPortUrl, type FakeOllama, startFakeOllama } from "../pi/fake-ollama.js";
+import { type FakeGemini, startFakeGemini, textReply } from "../pi/fake-gemini.js";
 import { ENTRIES, HELLO, HELLO_ENTRIES, openHarness, PIPELINE, setup } from "./helpers.js";
 
 // The real claude-code provider spawns the user's `claude` binary. Stand in a faux provider under
@@ -599,6 +600,102 @@ describe("ollama is registered when the run needs it", () => {
 		// only the second step (farewell) asked the model again
 		expect(chats(fake)).toHaveLength(1);
 		const sent = JSON.stringify(chats(fake)[0]!.body);
+		expect(sent).toContain("Say goodbye to Ada.");
+		expect(sent).not.toContain("Say hello to Ada.");
+	}, 90_000);
+});
+
+describe("google is registered and its key checked when the run needs it", () => {
+	const saved = { key: process.env.GEMINI_API_KEY, url: process.env.GEMINI_BASE_URL };
+	const fakes: FakeGemini[] = [];
+	afterEach(async () => {
+		for (const fake of fakes.splice(0)) await fake.close();
+		for (const [key, value] of [["GEMINI_API_KEY", saved.key], ["GEMINI_BASE_URL", saved.url]] as const) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	});
+
+	async function fakeGemini() {
+		const fake = await startFakeGemini();
+		fakes.push(fake);
+		process.env.GEMINI_API_KEY = "test";
+		process.env.GEMINI_BASE_URL = fake.url;
+		return fake;
+	}
+
+	function helloWorkdir() {
+		const w = workdir();
+		const script = join(w.dir, "hello.agent");
+		writeFileSync(script, HELLO);
+		return { ...w, script };
+	}
+
+	/** main() on the CLI's own collection (no deps.models), capturing its output. */
+	async function ownCli(argv: string[]) {
+		const out: string[] = [];
+		const err: string[] = [];
+		const code = await main(argv, { out: (l) => out.push(l), err: (l) => err.push(l) });
+		return { code, out: out.join("\n"), err: err.join("\n") };
+	}
+
+	const entries = HELLO_ENTRIES.flatMap((e) => ["--entry", e]);
+	const gemini = ["--provider", "google", "--model", "gemini-3.5-flash"];
+
+	it("Scenario: A durable run completes on Gemini", async () => {
+		const { script, db } = helloWorkdir();
+		const fake = await fakeGemini();
+		fake.reply(textReply("Hello, Ada."), textReply("Goodbye, Ada."));
+
+		const r = await ownCli(["run", script, "--db", db, ...gemini, ...entries]);
+
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("completed");
+		// one request per step, each on the named model with the key
+		expect(fake.requests).toHaveLength(2);
+		for (const request of fake.requests) {
+			expect(request.model).toBe("gemini-3.5-flash");
+			expect(request.apiKey).toBe("test");
+		}
+	});
+
+	it("Scenario: A durable run on google without a key creates no task", async () => {
+		const { script, db } = helloWorkdir();
+		delete process.env.GEMINI_API_KEY;
+
+		const r = await ownCli(["run", script, "--db", db, ...gemini]);
+
+		expect(r.err).toContain("google: GEMINI_API_KEY is not set");
+		expect(r.code).toBe(2);
+		const storage = await openNodeSqliteStorage(db);
+		const tasks = await storage.scanTasks({}, 10, undefined, BACKGROUND_CONTEXT);
+		await storage.close(BACKGROUND_CONTEXT);
+		expect(tasks.items).toEqual([]);
+	});
+
+	it("Scenario: A crashed Gemini run finishes on resume", async () => {
+		const { db } = workdir();
+		let id = "";
+		let status: number | null = 0;
+		try {
+			execFileSync(process.execPath, ["--import", TS_HOOK, join(HERE, "fixtures", "crash-gemini-child.ts"), db], { encoding: "utf8" });
+		} catch (error) {
+			const e = error as { stdout: string; status: number | null };
+			status = e.status;
+			id = /TASK (\d+)/.exec(e.stdout)?.[1] ?? "";
+		}
+		expect(status).toBe(137);
+		expect(id).toMatch(/^\d+$/);
+
+		const fake = await fakeGemini();
+		fake.reply(textReply("Goodbye, Ada."));
+		const r = await ownCli(["resume", id, "--db", db]);
+
+		expect(r.code).toBe(0);
+		expect(r.out).toContain(`# task ${id} — completed`);
+		// only the second step (farewell) asked the model again
+		expect(fake.requests).toHaveLength(1);
+		const sent = JSON.stringify(fake.requests[0]!.body);
 		expect(sent).toContain("Say goodbye to Ada.");
 		expect(sent).not.toContain("Say hello to Ada.");
 	}, 90_000);

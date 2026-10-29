@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { closedPortUrl, startFakeOllama, type FakeOllama } from "./fake-ollama.js";
+import { startFakeGemini, textReply, type FakeGemini } from "./fake-gemini.js";
 
 const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const BIN = join(PKG_DIR, "dist", "bin", "agentscript-pi.js");
@@ -78,10 +79,13 @@ let fakeBin: string;
 let argvLog: string;
 let hello: string;
 let ollama: FakeOllama | undefined;
+let gemini: FakeGemini | undefined;
 
 afterEach(async () => {
 	await ollama?.close();
 	ollama = undefined;
+	await gemini?.close();
+	gemini = undefined;
 });
 
 /** The SDK client modules, by absolute path: the fake `claude` runs from a temp dir. */
@@ -160,11 +164,11 @@ interface Cli {
 	stderr: string;
 }
 
-/** Runs the real bin. No network: every credential and AGENTSCRIPT_* variable is stripped first. */
+/** Runs the real bin. No network: every credential, AGENTSCRIPT_* variable and GEMINI_BASE_URL is stripped first. */
 function cli(args: string[], env: Record<string, string> = {}, fakeClaude = false): Promise<Cli> {
 	const base: Record<string, string | undefined> = { ...process.env };
 	for (const key of Object.keys(base)) {
-		if (/_API_KEY$|_TOKEN$/.test(key) || key.startsWith("AGENTSCRIPT_") || key === "CLAUDECODE") delete base[key];
+		if (/_API_KEY$|_TOKEN$/.test(key) || key.startsWith("AGENTSCRIPT_") || key === "CLAUDECODE" || key === "GEMINI_BASE_URL") delete base[key];
 	}
 	const childEnv = {
 		...base,
@@ -241,6 +245,39 @@ describe("models lists a provider's models", () => {
 		expect(r.stderr.startsWith(`ollama: not reachable at ${url}`)).toBe(true);
 		expect(r.stdout).toBe("");
 		expect(r.code).toBe(1);
+	});
+});
+
+describe("google's key is checked before a run", () => {
+	it("Scenario: A run on google without a key is refused", async () => {
+		gemini = await startFakeGemini();
+		gemini.reply(textReply("never"));
+		const r = await cli(["run", hello, "--provider", "google", "--model", "gemini-3.5-flash"], { GEMINI_BASE_URL: gemini.url });
+		expect(r.stderr.trim()).toBe("google: GEMINI_API_KEY is not set");
+		expect(r.stdout).toBe("");
+		expect(r.code).toBe(1);
+		expect(gemini.requests).toEqual([]);
+	});
+
+	it("Scenario: A script runs on Gemini", async () => {
+		gemini = await startFakeGemini();
+		gemini.reply(textReply("hello"));
+		const r = await cli(["run", hello, "--provider", "google", "--model", "gemini-3.5-flash"], {
+			GEMINI_API_KEY: "test",
+			GEMINI_BASE_URL: gemini.url,
+		});
+		expect(r.stderr).toBe("");
+		expect(r.code).toBe(0);
+		expect(r.stdout.startsWith("# google/gemini-3.5-flash — completed")).toBe(true);
+		expect(gemini.requests).toHaveLength(1);
+		expect(gemini.requests[0]!.model).toBe("gemini-3.5-flash");
+		expect(gemini.requests[0]!.apiKey).toBe("test");
+	});
+
+	it("Scenario: google's models list without a key", async () => {
+		const r = await cli(["models", "google"]);
+		expect(r.code).toBe(0);
+		expect(r.stdout).toMatch(/^gemini-3\.5-flash\t/m);
 	});
 });
 

@@ -35,7 +35,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { ActionBindingError, checkBindings, createActionRegistry, type ActionRegistry } from "../durable/actions.js";
 import { AgentScript, agentScriptExtensions, AgentScriptStepExtension, type RunInput } from "../durable/extension.js";
 import { startScript, waitForScript } from "../durable/host.js";
-import { cliModels, ollamaSuffix, withOllama } from "./models.js";
+import { cliModels, geminiRefusal, ollamaSuffix, withGemini, withOllama } from "./models.js";
 import { loadActions, reportSkipped } from "./tools.js";
 
 export const DEFAULT_PROVIDER = "anthropic";
@@ -159,6 +159,11 @@ async function runOnHarness(
 			const provider = values.provider ?? process.env.AGENTSCRIPT_PROVIDER ?? DEFAULT_PROVIDER;
 			const modelId = values.model ?? process.env.AGENTSCRIPT_MODEL ?? DEFAULT_MODEL;
 			const ollama = await withOllama(models, [{ provider, modelId }]);
+			const refusal = geminiRefusal(await withGemini(models, [{ provider, modelId }]));
+			if (refusal !== undefined) {
+				err(refusal);
+				return 2;
+			}
 			if (models.getModel(provider, modelId) === undefined) {
 				err(`no model "${modelId}" on provider "${provider}"${ollamaSuffix(ollama, provider)}`);
 				return 2;
@@ -205,7 +210,14 @@ async function runOnHarness(
 			}
 			// Before resuming, so a run started on a pulled model finds it again.
 			const stored = (task.input as { model?: ModelRef } | null)?.model;
-			if (stored !== undefined) await withOllama(models, [stored]);
+			if (stored !== undefined) {
+				await withOllama(models, [stored]);
+				const refusal = geminiRefusal(await withGemini(models, [stored]));
+				if (refusal !== undefined) {
+					err(refusal);
+					return 2;
+				}
+			}
 		}
 
 		harness.resume();
