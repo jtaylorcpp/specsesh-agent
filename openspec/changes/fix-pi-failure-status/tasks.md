@@ -1,0 +1,11 @@
+## 1. The status reaches toOutcome
+
+- [ ] 1.1 `packages/agent/src/pi/port.ts`: `toOutcome(message, wantsStructured, status?)` (decision 3, 5); `send` passes a per-request recording `fetch` except on `google-generative-ai` and `google-vertex` (decisions 1, 2) and hands the status to every `toOutcome` call (the one-shot step, each tool-loop round, the settling request). Update the header comment's mapping lines. Tests in `__tests__/pi/port.test.ts`: "Scenario: No status means unknown", "Scenario: A given status maps when diagnostics carry none", "Scenario: The diagnostic code wins over the given status"
+- [ ] 1.2 `__tests__/pi/status-server.ts` (new, see Testing) and a new `__tests__/pi/failure-status.test.ts`, with dummy keys through `vi.stubEnv`: "Scenario: A 429 on the Anthropic wire is a rate limit", "Scenario: A 401 on the OpenAI wire is an authentication failure", "Scenario: A 500 from Ollama is a server error", "Scenario: A tool-loop round keeps its status", "Scenario: A streamed step keeps its status". Point models at the server with `{ ...model, baseUrl }` (Anthropic: the origin; OpenAI and Ollama: origin plus `/v1`)
+
+## 2. Google's envelope and the docs
+
+- [ ] 2.1 `googleStatus(message)` in `src/pi/categories.ts` (decision 4), used by the port for Google models when there is no diagnostic code. `fake-gemini.ts` gains a queued error reply (a status and Google's body `{ error: { code, message, status } }`). Tests in `__tests__/pi/gemini.test.ts`: "Scenario: A 429 from Gemini is a rate limit", "Scenario: A 403 from Gemini is an authentication failure", "Scenario: A Google error that is not its envelope stays unknown"
+- [ ] 2.2 Docs: `docs/providers/api-keys.md` and `ollama.md` (one-shot failures are categorised from the status; durable, task and change runs report `unknown`), `gemini.md` Limits (the envelope; a mid-stream error stays `unknown`; durable runs `unknown`). `openspec/parked.md`: replace "Google failure categories from HTTP status" with "Failure categories in durable runs" (decision 6) and "pi-ai: keep the HTTP status in diagnostics". `CLAUDE.md`: the `./pi` line on failure categories. Run `pnpm docs:check`, `pnpm check`, `pnpm test`
+
+The change ends with `pnpm change close fix-pi-failure-status`.
