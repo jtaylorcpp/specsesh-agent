@@ -5,6 +5,6 @@
 
 ## 2. The README and the rule
 
-- [ ] 2.1 Root `README.md`: a `## Provider parity` section after `## Commands`, one sentence on what the values mean and that `pnpm parity` regenerates it, then the markers, filled by `pnpm parity`; a `pnpm parity` row in the Commands table. `CLAUDE.md`: `pnpm parity` in Commands, and the rule from decision 6 under "Specs". Run `node scripts/parity.mjs --check`, `pnpm check`, `pnpm test`
+- [x] 2.1 Root `README.md`: a `## Provider parity` section after `## Commands`, one sentence on what the values mean and that `pnpm parity` regenerates it, then the markers, filled by `pnpm parity`; a `pnpm parity` row in the Commands table. `CLAUDE.md`: `pnpm parity` in Commands, and the rule from decision 6 under "Specs". Run `node scripts/parity.mjs --check`, `pnpm check`, `pnpm test`
 
 The change ends with `pnpm change close add-provider-parity-matrix`.

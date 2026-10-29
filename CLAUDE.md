@@ -263,6 +263,7 @@ pnpm spec:check                 # openspec validate --all --strict
 pnpm change close <change-id>   # end a built change: guard, trial fold, archive (see "Specs")
 pnpm spec:archive <change-id>   # this repo's own script: validate, trial fold, archive; no database
 pnpm docs:check                 # docs/ concept pages: front matter, ids, README index, spec refs, links
+pnpm parity                     # rewrite README.md's provider parity block from parity.json (--check: exit 1 on drift)
 ```
 
 Provider/model also come from `AGENTSCRIPT_PROVIDER` / `AGENTSCRIPT_MODEL`; credentials are pi's
@@ -443,6 +444,7 @@ behaviour only; internals go in a change's `design.md`. Stock `spec-driven` sche
 - `docs/` holds the OpenSpec taxonomy and ontology, one concept per file; `docs/README.md` is the
   directory and `docs/CONVENTIONS.md` the page format. A change to the ontology specs updates the
   matching pages in the same commit, and `pnpm docs:check` must pass.
+- A change that adds or changes a provider's behaviour updates `parity.json` (and `pnpm parity`) in the same change.
 - Set `OPENSPEC_TELEMETRY=0` when calling `openspec` by hand (the scripts already do).
 
 ## Hard lines (see README.md for the reasoning)

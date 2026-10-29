@@ -60,10 +60,13 @@ pnpm change close   <id>                # trial-fold into the specs, then archiv
 | `pnpm spec:check` | Validates every spec and change (`openspec validate --all --strict`) |
 | `pnpm spec:archive <id>` | Trial-folds a finished change into the specs, validates, then archives it |
 | `pnpm docs:check` | Keeps `docs/` honest: front matter, index, spec references, links |
+| `pnpm parity` | Regenerates the provider parity table in this README from `parity.json` (`--check` in the test fails on drift) |
 | `pnpm task …` | The task runner (`agentscript-task`): `<change> <task>`, `<change> <group>`, `--next`, `spec`, `status`, `resume`, `answer` |
 | `pnpm change …` | The change flow (`agentscript-change`): `draft <id> --intent "…"` (or `"<feedback>"`), `approve <id>`, `build <id> ["<answer>"]`, `close <id>` |
 
 ## Provider parity
+
+Each cell says how a feature is proven for a provider: by an offline test, only by a live run against the real service, not at all, or not supported; the table is rendered from `parity.json` by `pnpm parity`, and the build fails when it drifts.
 
 <!-- PARITY:BEGIN -->
 ✅ tested · 🟢 live only · ⚪ untested · — not supported
