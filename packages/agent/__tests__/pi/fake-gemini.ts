@@ -4,8 +4,12 @@ import type { AddressInfo } from "node:net";
 /** One SSE chunk of a reply: text, or a function call. */
 export type FakeGeminiChunk = { text: string } | { functionCall: { name: string; args: object } };
 
-/** One reply: its chunks, each written as its own `data:` event. */
-export type FakeGeminiReply = FakeGeminiChunk[];
+/** One reply: its chunks, each written as its own `data:` event, or an HTTP error with a JSON body. */
+export type FakeGeminiReply = FakeGeminiChunk[] | FakeGeminiError;
+
+export interface FakeGeminiError {
+	error: { status: number; body: unknown };
+}
 
 export interface FakeGeminiRequest {
 	path: string;
@@ -28,11 +32,19 @@ export const textReply = (...chunks: string[]): FakeGeminiReply => chunks.map((t
 
 export const callReply = (name: string, args: object): FakeGeminiReply => [{ functionCall: { name, args } }];
 
+const GOOGLE_STATUS: Record<number, string> = { 400: "INVALID_ARGUMENT", 401: "UNAUTHENTICATED", 403: "PERMISSION_DENIED", 404: "NOT_FOUND", 429: "RESOURCE_EXHAUSTED", 500: "INTERNAL", 503: "UNAVAILABLE" };
+
+/** An HTTP error reply; the body defaults to Google's `{ error: { code, message, status } }`. */
+export const errorReply = (status: number, body?: unknown): FakeGeminiReply => ({
+	error: { status, body: body ?? { error: { code: status, message: "nope", status: GOOGLE_STATUS[status] ?? "UNKNOWN" } } },
+});
+
 const STREAM_PATH = /^(?:\/v1beta)?\/models\/([^/:]+):streamGenerateContent$/;
 
 /**
  * A local stand-in for the Gemini API: `POST [/v1beta]/models/<id>:streamGenerateContent` (any query,
- * `alt=sse` from the SDK) answers the next queued reply as SSE `GenerateContentResponse` chunks. An
+ * `alt=sse` from the SDK) answers the next queued reply as SSE `GenerateContentResponse` chunks, or,
+ * for an `errorReply`, as that HTTP status and JSON body. An
  * empty queue answers 500, so a test that sends one request too many fails loudly.
  */
 export async function startFakeGemini(): Promise<FakeGemini> {
@@ -60,6 +72,10 @@ export async function startFakeGemini(): Promise<FakeGemini> {
 			const reply = queue.shift();
 			if (reply === undefined) {
 				res.writeHead(500, { "content-type": "application/json" }).end(JSON.stringify({ error: { code: 500, message: "fake-gemini: no reply queued", status: "INTERNAL" } }));
+				return;
+			}
+			if (!Array.isArray(reply)) {
+				res.writeHead(reply.error.status, { "content-type": "application/json" }).end(JSON.stringify(reply.error.body));
 				return;
 			}
 			res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });

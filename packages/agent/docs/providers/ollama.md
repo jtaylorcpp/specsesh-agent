@@ -35,3 +35,4 @@ On Node, wherever the server is reachable: `specsesh agent`, `durable`, `task` a
 - Forced tool calls on small models. A structured step sends `tool_choice` naming `submit_result`. Ollama passes it on only to models whose template supports tools, and a small model may answer in text instead. A reply with no `submit_result` call fails the step, sets no variable and ends the run `failed`. That is the model's limit; a larger model, or one with tool support, fixes it.
 - Every model is registered with a 32768-token context window and 8192 output tokens, whatever the server holds.
 - Text input only, no reasoning effort, no cost: the printed cost is always `$0`.
+- A one-shot step that fails on an HTTP status takes its category from it: `500` is `server_error`, `429` `rate_limit`. Durable, task and change runs report every failure as `unknown`.

@@ -169,8 +169,10 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
 - `./interpreter` — subset scan, prompt composition, logic lines, structured state, three step
   outcomes; `run`, and `streamRun` (or `run`'s `onEvent`) for its `RunEvent`s. Core tests drive a recording port; pi tests drive pi's faux provider.
 - `./pi` — without `tools`, one `reason()` = one pi `complete()`. Structured steps offer a single
-  `submit_result` tool and force it per wire API (`forceTool`). Failure categories come only from
-  `stopReason` and the HTTP status, never from message text. It loops only when given `tools` (a
+  `submit_result` tool and force it per wire API (`forceTool`). Failure categories come from
+  `stopReason` and the first diagnostic `error.code`, else the HTTP status the port's per-request
+  `fetch` records; Google gets no `fetch`, so its status is the integer `error.code` of its JSON
+  error envelope, parsed whole. Message prose is never matched. Durable runs stay `unknown`. It loops only when given `tools` (a
   `PiToolHost`): offered tools run on the host and their results go back to the model, a
   structured step that never called `submit_result` gets one forced settling request, and
   `maxRounds` (default 16) bounds it, ending `cut-short`. Without `tools`, a tool request is refused.

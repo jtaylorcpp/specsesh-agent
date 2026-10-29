@@ -36,4 +36,6 @@ Everywhere: `specsesh agent`, `durable`, `task` and `change` on Node, and a Clou
 
 - Billed per token to the key's account; `specsesh agent run` prints the tokens and the cost pi-ai reports.
 - The key is read from the environment only. pi-ai sends it only to its provider; nothing in `specsesh` stores or prints it.
-- A failed request is categorised from the HTTP status and pi-ai's stop reason, never from the message text.
+- A failed one-shot step (`specsesh agent run`, or the library's `run`) takes its category from the response's HTTP status, which the port records itself: `429` is `rate_limit`, `401` `authentication_failed`, `500` `server_error`. A diagnostic code from pi-ai wins when one is present. Categories never come from the message text. Google reads the status from its error envelope instead: see [gemini](gemini.md#limits).
+- Durable, task and change runs still report every failure as `unknown`.
+- Categories are labels only: nothing retries by category.

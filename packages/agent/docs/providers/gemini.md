@@ -55,7 +55,8 @@ The [matrix](README.md) has every pair, and [running on Cloudflare](../deploy/cl
 
 ## Limits
 
-- Every failed Google request is categorised `unknown`: pi-ai's Google adapter reports no HTTP status, and categories never come from the message text. A key missing at request time shows as `unknown: Provider is not configured: google`; the CLIs' check makes that rare.
+- Failure categories come from Google's error envelope. Google's adapters (`google-generative-ai`, `google-vertex`) refuse a custom `fetch`, so the port can't record the status. When the error message is, as a whole, JSON shaped `{ "error": { "code": <integer> } }`, that code is the HTTP status: `429` is `rate_limit`, `403` `authentication_failed`. No substring or keyword is matched.
+- Any other error stays `unknown`, including a mid-stream error (its `got status: …` text does not parse). Durable, task and change runs report every failure as `unknown`. A key missing at request time shows as `unknown: Provider is not configured: google`; the CLIs' check makes that rare.
 - No reasoning-level option: Gemini uses its default thinking.
 - Vertex AI (`google-vertex`) is not covered, nor the Gemini CLI as a runner.
 - Billed per token to the key's account; the key is read from the environment only and never stored or printed.

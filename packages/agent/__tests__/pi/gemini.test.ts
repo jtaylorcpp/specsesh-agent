@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { run, type ActionResult, type StreamDelta, type ToolOffer } from "../../src/interpreter/index.js";
 import {
@@ -8,10 +9,12 @@ import {
 	geminiBaseUrl,
 	geminiKeyIssue,
 	registerGemini,
+	toOutcome,
 	type PiToolCall,
 	type PiToolHost,
 } from "../../src/pi/index.js";
-import { callReply, startFakeGemini, textReply, type FakeGemini } from "./fake-gemini.js";
+import { googleStatus } from "../../src/pi/categories.js";
+import { callReply, errorReply, startFakeGemini, textReply, type FakeGemini } from "./fake-gemini.js";
 
 const servers: FakeGemini[] = [];
 async function fake(): Promise<FakeGemini> {
@@ -144,6 +147,45 @@ describe("pi/gemini", () => {
 			{ type: "text_delta", delta: "lo" },
 		]);
 		expect(outcome).toMatchObject({ kind: "answered", text: "Hello" });
+	});
+
+	it("Scenario: A 429 from Gemini is a rate limit", async () => {
+		const server = await fake();
+		server.reply(errorReply(429));
+
+		const outcome = await (await geminiPort(server)).reason({ systemInstructions: "You greet.", prompt: "Say hello." });
+
+		expect(server.requests).toHaveLength(1);
+		expect(outcome).toMatchObject({ kind: "failed", category: "rate_limit" });
+	});
+
+	it("Scenario: A 403 from Gemini is an authentication failure", async () => {
+		const server = await fake();
+		server.reply(errorReply(403));
+
+		const outcome = await (await geminiPort(server)).reason({ systemInstructions: "You greet.", prompt: "Say hello." });
+
+		expect(server.requests).toHaveLength(1);
+		expect(outcome).toMatchObject({ kind: "failed", category: "authentication_failed" });
+	});
+
+	it("Scenario: A Google error that is not its envelope stays unknown", () => {
+		for (const message of [
+			undefined,
+			"got status: 500 Internal Server Error",
+			'{"error":{"message":"x"}}',
+			'{"error":{"code":"429"}}',
+			'{"error":{"code":4.5}}',
+			'{"error":null}',
+			"[1]",
+			"null",
+		]) {
+			expect(googleStatus(message), String(message)).toBeUndefined();
+		}
+		expect(googleStatus('{"error":{"code":429,"message":"nope","status":"RESOURCE_EXHAUSTED"}}')).toBe(429);
+
+		const message = fauxAssistantMessage([], { stopReason: "error", errorMessage: "not json" });
+		expect(toOutcome(message, false, googleStatus(message.errorMessage))).toMatchObject({ kind: "failed", category: "unknown", message: "not json" });
 	});
 });
 

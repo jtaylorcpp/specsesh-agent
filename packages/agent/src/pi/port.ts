@@ -19,8 +19,8 @@
  *   stopReason "stop" / "toolUse"  → answered (structured = the result tool's arguments)
  *   stopReason "length"            → failed, max_output_tokens
  *   stopReason "error"             → failed, category from the first diagnostic error.code,
- *                                    else the HTTP status the port recorded (no recorder on
- *                                    Google's APIs), else unknown
+ *                                    else the HTTP status the port recorded (on Google's APIs,
+ *                                    the `error.code` of Google's JSON error body), else unknown
  *   stopReason "aborted"           → failed, unrecognised ("aborted")
  *
  * A step that asked for a structured result and got only text comes back
@@ -49,7 +49,7 @@ import type {
 	TSchema,
 	Api,
 } from "@earendil-works/pi-ai";
-import { categoryFromStatus } from "./categories.js";
+import { categoryFromStatus, googleStatus } from "./categories.js";
 
 /** The one tool a structured step offers. Its arguments are the step's result. */
 export const RESULT_TOOL = "submit_result";
@@ -120,7 +120,8 @@ export function createPiReasoningPort(options: PiReasoningPortOptions): Reasonin
  *
  * Each request gets its own `fetch` that records the last response's HTTP
  * status, which pi's adapters work out and then drop. Google's adapters refuse
- * any custom `fetch`, so they get none and no status is recorded.
+ * any custom `fetch`, so they get none; their status comes from Google's error
+ * envelope (`googleStatus`) instead.
  */
 async function send(
 	models: Models,
@@ -136,21 +137,27 @@ async function send(
 		status = response.status;
 		return response;
 	};
-	const options = model.api === "google-generative-ai" || model.api === "google-vertex"
-		? requestOptions
-		: { ...requestOptions, fetch };
-	if (stream === undefined) {
-		const message = await models.complete(model, context, options);
-		return { message, status };
-	}
+	const google = model.api === "google-generative-ai" || model.api === "google-vertex";
+	const options = google ? requestOptions : { ...requestOptions, fetch };
+	const message = await request(models, model, context, options, stream);
+	return { message, status: google ? googleStatus(message.errorMessage) : status };
+}
+
+async function request(
+	models: Models,
+	model: Model<Api>,
+	context: Context,
+	options: Record<string, unknown>,
+	stream: StreamSink | undefined,
+): Promise<AssistantMessage> {
+	if (stream === undefined) return models.complete(model, context, options);
 	const events = models.stream(model, context, options);
 	for await (const event of events) {
 		if (event.type === "text_delta" || event.type === "thinking_delta") {
 			stream.onDelta({ type: event.type, delta: event.delta });
 		}
 	}
-	const message = await events.result();
-	return { message, status };
+	return events.result();
 }
 
 /**
