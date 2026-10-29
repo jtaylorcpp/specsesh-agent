@@ -1,6 +1,6 @@
 {
   "name": "@specsesh/agent",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "Agent Script as an authoring format, plus an interpreter over a declared subset of it, with pi, Claude Code, durable and Cloudflare hosts. Never compiles to the Salesforce runtime specification.",
   "license": "Apache-2.0",
   "type": "module",
