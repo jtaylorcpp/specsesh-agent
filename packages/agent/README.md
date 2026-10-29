@@ -32,7 +32,7 @@ Picking a model and a place to run, one page each:
 
 - **Providers:** [the matrix](docs/providers/README.md) of which provider runs where;
   [API-key providers](docs/providers/api-keys.md), [claude-code](docs/providers/claude-code.md),
-  [ollama](docs/providers/ollama.md), [workers-ai](docs/providers/workers-ai.md).
+  [gemini](docs/providers/gemini.md), [ollama](docs/providers/ollama.md), [workers-ai](docs/providers/workers-ai.md).
 - **Deployment:** [running locally](docs/deploy/local.md), [running on Cloudflare](docs/deploy/cloudflare.md).
 
 Going further? The **[guides](https://github.com/jtaylorcpp/specsesh-agent/tree/main/guides)** cover each layer in depth.

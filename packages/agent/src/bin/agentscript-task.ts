@@ -122,7 +122,7 @@ import { after, formatSpecOutcome, runSpec, shownPath, specExitCode, stageScript
 import { changeDirOf } from "../task/spec-loop.js";
 import { changeOf, formatLoop, listLoops, markInterrupted, scriptOf } from "../task/status.js";
 import { WorktreeRefusedError, checkWorktree, createWorktree, inRepo, planWorktree, rebase, runSetup } from "../task/worktree.js";
-import { cliModels, ollamaSuffix, withOllama } from "./models.js";
+import { cliModels, geminiRefusal, ollamaSuffix, withGemini, withOllama } from "./models.js";
 
 export { DEFAULT_MODEL, DEFAULT_PROVIDER };
 
@@ -215,7 +215,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 	// spec parses its own flags, and never reaches run's clean-tree guard.
 	if (command === "spec") {
 		try {
-			const io = { out, err, cwd, env, models: deps.models ?? cliModels, withOllama, ...(deps.stages !== undefined ? { stages: deps.stages } : {}) };
+			const io = { out, err, cwd, env, models: deps.models ?? cliModels, withOllama, withGemini, ...(deps.stages !== undefined ? { stages: deps.stages } : {}) };
 			return await runSpec(rest, loadConfig(cwd), io);
 		} catch (error) {
 			if (isRefusal(error)) {
@@ -323,6 +323,11 @@ async function pickTestsCommand(
 	const model = values.model ?? io.env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL;
 	const models = await io.models();
 	const ollama = await withOllama(models, ollamaRefs({ provider, modelId: model }, config));
+	const refusal = geminiRefusal(await withGemini(models, ollamaRefs({ provider, modelId: model }, config), io.env));
+	if (refusal !== undefined) {
+		io.err(refusal);
+		return 2;
+	}
 	const result = await pickTests(input, { provider, model, models, ...(timeoutMs !== undefined ? { timeoutMs } : {}) });
 	io.out(JSON.stringify(result.ok ? { ...result, pattern: testPattern(result.pick.names) } : { ...result, reason: `${result.reason}${ollamaSuffix(ollama, provider)}` }));
 	return result.ok ? 0 : 1;
@@ -389,6 +394,11 @@ async function run(
 	const models = await (deps.models ?? cliModels)();
 	const model: ModelRef = { provider: settings.provider, modelId: settings.model };
 	const ollama = await withOllama(models, ollamaRefs(model, config));
+	const refusal = geminiRefusal(await withGemini(models, ollamaRefs(model, config), env));
+	if (refusal !== undefined) {
+		io.err(refusal);
+		return 2;
+	}
 	const provider = models.getProvider(settings.provider);
 	if (provider === undefined || models.getModel(settings.provider, settings.model) === undefined) {
 		io.err(`no model "${settings.model}" on provider "${settings.provider}"${ollamaSuffix(ollama, settings.provider)}`);
@@ -796,6 +806,11 @@ async function continueLoop(
 	const models = await (deps.models ?? cliModels)();
 	// The stored loop's own model is refreshed in continueStored, once the loop is read.
 	const ollama = await withOllama(models, namedRefs(config));
+	const refusal = geminiRefusal(await withGemini(models, namedRefs(config), env));
+	if (refusal !== undefined) {
+		io.err(refusal);
+		return 2;
+	}
 	// The config's named models as they are now: a loop stores its grants, not the models they name.
 	const named = resolveNamedModels(config.models, models);
 	const warnings: string[] = [];
@@ -848,6 +863,12 @@ async function continueStored(
 	};
 	// A loop started on a local model finishes on it: refresh ollama unless the config's models already did.
 	const refreshed = ollama ?? (found !== undefined ? await withOllama(models, [model]) : undefined);
+	const refusal = found !== undefined ? geminiRefusal(await withGemini(models, [model], env)) : undefined;
+	if (refusal !== undefined) {
+		await storage.close(BACKGROUND_CONTEXT);
+		io.err(refusal);
+		return 2;
+	}
 	const provider = models.getProvider(model.provider);
 	if (found === undefined || stored === undefined || provider === undefined) {
 		await storage.close(BACKGROUND_CONTEXT);
@@ -954,6 +975,11 @@ async function resumeEvery(
 	}
 	const models = await (deps.models ?? cliModels)();
 	const ollama = await withOllama(models, namedRefs(config));
+	const refusal = geminiRefusal(await withGemini(models, namedRefs(config), env));
+	if (refusal !== undefined) {
+		io.err(refusal);
+		return 2;
+	}
 	const named = resolveNamedModels(config.models, models);
 	const lock = lockDatabase(db.path);
 	// The first root carries the stale-lock warning, as a single resume would.

@@ -18,3 +18,28 @@ export function categoryFromStatus(code: string | number | undefined): string | 
 	if (status >= 500 && status <= 599) return "server_error";
 	return undefined;
 }
+
+/**
+ * The HTTP status in Google's error envelope, for `google-generative-ai` and
+ * `google-vertex` errors, whose adapters take no recording `fetch`.
+ *
+ * This is not reading message text: `@google/genai` throws with the
+ * `JSON.stringify` of the response body as its message, and pi passes it on
+ * unchanged. The whole string must parse as `{ error: { code } }` with an
+ * integer `code`, Google's own HTTP status field. No substring, regex or
+ * keyword; anything else (a mid-stream `got status: …` included) is `undefined`.
+ */
+export function googleStatus(message: string | undefined): number | undefined {
+	if (message === undefined) return undefined;
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(message);
+	} catch {
+		return undefined;
+	}
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+	const error = (parsed as { error?: unknown }).error;
+	if (typeof error !== "object" || error === null) return undefined;
+	const code = (error as { code?: unknown }).code;
+	return typeof code === "number" && Number.isInteger(code) ? code : undefined;
+}

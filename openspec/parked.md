@@ -63,6 +63,11 @@ Found while writing the baseline specs. Each needs its own change; none is in `b
 - **Temp directories survive a killed process.** A `SIGKILL`ed bin leaves its bridge's `/tmp/agentscript-bridge-*` (mode `0700`, a dead token) and `spawnRunner`'s `agentscript-claude-*` step directories, which also predates the change. A sweep at startup could remove the ones whose owning pid is gone, if the pid went into the directory name. Source: the change's design, Verified live.
 - **A held `claude -p` outlives a killed host** until its bridge calls fail or `timeoutMs` passes. Spawning it in its own process group, and killing the group on exit, would tighten that. Source: the same.
 
+## Failure status (from fix-pi-failure-status)
+
+- **Failure categories in durable runs.** pi-durable's `generation.js` calls `runtime.models.streamSimple` with its own options, and `answerStep` sees `settled.reason`, not the assistant message. Threading the status through would mean wrapping the harness's `Models` and reading the conversation back. Until then durable, task and change runs report every failure as `unknown`. Source: the change's design, decision 6.
+- **pi-ai: keep the HTTP status in diagnostics.** An upstream request. `normalizeProviderError` extracts `error.status`, but `formatProviderError` only folds it into `errorMessage` as text and appends no diagnostic. Once pi-ai keeps it, the diagnostic code wins and the port's recorded status becomes a fallback. Source: the change's proposal, Out of scope.
+
 ## Durable streaming (from add-durable-streaming)
 
 - **A streaming route on `defineAgentHost`.** An SSE (or similar) route that streams a run's `RunEvent`s, built on `watchScript`. Deferred from add-durable-streaming, which is library-only. Source: the change's proposal, Out of scope.

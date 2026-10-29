@@ -60,8 +60,87 @@ pnpm change close   <id>                # trial-fold into the specs, then archiv
 | `pnpm spec:check` | Validates every spec and change (`openspec validate --all --strict`) |
 | `pnpm spec:archive <id>` | Trial-folds a finished change into the specs, validates, then archives it |
 | `pnpm docs:check` | Keeps `docs/` honest: front matter, index, spec references, links |
+| `pnpm parity` | Regenerates the provider parity table in this README from `parity.json` (`--check` in the test fails on drift) |
 | `pnpm task …` | The task runner (`agentscript-task`): `<change> <task>`, `<change> <group>`, `--next`, `spec`, `status`, `resume`, `answer` |
 | `pnpm change …` | The change flow (`agentscript-change`): `draft <id> --intent "…"` (or `"<feedback>"`), `approve <id>`, `build <id> ["<answer>"]`, `close <id>` |
+
+## Provider parity
+
+Each cell says how a feature is proven for a provider: by an offline test, only by a live run against the real service, not at all, or not supported; the table is rendered from `parity.json` by `pnpm parity`, and the build fails when it drifts.
+
+<!-- PARITY:BEGIN -->
+✅ tested · 🟢 live only · ⚪ untested · — not supported
+
+| Feature | api-keys | claude-code | gemini | ollama | workers-ai |
+|---|---|---|---|---|---|
+| One-shot run (`agent run`, `run()`) | ✅ | ✅ | ✅ | ✅ | — |
+| Durable run | ✅ | ✅ | ✅ | ✅ | — ¹ |
+| Crash, then resume | ✅ | ✅ | ✅ | ✅ | ⚪ |
+| Task and change loops | ✅ | 🟢 | ✅ | ✅ | — |
+| Cloudflare Durable Object host | ✅ ² | — | ⚪ ³ | — | ⚪ ⁴ |
+| Structured steps | ✅ | ✅ | ✅ | ✅ | ⚪ |
+| Tools on one-shot runs | ✅ | ✅ | ✅ | ✅ | — |
+| Tools in durable runs | ✅ | ✅ | ⚪ | ⚪ | ⚪ |
+| A model calling MCP tools | ⚪ ⁵ | ⚪ | ⚪ | ⚪ | — |
+| Streaming text, one-shot | ✅ | ✅ | ✅ | ⚪ | — |
+| Streaming text, durable (`watchScript`) | ✅ | — ⁶ | ⚪ | ⚪ | ⚪ |
+| Abort a one-shot step (`signal`) | ⚪ | ✅ | ⚪ | ⚪ | — |
+| Failure categories, one-shot | ✅ | ✅ | ✅ | ✅ | — |
+| Failure categories, durable | — ⁷ | — | — | — | — |
+| A live check against the real service | — | 🟢 | 🟢 | 🟢 | — |
+
+1. the Node durable command; on Cloudflare every run is durable (see the Cloudflare row)
+2. on a faux model under `wrangler dev --local`
+3. `defineAgentHost` takes any model; no test runs Gemini in a Worker
+4. the binding adapter is tested on a fake binding; no Durable Object run
+5. MCP tools are tested through `run` statements, never a model's call
+6. the claude-code pi provider doesn't stream
+7. every durable failure is `unknown`; parked
+
+<details><summary>Evidence</summary>
+
+- **One-shot run (`agent run`, `run()`) × api-keys:** `answers a text-only step and completes`
+- **One-shot run (`agent run`, `run()`) × claude-code:** `Scenario: A completed run prints its steps and usage`
+- **One-shot run (`agent run`, `run()`) × gemini:** `Scenario: A script runs on Gemini`
+- **One-shot run (`agent run`, `run()`) × ollama:** `Scenario: A script runs on a pulled ollama model`
+- **Durable run × api-keys:** `Scenario: A two-model-step script walks the phases in order`
+- **Durable run × claude-code:** `Scenario: A durable claude-code run calls a --tools tool`
+- **Durable run × gemini:** `Scenario: A durable run completes on Gemini`
+- **Durable run × ollama:** `Scenario: A durable run completes on a pulled ollama model`
+- **Crash, then resume × api-keys:** `Scenario: A crash during the second model request resumes at the second step`
+- **Crash, then resume × claude-code:** `Scenario: A claude-code run killed during a tool call resumes`
+- **Crash, then resume × gemini:** `Scenario: A crashed Gemini run finishes on resume`
+- **Crash, then resume × ollama:** `Scenario: A crashed ollama run finishes on resume`
+- **Task and change loops × api-keys:** `Scenario: A converged loop prints its iterations and ticked`
+- **Task and change loops × claude-code:** `Scenario: The live run converges and ticks the task`; `Scenario: A live group converges`
+- **Task and change loops × gemini:** `Scenario: A task loop converges on Gemini`
+- **Task and change loops × ollama:** `Scenario: A task loop converges on a pulled ollama model`
+- **Cloudflare Durable Object host × api-keys:** `examples/cloudflare-worker/test/crash-resume.sh`; `examples/cloudflare-worker/test/routes.sh`
+- **Structured steps × api-keys:** `Scenario: A structured step offers the result tool`
+- **Structured steps × claude-code:** `Scenario: A schema and a turn bound are appended in order`
+- **Structured steps × gemini:** `Scenario: A forced function call becomes the structured result`
+- **Structured steps × ollama:** `Scenario: A forced tool call becomes the structured result`
+- **Tools on one-shot runs × api-keys:** `Scenario: A tool call runs on the host and its result reaches the model`
+- **Tools on one-shot runs × claude-code:** `Scenario: A claude-code run calls a --tools tool through the bridge`
+- **Tools on one-shot runs × gemini:** `Scenario: A Gemini tool call is answered with a functionResponse`
+- **Tools on one-shot runs × ollama:** `Scenario: The model calls an offered tool from a module`
+- **Tools in durable runs × api-keys:** `Scenario: Bound inputs are merged into the call`
+- **Tools in durable runs × claude-code:** `Scenario: A durable claude-code run calls a --tools tool`
+- **Streaming text, one-shot × api-keys:** `Scenario: Deltas concatenate to the step's text`
+- **Streaming text, one-shot × claude-code:** `Scenario: A listening text step streams its text`
+- **Streaming text, one-shot × gemini:** `Scenario: A listening Gemini step streams its text`
+- **Streaming text, durable (`watchScript`) × api-keys:** `Scenario: A step's deltas join to its text`
+- **Abort a one-shot step (`signal`) × claude-code:** `Scenario: Aborting a text step kills claude`
+- **Failure categories, one-shot × api-keys:** `Scenario: A 429 on the Anthropic wire is a rate limit`
+- **Failure categories, one-shot × claude-code:** `takes an API error's category from its status`
+- **Failure categories, one-shot × gemini:** `Scenario: A 429 from Gemini is a rate limit`
+- **Failure categories, one-shot × ollama:** `Scenario: A 500 from Ollama is a server error`
+- **A live check against the real service × claude-code:** `Scenario: A real claude calls a bridged tool`
+- **A live check against the real service × gemini:** `scripts/test-gemini.mjs`
+- **A live check against the real service × ollama:** `scripts/test-ollama.mjs`
+
+</details>
+<!-- PARITY:END -->
 
 ## How work happens here
 

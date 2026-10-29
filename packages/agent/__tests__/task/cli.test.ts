@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { Harness, createRegistry } from "@earendil-works/pi-durable";
 import { openNodeSqliteDatabase, openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, groupLoopOptions, main } from "../../src/bin/agentscript-task.js";
@@ -11,6 +12,7 @@ import { cli, fauxModels, storedLoops, workdir } from "./cli-helpers.js";
 import { draft, proposalStage } from "./spec-helpers.js";
 import { JUDGE_ONLY, JUDGE_ONLY_ASSIGNING, baselineDir, cleanTemps, context, fakePnpm, temp, tinyChange, verdict } from "./helpers.js";
 import { closedPortUrl, startFakeOllama, type FakeOllama, type FakeOllamaReply } from "../pi/fake-ollama.js";
+import { callReply, startFakeGemini, textReply, type FakeGemini } from "../pi/fake-gemini.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TS_HOOK = join(HERE, "..", "durable", "fixtures", "ts-resolve.mjs");
@@ -754,5 +756,110 @@ describe("task/cli: ollama is registered when a loop needs it", () => {
 		expect(chats(fake).length).toBeGreaterThan(0);
 		for (const chat of chats(fake)) expect((chat.body as { model?: string }).model).toBe("qwen3:8b");
 		expect(env.faux.state.callCount).toBe(0);
+	}, 90_000);
+});
+
+describe("task/cli: google is registered and its key checked when a loop needs it", () => {
+	const savedKey = process.env.GEMINI_API_KEY;
+	const fakes: FakeGemini[] = [];
+	afterEach(async () => {
+		for (const fake of fakes.splice(0)) await fake.close();
+		if (savedKey === undefined) delete process.env.GEMINI_API_KEY;
+		else process.env.GEMINI_API_KEY = savedKey;
+	});
+
+	/** A fake Gemini, and the env the CLI is given for it. pi's google provider reads the key from the process at request time. */
+	async function fakeGemini() {
+		const fake = await startFakeGemini();
+		fakes.push(fake);
+		process.env.GEMINI_API_KEY = "test";
+		return { fake, env: { GEMINI_API_KEY: "test", GEMINI_BASE_URL: fake.url } };
+	}
+
+	/** pi's built-in collection, `google` included, plus the faux provider. */
+	function builtinAndFaux() {
+		const env = fauxModels();
+		const models = builtinModels();
+		models.setProvider(env.faux.provider);
+		return { ...env, models };
+	}
+
+	const MET = { met: true, unmet: "", next_action: "retry", question: "", amend_path: "", amend_text: "" };
+
+	/** A directory holding `agentscript.config.json` as given. */
+	function configured(config: unknown) {
+		const dir = temp("task-gemini-");
+		writeFileSync(join(dir, "agentscript.config.json"), JSON.stringify(config));
+		return { dir, db: join(dir, "loops.sqlite") };
+	}
+
+	it("Scenario: A task loop converges on Gemini", async () => {
+		const { fake, env } = await fakeGemini();
+		// orient's plan, act's text, the judge's met verdict
+		fake.reply(callReply("submit_result", { plan: "nothing to change" }), textReply("Nothing to change."), callReply("submit_result", MET));
+		const { dir, db } = configured({ task: { provider: "google", model: "gemini-3.5-flash", script: "task", checks: ["pnpm test"], allow: ["pnpm"] } });
+		const models = builtinAndFaux();
+
+		const r = await cli(["run", tinyChange(), "1.1", "--db", db], models, { cwd: dir, env });
+
+		expect(r.code, r.err).toBe(0);
+		expect(r.out).toContain("— converged");
+		expect(fake.requests).toHaveLength(3);
+		for (const request of fake.requests) expect(request.model).toBe("gemini-3.5-flash");
+		expect(models.faux.state.callCount).toBe(0);
+		expect((await storedLoops(db)).inputs[0]?.model).toEqual({ provider: "google", modelId: "gemini-3.5-flash" });
+	});
+
+	it("Scenario: A loop on google without a key is refused", async () => {
+		delete process.env.GEMINI_API_KEY;
+		const { dir, db } = configured({ task: { provider: "google", model: "gemini-3.5-flash" } });
+
+		const r = await cli(["run", tinyChange(), "1.1", "--db", db], builtinAndFaux(), { cwd: dir, env: {} });
+
+		expect(r.err).toContain("google: GEMINI_API_KEY is not set");
+		expect(r.code).toBe(2);
+		expect(existsSync(db)).toBe(false);
+	});
+
+	it("Scenario: A named model on google needs the key too", async () => {
+		delete process.env.GEMINI_API_KEY;
+		const { dir, db } = configured({ models: { gem: { provider: "google", model: "gemini-3.5-flash" } } });
+		const script = join(dir, "judge.agent");
+		writeFileSync(script, JUDGE_ONLY);
+		const models = builtinAndFaux();
+
+		const r = await cli(["run", tinyChange(), "1.1", "--db", db, "--script", script, ...models.args], models, { cwd: dir, env: {} });
+
+		expect(r.err).toContain("google: GEMINI_API_KEY is not set");
+		expect(r.code).toBe(2);
+		expect(models.faux.state.callCount).toBe(0);
+	});
+
+	it("Scenario: A crashed Gemini loop resumes on its model", async () => {
+		const db = join(temp("task-crash-"), "loops.sqlite");
+		const workspace = temp("task-ws-");
+		let out = "";
+		let status: number | null = 0;
+		try {
+			execFileSync(process.execPath, ["--import", TS_HOOK, join(HERE, "fixtures", "crash-gemini-loop-child.ts"), db, tinyChange(), workspace], { encoding: "utf8" });
+		} catch (error) {
+			const e = error as { stdout: string; status: number | null };
+			status = e.status;
+			out = e.stdout;
+		}
+		expect(status).toBe(137);
+		const id = /LOOP (\d+)/.exec(out)?.[1] ?? "";
+		expect(id).toMatch(/^\d+$/);
+
+		const { fake, env } = await fakeGemini();
+		fake.reply(callReply("submit_result", MET));
+		const models = builtinAndFaux();
+		const r = await cli(["resume", id, "--db", db], models, { env });
+
+		expect(r.code, r.err).toBe(0);
+		expect(r.out).toContain(`# loop ${id} — converged`);
+		expect(fake.requests).toHaveLength(1);
+		expect(fake.requests[0]!.model).toBe("gemini-3.5-flash");
+		expect(models.faux.state.callCount).toBe(0);
 	}, 90_000);
 });

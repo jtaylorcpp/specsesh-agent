@@ -60,7 +60,7 @@ import type { SpecStage } from "../task/spec-stage.js";
 import { SPEC_STAGES } from "../task/spec-stages.js";
 import { readSlices, type Slice } from "../task/stages/slices-md.js";
 import { ollamaRefs, resolvePrincipal } from "./agentscript-task.js";
-import { cliModels, ollamaSuffix, withOllama } from "./models.js";
+import { cliModels, geminiRefusal, ollamaSuffix, withGemini, withOllama } from "./models.js";
 
 /** One line per command. */
 export const USAGE = `usage:
@@ -232,6 +232,8 @@ async function resolveTarget(command: string, dbFlag: string | undefined, config
 	};
 	const models = await io.models();
 	const ollama = await withOllama(models, ollamaRefs(model, config));
+	const refusal = geminiRefusal(await withGemini(models, ollamaRefs(model, config), io.env));
+	if (refusal !== undefined) return refusal;
 	if (models.getProvider(model.provider) === undefined || models.getModel(model.provider, model.modelId) === undefined) {
 		return `no model "${model.modelId}" on provider "${model.provider}"${ollamaSuffix(ollama, model.provider)}`;
 	}
@@ -332,6 +334,8 @@ async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promi
 	const models = await io.models();
 	const model: ModelRef = { provider: request.provider, modelId: request.model };
 	const ollama = await withOllama(models, ollamaRefs(model, config));
+	const refusal = geminiRefusal(await withGemini(models, ollamaRefs(model, config), io.env));
+	if (refusal !== undefined) return refuse(refusal);
 	const provider = models.getProvider(request.provider);
 	if (provider === undefined || models.getModel(request.provider, request.model) === undefined) {
 		return refuse(`no model "${request.model}" on provider "${request.provider}"${ollamaSuffix(ollama, request.provider)}`);

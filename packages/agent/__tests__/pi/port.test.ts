@@ -271,10 +271,15 @@ describe("The pi adapter exports its port, mapping and model helpers", () => {
 				"DEFAULT_MAX_ROUNDS",
 				"DEFAULT_MODEL",
 				"DEFAULT_PROVIDER",
+				"GEMINI_DEFAULT_BASE_URL",
+				"GEMINI_PROVIDER",
 				"RESULT_TOOL",
 				"categoryFromStatus",
 				"createPiReasoningPort",
 				"forceTool",
+				"geminiBaseUrl",
+				"geminiKeyIssue",
+				"registerGemini",
 				"ollamaBaseUrl",
 				"ollamaModel",
 				"ollamaProvider",
@@ -383,6 +388,26 @@ describe("Length, abort and error stops are failures with a structured category"
 			category: "unknown",
 			message: 'the request ended with stopReason "error"',
 		});
+	});
+
+	it("Scenario: No status means unknown", () => {
+		const message = messageOf({ stopReason: "error" });
+		delete (message as { diagnostics?: unknown }).diagnostics;
+		expect(toOutcome(message, false)).toMatchObject({ kind: "failed", category: "unknown" });
+	});
+
+	it("Scenario: A given status maps when diagnostics carry none", () => {
+		const message = messageOf({ stopReason: "error" });
+		delete (message as { diagnostics?: unknown }).diagnostics;
+		expect(toOutcome(message, false, 429)).toMatchObject({ kind: "failed", category: "rate_limit" });
+	});
+
+	it("Scenario: The diagnostic code wins over the given status", () => {
+		const message = messageOf({
+			stopReason: "error",
+			diagnostics: [{ type: "request", timestamp: 0, error: { message: "x", code: 402 } }],
+		});
+		expect(toOutcome(message, false, 429)).toMatchObject({ kind: "failed", category: "billing_error" });
 	});
 });
 

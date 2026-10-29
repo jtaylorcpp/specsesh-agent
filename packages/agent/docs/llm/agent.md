@@ -19,6 +19,7 @@ The loops are Agent Script (`.agent`) files. These commands show the bundled one
 `specsesh agent run <file>` runs a script once and prints each step's outcome and the final variables.
 
 - `--provider <id> --model <id>` picks the model; credentials come from the provider's environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …). `--provider claude-code` uses the local `claude` login instead. `--provider ollama` runs on a local Ollama server, keyless, at `OLLAMA_HOST` (default `http://localhost:11434`); its models are the ones pulled, and `specsesh agent models ollama` lists them. An unreachable server prints `ollama: not reachable at <url>: <reason>` and exits 1.
+- `--provider google --model gemini-3.5-flash` runs on the Gemini API with `GEMINI_API_KEY` (the provider id is `google`; its page is `gemini`). `--model` is required, and `GEMINI_BASE_URL` overrides the base URL (default `https://generativelanguage.googleapis.com/v1beta`). Without the key, `run` prints `google: GEMINI_API_KEY is not set` and exits 1 before any request; `specsesh agent models google` lists the catalog without a key. Every failed Google request is reported as `unknown`.
 - `--entry <subagent>` (repeatable) picks where it starts. `--var name=value` (repeatable) seeds a variable: `True` and `False` become booleans and numbers numbers.
 - `--json` prints the result as JSON. `specsesh agent models [provider]` lists a provider's models.
 

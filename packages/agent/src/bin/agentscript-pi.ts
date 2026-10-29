@@ -22,6 +22,8 @@
  * your Claude subscription instead of through pi (see src/claude-code/).
  * `--provider ollama` runs on a local Ollama server (OLLAMA_HOST, default
  * http://localhost:11434); only it makes a network call before the run.
+ * `--provider google` checks GEMINI_API_KEY before the run (GEMINI_BASE_URL
+ * repoints it); `models google` lists pi's catalog without a key.
  */
 
 import { readFileSync, realpathSync } from "node:fs";
@@ -33,6 +35,7 @@ import type { ReasoningPort } from "../interpreter/index.js";
 import { ActionBindingError, checkBindings } from "../durable/actions.js";
 import { registryHost, type RegistryHost } from "../durable/tool-host.js";
 import { loadActions, reportSkipped } from "./tools.js";
+import { geminiRefusal, withGemini } from "./models.js";
 import { mcpBridge } from "../node/mcp-bridge.js";
 import type { AssistantMessage, MutableModels } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
@@ -163,6 +166,11 @@ async function runScript(source: string, values: RunValues, hosts: RegistryHost 
 		});
 	} else {
 		if (provider === OLLAMA_PROVIDER && !(await ensureOllama(models))) return 1;
+		const refusal = geminiRefusal(await withGemini(models, [{ provider, modelId }]));
+		if (refusal !== undefined) {
+			console.error(refusal);
+			return 1;
+		}
 		const model = resolveModel(models, provider, modelId);
 		port = createPiReasoningPort({
 			models,
