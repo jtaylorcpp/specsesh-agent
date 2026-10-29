@@ -77,6 +77,7 @@
     "test": "node scripts/check-subset-conformance.mjs && vitest run",
     "test:live": "vitest run --config vitest.live.config.ts",
     "test:claude-code": "vitest run --config vitest.live.config.ts __tests__/live/claude-code-tools.live.test.ts",
+    "test:bun": "vitest run --config vitest.live.config.ts __tests__/live/bun-bundle.live.test.ts",
     "conformance": "node scripts/check-subset-conformance.mjs",
     "pack:check": "vitest run --config vitest.pack.config.ts"
   },
