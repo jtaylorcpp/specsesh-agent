@@ -37,6 +37,10 @@
       "types": "./dist/node/index.d.ts",
       "import": "./dist/node/index.js"
     },
+    "./mcp": {
+      "types": "./dist/mcp/index.d.ts",
+      "import": "./dist/mcp/index.js"
+    },
     "./cloudflare": {
       "types": "./dist/cloudflare/index.d.ts",
       "import": "./dist/cloudflare/index.js"

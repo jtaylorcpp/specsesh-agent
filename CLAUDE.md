@@ -11,8 +11,8 @@ flow does **not** apply here.
 Two npm packages publish from this workspace:
 
 - `packages/agent` → `@specsesh/agent`, the library, with an entry point per layer and the four
-  `agentscript-*` bins. Ten exports, in this order: `./authoring`, `./interpreter`, `./pi`,
-  `./claude-code`, `./durable`, `./node`, `./cloudflare`, `./openspec`, `./task`, `./cli`. Built
+  `agentscript-*` bins. Eleven exports, in this order: `./authoring`, `./interpreter`, `./pi`,
+  `./claude-code`, `./durable`, `./node`, `./mcp`, `./cloudflare`, `./openspec`, `./task`, `./cli`. Built
   by `tsc` into `dist/`, tested from `__tests__/`. The layer boundaries are directories, enforced
   by `__tests__/package/layers.test.ts`.
 - `packages/specsesh` → `specsesh`, the `specsesh` command that `npx specsesh` runs. Plain
@@ -35,7 +35,8 @@ The rest of this section is `packages/agent`:
 | `src/pi` → `./pi` | A `ReasoningPort` on `@earendil-works/pi-ai`, so any pi provider can run a script. Default testing model: `anthropic/claude-haiku-4-5`. `ollama.ts`: the Ollama provider (`ollamaProvider`, `registerOllama`), keyless, OpenAI-compatible. `gemini.ts`: pi's built-in `google` provider on `GEMINI_API_KEY` (`registerGemini`, `geminiKeyIssue`, `geminiBaseUrl`, which reads `GEMINI_BASE_URL`). |
 | `src/claude-code` → `./claude-code` | The claude-code port and pi provider (Node only). |
 | `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). Runtime-neutral: never imports `node:` or `src/claude-code`, so `./cloudflare` can import it. Holds `workspace.ts` (`Workspace`, whose `publish` is optional and which `localWorkspace` never has; `memoryWorkspace`, `workspaceActions`, `runChecks`, `diffSnapshots`), `delegation.ts` (grants, `delegationActions`), `agent-runner.ts` (`agentRunner()`, the `agent` runner: checks a grant against the harness's models and registry, runs it as a durable host action whose child ID commits with the `act` checkpoint, answers `{ ok, summary, files_changed }`; also in node `defaultRunners`), `delegate-scripts.ts` (`READ_AGENT`, `EDIT_AGENT` as source strings, no file system, so they work in Workers; the delegate contract: `instructions` seeded, `ok` and `summary` read back) `agent-config.ts` (`AgentConfig`, `createAgentHarness`) and `watch.ts` (`watchScript`, a durable run as `RunEvent`s). |
-| `src/node` → `./node` | The Node side of `./durable`: `localWorkspace(dir)`, `builtinActions` (moved from `src/durable/builtins.ts`), `claudeCodeRunner({ binary? })` and `defaultRunners`. `mcp.ts`: `mcpTools(servers)`, MCP servers' tools as host actions `<server>/<tool>`, the only importer of `@modelcontextprotocol/sdk`. Adds `src/durable`, `src/claude-code` and the MCP SDK. |
+| `src/node` → `./node` | The Node side of `./durable`: `localWorkspace(dir)`, `builtinActions` (moved from `src/durable/builtins.ts`), `claudeCodeRunner({ binary? })` and `defaultRunners`. Adds `src/durable` and `src/claude-code`; never loads the MCP SDK. |
+| `src/mcp` → `./mcp` | `mcpTools(servers)`, MCP servers' tools as host actions `<server>/<tool>`, and `mcpBridge()`. The only importer of `@modelcontextprotocol/sdk`, always statically: a dynamic `import()` of it beside an app's static ones broke Bun bundles (`move-mcp-to-own-entry`). The bins reach it lazily through `src/bin/mcp.ts`, so they start without the SDK. Adds `src/durable`, `src/claude-code` and the MCP SDK. |
 | `src/cloudflare` → `./cloudflare` | `AgentScriptHost`, the Durable Object class (via Cloudflare's `PiHarness`, `agents` 0.28.0), Workers AI by default; `defineAgentHost`, `workersAI` and the Sandbox/Artifacts workspaces (see below). |
 | `src/openspec` → `./openspec` | The OpenSpec ontology (`openspec/{model,process,loops,evidence}`): TypeBox schemas (each a JSON Schema) with `Static` types and refinements, plus pure rules. Imports only `typebox`; no parser, no loop runner. |
 | `src/task` → `./task` | The task loop (`agentscript.task-loop`): an Agent Script run once per iteration as an `agentscript.run` child until the task converges, blocks, exhausts or fails; ticks tasks.md. Also the spec loop (see below). Bundled scripts in `src/task/scripts/` (copied into `dist/` by the build). Adds `src/node`. |
@@ -190,7 +191,7 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
   no-workspace note, because Claude Code's environment block (working directory, git status,
   platform) can't be turned off. First live run: 2026-10-10, triage example, Haiku 4.5, completed.
   Tools and MCP work on one-shot runs (`agent run --tools`/`--mcp`): the port, given `tools` and
-  `bridge: mcpBridge()` (`src/node/mcp-bridge.ts`), serves the step's offers to `claude` as one
+  `bridge: mcpBridge()` (`src/mcp/mcp-bridge.ts`), serves the step's offers to `claude` as one
   loopback MCP server, `agentscript`, plus `--mcp-config`, `--allowedTools mcp__agentscript__…` and
   `--permission-mode dontAsk`; Claude Code calls them, possibly in parallel, and each runs on our
   host. Durable runs (`durable run`/`resume --tools`/`--mcp`) work too, through the claude-code pi

@@ -257,7 +257,7 @@ export function toolStepEnv(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 
 export function createClaudeCodeReasoningPort(options: ClaudeCodeReasoningPortOptions = {}): ReasoningPort {
 	if (options.tools !== undefined && options.bridge === undefined) {
-		throw new TypeError("tools need a bridge: pass bridge: mcpBridge() from @specsesh/agent/node");
+		throw new TypeError("tools need a bridge: pass bridge: mcpBridge() from @specsesh/agent/mcp");
 	}
 	const runner = options.runner ?? spawnRunner(options.binary ?? "claude", options.timeoutMs ?? 300_000, options.signal, options.cwd);
 	return {

@@ -13,15 +13,17 @@ import { createServer, type IncomingMessage, type Server as HttpServer, type Ser
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { BRIDGE_SERVER, type BridgeHandler, type BridgeReply, type BridgeTool, type ToolBridge, type ToolBridgeFactory } from "../claude-code/tool-bridge.js";
 
 /**
- * A `ToolBridgeFactory` for the claude-code port. The MCP SDK is loaded on the
- * first call; without it, the call rejects naming the optional peer.
+ * A `ToolBridgeFactory` for the claude-code port.
  */
 export function mcpBridge(): ToolBridgeFactory {
 	return async (tools, handler) => {
-		const sdk = await loadSdk();
+		const sdk = SDK;
 		const token = randomBytes(32).toString("hex");
 		const authorization = `Bearer ${token}`;
 
@@ -69,7 +71,7 @@ export function mcpBridge(): ToolBridgeFactory {
 	};
 }
 
-type Sdk = Awaited<ReturnType<typeof loadSdk>>;
+type Sdk = typeof SDK;
 
 /** One stateless MCP exchange: a fresh server and transport per request. */
 async function serve(
@@ -116,24 +118,7 @@ function stop(http: HttpServer): Promise<void> {
 	});
 }
 
-/** The SDK's server classes, imported on first use; a missing optional peer is named. */
-async function loadSdk() {
-	try {
-		const [server, http, types] = await Promise.all([
-			import("@modelcontextprotocol/sdk/server/index.js"),
-			import("@modelcontextprotocol/sdk/server/streamableHttp.js"),
-			import("@modelcontextprotocol/sdk/types.js"),
-		]);
-		return {
-			Server: server.Server,
-			StreamableHTTPServerTransport: http.StreamableHTTPServerTransport,
-			ListToolsRequestSchema: types.ListToolsRequestSchema,
-			CallToolRequestSchema: types.CallToolRequestSchema,
-		};
-	} catch (error) {
-		throw new Error(`mcpBridge needs the optional peer @modelcontextprotocol/sdk; install it (${messageOf(error)})`);
-	}
-}
+const SDK = { Server, StreamableHTTPServerTransport, ListToolsRequestSchema, CallToolRequestSchema };
 
 function messageOf(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);

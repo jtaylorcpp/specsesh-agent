@@ -2,15 +2,17 @@
  * MCP servers as host actions: connect to the servers a `.mcp.json`-style
  * `mcpServers` object names, list their tools, and map each usable one to an
  * `ExecutedHostAction` named `<server>/<tool>`, so a script targets it as
- * `mcpTool://<server>/<tool>`. The only module that imports the MCP SDK.
+ * `mcpTool://<server>/<tool>`. With `mcp-bridge.ts`, the only module that imports the MCP SDK.
  *
  * Every server connects or none does: one failure closes whatever is open and
  * rejects with `McpServerError`, naming the server.
  */
 
-// Types only at load time: the SDK is an optional peer, so importing `./node` must not need it.
-// `loadSdk` imports it when `mcpTools` is first called.
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+// Static imports only: Bun mis-initialises pi-ai's modules when an app mixes static and
+// dynamic imports of the SDK (move-mcp-to-own-entry). The SDK is this entry's peer.
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ActionResult, VariableValue } from "../interpreter/index.js";
@@ -102,7 +104,7 @@ export async function mcpTools(servers: McpServers, options: McpToolsOptions = {
 	const resolved = Object.entries(servers).map(([name, config]) => [name, resolveServer(name, config, env)] as const);
 
 	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-	const sdk = await loadSdk();
+	const sdk = SDK;
 	const opened: Client[] = [];
 	const settled = await Promise.allSettled(
 		resolved.map(async ([name, server]) => {
@@ -259,28 +261,9 @@ function resolveServer(name: string, config: unknown, env: Readonly<Record<strin
 	return refuse("it has neither command (stdio) nor url (http)");
 }
 
-type Sdk = Awaited<ReturnType<typeof loadSdk>>;
+type Sdk = typeof SDK;
 
-/** The SDK's runtime classes, imported on first use; a missing optional peer is named. */
-async function loadSdk() {
-	try {
-		const [client, stdio, http] = await Promise.all([
-			import("@modelcontextprotocol/sdk/client/index.js"),
-			import("@modelcontextprotocol/sdk/client/stdio.js"),
-			import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
-		]);
-		return {
-			Client: client.Client,
-			StdioClientTransport: stdio.StdioClientTransport,
-			getDefaultEnvironment: stdio.getDefaultEnvironment,
-			StreamableHTTPClientTransport: http.StreamableHTTPClientTransport,
-		};
-	} catch (error) {
-		throw new Error(
-			`mcpTools needs the optional peer @modelcontextprotocol/sdk; install it (${messageOf(error)})`,
-		);
-	}
-}
+const SDK = { Client, StdioClientTransport, getDefaultEnvironment, StreamableHTTPClientTransport };
 
 function createTransport(sdk: Sdk, server: Resolved, stderr: string[]): Transport {
 	if (server.kind === "http") {

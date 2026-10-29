@@ -57,7 +57,7 @@ export interface ClaudeCodeProviderOptions {
 	readonly cwd?: string;
 	/** Replaces process spawning, for tests. Receives the request's abort signal, or a bridged session's own. */
 	readonly runner?: (signal: AbortSignal | undefined) => Runner;
-	/** Serves a request's tools to `claude` (`mcpBridge()` from `./node`), so Claude Code can call them through pi. */
+	/** Serves a request's tools to `claude` (`mcpBridge()` from `./mcp`), so Claude Code can call them through pi. */
 	readonly bridge?: ToolBridgeFactory;
 }
 

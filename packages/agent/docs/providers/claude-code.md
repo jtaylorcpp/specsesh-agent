@@ -57,7 +57,7 @@ Why, measured on Claude Code 2.1.310:
 - `--allowedTools` is variadic, so it goes as one comma-joined argument; otherwise it would swallow the next flag.
 - `--permission-mode dontAsk` means no permission prompts: a tool outside `--allowedTools` is denied.
 
-The bridge (`mcpBridge()` from `@specsesh/agent/node`) is Streamable HTTP on `127.0.0.1`, port 0, with a random bearer token per bridge. A request without the token gets `401`. The config naming the URL and the header is written to a mode-`0600` file in a private `mkdtemp` directory, so the token never appears in argv or `ps`. The bridge lives for one step and is closed on every path.
+The bridge (`mcpBridge()` from `@specsesh/agent/mcp`) is Streamable HTTP on `127.0.0.1`, port 0, with a random bearer token per bridge. A request without the token gets `401`. The config naming the URL and the header is written to a mode-`0600` file in a private `mkdtemp` directory, so the token never appears in argv or `ps`. The bridge lives for one step and is closed on every path.
 
 On abort, the bridge is closed before `reason` resolves, and any later tool call is answered as an error ("the claude-code step was aborted") without reaching the host. A host call already in flight is not cancelled.
 

@@ -3,7 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BridgeHandler, BridgeTool, ToolBridge } from "../../src/claude-code/index.js";
-import { mcpBridge } from "../../src/node/index.js";
+import { mcpBridge } from "../../src/mcp/index.js";
 
 const ECHO: BridgeTool = {
 	name: "echo",

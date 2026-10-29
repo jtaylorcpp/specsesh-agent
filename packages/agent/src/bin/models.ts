@@ -6,6 +6,7 @@
 
 import type { Models, MutableModels } from "@earendil-works/pi-ai";
 import type { ModelRef } from "@earendil-works/pi-durable";
+import { lazyMcpBridge } from "./mcp.js";
 import { GEMINI_PROVIDER, registerGemini, type GeminiEnv, type RegisterGeminiResult } from "../pi/gemini.js";
 import { OLLAMA_PROVIDER_ID, registerOllama, type RegisterOllamaResult } from "../pi/ollama.js";
 
@@ -13,9 +14,8 @@ import { OLLAMA_PROVIDER_ID, registerOllama, type RegisterOllamaResult } from ".
 export async function cliModels(): Promise<MutableModels> {
 	const { builtinModels } = await import("@earendil-works/pi-ai/providers/all");
 	const { claudeCodeProvider } = await import("../claude-code/index.js");
-	const { mcpBridge } = await import("../node/mcp-bridge.js");
 	const models = builtinModels();
-	models.setProvider(claudeCodeProvider({ bridge: mcpBridge() }));
+	models.setProvider(claudeCodeProvider({ bridge: lazyMcpBridge() }));
 	return models;
 }
 

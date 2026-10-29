@@ -126,7 +126,7 @@ agentscript-pi run issue.agent --mcp .mcp.json --provider ollama --model qwen3.5
 
 **With tools on your subscription**, `agentscript-pi run --provider claude-code` with `--tools` or
 `--mcp` offers a step's tools to Claude Code through a local MCP bridge (`mcpBridge()` from
-`@specsesh/agent/node`). Claude Code calls them itself, in its own loop, possibly in parallel.
+`@specsesh/agent/mcp`). Claude Code calls them itself, in its own loop, possibly in parallel.
 Every call is still checked against its offer's schema, with bound inputs winning, and runs on
 our host; the step's `toolCalls` are in arrival order. The pi loop runs calls one at a time, so
 this is a difference. A tool step defaults `--max-turns` to 16, and reaching it ends the step
@@ -206,7 +206,7 @@ The claude-code port takes the same tool host, plus a bridge that serves the ste
 
 ```ts
 import { createClaudeCodeReasoningPort } from "@specsesh/agent/claude-code";
-import { mcpBridge } from "@specsesh/agent/node";
+import { mcpBridge } from "@specsesh/agent/mcp";
 
 const port = createClaudeCodeReasoningPort({ model: "haiku", tools, bridge: mcpBridge() });
 ```
@@ -541,6 +541,7 @@ peer dependencies, so a consumer of the interpreter alone installs none of them.
 | `@specsesh/agent/claude-code` | A `ReasoningPort` and a pi provider that run each step through your own `claude -p` (Node only) | `@earendil-works/pi-ai` |
 | `@specsesh/agent/durable` | The pi-durable extensions, `startScript` / `waitForScript` / `runScript`, actions and the built-ins | `@earendil-works/pi-ai`, `@earendil-works/pi-durable`, `@earendil-works/chord` |
 | `@specsesh/agent/node` | `localWorkspace(dir)`, a workspace over the filesystem, `child_process` and git; `gitSnapshot`; `builtinActions` (Node only) | the durable peers |
+| `@specsesh/agent/mcp` | `mcpTools(servers)`, MCP servers' tools as host actions; `mcpBridge()`, the bridge that serves a step's tools to `claude -p`; `McpServerError`, `mapTool` and the config types. Imports the MCP SDK statically; until 0.4.4 these were exported from `./node` (Node only) | the durable peers and `@modelcontextprotocol/sdk` |
 | `@specsesh/agent/cloudflare` | `AgentScriptHost`, a Durable Object class for a Worker to re-export (workerd only); `defineAgentHost<Env>(config)`, a Durable Object built from an `AgentConfig` on `AgentScriptHost`'s routes, whose POST body may name a `model`; `workersAI(binding, modelId)`, a model on the `AI` binding; the Sandbox and Artifacts workspace: `sandboxWorkspace(sandbox, { dir, secrets? })`, `artifactsSandboxWorkspace(artifacts, sandbox, { repo, fork, dir })` and the types `SandboxLike` and `ArtifactsLike`. Its only runner is `agent`, so a `claude-code` grant is refused | the durable peers and `agents` |
 | `@specsesh/agent/openspec` | The OpenSpec ontology: typed schemas for a change, its lifecycle steps, its execution loops and their evidence | none (uses the `typebox` dependency) |
 | `@specsesh/agent/task` | The task and group loops (`startTaskLoop`, `startGroupLoop`, `answerEscalation`, …), `taskLoopExtensions`, the CI test picker `pickTests`, and the bundled `task.agent`, `task-delegate.agent`, `group.agent` and `ci-test-pick.agent` (Node only) | the durable peers |

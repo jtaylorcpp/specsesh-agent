@@ -36,7 +36,7 @@ import { ActionBindingError, checkBindings } from "../durable/actions.js";
 import { registryHost, type RegistryHost } from "../durable/tool-host.js";
 import { loadActions, reportSkipped } from "./tools.js";
 import { geminiRefusal, withGemini } from "./models.js";
-import { mcpBridge } from "../node/mcp-bridge.js";
+import { lazyMcpBridge } from "./mcp.js";
 import type { AssistantMessage, MutableModels } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { CLAUDE_CODE_PROVIDER, createClaudeCodeReasoningPort } from "../claude-code/index.js";
@@ -157,7 +157,7 @@ async function runScript(source: string, values: RunValues, hosts: RegistryHost 
 	if (provider === CLAUDE_CODE_PROVIDER) {
 		port = createClaudeCodeReasoningPort({
 			model: modelId,
-			...(hosts !== undefined ? { tools: hosts.toolHost, bridge: mcpBridge() } : {}),
+			...(hosts !== undefined ? { tools: hosts.toolHost, bridge: lazyMcpBridge() } : {}),
 			onResult: (r) => {
 				usage.in += r.usage?.input_tokens ?? 0;
 				usage.out += r.usage?.output_tokens ?? 0;
