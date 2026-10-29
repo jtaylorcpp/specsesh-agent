@@ -160,3 +160,14 @@ describe("The model is Workers AI unless faux mode is on", () => {
 		}
 	});
 });
+
+describe("pi-ai is imported statically", () => {
+	it("Scenario: No source imports pi-ai dynamically", () => {
+		const files = filesUnder(SRC);
+		expect(files.length).toBeGreaterThan(0);
+		// Reached both ways, a module gets a lazy initialiser in Bun bundles that can be dropped (import-pi-providers-statically).
+		for (const file of files) {
+			expect(codeOf(file), relative(PKG_DIR, file)).not.toMatch(/\bimport\s*\(\s*["']@earendil-works\/pi-ai(\/|["'])/);
+		}
+	});
+});

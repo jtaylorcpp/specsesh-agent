@@ -15,6 +15,7 @@
 
 import { readFileSync } from "node:fs";
 import type { Models } from "@earendil-works/pi-ai";
+import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { createClaudeCodeReasoningPort, CLAUDE_CODE_PROVIDER } from "../claude-code/index.js";
 import { run, type ReasoningPort } from "../interpreter/index.js";
 import { TestPick, check, explain, type TestReason } from "../openspec/index.js";
@@ -135,11 +136,7 @@ async function portOf(options: PickTestsOptions, signal: AbortSignal): Promise<R
 	if (provider === CLAUDE_CODE_PROVIDER) {
 		return createClaudeCodeReasoningPort({ model: modelId, timeoutMs: options.timeoutMs ?? DEFAULT_PICK_TIMEOUT_MS });
 	}
-	let models = options.models;
-	if (models === undefined) {
-		const { builtinModels } = await import("@earendil-works/pi-ai/providers/all");
-		models = builtinModels();
-	}
+	const models = options.models ?? builtinModels();
 	return createPiReasoningPort({ models, model: resolveModel(models, provider, modelId), signal });
 }
 
