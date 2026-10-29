@@ -16,7 +16,7 @@ The root `README.md` SHALL hold, between `<!-- PARITY:BEGIN -->` and `<!-- PARIT
 - **THEN** the check SHALL report the block as stale
 
 ### Requirement: The matrix has fixed providers, features and values
-`parity.json` SHALL list the providers `api-keys`, `gemini`, `ollama`, `claude-code` and `workers-ai`, in that order, the same as the rows of `docs/providers/README.md`. Every feature SHALL have a cell for each provider, and each cell's value SHALL be `tested`, `live`, `untested` or `no`.
+`parity.json` SHALL list the providers `api-keys`, `claude-code`, `gemini`, `ollama` and `workers-ai`, in that order, the same as the rows of `docs/providers/README.md`. Every feature SHALL have a cell for each provider, and each cell's value SHALL be `tested`, `live`, `untested` or `no`.
 
 #### Scenario: Providers match the command matrix
 - **WHEN** `parity.json`'s providers are compared with the rows of `docs/providers/README.md`

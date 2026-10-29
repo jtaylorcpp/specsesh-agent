@@ -22,7 +22,8 @@
     "pack:check": "pnpm --filter @specsesh/agent pack:check",
     "spec:check": "OPENSPEC_TELEMETRY=0 openspec validate --all --strict",
     "spec:archive": "node scripts/spec-archive.mjs",
-    "docs:check": "node scripts/docs-check.mjs"
+    "docs:check": "node scripts/docs-check.mjs",
+    "parity": "node scripts/parity.mjs --write"
   },
   "devDependencies": {
     "@fission-ai/openspec": "1.14.2"

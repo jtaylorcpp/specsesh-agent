@@ -15,7 +15,7 @@ A survey of `packages/agent/__tests__/` (2026-10-29) found the evidence below. `
 3. **Evidence check.** A `test` entry must appear, as the whole string literal (quoted with `"`, `'` or `` ` ``), as the first argument of an `it(` or `test(` in some `.ts` file under `packages/agent/__tests__/`, live tests included. A `script` entry must be an existing file. Names, not line numbers, so moving a test breaks nothing and renaming one fails the check.
 4. **Rendering** (`renderParity(data)`, exported from `scripts/parity.mjs`):
    - a legend line: `✅ tested · 🟢 live only · ⚪ untested · — not supported`;
-   - the table: `| Feature | api-keys | gemini | ollama | claude-code | workers-ai |`, each cell its symbol, then ` ¹`-style footnote numbers when the cell has a note;
+   - the table: `| Feature | api-keys | claude-code | gemini | ollama | workers-ai |`, each cell its symbol, then ` ¹`-style footnote numbers when the cell has a note;
    - the notes as a numbered list;
    - `<details><summary>Evidence</summary>`, with one line per `tested`/`live` cell: `- **<feature> × <provider>:** \`<name or path>\`; …`, then `</details>`.
    
@@ -24,9 +24,14 @@ A survey of `packages/agent/__tests__/` (2026-10-29) found the evidence below. `
 6. **The rule for keeping it current.** The test catches drift in the README, renamed tests and a contradicting command matrix. It cannot see a new feature that nobody declared, so `CLAUDE.md` gains a line in "Specs": "A change that adds or changes a provider's behaviour updates `parity.json` (and `pnpm parity`) in the same change." The `package/parity` spec states the checks.
 7. **Where it lives.** The root `README.md` is the page people land on. `parity.json` sits beside it at the root, because it describes the repo, not the package, and the package's `files` don't take it.
 
+## Decisions made during the build
+
+8. **Provider order.** The spec first listed the providers as api-keys, gemini, ollama, claude-code, workers-ai while requiring the command matrix's order, which is api-keys, claude-code, gemini, ollama, workers-ai. The command matrix's order wins: it is shipped and checked by `package/usage-docs`, so `parity.json` and the table follow it.
+9. **durable × workers-ai is `no`.** The `durable` row maps to the command matrix's `durable` column, the Node `specsesh durable` command, which says `no` for workers-ai. Decision 5 allows no `untested` beside a `no`, so the cell is `no`, with a note that every Cloudflare run is durable.
+
 ## The matrix at this change
 
-Features in order (id: label). Cells are api-keys | gemini | ollama | claude-code | workers-ai. Evidence names are exact; the delegate copies them and the test checks them.
+Features in order (id: label). Cells are listed per provider; the table's columns follow the command matrix's order (decision 8). Evidence names are exact; the delegate copies them and the test checks them.
 
 1. `one-shot`: One-shot run (`agent run`, `run()`)
    - api-keys: tested, `answers a text-only step and completes`
@@ -39,7 +44,7 @@ Features in order (id: label). Cells are api-keys | gemini | ollama | claude-cod
    - gemini: tested, `Scenario: A durable run completes on Gemini`
    - ollama: tested, `Scenario: A durable run completes on a pulled ollama model`
    - claude-code: tested, `Scenario: A durable claude-code run calls a --tools tool`
-   - workers-ai: untested, note "Durable Object only; the host is tested on a faux model"
+   - workers-ai: no, note "the Node `durable` command; on Cloudflare every run is durable (see the Cloudflare row)"
 3. `resume`: Crash, then resume
    - api-keys: tested, `Scenario: A crash during the second model request resumes at the second step`
    - gemini: tested, `Scenario: A crashed Gemini run finishes on resume`

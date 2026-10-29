@@ -1,0 +1,183 @@
+{
+  "providers": ["api-keys", "claude-code", "gemini", "ollama", "workers-ai"],
+  "features": [
+    {
+      "id": "one-shot",
+      "label": "One-shot run (`agent run`, `run()`)",
+      "cells": {
+        "api-keys": { "value": "tested", "evidence": [{ "test": "answers a text-only step and completes" }] },
+        "claude-code": { "value": "tested", "evidence": [{ "test": "Scenario: A completed run prints its steps and usage" }] },
+        "gemini": { "value": "tested", "evidence": [{ "test": "Scenario: A script runs on Gemini" }] },
+        "ollama": { "value": "tested", "evidence": [{ "test": "Scenario: A script runs on a pulled ollama model" }] },
+        "workers-ai": { "value": "no" }
+      }
+    },
+    {
+      "id": "durable",
+      "label": "Durable run",
+      "cells": {
+        "api-keys": { "value": "tested", "evidence": [{ "test": "Scenario: A two-model-step script walks the phases in order" }] },
+        "claude-code": { "value": "tested", "evidence": [{ "test": "Scenario: A durable claude-code run calls a --tools tool" }] },
+        "gemini": { "value": "tested", "evidence": [{ "test": "Scenario: A durable run completes on Gemini" }] },
+        "ollama": { "value": "tested", "evidence": [{ "test": "Scenario: A durable run completes on a pulled ollama model" }] },
+        "workers-ai": { "value": "no", "note": "the Node durable command; on Cloudflare every run is durable (see the Cloudflare row)" }
+      }
+    },
+    {
+      "id": "resume",
+      "label": "Crash, then resume",
+      "cells": {
+        "api-keys": { "value": "tested", "evidence": [{ "test": "Scenario: A crash during the second model request resumes at the second step" }] },
+        "claude-code": { "value": "tested", "evidence": [{ "test": "Scenario: A claude-code run killed during a tool call resumes" }] },
+        "gemini": { "value": "tested", "evidence": [{ "test": "Scenario: A crashed Gemini run finishes on resume" }] },
+        "ollama": { "value": "tested", "evidence": [{ "test": "Scenario: A crashed ollama run finishes on resume" }] },
+        "workers-ai": { "value": "untested" }
+      }
+    },
+    {
+      "id": "task",
+      "label": "Task and change loops",
+      "cells": {
+        "api-keys": { "value": "tested", "evidence": [{ "test": "Scenario: A converged loop prints its iterations and ticked" }] },
+        "claude-code": {
+          "value": "live",
+          "evidence": [
+            { "test": "Scenario: The live run converges and ticks the task" },
+            { "test": "Scenario: A live group converges" }
+          ]
+        },
+        "gemini": { "value": "tested", "evidence": [{ "test": "Scenario: A task loop converges on Gemini" }] },
+        "ollama": { "value": "tested", "evidence": [{ "test": "Scenario: A task loop converges on a pulled ollama model" }] },
+        "workers-ai": { "value": "no" }
+      }
+    },
+    {
+      "id": "cloudflare",
+      "label": "Cloudflare Durable Object host",
+      "cells": {
+        "api-keys": {
+          "value": "tested",
+          "note": "on a faux model under `wrangler dev --local`",
+          "evidence": [
+            { "script": "examples/cloudflare-worker/test/crash-resume.sh" },
+            { "script": "examples/cloudflare-worker/test/routes.sh" }
+          ]
+        },
+        "claude-code": { "value": "no" },
+        "gemini": { "value": "untested", "note": "`defineAgentHost` takes any model; no test runs Gemini in a Worker" },
+        "ollama": { "value": "no" },
+        "workers-ai": { "value": "untested", "note": "the binding adapter is tested on a fake binding; no Durable Object run" }
+      }
+    },
+    {
+      "id": "structured",
+      "label": "Structured steps",
+      "cells": {
+        "api-keys": { "value": "tested", "evidence": [{ "test": "Scenario: A structured step offers the result tool" }] },
+        "claude-code": { "value": "tested", "evidence": [{ "test": "Scenario: A schema and a turn bound are appended in order" }] },
+        "gemini": { "value": "tested", "evidence": [{ "test": "Scenario: A forced function call becomes the structured result" }] },
+        "ollama": { "value": "tested", "evidence": [{ "test": "Scenario: A forced tool call becomes the structured result" }] },
+        "workers-ai": { "value": "untested" }
+      }
+    },
+    {
+      "id": "tools",
+      "label": "Tools on one-shot runs",
+      "cells": {
+        "api-keys": { "value": "tested", "evidence": [{ "test": "Scenario: A tool call runs on the host and its result reaches the model" }] },
+        "claude-code": { "value": "tested", "evidence": [{ "test": "Scenario: A claude-code run calls a --tools tool through the bridge" }] },
+        "gemini": { "value": "tested", "evidence": [{ "test": "Scenario: A Gemini tool call is answered with a functionResponse" }] },
+        "ollama": { "value": "tested", "evidence": [{ "test": "Scenario: The model calls an offered tool from a module" }] },
+        "workers-ai": { "value": "no" }
+      }
+    },
+    {
+      "id": "durable-tools",
+      "label": "Tools in durable runs",
+      "cells": {
+        "api-keys": { "value": "tested", "evidence": [{ "test": "Scenario: Bound inputs are merged into the call" }] },
+        "claude-code": { "value": "tested", "evidence": [{ "test": "Scenario: A durable claude-code run calls a --tools tool" }] },
+        "gemini": { "value": "untested" },
+        "ollama": { "value": "untested" },
+        "workers-ai": { "value": "untested" }
+      }
+    },
+    {
+      "id": "mcp",
+      "label": "A model calling MCP tools",
+      "cells": {
+        "api-keys": { "value": "untested", "note": "MCP tools are tested through `run` statements, never a model's call" },
+        "claude-code": { "value": "untested" },
+        "gemini": { "value": "untested" },
+        "ollama": { "value": "untested" },
+        "workers-ai": { "value": "no" }
+      }
+    },
+    {
+      "id": "stream",
+      "label": "Streaming text, one-shot",
+      "cells": {
+        "api-keys": { "value": "tested", "evidence": [{ "test": "Scenario: Deltas concatenate to the step's text" }] },
+        "claude-code": { "value": "tested", "evidence": [{ "test": "Scenario: A listening text step streams its text" }] },
+        "gemini": { "value": "tested", "evidence": [{ "test": "Scenario: A listening Gemini step streams its text" }] },
+        "ollama": { "value": "untested" },
+        "workers-ai": { "value": "no" }
+      }
+    },
+    {
+      "id": "durable-stream",
+      "label": "Streaming text, durable (`watchScript`)",
+      "cells": {
+        "api-keys": { "value": "tested", "evidence": [{ "test": "Scenario: A step's deltas join to its text" }] },
+        "claude-code": { "value": "no", "note": "the claude-code pi provider doesn't stream" },
+        "gemini": { "value": "untested" },
+        "ollama": { "value": "untested" },
+        "workers-ai": { "value": "untested" }
+      }
+    },
+    {
+      "id": "abort",
+      "label": "Abort a one-shot step (`signal`)",
+      "cells": {
+        "api-keys": { "value": "untested" },
+        "claude-code": { "value": "tested", "evidence": [{ "test": "Scenario: Aborting a text step kills claude" }] },
+        "gemini": { "value": "untested" },
+        "ollama": { "value": "untested" },
+        "workers-ai": { "value": "no" }
+      }
+    },
+    {
+      "id": "categories",
+      "label": "Failure categories, one-shot",
+      "cells": {
+        "api-keys": { "value": "tested", "evidence": [{ "test": "Scenario: A 429 on the Anthropic wire is a rate limit" }] },
+        "claude-code": { "value": "tested", "evidence": [{ "test": "takes an API error's category from its status" }] },
+        "gemini": { "value": "tested", "evidence": [{ "test": "Scenario: A 429 from Gemini is a rate limit" }] },
+        "ollama": { "value": "tested", "evidence": [{ "test": "Scenario: A 500 from Ollama is a server error" }] },
+        "workers-ai": { "value": "no" }
+      }
+    },
+    {
+      "id": "durable-categories",
+      "label": "Failure categories, durable",
+      "cells": {
+        "api-keys": { "value": "no", "note": "every durable failure is `unknown`; parked" },
+        "claude-code": { "value": "no" },
+        "gemini": { "value": "no" },
+        "ollama": { "value": "no" },
+        "workers-ai": { "value": "no" }
+      }
+    },
+    {
+      "id": "live",
+      "label": "A live check against the real service",
+      "cells": {
+        "api-keys": { "value": "no" },
+        "claude-code": { "value": "live", "evidence": [{ "test": "Scenario: A real claude calls a bridged tool" }] },
+        "gemini": { "value": "live", "evidence": [{ "script": "scripts/test-gemini.mjs" }] },
+        "ollama": { "value": "live", "evidence": [{ "script": "scripts/test-ollama.mjs" }] },
+        "workers-ai": { "value": "no" }
+      }
+    }
+  ]
+}
