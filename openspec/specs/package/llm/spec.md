@@ -89,7 +89,7 @@ For `change`, `task`, `durable` and `agent`, `main([command, h])` with `h` one o
 - **THEN** stdout SHALL contain `specsesh durable run` and SHALL NOT contain `agentscript-durable`
 
 ### Requirement: specsesh llm providers and deploy print the shipped pages
-`main(["llm", "providers"])` SHALL print `docs/providers/README.md`; `main(["llm", "providers", <name>])` SHALL print `docs/providers/<name>.md` for `api-keys`, `claude-code`, `ollama` or `workers-ai`; `main(["llm", "deploy", <target>])` SHALL print `docs/deploy/<target>.md` for `local` or `cloudflare`. Each SHALL return `0`, opening no database and calling no model. Any other name, or `deploy` with no target, SHALL print the llm usage to stderr and return `2`.
+`main(["llm", "providers"])` SHALL print `docs/providers/README.md`; `main(["llm", "providers", <name>])` SHALL print `docs/providers/<name>.md` for `api-keys`, `claude-code`, `gemini`, `ollama` or `workers-ai`; `main(["llm", "deploy", <target>])` SHALL print `docs/deploy/<target>.md` for `local` or `cloudflare`. Each SHALL return `0`, opening no database and calling no model. Any other name, or `deploy` with no target, SHALL print the llm usage to stderr and return `2`.
 
 #### Scenario: providers prints the matrix
 - **WHEN** `main(["llm", "providers"])` runs
@@ -98,6 +98,10 @@ For `change`, `task`, `durable` and `agent`, `main([command, h])` with `h` one o
 #### Scenario: A provider page prints by name
 - **WHEN** `main(["llm", "providers", "ollama"])` runs
 - **THEN** it SHALL return `0` and stdout SHALL equal `docs/providers/ollama.md`
+
+#### Scenario: The gemini page prints by name
+- **WHEN** `main(["llm", "providers", "gemini"])` runs
+- **THEN** it SHALL return `0` and stdout SHALL equal `docs/providers/gemini.md`
 
 #### Scenario: A deployment page prints by name
 - **WHEN** `main(["llm", "deploy", "cloudflare"])` runs
