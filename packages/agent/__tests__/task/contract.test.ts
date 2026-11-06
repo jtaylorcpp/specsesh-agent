@@ -179,18 +179,15 @@ subagent extra:
 
 describe("task/agent: The bundled scripts are the default and the subscription variant", () => {
 	it("Scenario: The bundled scripts lint clean", () => {
-		for (const name of ["task.agent", "task-delegate.agent"]) {
+		for (const name of ["task.agent"]) {
 			const source = readFileSync(join(SCRIPTS, name), "utf8");
 			expect(analyze(source).diagnostics, name).toEqual([]);
 			expect(contractProblems(source), name).toEqual([]);
-			// And each passes the whole start check: contract, document, actions against the loop's registry,
-			// the delegate script with the claude_code grant it needs.
+			// And each passes the whole start check: contract, document, actions against the loop's registry.
 			const dir = tinyChange();
-			const delegates = name === "task-delegate.agent" ? { delegates: { claude_code: { runner: "claude-code" } } } : {};
-			expect(() => prepareTaskLoop({ change: { dir }, task: "1.1", script: { text: source }, workspace: dir, ...delegates }), name).not.toThrow();
+			expect(() => prepareTaskLoop({ change: { dir }, task: "1.1", script: { text: source }, workspace: dir }), name).not.toThrow();
 		}
 		expect(readFileSync(BUNDLED_SCRIPTS.task, "utf8")).toBe(readFileSync(join(SCRIPTS, "task.agent"), "utf8"));
-		expect(readFileSync(BUNDLED_SCRIPTS.delegate, "utf8")).toBe(readFileSync(join(SCRIPTS, "task-delegate.agent"), "utf8"));
 	});
 
 	it("Scenario: The bundled judge script is clean", () => {

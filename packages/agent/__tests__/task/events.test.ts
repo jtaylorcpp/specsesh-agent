@@ -2,7 +2,7 @@ import { closeSync, openSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { BIN, FAKE_CLAUDE_CONFIG, events, fakeClaude, gitRepo, spawnBin, write } from "./cli-helpers.js";
+import { BIN, COMMAND_TASK_SCRIPT, FAKE_CLAUDE_CONFIG, events, fakeClaude, gitRepo, spawnBin, write } from "./cli-helpers.js";
 import { cleanTemps, temp } from "./helpers.js";
 
 afterEach(() => cleanTemps());
@@ -74,17 +74,17 @@ describe("task/headless: The stream has six event kinds", () => {
 		expect(iteration).toBeGreaterThan(started);
 		expect(verdict).toBeGreaterThan(iteration);
 		expect(ended).toBe(parsed.length - 1);
-		expect(parsed[started]).toMatchObject({ change: "tiny", task: "1.1", script: "task-delegate" });
+		expect(parsed[started]).toMatchObject({ change: "tiny", task: "1.1", script: COMMAND_TASK_SCRIPT });
 		expect(Date.parse(String(parsed[started]?.["at"]))).not.toBeNaN();
 		expect(Date.parse(String(parsed[iteration]?.["at"]))).not.toBeNaN();
 		expect(parsed[verdict]).toMatchObject({ iteration: 1, unmet: "", next: "done" });
 		expect(parsed[ended]).toMatchObject({ iterations: 1, ticked: true });
 		const action = parsed.find((e) => e["event"] === "action");
-		expect(action).toMatchObject({ iteration: 1, kind: "delegate", summary: "edit src/a.ts", refs: ["delegate/claude_code"] });
+		expect(action).toMatchObject({ iteration: 1, kind: "command", summary: "fake-edit", refs: ["fake-edit"] });
 	});
 
 	it("Scenario: A check becomes an evidence event", async () => {
-		const repo = repoWithConfig({ checks: ["pnpm test"], allow: ["pnpm"] });
+		const repo = repoWithConfig({ checks: ["pnpm test"], allow: ["pnpm", "fake-edit"] });
 		// pnpm exits 0 so the gate after the met verdict passes: it adds no event of its own, so the
 		// script's `run_checks` step is the only source of check evidence.
 		const r = await spawnBin(["run", "tiny", "1.1"], { cwd: repo, bin: fakeClaude({ pnpmExit: 0 }) });
@@ -128,7 +128,7 @@ describe("task/headless: loop-ended lists the files the loop changed", () => {
 		const answered = await spawnBin(["answer", String(id), "--by", "principal", "--decision", "the first way"], { cwd: repo, bin });
 		expect(answered.code, answered.stderr).toBe(0);
 		const parsed = events(lines(answered.stderr));
-		expect(parsed[0]).toMatchObject({ event: "loop-started", change: "tiny", task: "1.1", script: "task-delegate" });
+		expect(parsed[0]).toMatchObject({ event: "loop-started", change: "tiny", task: "1.1", script: "custom" });
 		// The answered run numbers on from the blocked run's iteration.
 		expect(parsed.filter((e) => e["event"] === "iteration-started").map((e) => e["iteration"])).toEqual([2]);
 		expect(parsed.at(-1)).toMatchObject({ event: "loop-ended", status: "converged", iterations: 2 });

@@ -1,0 +1,202 @@
+# The retired bundled task-delegate.agent (removed in 0.5): a task script that acts through the
+# `claude_code` delegate grant, kept as a host's own delegating script for the delegation tests.
+config:
+    agent_name: "task-agent-delegate"
+    description: "One task-loop iteration that acts through Claude Code on your subscription"
+
+system:
+    instructions: |
+        You are one step of a task loop that implements one task of an OpenSpec change, one iteration at a time.
+        Each step's prompt says its role. A step without tools decides only from the text it is given.
+        The spec deltas are the contract. The task names what to do now. Feedback from earlier
+        iterations says what was still unmet. Change only what the task needs; never tick boxes,
+        never edit the spec. If the spec itself looks wrong, say so instead of coding around it.
+
+variables:
+    task_id: mutable string = ""
+        description: "the task's id, e.g. 2.4"
+    task_text: mutable string = ""
+        description: "the task's text from tasks.md"
+    proposal: mutable string = ""
+        description: "the change's proposal.md"
+    design: mutable string = ""
+        description: "the change's design.md, or empty"
+    deltas: mutable string = ""
+        description: "every spec delta of the change, concatenated"
+    iteration: mutable number = 1
+        description: "which iteration of the task loop this is"
+    carried: mutable string = ""
+        description: "feedback carried from earlier iterations or an escalation answer"
+    delete_granted: mutable boolean = False
+        description: "whether delete_file is granted to this loop"
+    changed: mutable string = ""
+        description: "seeded: files changed since the loop started, one per line"
+    retire_path: mutable string = ""
+        description: "the file the delegate asked to retire this iteration, or empty"
+    plan: mutable string = ""
+        description: "this iteration's plan"
+    act_ok: mutable boolean = False
+        description: "whether the delegated agent finished"
+    act_summary: mutable string = ""
+        description: "what the delegated agent says it changed"
+    act_files: mutable number = 0
+        description: "how many files the delegated agent changed, or -1 when unknown"
+    checks_passed: mutable boolean = False
+        description: "whether the task's checks passed"
+    check_output: mutable string = ""
+        description: "the checks' output"
+    met: mutable boolean = False
+        description: "the judge's verdict"
+    unmet: mutable string = ""
+        description: "what is still unmet, for the next iteration"
+    next_action: mutable string = "retry"
+        description: "retry, amend-spec or ask"
+    question: mutable string = ""
+        description: "the question to escalate when next_action is ask or amend-spec"
+    amend_path: mutable string = ""
+        description: "the delta to replace when next_action is amend-spec"
+    amend_text: mutable string = ""
+        description: "the whole new text of that delta when next_action is amend-spec"
+
+subagent orient:
+    description: "Plan this iteration"
+
+    reasoning:
+        instructions: ->
+            | You are the orient step: you write this iteration's plan for the delegate that acts in the workspace. You have no tools: decide only from the text below.
+            | Task {!@variables.task_id}: {!@variables.task_text}
+            | Proposal:
+            | {!@variables.proposal}
+            | Design:
+            | {!@variables.design}
+            | Spec deltas:
+            | {!@variables.deltas}
+            if @variables.iteration > 1:
+                | This is iteration {!@variables.iteration}.
+            if @variables.iteration > 1 and @variables.changed != "":
+                | Files changed since the loop started:
+                | {!@variables.changed}
+                | Earlier iterations may already have done part of the task; check these files before redoing it.
+            if @variables.carried != "":
+                | Carried in (still unmet from an earlier iteration, or the principal's answer): {!@variables.carried}
+                | If the carried feedback names a check that already failed before, the last approach did not work; choose a different one rather than repeating it.
+            | Write a short, concrete plan for this iteration: which files, which changes, which scenarios it satisfies.
+            if @variables.delete_granted:
+                | The plan goes to an agent that cannot delete files. End the plan with this paragraph, word for word: You cannot delete files. If the task retires a file, leave it in place and end your reply with one line `RETIRE: <path>` per file.
+            set @variables.plan = @outputs.plan
+
+subagent act:
+    description: "Hand the plan to Claude Code in the workspace, without the model choosing tools here"
+
+    actions:
+        claude_code:
+            description: "Run headless Claude Code with its edit and bash tools in the workspace"
+            inputs:
+                instructions: string
+            outputs:
+                ok: boolean
+                summary: string
+                files_changed: number
+            target: "mcpTool://delegate/claude_code"
+
+    reasoning:
+        instructions: ->
+            run @actions.claude_code
+                with instructions = @variables.plan
+                set @variables.act_ok = @outputs.ok
+                set @variables.act_summary = @outputs.summary
+                set @variables.act_files = @outputs.files_changed
+
+subagent retire:
+    description: "Read which file the delegate asked to retire"
+
+    reasoning:
+        instructions: ->
+            set @variables.retire_path = ""
+            if @variables.delete_granted:
+                | You are the retire step: you read the delegate's reply below. You have no tools: decide only from the text below.
+                | The delegate's reply is below, and it changed {!@variables.act_files} files.
+                | {!@variables.act_summary}
+                | Set retire_path to the path on the first line starting `RETIRE: `, exactly as written, or to "" if there is no such line. Ignore every later RETIRE line.
+                set @variables.retire_path = @outputs.retire_path
+
+subagent delete:
+    description: "Delete the retired file, without the model"
+
+    actions:
+        delete_file:
+            description: "Delete a file the task retires from the workspace"
+            inputs:
+                path: string
+            outputs:
+                ok: boolean
+            target: "mcpTool://delete_file"
+
+    reasoning:
+        instructions: ->
+            if @variables.delete_granted and @variables.retire_path != "":
+                run @actions.delete_file
+                    with path = @variables.retire_path
+
+subagent check:
+    description: "Run the task's checks, without the model"
+
+    actions:
+        run_checks:
+            description: "Run the checks configured for this task"
+            inputs:
+                task_id: string
+            outputs:
+                passed: boolean
+                output: string
+            target: "mcpTool://run_checks"
+
+    reasoning:
+        instructions: ->
+            run @actions.run_checks
+                with task_id = @variables.task_id
+                set @variables.checks_passed = @outputs.passed
+                set @variables.check_output = @outputs.output
+
+subagent judge:
+    description: "Decide whether the task is done"
+
+    reasoning:
+        instructions: ->
+            | You are the judge step: you decide whether the task is done from the reports and check output below. You have no tools: decide only from the text below.
+            | Task {!@variables.task_id}: {!@variables.task_text}
+            | The instructions the delegate was given (for the delegate, not for you): {!@variables.plan}
+            | What the delegated agent reports: {!@variables.act_summary}
+            if @variables.act_files == 0 and @variables.changed == "":
+                | Files the delegate changed in this iteration: 0 (-1 means unknown). 0 means the delegate changed nothing.
+                | No file has changed since the loop started either, so the work has not been done: a report that it already exists is wrong unless the check output shows the task's scenario passing.
+            else:
+                | Files the delegate changed in this iteration: {!@variables.act_files} (-1 means unknown). Earlier iterations may already have done the work, so 0 alone does not mean the task is unfinished.
+            if @variables.retire_path != "":
+                | Files deleted: {!@variables.retire_path}
+            else:
+                | Files deleted: none
+            | Checks passed: {!@variables.checks_passed}
+            | Check output:
+            | {!@variables.check_output}
+            | Files changed since the loop started (iteration {!@variables.iteration}):
+            if @variables.changed != "":
+                | {!@variables.changed}
+            else:
+                | none
+            | The list was taken when this iteration began; (unknown) means the workspace cannot list its changes.
+            if @variables.carried != "":
+                | Feedback carried in (from an earlier iteration or the principal's answer): {!@variables.carried}
+                | If it answers a question about this task, follow it: it overrides the task text where they differ, and do not choose ask for that question again. The checks still decide whether the task is done.
+            | Is the task done against the spec deltas, counting the work of every iteration since the loop started? It is done only when the checks pass. If not, say exactly what is unmet.
+            | Choose next_action. Default to retry: keep iterating until the checks pass. A change outside this task's files is allowed when the spec deltas already require it and the checks need it.
+            | Choose amend-spec only when the spec deltas themselves contradict each other or the code they describe. Choose ask only for a decision that no passing check could settle.
+            | When the task is met, next_action is ignored: answer retry.
+            | Answer next_action with exactly one word: retry, amend-spec or ask. Put every explanation in unmet, never in next_action.
+            | When next_action is amend-spec, set amend_path to the delta that is wrong, exactly as listed, and set amend_text to the whole new text of that file, not a patch. For any other next_action, leave both empty.
+            set @variables.met = @outputs.met
+            set @variables.unmet = @outputs.unmet
+            set @variables.next_action = @outputs.next_action
+            set @variables.question = @outputs.question
+            set @variables.amend_path = @outputs.amend_path
+            set @variables.amend_text = @outputs.amend_text

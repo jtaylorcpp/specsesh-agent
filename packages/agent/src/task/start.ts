@@ -46,7 +46,14 @@ export function prepareTaskLoop(options: TaskLoopOptions): TaskLoopInput {
 	const deleteFiles = options.deleteFiles ?? false;
 	checkBindings(
 		script,
-		taskLoopRegistry({ workspace: options.workspace, checks, allow, ...delegatesOf(options), deleteFiles }),
+		taskLoopRegistry({
+			workspace: options.workspace,
+			checks,
+			allow,
+			...delegatesOf(options),
+			...(options.runners !== undefined ? { runners: options.runners } : {}),
+			deleteFiles,
+		}),
 		undefined,
 		new Set(Object.keys(OPTIONAL_TARGETS)),
 	);

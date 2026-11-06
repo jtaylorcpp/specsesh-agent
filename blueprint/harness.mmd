@@ -6,7 +6,7 @@ flowchart LR
   models[Model access<br/>pi-ai providers · Ollama · Gemini]
   claude[Claude Code<br/>subscription as a model]
   tools[Host actions<br/>files · commands · MCP tools]
-  delegates[Delegates<br/>granted agent or Claude Code]
+  delegates[Delegates<br/>granted agent or host runner]
   watch[watchScript<br/>RunEvents: deltas · tool calls]
   nodehost[Node host<br/>local workspace · runners]
   cf[Cloudflare host<br/>Durable Object · Workers AI]
@@ -17,7 +17,6 @@ flowchart LR
   run -->|step conversations| claude
   run -->|act · step tools| tools
   tools --> delegates
-  delegates -->|one task| claude
   watch --> run
   nodehost --> run
   nodehost --> tools
@@ -32,7 +31,7 @@ flowchart LR
   %% code: tools packages/agent/src/durable/workspace.ts:329
   %% code: delegates packages/agent/src/durable/delegation.ts:160
   %% code: watch packages/agent/src/durable/watch.ts:61
-  %% code: nodehost packages/agent/src/node/index.ts:11
+  %% code: nodehost packages/agent/src/node/index.ts:9
   %% code: cf packages/agent/src/cloudflare/index.ts:53
   %% code: oneshot packages/agent/src/interpreter/run.ts:664
   %% code: example examples/hello-world/main.ts:20

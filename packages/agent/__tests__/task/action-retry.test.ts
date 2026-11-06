@@ -4,15 +4,16 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecResult, Workspace } from "../../src/durable/workspace.js";
 import type { RunResult } from "../../src/interpreter/index.js";
-import { claudeCodeRunner, localWorkspace } from "../../src/node/index.js";
+import { localWorkspace } from "../../src/node/index.js";
+import { jsonRunner } from "../durable/delegation-scripts.js";
 import { failedActionOf, readRun } from "../../src/task/iteration.js";
 import { SCRIPTS, cleanTemps, context, plan, prompts, runLoop, runTasks, temp, verdict } from "./helpers.js";
 
 afterEach(cleanTemps);
 
-/** task-delegate.agent without its checks subagent, so no gate or `run_checks` is involved. */
+/** A host's delegating task script (the retired bundled task-delegate.agent) without its checks subagent, so no gate or `run_checks` is involved. */
 const DELEGATE_NO_CHECKS = (() => {
-	const source = readFileSync(join(SCRIPTS, "task-delegate.agent"), "utf8");
+	const source = readFileSync(new URL("./fixtures/delegating-task.agent", import.meta.url), "utf8");
 	return source.slice(0, source.indexOf("subagent check:")) + source.slice(source.indexOf("subagent judge:"));
 })();
 
@@ -62,7 +63,7 @@ function fastForwardWorkspace(dir: string, claude: string, after: () => void): {
 /** The `claude_code` grant, its runner on `binary`. */
 const granted = (binary: string) => ({
 	overrides: { delegates: { claude_code: { runner: "claude-code" } } },
-	actions: { runners: { "claude-code": claudeCodeRunner({ binary }) } },
+	actions: { runners: { "claude-code": jsonRunner(binary) } },
 });
 
 const TIMED_OUT = "Claude Code timed out after 900000ms";

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	COMMAND_TASK_SCRIPT,
 	FAKE_CLAUDE_CONFIG,
 	cli,
 	events,
@@ -57,8 +58,7 @@ describe("task/headless: --worktree runs the loop in a new git worktree", () => 
 
 	it("rebases the workspace, the change and the config's paths into the worktree", async () => {
 		const repo = gitRepo({
-			"CLAUDE.md": "# main\n",
-			"agentscript.config.json": JSON.stringify({ delegates: { claude_code: { runner: "claude-code", context: ["CLAUDE.md", "/elsewhere/NOTES.md"] } } }),
+			"agentscript.config.json": JSON.stringify({}),
 		});
 		const r = await runWorktree(repo);
 		expect(r.code, r.err).toBe(0);
@@ -67,7 +67,6 @@ describe("task/headless: --worktree runs the loop in a new git worktree", () => 
 		expect(input).toMatchObject({
 			workspace: worktree,
 			tasksPath: join(worktree, "openspec/changes/tiny/tasks.md"),
-			delegates: { claude_code: { context: [join(worktree, "CLAUDE.md"), "/elsewhere/NOTES.md"] } },
 			worktree: { path: worktree, branch: "task/tiny/1.1" },
 		});
 	});
@@ -329,14 +328,13 @@ const GROUP_TASKS = "## 1. Setup\n\n- [x] 1.1 done already\n\n## 2. Build\n\n- [
 /**
  * `add-group-loop`, committed in a repo named `agentscript` so the default worktree
  * directory is the sibling `agentscript-worktrees`; group 2 run with `--worktree`
- * on a fake `claude` whose delegate writes `a.txt`, then `b.txt`.
+ * on a fake `claude` whose `fake-edit` writes `a.txt`, then `b.txt`.
  */
 async function runGroupTwo() {
 	const repo = gitRepo(
 		{
 			"agentscript.config.json": JSON.stringify({
-				task: { provider: "claude-code", model: "claude-haiku-4-5", script: "task-delegate", checks: ["true"], allow: ["true"] },
-				delegates: { claude_code: { runner: "claude-code", model: "sonnet", allow: ["true"] } },
+				task: { provider: "claude-code", model: "claude-haiku-4-5", script: COMMAND_TASK_SCRIPT, checks: ["true"], allow: ["true", "fake-edit"] },
 			}),
 			"openspec/changes/add-group-loop/proposal.md": PROPOSAL,
 			"openspec/changes/add-group-loop/specs/value/file/spec.md": DELTA,

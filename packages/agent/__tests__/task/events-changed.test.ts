@@ -1,7 +1,7 @@
 // `loop-ended.changed` and the seeded `changed` as the CLI runs them: measured from the loop's
 // baseline across resume and answer, per task in a group, and never listing the database.
 
-import { chmodSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { FAKE_CLAUDE_CONFIG, cli, events, fakeClaudeWriting, fauxModels, gitRepo, spawnBin, storedLoops } from "./cli-helpers.js";
@@ -14,7 +14,7 @@ const lines = (stderr: string) => stderr.trimEnd().split("\n");
 const repoWithConfig = () => gitRepo({ "agentscript.config.json": FAKE_CLAUDE_CONFIG });
 
 /**
- * A fake `claude` whose delegate writes `src/a.ts` on its first call and `src/b.ts` on every
+ * A fake `claude`, copied beside it as `fake-edit`, whose act writes `src/a.ts` on its first call and `src/b.ts` on every
  * later one, sleeping `$FAKE_CLAUDE_LATER_MS` before a later write. Its judge answers the next
  * of `verdicts` (`retry`, `ask` or `met`), then `met`.
  */
@@ -62,6 +62,8 @@ if (schemaAt >= 0) {
 `,
 	);
 	chmodSync(path, 0o755);
+	copyFileSync(path, join(bin, "fake-edit"));
+	chmodSync(join(bin, "fake-edit"), 0o755);
 	return bin;
 }
 

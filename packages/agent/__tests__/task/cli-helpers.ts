@@ -156,7 +156,7 @@ export function commitAll(repo: string, messageText = "more"): void {
  * given `--json-schema`) it answers that schema:
  * `plan`, or a verdict —
  * the next of `verdicts` (`met`, `retry` or `ask`), then `met` once they run
- * out. As the delegate (`--permission-mode`) it appends `// edited` to
+ * out. Beside it, `fake-edit` (the act step of `COMMAND_TASK_SCRIPT`) appends `// edited` to
  * `src/a.ts` in its cwd. It appends its argv and cwd to `$FAKE_CLAUDE_LOG`, and
  * sleeps `$FAKE_CLAUDE_SLEEP_MS` first. With `pnpmExit`, a fake `pnpm` beside it
  * exits with that code.
@@ -165,6 +165,7 @@ export function fakeClaude(options: { verdicts?: readonly ("met" | "retry" | "as
 	const bin = temp("task-fake-bin-");
 	const path = join(bin, "claude");
 	writeFileSync(join(bin, "verdicts.json"), JSON.stringify(options.verdicts ?? []));
+	writeFakeEdit(bin, `fs.appendFileSync(path.join(process.cwd(), "src", "a.ts"), "// edited\\n");\nprocess.stdout.write("Edited src/a.ts.");`);
 	if (options.pnpmExit !== undefined) {
 		writeFileSync(join(bin, "pnpm"), `#!${process.execPath}\nprocess.stdout.write("fake pnpm " + process.argv.slice(2).join(" "));\nprocess.exit(${options.pnpmExit});\n`, { mode: 0o755 });
 	}
@@ -208,13 +209,19 @@ setTimeout(() => {
 }
 
 /**
- * A fake `claude` whose delegate writes the next of `files` into its cwd on each
- * delegate call (one per task, in run order) and converges; steps answer as `fakeClaude` does.
+ * A fake `claude` whose `fake-edit` writes the next of `files` into its cwd on each
+ * act (one per task, in run order) and converges; steps answer as `fakeClaude` does.
+ * Every write after the first waits 1 s, past the group watcher's 200 ms poll, so the
+ * previous task's `loop-ended` is reported before this one changes anything (#38).
  */
 export function fakeClaudeWriting(files: readonly string[]): string {
 	const bin = temp("task-fake-bin-");
 	const path = join(bin, "claude");
 	writeFileSync(join(bin, "files.json"), JSON.stringify(files));
+	writeFakeEdit(
+		bin,
+		`const file = path.join(__dirname, "files.json");\nconst queue = JSON.parse(fs.readFileSync(file, "utf8"));\nconst next = queue.shift();\nfs.writeFileSync(file, JSON.stringify(queue));\nconst first = path.join(__dirname, "wrote-first");\nconst later = fs.existsSync(first);\nfs.writeFileSync(first, "");\nsetTimeout(() => {\n\tfs.writeFileSync(path.join(process.cwd(), next), "written\\n");\n\tprocess.stdout.write("Wrote " + next);\n}, later ? 1000 : 0);`,
+	);
 	writeFileSync(
 		path,
 		`#!${process.execPath}
@@ -245,20 +252,27 @@ process.stdout.write(JSON.stringify(out));
 	return bin;
 }
 
+/** A task script whose act step runs `fake-edit` (beside the fake `claude`) through `run_command`. */
+export const COMMAND_TASK_SCRIPT = fileURLToPath(new URL("./fixtures/command-task.agent", import.meta.url));
+
+/** An executable `fake-edit` in `bin`, run by this Node, whose body has `fs` and `path`. */
+function writeFakeEdit(bin: string, body: string): void {
+	writeFileSync(join(bin, "fake-edit"), `#!${process.execPath}\nconst fs = require("node:fs");\nconst path = require("node:path");\n${body}\n`, { mode: 0o755 });
+}
+
 /**
  * A config for spawned runs on the fake `claude`: the claude-code provider,
- * `task-delegate` with its `claude_code` grant, and a `node` check that always passes.
+ * `COMMAND_TASK_SCRIPT` (allowed to run `fake-edit`), and a `node` check that always passes.
  */
 export const FAKE_CLAUDE_CONFIG = JSON.stringify({
 	task: {
 		provider: "claude-code",
 		model: "claude-haiku-4-5",
-		script: "task-delegate",
+		script: COMMAND_TASK_SCRIPT,
 		checks: ["node --version"],
-		allow: ["node"],
+		allow: ["node", "fake-edit"],
 		db: ".agentscript/task-loops.sqlite",
 	},
-	delegates: { claude_code: { runner: "claude-code", model: "sonnet", allow: ["node"] } },
 });
 
 export interface BinRun {

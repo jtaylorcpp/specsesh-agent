@@ -10,7 +10,7 @@ import { BUNDLED_DIR } from "../../src/cli/bundled.js";
 import { main } from "../../src/cli/index.js";
 import { READ_AGENT } from "../../src/durable/delegate-scripts.js";
 
-const SHIPPED = ["task", "task-delegate", "group", "spec-proposal", "spec-design", "spec-specify", "spec-plan", "ci-test-pick"];
+const SHIPPED = ["task", "group", "spec-proposal", "spec-design", "spec-specify", "spec-plan", "ci-test-pick"];
 
 /** Runs `main(["agent", …argv])` with `out` and `err` collecting lines and `write` collecting bytes. */
 async function run(argv: string[]) {

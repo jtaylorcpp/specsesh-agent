@@ -34,6 +34,40 @@ export function fakeClaudeRunner(binary: string): ProcessRunner {
 	};
 }
 
+/** This process's environment as plain strings, as a host runner hands its child. */
+function inheritedEnv(): Record<string, string> {
+	const env: Record<string, string> = {};
+	for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value;
+	return env;
+}
+
+/**
+ * A host process runner of the kind a host brings (the package bundles none): it starts
+ * `binary` with the instructions on stdin and reads a Claude Code-style JSON reply,
+ * `{ result, is_error }`, falling back to the raw output. Grant keys `model` and `allow`.
+ */
+export function jsonRunner(binary = "claude"): ProcessRunner {
+	const strings = (value: unknown) =>
+		Array.isArray(value) && value.every((item) => typeof item === "string") ? undefined : `must be an array of strings, not ${JSON.stringify(value)}`;
+	return {
+		kind: "process",
+		label: "Claude Code",
+		grantKeys: {
+			model: { check: (value) => (typeof value === "string" ? undefined : `must be a string, not ${JSON.stringify(value)}`) },
+			allow: { check: strings, default: [] },
+		},
+		prepare: ({ instructions }) => ({ argv: [binary], stdin: instructions, env: inheritedEnv() }),
+		read({ code, stdout, stderr }) {
+			try {
+				const parsed = JSON.parse(stdout) as { result?: unknown; is_error?: unknown };
+				return { ok: code === 0 && parsed.is_error !== true, summary: typeof parsed.result === "string" ? parsed.result : stdout };
+			} catch {
+				return { ok: false, summary: (stdout + stderr).trim() || `Claude Code exited ${code} with no output` };
+			}
+		},
+	};
+}
+
 /** `delegate` targeting `mcpTool://delegate/<grant>`, with the delegate signature. */
 export function delegateDefinition(grant: string): string {
 	return `        delegate:

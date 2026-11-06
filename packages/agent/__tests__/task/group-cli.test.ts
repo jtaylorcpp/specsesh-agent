@@ -1,4 +1,4 @@
-import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Harness, createRegistry } from "@earendil-works/pi-durable";
@@ -15,6 +15,7 @@ afterEach(() => cleanTemps());
 
 /**
  * A fake `claude` that converges every task and logs `{ task, step }` to `calls.log` beside it.
+ * Copied beside it as `fake-edit`, its act writes `done-1.1.txt`, then `done-1.2.txt`.
  * Its first orient call for 1.2 logs `killed: true` and SIGKILLs its parent, the CLI.
  */
 function killingClaude(): string {
@@ -50,8 +51,8 @@ if (schemaAt >= 0) {
 		out = { type: "result", is_error: false, result: "", structured_output: { met: true, unmet: "", next_action: "retry", question: "", amend_path: "", amend_text: "" } };
 	}
 } else {
-	const task = /plan for (\\d+\\.\\d+)/.exec(text)?.[1];
-	log({ task, step: "delegate" });
+	const task = fs.existsSync(path.join(process.cwd(), "done-1.1.txt")) ? "1.2" : "1.1";
+	log({ task, step: "act" });
 	fs.writeFileSync(path.join(process.cwd(), "done-" + task + ".txt"), "done\\n");
 	out = { type: "result", is_error: false, result: "Wrote done-" + task + ".txt" };
 }
@@ -59,6 +60,8 @@ process.stdout.write(JSON.stringify(out));
 `,
 	);
 	chmodSync(path, 0o755);
+	copyFileSync(path, join(bin, "fake-edit"));
+	chmodSync(join(bin, "fake-edit"), 0o755);
 	return bin;
 }
 

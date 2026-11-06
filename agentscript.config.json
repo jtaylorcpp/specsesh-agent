@@ -4,7 +4,7 @@
     "db": ".agentscript/task-loops.sqlite",
     "provider": "claude-code",
     "model": "opus",
-    "script": "task-delegate",
+    "script": "task",
     "checks": ["pnpm check", "pnpm test"],
     "allow": ["pnpm", "node"],
     "maxIterations": 8,
@@ -12,8 +12,5 @@
     "requireCleanTree": true,
     "worktreeSetup": ["pnpm install --frozen-lockfile --prefer-offline"],
     "deleteFiles": true
-  },
-  "delegates": {
-    "claude_code": { "runner": "claude-code", "model": "opus", "allow": ["pnpm", "node"], "context": ["CLAUDE.md"] }
   }
 }

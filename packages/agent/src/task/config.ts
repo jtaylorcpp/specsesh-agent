@@ -89,7 +89,7 @@ export interface LoadedConfig {
 	/** The directory config paths are relative to: the file's, or the current directory without one. */
 	readonly dir: string;
 	readonly task: TaskConfig;
-	/** The granted delegates, each `context` entry absolute and each agent `script` its source; `{}` grants nothing. */
+	/** The granted delegates, each agent `script` its source; `{}` grants nothing. */
 	readonly delegates: DelegateGrants;
 	/** The named models beside `default`; `{}` names none. */
 	readonly models: NamedModels;
@@ -158,7 +158,7 @@ export function validateTaskConfig(value: unknown, path: string): TaskConfig {
 /**
  * Validate a parsed config file's `delegates` object with the grant rules,
  * every grant before any is returned. The grants come back as written (no
- * defaults filled in), with each `context` entry resolved against `dir`.
+ * defaults filled in), with each agent `script` read (relative to `dir`).
  */
 export function validateDelegates(value: unknown, path: string, dir: string): DelegateGrants {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -174,8 +174,6 @@ export function validateDelegates(value: unknown, path: string, dir: string): De
 	return Object.fromEntries(
 		Object.entries(grants).map(([name, grant]): [string, DelegateGrant] => {
 			const copy: Record<string, unknown> = structuredClone(grant);
-			const context = copy["context"];
-			if (Array.isArray(context)) copy["context"] = context.map((entry: string) => resolve(dir, entry));
 			const script = copy["script"];
 			if (copy["runner"] === "agent" && typeof script === "string") copy["script"] = agentScript(script, name, path, dir);
 			return [name, copy as DelegateGrant];
@@ -279,7 +277,6 @@ export function loadConfig(cwd: string): LoadedConfig {
 /** The bundled scripts by name. */
 export const BUNDLED_SCRIPT_NAMES: Readonly<Record<string, URL>> = {
 	task: BUNDLED_SCRIPTS.task,
-	"task-delegate": BUNDLED_SCRIPTS.delegate,
 };
 
 /** The bundled group judge script's name. */
@@ -294,7 +291,7 @@ export interface ResolvedScript {
 }
 
 /**
- * `task` or `task-delegate` select the bundled script; anything else is a path
+ * `task` selects the bundled script; anything else is a path
  * relative to `base`. A path that does not exist refuses the run.
  */
 export function resolveScript(value: string, base: string): ResolvedScript {

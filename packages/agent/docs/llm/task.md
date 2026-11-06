@@ -36,7 +36,7 @@
 
   A script calls it with `run @actions.<x>` (target `mcpTool://delegate/editor`) and `instructions`. `tools` must cover the script's actions: the bundled `edit` uses `edit_file` and `run_command` beyond the default three.
 
-- **Fully local.** Pair the local judge with the bundled `task` script, or with an `agent` delegate on a local model. A `claude_code` grant (runner `claude-code`) always runs on Claude Code, whatever the provider.
+- **Fully local.** Pair the local judge with the bundled `task` script, or with an `agent` delegate on a local model.
 - **When the server is contacted.** Only when the run's model, a stored loop's model (`resume`, `answer`) or a `models` entry is on `ollama`. `resume` and `answer` finish a loop on the model it was started on.
 - **Refusals.** An `ollama` model that doesn't resolve exits `2` before a task exists: `no model "<model>" on provider "ollama"`, ending with ` (Ollama at <url>: <reason>)` when the server didn't answer.
 - **Small models** may fail structured steps, such as the judge's `submit_result`. That is the model's limit, not the loop's.

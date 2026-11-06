@@ -107,7 +107,7 @@ async function dispatchJudge(change: string = tinyChange()): Promise<Record<stri
 	}
 }
 
-describe.each(["task.agent", "task-delegate.agent"])("task/agent: The judge defaults to retry (%s)", (name) => {
+describe.each(["task.agent"])("task/agent: The judge defaults to retry (%s)", (name) => {
 	it("Scenario: The judge prompt says retry is the default", () => {
 		const { prompt } = composeJudge(read(name), TASK_VARIABLES);
 		expect(prompt).toContain("It is done only when the checks pass");
@@ -116,7 +116,7 @@ describe.each(["task.agent", "task-delegate.agent"])("task/agent: The judge defa
 	});
 });
 
-describe.each(["task.agent", "task-delegate.agent"])("task/agent: The script declares the variables the loop reads back (%s)", (name) => {
+describe.each(["task.agent"])("task/agent: The script declares the variables the loop reads back (%s)", (name) => {
 	it("Scenario: The judge prompt asks for the whole file", () => {
 		const { prompt } = composeJudge(read(name), TASK_VARIABLES);
 		expect(prompt).toContain("set amend_path to the delta that is wrong");

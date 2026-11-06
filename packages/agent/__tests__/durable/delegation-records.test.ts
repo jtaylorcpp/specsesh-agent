@@ -1,5 +1,5 @@
 // The `actions/delegation` call scenarios: what a delegate call answers and what it records.
-// The claude-code runner throughout; in-memory workspaces where no process is needed, and a local
+// A host's Claude Code-style process runner (`jsonRunner`) throughout; in-memory workspaces where no process is needed, and a local
 // workspace (a temp git repository for the diffs) over a fake `claude` where one is. No real `claude`.
 
 import { execFileSync } from "node:child_process";
@@ -22,8 +22,8 @@ import {
 	type Workspace,
 	type WorkspaceSnapshot,
 } from "../../src/durable/index.js";
-import { claudeCodeRunner, localWorkspace } from "../../src/node/index.js";
-import { delegateTwice } from "./delegation-scripts.js";
+import { localWorkspace } from "../../src/node/index.js";
+import { delegateTwice, jsonRunner } from "./delegation-scripts.js";
 import { context } from "./helpers.js";
 
 const dirs: string[] = [];
@@ -78,9 +78,9 @@ function memoryWorkspace(options: { exec?: false; answer?: ExecResult; snapshot?
 	return { workspace, calls };
 }
 
-/** The claude-code runner on `binary`, counting `prepare` calls. */
+/** `jsonRunner` on `binary`, counting `prepare` calls. */
 function countingRunner(binary = "claude") {
-	const runner = claudeCodeRunner({ binary });
+	const runner = jsonRunner(binary);
 	const calls = { prepare: 0 };
 	const counted: ProcessRunner = {
 		...runner,
@@ -148,7 +148,7 @@ describe("actions/delegation records", () => {
 				models: { default: () => ({ provider: faux.provider, model: { provider: model.provider, modelId: model.id } }) },
 				workspace: () => mem.workspace,
 				delegates: { claude_code: { runner: "claude-code", maxCalls: 1 } },
-				runners: { "claude-code": claudeCodeRunner() },
+				runners: { "claude-code": jsonRunner() },
 			},
 			{ storage: new MemoryStorage(), env: {}, context },
 		);
@@ -166,7 +166,7 @@ describe("actions/delegation records", () => {
 		const bin = temp("agentscript-bin-");
 		const pidFile = join(bin, "pid");
 		const binary = scriptedClaude(bin, `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\nsetInterval(() => {}, 1000);`);
-		const result = await call(delegate(localWorkspace(temp("agentscript-ws-")), claudeCodeRunner({ binary }), { timeoutMs: 200 }), "x");
+		const result = await call(delegate(localWorkspace(temp("agentscript-ws-")), jsonRunner(binary), { timeoutMs: 200 }), "x");
 
 		expect(result).toMatchObject({ ok: false });
 		expect((result as { message: string }).message).toContain("timed out after 200ms");
@@ -185,7 +185,7 @@ describe("actions/delegation records", () => {
 				`process.stdout.write(${JSON.stringify(RESULT_JSON)});`,
 			].join("\n"),
 		);
-		const result = await call(delegate(localWorkspace(repo), claudeCodeRunner({ binary })), "Add new.ts\nand touch a.ts");
+		const result = await call(delegate(localWorkspace(repo), jsonRunner(binary)), "Add new.ts\nand touch a.ts");
 
 		expect(result).toMatchObject({ ok: true, outputs: { ok: true, summary: "done", files_changed: 2 } });
 		const { record } = result as unknown as Recorded;
@@ -205,7 +205,7 @@ describe("actions/delegation records", () => {
 	it("Scenario: A delegate that changed nothing says so", async () => {
 		const repo = gitRepo();
 		const binary = scriptedClaude(temp("agentscript-bin-"), `process.stdout.write(${JSON.stringify(RESULT_JSON)});`);
-		const result = await call(delegate(localWorkspace(repo), claudeCodeRunner({ binary })), "Look, don't touch");
+		const result = await call(delegate(localWorkspace(repo), jsonRunner(binary)), "Look, don't touch");
 
 		expect(result).toMatchObject({ ok: true, outputs: { files_changed: 0 } });
 		const { record } = result as unknown as Recorded;
@@ -214,7 +214,7 @@ describe("actions/delegation records", () => {
 
 	it("Scenario: Without snapshots the count is unknown", async () => {
 		const { workspace, calls } = memoryWorkspace({ snapshot: () => undefined });
-		const result = await call(delegate(workspace, claudeCodeRunner()), "Do it");
+		const result = await call(delegate(workspace, jsonRunner()), "Do it");
 
 		expect(calls.exec).toBe(1);
 		expect(result).toMatchObject({ ok: true, outputs: { ok: true, files_changed: -1 } });
