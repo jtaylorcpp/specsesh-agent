@@ -1,0 +1,86 @@
+---
+title: Spec drafting
+---
+flowchart LR
+  draftcmd[runDraft<br/>change draft]
+  approvecmd[runApprove<br/>change approve]
+  state[changeState<br/>where the change stands]
+  startdraft[startDraftLoop<br/>agentscript.draft-loop]
+  answerdraft[answerDraftLoop<br/>revise · answer · approve]
+  dnext[draft next<br/>first stage missing or stale]
+  dstage[draft stage<br/>a child spec loop]
+  danswer[draft answer<br/>answers the blocked spec loop]
+  stale[staleApprovals<br/>hashes vs files]
+  stages[SPEC_STAGES<br/>in order]
+  proposal[proposalStage<br/>proposal.md]
+  design[designStage<br/>design.md]
+  specs[specsStage<br/>specs deltas]
+  tasks[tasksStage<br/>tasks.md]
+  specrun[runSpec<br/>task spec]
+  startspec[startSpecLoop<br/>refuse unapproved after]
+  answerspec[answerSpecLoop<br/>principal only]
+  iterate[iterate<br/>seed the contract, child run]
+  run[agentscript.run<br/>the stage script, once]
+  await[await<br/>the settled child by id]
+  write[write<br/>owned sections to disk]
+  bundle[readBundle<br/>one section per path]
+  gate[gate<br/>the stage's gate, no model]
+  approve[approve<br/>record it, draft nothing]
+  approvals[recordApproval<br/>approvals.json]
+
+  draftcmd --> state
+  draftcmd --> startdraft
+  draftcmd -->|revise · answer| answerdraft
+  approvecmd --> state
+  approvecmd -->|approve| answerdraft
+  startdraft --> dnext
+  answerdraft --> danswer
+  dnext --> stale
+  dnext --> stages
+  dnext --> dstage
+  dstage -->|converged| dnext
+  danswer --> answerspec
+  danswer --> dstage
+  stages --> proposal
+  stages --> design
+  stages --> specs
+  stages --> tasks
+  dstage -->|child| iterate
+  specrun --> startspec
+  startspec --> stale
+  startspec --> iterate
+  answerspec -->|approve| approve
+  answerspec -->|revise| iterate
+  iterate --> run
+  iterate --> await
+  await --> write
+  write --> bundle
+  write --> gate
+  gate -->|issues carried| iterate
+  approve --> approvals
+
+  %% code: draftcmd packages/agent/src/task/cmd-draft.ts:161
+  %% code: approvecmd packages/agent/src/task/cmd-approve.ts:73
+  %% code: state packages/agent/src/task/change-state.ts:169
+  %% code: startdraft packages/agent/src/task/draft-api.ts:59
+  %% code: answerdraft packages/agent/src/task/draft-api.ts:142
+  %% code: dnext packages/agent/src/task/draft-loop.ts:191
+  %% code: dstage packages/agent/src/task/draft-loop.ts:212
+  %% code: danswer packages/agent/src/task/draft-loop.ts:245
+  %% code: stale packages/agent/src/task/spec-approvals.ts:181
+  %% code: stages packages/agent/src/task/spec-stages.ts:13
+  %% code: proposal packages/agent/src/task/stages/proposal.ts:76
+  %% code: design packages/agent/src/task/stages/design.ts:27
+  %% code: specs packages/agent/src/task/stages/specs.ts:55
+  %% code: tasks packages/agent/src/task/stages/tasks.ts:55
+  %% code: specrun packages/agent/src/task/spec-cli.ts:164
+  %% code: startspec packages/agent/src/task/spec-api.ts:130
+  %% code: answerspec packages/agent/src/task/spec-answer.ts:40
+  %% code: iterate packages/agent/src/task/spec-loop.ts:287
+  %% code: run packages/agent/src/durable/extension.ts:573
+  %% code: await packages/agent/src/task/spec-loop.ts:317
+  %% code: write packages/agent/src/task/spec-loop.ts:324
+  %% code: bundle packages/agent/src/task/spec-bundle.ts:29
+  %% code: gate packages/agent/src/task/spec-loop.ts:359
+  %% code: approve packages/agent/src/task/spec-loop.ts:264
+  %% code: approvals packages/agent/src/task/spec-approvals.ts:105

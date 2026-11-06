@@ -1,0 +1,71 @@
+---
+title: OpenSpec workflow
+---
+flowchart LR
+  draftcmd[change draft<br/>runDraft]
+  approvecmd[change approve<br/>runApprove]
+  buildcmd[change build<br/>runBuild]
+  closecmd[change close<br/>runClose]
+  taskrun[task run<br/>a task or a group]
+  specrun[task spec<br/>one stage]
+  pickcmd[task pick-tests<br/>pickTests]
+  draftloop[agentscript.draft-loop<br/>every unapproved stage]
+  specloop[agentscript.spec-loop<br/>draft one stage, gate it]
+  changeloop[agentscript.change-loop<br/>every group, then the change check]
+  grouploop[agentscript.group-loop<br/>tasks in order, then the group check]
+  taskloop[agentscript.task-loop<br/>one task until its checks pass]
+  run[agentscript.run<br/>one script run]
+  interp[interpreter run<br/>ci-test-pick.agent, not durable]
+  approvals[approvals.json<br/>recordApproval]
+  tasksmd[tasks.md<br/>tickTask]
+  trial[trialFold<br/>fold into a temp copy]
+  openspec[runOpenspec<br/>validate · archive]
+  ontology[OpenSpec ontology<br/>Iteration · Evidence · Approval]
+
+  draftcmd --> draftloop
+  approvecmd -->|approve| draftloop
+  draftloop -->|per stage| specloop
+  specrun --> specloop
+  specloop -->|per iteration| run
+  specloop --> approvals
+  buildcmd --> changeloop
+  changeloop -->|per group| grouploop
+  taskrun --> grouploop
+  taskrun --> taskloop
+  grouploop -->|per task| taskloop
+  taskloop -->|per iteration| run
+  taskloop --> tasksmd
+  changeloop --> trial
+  closecmd --> trial
+  closecmd -->|archive| openspec
+  trial --> openspec
+  pickcmd --> interp
+  taskloop -->|records| ontology
+  specloop -->|records| ontology
+
+  %% code: draftcmd packages/agent/src/task/cmd-draft.ts:161
+  %% code: approvecmd packages/agent/src/task/cmd-approve.ts:73
+  %% code: buildcmd packages/agent/src/task/cmd-build.ts:294
+  %% code: closecmd packages/agent/src/task/cmd-close.ts:105
+  %% code: taskrun packages/agent/src/bin/agentscript-task.ts:360
+  %% code: specrun packages/agent/src/task/spec-cli.ts:164
+  %% code: pickcmd packages/agent/src/task/test-pick.ts:163
+  %% code: draftloop packages/agent/src/task/draft-loop.ts:263
+  %% code: specloop packages/agent/src/task/spec-loop.ts:416
+  %% code: changeloop packages/agent/src/task/change-loop.ts:327
+  %% code: grouploop packages/agent/src/task/group.ts:650
+  %% code: taskloop packages/agent/src/task/loop.ts:218
+  %% code: run packages/agent/src/durable/extension.ts:573
+  %% code: interp packages/agent/src/interpreter/run.ts:664
+  %% code: approvals packages/agent/src/task/spec-approvals.ts:105
+  %% code: tasksmd packages/agent/src/task/tick.ts:16
+  %% code: trial packages/agent/src/task/cmd-close.ts:190
+  %% code: openspec packages/agent/src/task/openspec-bin.ts:71
+  %% code: ontology packages/agent/src/openspec/loops.ts:114
+
+  %% subsystem: taskrun loop-ops.mmd
+  %% subsystem: taskloop task-loop.mmd
+  %% subsystem: grouploop change-build.mmd
+  %% subsystem: changeloop change-build.mmd
+  %% subsystem: draftloop spec-loop.mmd
+  %% subsystem: specloop spec-loop.mmd

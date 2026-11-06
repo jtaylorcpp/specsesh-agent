@@ -1,0 +1,42 @@
+---
+title: Cloudflare host
+---
+flowchart LR
+  worker[Worker fetch<br/>example: routes to the DO]
+  faux[FauxAgentScriptHost<br/>example: AGENTSCRIPT_FAUX]
+  fauxagent[FauxAgentHost<br/>example: defineAgentHost]
+  host[AgentScriptHost<br/>Durable Object, Workers AI]
+  define[defineAgentHost<br/>DO class from an AgentConfig]
+  routes[handleRunRoutes<br/>start a run · read a run]
+  harness[createAgentHarness<br/>inside PiHarness]
+  workersai[workersAI<br/>ModelFactory on the AI binding]
+  runners[defaultCloudflareRunners<br/>agent only, no claude-code]
+  sandbox[sandboxWorkspace<br/>Sandbox exec · git · publish]
+  redact[redactor<br/>secrets as ***]
+  artifacts[artifactsSandboxWorkspace<br/>fork per task · clone]
+
+  worker --> faux
+  worker --> fauxagent
+  faux -.->|extends| host
+  fauxagent -.->|built by| define
+  host --> routes
+  define --> routes
+  define --> harness
+  define --> workersai
+  define --> runners
+  harness -.->|config workspace| sandbox
+  sandbox --> redact
+  artifacts --> sandbox
+
+  %% code: worker examples/cloudflare-worker/src/index.ts:94
+  %% code: faux examples/cloudflare-worker/src/index.ts:47
+  %% code: fauxagent examples/cloudflare-worker/src/agent-host.ts:69
+  %% code: host packages/agent/src/cloudflare/index.ts:53
+  %% code: define packages/agent/src/cloudflare/agent-host.ts:33
+  %% code: routes packages/agent/src/cloudflare/routes.ts:40
+  %% code: harness packages/agent/src/durable/harness.ts:16
+  %% code: workersai packages/agent/src/cloudflare/workers-ai.ts:17
+  %% code: runners packages/agent/src/cloudflare/runners.ts:10
+  %% code: sandbox packages/agent/src/cloudflare/sandbox-workspace.ts:90
+  %% code: redact packages/agent/src/cloudflare/sandbox-workspace.ts:65
+  %% code: artifacts packages/agent/src/cloudflare/artifacts.ts:43

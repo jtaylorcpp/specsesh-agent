@@ -1,0 +1,59 @@
+---
+title: Task loop
+---
+flowchart LR
+  start[startTaskLoop<br/>refuse before any model]
+  prepare[prepareTaskLoop<br/>read every source once]
+  contract[checkContract<br/>seeded · read back · choices]
+  iterate[iterate<br/>child run, contract seeded]
+  seed[seededVariables<br/>task · carried · changed]
+  changed[changedSeed<br/>files since the baseline]
+  preamble[taskPreamble<br/>for every delegate]
+  scripts[BUNDLED_SCRIPTS<br/>task · task-delegate]
+  run[agentscript.run<br/>the script, once]
+  await[await<br/>the settled child by id]
+  judge[judge<br/>read-back to a verdict]
+  judgeit[judgeIteration<br/>retry · amend-spec · ask]
+  record[recordIteration<br/>ontology Iteration]
+  gate[gate<br/>configured checks, no model]
+  checks[runLoopChecks<br/>argv, no shell]
+  tick[tickTask<br/>tasks.md on converge]
+  answer[answerEscalation<br/>a new run with the decision]
+
+  start --> prepare
+  start --> contract
+  start --> iterate
+  scripts -.->|default script| prepare
+  iterate --> seed
+  seed --> changed
+  iterate --> preamble
+  iterate -->|creates| run
+  iterate --> await
+  await --> judge
+  judge --> judgeit
+  judgeit --> record
+  judge -->|unmet| iterate
+  judge -->|met, checks set| gate
+  judge -->|met, no checks| tick
+  gate --> checks
+  gate -->|a check failed| iterate
+  gate -->|all pass| tick
+  answer -->|new run| iterate
+
+  %% code: start packages/agent/src/task/start.ts:79
+  %% code: prepare packages/agent/src/task/start.ts:28
+  %% code: contract packages/agent/src/task/contract.ts:100
+  %% code: iterate packages/agent/src/task/loop.ts:179
+  %% code: seed packages/agent/src/task/loop.ts:71
+  %% code: changed packages/agent/src/task/changed.ts:68
+  %% code: preamble packages/agent/src/task/preamble.ts:27
+  %% code: scripts packages/agent/src/task/options.ts:61
+  %% code: run packages/agent/src/durable/extension.ts:573
+  %% code: await packages/agent/src/task/loop.ts:228
+  %% code: judge packages/agent/src/task/loop.ts:246
+  %% code: judgeit packages/agent/src/task/judge.ts:20
+  %% code: record packages/agent/src/task/iteration.ts:130
+  %% code: gate packages/agent/src/task/loop.ts:133
+  %% code: checks packages/agent/src/task/checks.ts:29
+  %% code: tick packages/agent/src/task/tick.ts:16
+  %% code: answer packages/agent/src/task/answer.ts:81

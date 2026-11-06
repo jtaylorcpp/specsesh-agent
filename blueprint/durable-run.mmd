@@ -1,0 +1,85 @@
+---
+title: Durable run
+---
+flowchart LR
+  runscript[runScript<br/>start + wait]
+  startscript[startScript<br/>create an agentscript.run task]
+  wait[waitForScript<br/>the run's result]
+  watch[watchScript<br/>a run as RunEvents]
+  harness[createAgentHarness<br/>models · registry · runners]
+  ext[agentScriptExtensions<br/>AgentScript task + step extension]
+  bind[checkBindings<br/>refuse unbound actions at start]
+  next[next<br/>step machine next]
+  dispatch[dispatch<br/>child conversation per step]
+  await[await<br/>submit · wait · apply]
+  submit[checkResult<br/>submit_result, 3rd refusal fails]
+  act[act<br/>run one host action]
+  registry[createActionRegistry<br/>host actions by name]
+  toolhost[registryHost<br/>registry for one-shot runs]
+  ws[workspaceActions<br/>read · write · list · search · exec]
+  mem[memoryWorkspace<br/>in memory]
+  local[localWorkspace<br/>a directory on disk]
+  builtins[builtinActions<br/>argv commands]
+  deleg[delegationActions<br/>granted delegates only]
+  grants[validateGrants<br/>DelegateGrantError]
+  runners[defaultRunners<br/>agent · claude-code]
+  agentrun[agentRunner<br/>our script as a child run]
+  scripts[READ_AGENT · EDIT_AGENT<br/>bundled delegate scripts]
+  ccrun[claudeCodeRunner<br/>claude -p in the workspace]
+  mcptools[mcpTools<br/>server/tool actions]
+
+  runscript --> startscript
+  runscript --> wait
+  startscript --> ext
+  watch --> ext
+  harness --> ext
+  harness --> registry
+  harness --> grants
+  ext --> bind
+  ext --> next
+  next -->|reason| dispatch
+  dispatch --> await
+  await --> submit
+  await --> next
+  next -->|action| act
+  act --> registry
+  act --> next
+  toolhost --> registry
+  registry --> ws
+  registry --> builtins
+  registry --> deleg
+  registry --> mcptools
+  ws --> mem
+  ws --> local
+  deleg --> grants
+  deleg --> runners
+  runners --> agentrun
+  runners --> ccrun
+  agentrun --> scripts
+  agentrun -.->|child agentscript.run| ext
+
+  %% code: runscript packages/agent/src/durable/host.ts:74
+  %% code: startscript packages/agent/src/durable/host.ts:22
+  %% code: wait packages/agent/src/durable/host.ts:58
+  %% code: watch packages/agent/src/durable/watch.ts:61
+  %% code: harness packages/agent/src/durable/harness.ts:16
+  %% code: ext packages/agent/src/durable/extension.ts:262
+  %% code: bind packages/agent/src/durable/actions.ts:154
+  %% code: next packages/agent/src/durable/extension.ts:329
+  %% code: dispatch packages/agent/src/durable/extension.ts:350
+  %% code: await packages/agent/src/durable/extension.ts:362
+  %% code: submit packages/agent/src/durable/result.ts:11
+  %% code: act packages/agent/src/durable/extension.ts:372
+  %% code: registry packages/agent/src/durable/actions.ts:106
+  %% code: toolhost packages/agent/src/durable/tool-host.ts:24
+  %% code: ws packages/agent/src/durable/workspace.ts:329
+  %% code: mem packages/agent/src/durable/workspace.ts:197
+  %% code: local packages/agent/src/node/local-workspace.ts:29
+  %% code: builtins packages/agent/src/node/builtins.ts:25
+  %% code: deleg packages/agent/src/durable/delegation.ts:160
+  %% code: grants packages/agent/src/durable/delegation.ts:87
+  %% code: runners packages/agent/src/node/index.ts:11
+  %% code: agentrun packages/agent/src/durable/agent-runner.ts:162
+  %% code: scripts packages/agent/src/durable/delegate-scripts.ts:112
+  %% code: ccrun packages/agent/src/node/claude-code-runner.ts:55
+  %% code: mcptools packages/agent/src/mcp/mcp.ts:102

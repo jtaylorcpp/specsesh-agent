@@ -1,0 +1,69 @@
+---
+title: Script catalog
+---
+flowchart LR
+  taskloop[agentscript.task-loop<br/>one run per iteration]
+  grouploop[group judge<br/>after a failed group check]
+  specloop[agentscript.spec-loop<br/>one stage of a change]
+  pick[pickTests<br/>one-shot]
+  agentrunner[agentRunner<br/>a granted agent delegate]
+  ccrunner[claudeCodeRunner<br/>a granted Claude Code delegate]
+  agentcli[specsesh agent<br/>run · check your own script]
+  task[task.agent<br/>orient · act · check · judge]
+  taskdelegate[task-delegate.agent<br/>acts through delegate/claude_code]
+  group[group.agent<br/>rework · ask · amend-spec]
+  proposal[spec-proposal.agent<br/>proposal.md]
+  design[spec-design.agent<br/>design.md · mock · example code]
+  specify[spec-specify.agent<br/>spec deltas]
+  plan[spec-plan.agent<br/>tasks.md]
+  cipick[ci-test-pick.agent<br/>tests for one closed task]
+  read[READ_AGENT<br/>read · list · search]
+  edit[EDIT_AGENT<br/>read · list · search · edit · run]
+  ex01[01-hello<br/>a prompt with a variable]
+  ex02[02-structured-output<br/>typed outputs]
+  ex03[03-branching<br/>logic only, no model]
+  ex04[04-run-action<br/>an action run from code]
+  ex05[05-model-tools<br/>actions offered as tools]
+  ex06[06-custom-task-agent<br/>a trimmed task script]
+
+  taskloop -->|script task| task
+  taskloop -->|default in this repo| taskdelegate
+  taskloop -.->|script path| ex06
+  taskdelegate -->|delegate/claude_code| ccrunner
+  grouploop --> group
+  specloop -->|proposal| proposal
+  specloop -->|design| design
+  specloop -->|specs| specify
+  specloop -->|tasks| plan
+  pick --> cipick
+  agentrunner -->|script read| read
+  agentrunner -->|script edit| edit
+  agentcli -.-> ex01
+  agentcli -.-> ex02
+  agentcli -.-> ex03
+  agentcli -.-> ex04
+  agentcli -.-> ex05
+
+  %% code: taskloop packages/agent/src/task/loop.ts:218
+  %% code: grouploop packages/agent/src/task/group.ts:705
+  %% code: specloop packages/agent/src/task/spec-loop.ts:416
+  %% code: pick packages/agent/src/task/test-pick.ts:163
+  %% code: agentrunner packages/agent/src/durable/agent-runner.ts:162
+  %% code: ccrunner packages/agent/src/node/claude-code-runner.ts:55
+  %% code: agentcli packages/agent/src/bin/agentscript-pi.ts:74
+  %% code: task packages/agent/src/task/scripts/task.agent:3
+  %% code: taskdelegate packages/agent/src/task/scripts/task-delegate.agent:3
+  %% code: group packages/agent/src/task/scripts/group.agent:3
+  %% code: proposal packages/agent/src/task/scripts/spec-proposal.agent:3
+  %% code: design packages/agent/src/task/scripts/spec-design.agent:3
+  %% code: specify packages/agent/src/task/scripts/spec-specify.agent:3
+  %% code: plan packages/agent/src/task/scripts/spec-plan.agent:3
+  %% code: cipick packages/agent/src/task/scripts/ci-test-pick.agent:3
+  %% code: read packages/agent/src/durable/delegate-scripts.ts:112
+  %% code: edit packages/agent/src/durable/delegate-scripts.ts:115
+  %% code: ex01 examples/agents/01-hello.agent:1
+  %% code: ex02 examples/agents/02-structured-output.agent:1
+  %% code: ex03 examples/agents/03-branching.agent:1
+  %% code: ex04 examples/agents/04-run-action.agent:1
+  %% code: ex05 examples/agents/05-model-tools.agent:1
+  %% code: ex06 examples/agents/06-custom-task-agent.agent:1

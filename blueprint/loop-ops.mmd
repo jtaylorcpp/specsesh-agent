@@ -1,0 +1,43 @@
+---
+title: Loop operations
+---
+flowchart LR
+  run[run<br/>a task or a group]
+  config[loadConfig<br/>agentscript.config.json]
+  resolve[resolveChange<br/>nextTask · nextGroup]
+  worktree[createWorktree<br/>a branch and checkout per task]
+  lock[lockDatabase<br/>one process per db]
+  loops[openLoops<br/>pi-durable SQLite storage]
+  owner[(loop_owner<br/>loop_id · pid · boot_at)]
+  harness[buildHarness<br/>models · workspace · grants]
+  watcher[LoopWatcher · GroupWatcher<br/>JSON Lines on stderr]
+  status[listLoops<br/>task status]
+  resume[resumeAll<br/>interrupted loops]
+  answer[answerEscalation<br/>task answer]
+
+  run --> config
+  run --> resolve
+  run --> worktree
+  run --> lock
+  run --> loops
+  run --> harness
+  run --> watcher
+  loops -->|LoopOwnership| owner
+  status --> loops
+  status -->|readOwners| owner
+  resume -->|readOwners| owner
+  resume --> harness
+  answer --> harness
+
+  %% code: run packages/agent/src/bin/agentscript-task.ts:360
+  %% code: config packages/agent/src/task/config.ts:254
+  %% code: resolve packages/agent/src/task/resolve.ts:37
+  %% code: worktree packages/agent/src/task/worktree.ts:92
+  %% code: lock packages/agent/src/task/lock.ts:66
+  %% code: loops packages/agent/src/bin/agentscript-task.ts:349
+  %% code: owner packages/agent/src/task/owner.ts:32
+  %% code: harness packages/agent/src/bin/agentscript-task.ts:536
+  %% code: watcher packages/agent/src/task/events.ts:401
+  %% code: status packages/agent/src/task/status.ts:140
+  %% code: resume packages/agent/src/task/resume-all.ts:169
+  %% code: answer packages/agent/src/task/answer.ts:81

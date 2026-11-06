@@ -1,0 +1,43 @@
+---
+title: Model access
+---
+flowchart LR
+  models[cliModels<br/>every provider the CLI offers]
+  ollama[registerOllama<br/>openai-completions, keyless]
+  gemini[registerGemini<br/>google on GEMINI_API_KEY]
+  claude[claudeCodeProvider<br/>subscription, no API key]
+  resolve[resolveModel<br/>provider and model ids]
+  port[createPiReasoningPort<br/>one-shot, not durable]
+  force[forceTool<br/>submit_result per wire API]
+  check[checkToolArguments<br/>against the step schema]
+  rounds[tool rounds<br/>PiToolHost · maxRounds 16]
+  outcome[toOutcome<br/>StepOutcome]
+  category[categoryFromStatus<br/>HTTP status to category]
+  google[googleStatus<br/>error envelope code]
+
+  models --> ollama
+  models --> gemini
+  models --> claude
+  models --> resolve
+  resolve --> port
+  port --> force
+  port -->|with tools| rounds
+  rounds --> check
+  port --> outcome
+  outcome --> category
+  outcome -->|google| google
+
+  %% code: models packages/agent/src/bin/models.ts:15
+  %% code: ollama packages/agent/src/pi/ollama.ts:74
+  %% code: gemini packages/agent/src/pi/gemini.ts:44
+  %% code: claude packages/agent/src/claude-code/claude-code-provider.ts:96
+  %% code: resolve packages/agent/src/pi/models.ts:16
+  %% code: port packages/agent/src/pi/port.ts:88
+  %% code: force packages/agent/src/pi/port.ts:365
+  %% code: check packages/agent/src/pi/port.ts:295
+  %% code: rounds packages/agent/src/pi/port.ts:86
+  %% code: outcome packages/agent/src/pi/port.ts:385
+  %% code: category packages/agent/src/pi/categories.ts:9
+  %% code: google packages/agent/src/pi/categories.ts:32
+
+  %% subsystem: claude claude-code.mmd

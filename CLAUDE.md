@@ -6,6 +6,9 @@ interpreter over a declared subset of it. Spun out of coopcli on 2026-10-10 from
 (`5adc6fb2`, `a393f49a`, `c38e7f95`, `6e819b8f`, `baf124c9`). coopcli's OpenHypothesis/OpenSpec
 flow does **not** apply here.
 
+**Architecture:** `ARCHITECTURE.md` is the model (CLI, agent harness, Agent Script, OpenSpec
+workflow), the decisions and the open questions; `blueprint/` holds the live diagrams. Read it first.
+
 ## Layout (pnpm workspace)
 
 Two npm packages publish from this workspace:
