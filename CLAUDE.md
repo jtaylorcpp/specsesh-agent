@@ -38,7 +38,7 @@ The rest of this section is `packages/agent`:
 | `src/pi` → `./pi` | A `ReasoningPort` on `@earendil-works/pi-ai`, so any pi provider can run a script. Default testing model: `anthropic/claude-haiku-4-5`. `ollama.ts`: the Ollama provider (`ollamaProvider`, `registerOllama`), keyless, OpenAI-compatible, on pi-ai's eager `api/openai-completions`: no library module may statically import a pi-ai `*.lazy` or `providers/*` subpath (Bun bundles break; `fix-bun-lazy-pi-ai`). `gemini.ts`: pi's built-in `google` provider on `GEMINI_API_KEY` (`registerGemini`, `geminiKeyIssue`, `geminiBaseUrl`, which reads `GEMINI_BASE_URL`). |
 | `src/claude-code` → `./claude-code` | The claude-code port and pi provider (Node only). |
 | `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). Runtime-neutral: never imports `node:` or `src/claude-code`, so `./cloudflare` can import it. Holds `workspace.ts` (`Workspace`, whose `publish` is optional and which `localWorkspace` never has; `memoryWorkspace`, `workspaceActions`, `runChecks`, `diffSnapshots`), `delegation.ts` (grants, `delegationActions`), `agent-runner.ts` (`agentRunner()`, the `agent` runner: checks a grant against the harness's models and registry, runs it as a durable host action whose child ID commits with the `act` checkpoint, answers `{ ok, summary, files_changed }`; also in node `defaultRunners`), `delegate-scripts.ts` (`READ_AGENT`, `EDIT_AGENT` as source strings, no file system, so they work in Workers; the delegate contract: `instructions` seeded, `ok` and `summary` read back) `agent-config.ts` (`AgentConfig`, `createAgentHarness`) and `watch.ts` (`watchScript`, a durable run as `RunEvent`s). |
-| `src/node` → `./node` | The Node side of `./durable`: `localWorkspace(dir)`, `builtinActions` (moved from `src/durable/builtins.ts`), `claudeCodeRunner({ binary? })` and `defaultRunners`. Adds `src/durable` and `src/claude-code`; never loads the MCP SDK. |
+| `src/node` → `./node` | The Node side of `./durable`: `localWorkspace(dir)`, `builtinActions` (moved from `src/durable/builtins.ts`) and `defaultRunners` (`agent` only). Adds `src/durable`; never loads the MCP SDK. |
 | `src/mcp` → `./mcp` | `mcpTools(servers)`, MCP servers' tools as host actions `<server>/<tool>`, and `mcpBridge()`. The only importer of `@modelcontextprotocol/sdk`, always statically: a dynamic `import()` of it beside an app's static ones broke Bun bundles (`move-mcp-to-own-entry`). The bins reach it lazily through `src/bin/mcp.ts`, so they start without the SDK. Adds `src/durable`, `src/claude-code` and the MCP SDK. |
 | `src/cloudflare` → `./cloudflare` | `AgentScriptHost`, the Durable Object class (via Cloudflare's `PiHarness`, `agents` 0.28.0), Workers AI by default; `defineAgentHost`, `workersAI` and the Sandbox/Artifacts workspaces (see below). |
 | `src/openspec` → `./openspec` | The OpenSpec ontology (`openspec/{model,process,loops,evidence}`): TypeBox schemas (each a JSON Schema) with `Static` types and refinements, plus pure rules. Imports only `typebox`; no parser, no loop runner. |
@@ -199,7 +199,8 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
   `--permission-mode dontAsk`; Claude Code calls them, possibly in parallel, and each runs on our
   host. Durable runs (`durable run`/`resume --tools`/`--mcp`) work too, through the claude-code pi
   provider's held sessions (below), each call a host action of the harness. Claude Code's built-in tools stay
-  off (`--tools ""`); a delegate's `claudeCodeRunner` is different, see Hard lines.
+  off (`--tools ""`): Claude Code is model access only, never a delegate (the `claude-code` delegate
+  runner was removed as redundant with the workspace actions).
   A listening run (`run({ onEvent })`, `streamRun()`) swaps `--output-format json` for
   `stream-json --verbose --include-partial-messages` and streams `text_delta`/`thinking_delta`
   (`add-claude-code-text-streaming`); without a listener the argv is unchanged. Structured steps
@@ -315,10 +316,10 @@ git tag v0.2.0 && git push origin v0.2.0
 ## Running a task
 
 `agentscript.config.json` holds the task runner's defaults for this repo: the claude-code provider
-(your subscription) running the bundled `task-delegate` script on Opus (`model` is `opus`),
-`maxIterations` 8, checks `pnpm check` and `pnpm test`, allowlist `pnpm` and `node`, the
-`claude_code` delegate grant (below), and the database `.agentscript/task-loops.sqlite`
-(gitignored). Build first (`pnpm build`); flags override any `task` value, never a grant.
+(your subscription) running the bundled `task` script on Opus (`model` is `opus`), whose act step
+edits through the workspace actions, `maxIterations` 8, checks `pnpm check` and `pnpm test`,
+allowlist `pnpm` and `node`, `deleteFiles`, no delegate grants, and the database
+`.agentscript/task-loops.sqlite` (gitignored). Build first (`pnpm build`); flags override any `task` value, never a grant.
 
 ```bash
 pnpm task <change-id> <task-id>        # work one task of openspec/changes/<change-id>, unattended
@@ -347,13 +348,12 @@ pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop pr
   contradict themselves or the code, and `ask` only for a decision no passing check could settle.
 - **Delegates are granted, never defaulted.** Delegation is opt-in: nothing is granted unless the
   top-level `delegates` object of `agentscript.config.json` (reviewed with the repo) grants it. Each
-  name maps to `{ runner, model?, tools?, allow?, permissionMode: "dontAsk", context?, timeoutMs?,
-  maxCalls? }`; defaults are the six Claude Code tools (`Read`, `Edit`, `Write`, `Glob`, `Grep`,
-  `Bash`), `allow []`, `context []`, `timeoutMs` 900000 and `maxCalls` 5. `context` paths resolve
-  against the config file. This repo grants `claude_code` (runner `claude-code`, model `opus`, allow
-  `["pnpm","node"]`, context `["CLAUDE.md"]`), which `task-delegate` calls as
-  `mcpTool://delegate/claude_code`. `run --no-delegates` withdraws every grant for one run: a
-  delegating script then exits 2 naming `delegate/claude_code`, while `--script task` still runs.
+  name maps to `{ runner, timeoutMs?, maxCalls?, … }` plus the keys its runner declares; defaults
+  `timeoutMs` 900000 and `maxCalls` 5. The CLI's only runner is `agent` (below). A library host may
+  bring its own process runners (`ProcessRunner`): it passes the same `runners` to
+  `taskLoopExtensions` and to `startTaskLoop`/`startGroupLoop`/`startChangeLoop` (`TaskLoopOptions.runners`),
+  which check grants against them. This repo grants none. `run --no-delegates` withdraws every grant
+  for one run: a delegating script then exits 2 naming its `delegate/<name>`.
   The retired `task.delegateModel` and `task.delegateContext` keys are refused with
   `grant a delegate under "delegates" instead`; an invalid grant exits 2, naming the grant and the
   key. No CLI flag can grant or reconfigure a delegate.
@@ -459,14 +459,8 @@ behaviour only; internals go in a change's `design.md`. Stock `spec-driven` sche
 - No model client, SDK or credential in the core (`src/authoring`, `src/interpreter`). Provider code lives in `src/pi` and `src/claude-code`. Model turns go through the injected `ReasoningPort`.
 - Upstream deps are exact-pinned. Bumping one means running `pnpm conformance` and treating a failure as a decision about the subset.
 - The supported subset is declared once, in `src/interpreter/subset.ts`; the README block is generated from it.
-- `claudeCodeRunner` (`src/node/claude-code-runner.ts`), the only way a delegate reaches Claude Code,
-  keeps these lines (the retired `delegate_claude_code` action is gone):
-  - `claude -p --safe-mode`, never `--bare` (it forces API-key auth) and never `--tools ""`;
-  - `--permission-mode dontAsk` only;
-  - `--allowedTools` is the file tools plus `Bash(<word>:*)` per `allow` entry, so anything else is
-    denied, never prompted;
-  - `ANTHROPIC_API_KEY` and `CLAUDECODE` are stripped from the child's environment;
-  - Claude Code's OAuth token is never read, copied or forwarded: subscription auth only;
-  - the loop's preamble and the instructions go only on stdin, followed by the terms block.
+- Claude Code is model access only (the pi provider, and the one-shot port until it goes): no
+  delegate runs Claude Code with its own tools. Its OAuth token is never read, copied or forwarded,
+  and `ANTHROPIC_API_KEY` is stripped from every `claude` it starts.
 
 `packages/agent/__tests__/core/{import-boundary,no-compiler}.test.ts` and `__tests__/package/layers.test.ts` enforce the first two.

@@ -280,7 +280,7 @@ describe("core/subset: Statements, expressions and defaults are limited to decla
 
 describe("the task scripts this change exists for", () => {
 	it("scan clean and lint clean", () => {
-		for (const name of ["task.agent", "task-delegate.agent"] as const) {
+		for (const name of ["task.agent"] as const) {
 			const source = taskAgentFile(name);
 			expect(errors(source), name).toEqual([]);
 			expect(scan(source), name).toEqual([]);

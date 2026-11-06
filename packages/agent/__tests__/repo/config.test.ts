@@ -17,7 +17,7 @@ describe("task/headless: This repo ships a config for its own tasks", () => {
 			db: ".agentscript/task-loops.sqlite",
 			provider: "claude-code",
 			model: "opus",
-			script: "task-delegate",
+			script: "task",
 			checks: ["pnpm check", "pnpm test"],
 			allow: ["pnpm", "node"],
 			maxIterations: 8,
@@ -26,13 +26,12 @@ describe("task/headless: This repo ships a config for its own tasks", () => {
 			worktreeSetup: ["pnpm install --frozen-lockfile --prefer-offline"],
 			deleteFiles: true,
 		});
-		const raw = JSON.parse(readFileSync(join(REPO, "agentscript.config.json"), "utf8")) as { delegates: unknown };
-		expect(raw.delegates).toEqual({ claude_code: { runner: "claude-code", model: "opus", allow: ["pnpm", "node"], context: ["CLAUDE.md"] } });
-		// Every value resolves: the script is the bundled task-delegate, the grant's context file exists.
+		const raw = JSON.parse(readFileSync(join(REPO, "agentscript.config.json"), "utf8")) as { delegates?: unknown };
+		// No delegate is granted: the bundled task script edits through the workspace actions.
+		expect(raw.delegates).toBeUndefined();
+		expect(config.delegates).toEqual({});
 		const settings = resolveRunSettings({}, {}, config, REPO);
-		expect(settings.script.label).toBe("task-delegate");
-		expect(config.delegates["claude_code"]?.["context"]).toEqual([join(REPO, "CLAUDE.md")]);
-		expect(readFileSync(join(REPO, "CLAUDE.md"), "utf8")).toContain("# agentscript");
+		expect(settings.script.label).toBe("task");
 	});
 });
 

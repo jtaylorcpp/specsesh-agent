@@ -128,8 +128,8 @@ ${delegateDefinition("reviewer").replace("        delegate:", "        review:")
 `;
 
 describe("actions/agent-runner", () => {
-	it("Scenario: The node defaults hold both runners", () => {
-		expect(defaultRunners["claude-code"]?.kind).toBe("process");
+	it("Scenario: The node defaults hold the agent runner only", () => {
+		expect(Object.keys(defaultRunners)).toEqual(["agent"]);
 		expect(defaultRunners["agent"]?.kind).toBe("agent");
 		const agent = agentRunner();
 		expect(Object.keys((defaultRunners["agent"] as typeof agent).grantKeys)).toEqual(Object.keys(agent.grantKeys));
@@ -150,11 +150,11 @@ describe("actions/agent-runner", () => {
 
 	it("Scenario: A delegate cannot be given a delegate", async () => {
 		const message = await refusal({
-			claude_code: { runner: "claude-code" },
-			reviewer: { runner: "agent", model: "default", script: READ_AGENT, tools: ["read_file", "delegate/claude_code"] },
+			editor: { runner: "agent", model: "default", script: READ_AGENT },
+			reviewer: { runner: "agent", model: "default", script: READ_AGENT, tools: ["read_file", "delegate/editor"] },
 		});
 		expect(message).toContain("reviewer");
-		expect(message).toContain("delegate/claude_code");
+		expect(message).toContain("delegate/editor");
 	});
 
 	it("Scenario: A script that uses a tool it was not granted is refused", async () => {

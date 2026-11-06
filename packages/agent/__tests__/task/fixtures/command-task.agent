@@ -1,6 +1,9 @@
+# A task script for the spawned-CLI tests: orient and judge are model steps (the fake `claude`
+# answers them), and act runs `fake-edit` (on the fake bin's PATH) through run_command, so a loop
+# edits the workspace with no model tools. Derived from the retired bundled task-delegate.agent.
 config:
-    agent_name: "task-agent-delegate"
-    description: "One task-loop iteration that acts through Claude Code on your subscription"
+    agent_name: "task-agent-command"
+    description: "One task-loop iteration whose act step runs the fake editor"
 
 system:
     instructions: |
@@ -84,57 +87,23 @@ subagent orient:
             set @variables.plan = @outputs.plan
 
 subagent act:
-    description: "Hand the plan to Claude Code in the workspace, without the model choosing tools here"
+    description: "Run the fake editor, without the model"
 
     actions:
-        claude_code:
-            description: "Run headless Claude Code with its edit and bash tools in the workspace"
+        run_command:
+            description: "Run an allowed command in the workspace"
             inputs:
-                instructions: string
+                command: string
             outputs:
-                ok: boolean
-                summary: string
-                files_changed: number
-            target: "mcpTool://delegate/claude_code"
+                exit_code: number
+                output: string
+            target: "mcpTool://run_command"
 
     reasoning:
         instructions: ->
-            run @actions.claude_code
-                with instructions = @variables.plan
-                set @variables.act_ok = @outputs.ok
-                set @variables.act_summary = @outputs.summary
-                set @variables.act_files = @outputs.files_changed
-
-subagent retire:
-    description: "Read which file the delegate asked to retire"
-
-    reasoning:
-        instructions: ->
-            set @variables.retire_path = ""
-            if @variables.delete_granted:
-                | You are the retire step: you read the delegate's reply below. You have no tools: decide only from the text below.
-                | The delegate's reply is below, and it changed {!@variables.act_files} files.
-                | {!@variables.act_summary}
-                | Set retire_path to the path on the first line starting `RETIRE: `, exactly as written, or to "" if there is no such line. Ignore every later RETIRE line.
-                set @variables.retire_path = @outputs.retire_path
-
-subagent delete:
-    description: "Delete the retired file, without the model"
-
-    actions:
-        delete_file:
-            description: "Delete a file the task retires from the workspace"
-            inputs:
-                path: string
-            outputs:
-                ok: boolean
-            target: "mcpTool://delete_file"
-
-    reasoning:
-        instructions: ->
-            if @variables.delete_granted and @variables.retire_path != "":
-                run @actions.delete_file
-                    with path = @variables.retire_path
+            run @actions.run_command
+                with command = "fake-edit"
+                set @variables.act_summary = @outputs.output
 
 subagent check:
     description: "Run the task's checks, without the model"

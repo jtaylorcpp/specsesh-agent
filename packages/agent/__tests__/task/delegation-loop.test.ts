@@ -1,5 +1,6 @@
-// The task loop's delegation: the grant stored and required, which bundled script delegates,
-// and what the delegate script shows its steps. A fake `claude` stands in for Claude Code.
+// The task loop's delegation: the grant stored and required, that no bundled script delegates,
+// and what a host's delegating script hands its delegate. A host's process runner over a fake
+// `claude` stands in for a real delegate.
 
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -9,14 +10,15 @@ import { MemoryStorage } from "@earendil-works/pi-durable";
 import { analyze } from "../../src/authoring/index.js";
 import { readActionDefinitions } from "../../src/interpreter/actions.js";
 import { readSubagents } from "../../src/interpreter/compose.js";
-import { claudeCodeRunner } from "../../src/node/index.js";
+import { jsonRunner } from "../durable/delegation-scripts.js";
 import { BUNDLED_SCRIPTS, startTaskLoop, taskPreamble, type TaskLoopInput } from "../../src/task/index.js";
 import { gitRepo } from "./cli-helpers.js";
 import { COUNT_CHECK, JUDGE_ONLY, PROPOSAL, cleanTemps, context, loopEnv, loopHarness, plan, prompts, runLoop, temp, tinyChange, verdict } from "./helpers.js";
 
 afterEach(() => cleanTemps());
 
-const DELEGATE_SCRIPT = fileURLToPath(BUNDLED_SCRIPTS.delegate);
+/** A host's own delegating task script: the retired bundled `task-delegate.agent`. */
+const DELEGATE_SCRIPT = fileURLToPath(new URL("./fixtures/delegating-task.agent", import.meta.url));
 
 /**
  * A fake `claude` that changes no file and prints an `is_error` false result. With
@@ -35,7 +37,7 @@ function idleClaude(): string {
 /** The `claude_code` grant, its runner on a fake `claude` at `binary`, and one passing check so `run_checks` lets the run reach its judge. */
 const granted = (binary: string) => ({
 	overrides: { delegates: { claude_code: { runner: "claude-code" } }, checks: [COUNT_CHECK] },
-	actions: { runners: { "claude-code": claudeCodeRunner({ binary }) } },
+	actions: { runners: { "claude-code": jsonRunner(binary) } },
 });
 
 /** Every action target a script's subagents define. */
@@ -50,7 +52,7 @@ function targetsOf(source: string): string[] {
 describe("task/agent: A harness binds the loop's actions to one workspace", () => {
 	it("Scenario: The delegate configuration is stored with the loop", async () => {
 		const delegates = { claude_code: { runner: "claude-code", model: "opus" } };
-		const { env, workspace } = loopEnv({ delegates, runners: { "claude-code": claudeCodeRunner({ binary: idleClaude() }) } });
+		const { env, workspace } = loopEnv({ delegates, runners: { "claude-code": jsonRunner(idleClaude()) } });
 		const harness = await loopHarness(env, new MemoryStorage());
 		const id = await startTaskLoop(
 			harness,
@@ -61,6 +63,7 @@ describe("task/agent: A harness binds the loop's actions to one workspace", () =
 				workspace,
 				model: env.model,
 				delegates,
+				runners: { "claude-code": jsonRunner(idleClaude()) },
 				worktree: { path: "/w", branch: "task/c/1.1" },
 			},
 			context,
@@ -94,50 +97,11 @@ describe("task/agent: A harness binds the loop's actions to one workspace", () =
 	});
 });
 
-describe("task/agent: The bundled scripts are the default and the subscription variant", () => {
-	it("Scenario: Only the delegate script delegates", () => {
+describe("task/agent: No bundled task script delegates", () => {
+	it("Scenario: The bundled task and group scripts call no delegate", () => {
 		const delegating = (path: URL) => targetsOf(readFileSync(path, "utf8")).filter((t) => t.startsWith("mcpTool://delegate/"));
 		expect(delegating(BUNDLED_SCRIPTS.task)).toEqual([]);
-		expect(new Set(delegating(BUNDLED_SCRIPTS.delegate))).toEqual(new Set(["mcpTool://delegate/claude_code"]));
-	});
-});
-
-describe("task/agent: The delegate script shows the judge what changed and changes approach", () => {
-	it("Scenario: The judge sees an idle delegate", async () => {
-		const grant = granted(idleClaude());
-		const r = await runLoop(
-			[plan("change nothing"), verdict(false, "nothing changed")],
-			{ script: { path: DELEGATE_SCRIPT }, workspace: gitRepo(), budget: { maxIterations: 1 }, ...grant.overrides },
-			grant.actions,
-		);
-		await r.harness.close(context);
-
-		expect(r.outcome.status).toBe("exhausted");
-		const judge = prompts(r.env.requests).filter((p) => p.includes("Is the task done against the spec deltas"));
-		expect(judge).toHaveLength(1);
-		const lines = judge[0]!.split("\n");
-		expect(lines).toContain("Files the delegate changed in this iteration: 0 (-1 means unknown). 0 means the delegate changed nothing.");
-		expect(lines).toContain(
-			"No file has changed since the loop started either, so the work has not been done: a report that it already exists is wrong unless the check output shows the task's scenario passing.",
-		);
-		expect(judge[0]).not.toContain("0 alone does not mean the task is unfinished");
-	});
-
-	it("Scenario: Orient asks for a different approach", async () => {
-		const grant = granted(idleClaude());
-		const r = await runLoop(
-			[plan("first"), verdict(false, "still 1"), plan("second"), verdict(false, "still 1")],
-			{ script: { path: DELEGATE_SCRIPT }, budget: { maxIterations: 2 }, ...grant.overrides },
-			grant.actions,
-		);
-		await r.harness.close(context);
-
-		expect(r.outcome.status).toBe("exhausted");
-		const orients = prompts(r.env.requests).filter((p) => p.includes("Write a short, concrete plan for this iteration"));
-		expect(orients).toHaveLength(2);
-		expect(orients[0]).not.toContain("the last approach did not work");
-		expect(orients[1]).toContain("This is iteration 2.");
-		expect(orients[1]).toContain("the last approach did not work");
+		expect(delegating(BUNDLED_SCRIPTS.group)).toEqual([]);
 	});
 });
 
@@ -181,7 +145,7 @@ function recordingClaude(out: string): string {
 }
 
 describe("task/agent: The loop hands every delegate the task preamble", () => {
-	it("Scenario: The bundled delegate script's delegate sees the contract", async () => {
+	it("Scenario: A delegating script's delegate sees the contract", async () => {
 		const out = join(temp("task-claude-out-"), "stdin.txt");
 		const grant = granted(recordingClaude(out));
 		const r = await runLoop(

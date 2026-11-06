@@ -43,7 +43,6 @@ export const BUNDLED_DELEGATES: Readonly<Record<string, string>> = { read: READ_
 /** The command that runs each bundled script. */
 export const RUN_BY: Readonly<Record<string, string>> = {
 	task: "specsesh task <change> <task-id> --script task",
-	"task-delegate": "specsesh task <change> <task-id> --script task-delegate",
 	group: "specsesh task <change> <group>",
 	"spec-proposal": "specsesh change draft <change> (proposal stage)",
 	"spec-design": "specsesh change draft <change> (design stage)",

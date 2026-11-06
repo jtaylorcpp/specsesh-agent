@@ -17,7 +17,7 @@ Coming from [09 The spec agent](09-spec-agent.md)? Once `pnpm change draft <chan
 `agentscript-task run <change> <task-id>` reads the change once, then repeats four phases until it has an outcome:
 
 1. **Orient.** A model step reads the task, the proposal, the design and the spec deltas, plus what was still unmet last time, and writes a plan.
-2. **Act.** The plan is carried out in your workspace. Either the model edits files and runs allowed commands itself (`task.agent`), or the plan is handed to a headless Claude Code (`task-delegate.agent`).
+2. **Act.** The plan is carried out in your workspace: the model edits files and runs allowed commands itself, through the workspace actions (`task.agent`).
 3. **Check.** The configured `checks` run, with no model.
 4. **Judge.** A model step says whether the task is met and, if not, what is unmet and what to do next.
 
@@ -48,15 +48,14 @@ This repository's own file:
     "db": ".agentscript/task-loops.sqlite",
     "provider": "claude-code",
     "model": "opus",
-    "delegateModel": "opus",
-    "script": "task-delegate",
+    "script": "task",
     "checks": ["pnpm check", "pnpm test"],
     "allow": ["pnpm", "node"],
     "maxIterations": 8,
     "escalateTo": "principal",
-    "delegateContext": ["CLAUDE.md"],
     "requireCleanTree": true,
-    "worktreeSetup": ["pnpm install --frozen-lockfile --prefer-offline"]
+    "worktreeSetup": ["pnpm install --frozen-lockfile --prefer-offline"],
+    "deleteFiles": true
   }
 }
 ```
@@ -67,36 +66,30 @@ This repository's own file:
 | `db` | string | none | The SQLite file that holds the loops. `run`, `resume`, `answer` and `status` need it from here or `--db`. In worktree mode only `--db` counts. |
 | `provider` | string | `anthropic` | A pi provider id, or `claude-code`. Flag `--provider`, then `AGENTSCRIPT_PROVIDER`, then this. |
 | `model` | string | `claude-haiku-4-5` | Model for every script step. Flag `--model`, then `AGENTSCRIPT_MODEL`, then this. On `claude-code`: `haiku`, `sonnet`, `opus` or a full id. |
-| `delegateModel` | string | the resolved `model` | `--model` for the headless Claude Code that `task-delegate` acts through. Config only. |
-| `script` | string | `task` | `task`, `task-delegate`, or a path to your own `.agent`. Flag: `--script`. |
+| `script` | string | `task` | `task`, or a path to your own `.agent`. Flag: `--script`. |
 | `groupScript` | string | `group` | The group judge: `group` or a path. Flag: `--group-script`. |
 | `checks` | string[] | `[]` | Commands run after each iteration and at the gate, in order. Flag: `--check`, repeated. |
 | `allow` | string[] | `[]` | The first words a command the agent runs may start with. Flag: `--allow`, repeated. |
 | `maxIterations` | integer ≥ 1 | `8` | Iterations per task run. Flag: `--max-iterations`. |
 | `maxReworks` | integer ≥ 1 | `2` | Reworks per group run. Flag: `--max-reworks`. |
 | `escalateTo` | `"principal"` or `"agent"` | `principal` | Who an escalation is addressed to, and so who may answer. Flag: `--escalate-to`. |
-| `delegateContext` | string[] | `[]` | Files appended to the delegate's system prompt. |
+| `deleteFiles` | boolean | `false` | Grants `delete_file`, so a task can retire a file. |
 | `requireCleanTree` | boolean | `true` | Refuse to run on uncommitted changes. Flag: `--allow-dirty` turns it off for one run. |
 | `worktree` | boolean | `false` | Run in a new git worktree by default. Flag: `--worktree`. |
 | `worktreeDir` | string | `../<repo>-worktrees` | Where worktrees go. |
 | `worktreeSetup` | string[] | `[]` | Commands run in a new worktree before the loop starts. |
 
-Paths in the file (`changesDir`, `db`, `script`, `groupScript`, `delegateContext`, `worktreeDir`) are relative to the config file. Paths in flags are relative to where you run the command. There is also `--workspace <dir>` (flag only): the directory every action is confined to, default the current directory.
+Paths in the file (`changesDir`, `db`, `script`, `groupScript`, `worktreeDir`) are relative to the config file. Paths in flags are relative to where you run the command. There is also `--workspace <dir>` (flag only): the directory every action is confined to, default the current directory.
 
 Commands (`checks`, `worktreeSetup`) are split on whitespace and spawned directly, with no shell: no quoting, pipes, `&&` or environment assignments. Put a pipeline in a package script and check that (`"pnpm check"`).
 
 Ignore the database. Add `.agentscript/` to `.gitignore`, or the second run will see an untracked directory and refuse a dirty tree.
 
-### Which script: `task` or `task-delegate`
+### The task script
 
-| | `task.agent` | `task-delegate.agent` |
-|---|---|---|
-| Who edits files | The model, step by step, through `read_file`, `edit_file` and `run_command` | A headless Claude Code, run as `claude -p --safe-mode` with Read, Edit, Write, Glob, Grep and `Bash` limited to your `allow` words |
-| Needs a provider that can call tools | Yes: pi providers such as `anthropic` | No |
-| Works with `--provider claude-code` | **No.** That provider serves no model-callable tools. | Yes, and this is the combination to use on a subscription |
-| Use when | You run on an API key and want the loop to own every edit and command | You run on your Claude subscription, or want Claude Code's own file tools for the editing |
+`task.agent` edits files step by step through `read_file`, `edit_file` and `run_command` (and `delete_file` when `deleteFiles` grants it). It needs a provider that can call tools: a pi provider such as `anthropic`, or `claude-code`, whose steps get the tools over a loopback MCP bridge. Point `script` at your own `.agent` to change how a task is worked; it must keep the contract below.
 
-The bundled scripts live in `node_modules/@specsesh/agent/dist/task/scripts/` (and `packages/agent/src/task/scripts/` in this repo): `task.agent`, `task-delegate.agent` and `group.agent`.
+The bundled scripts live in `node_modules/@specsesh/agent/dist/task/scripts/` (and `packages/agent/src/task/scripts/` in this repo): `task.agent` and `group.agent`, beside the spec stages' scripts.
 
 ### Credentials
 
@@ -476,9 +469,9 @@ One JSON object per stderr line, each with `event` and `loop`. A task loop's eve
 
 | `event` | Fields besides `loop` | When |
 |---|---|---|
-| `loop-started` | `change`, `task`, `script` (`task`, `task-delegate` or `custom`), `at` | The loop begins |
+| `loop-started` | `change`, `task`, `script` (`task` or `custom`), `at` | The loop begins |
 | `iteration-started` | `iteration`, `at` | An iteration begins |
-| `action` | `iteration`, `kind` (`edit`, `command`, `delegate`), `summary`, `refs` | An action ran. With the delegate script: one `delegate`, one `command` for the checks |
+| `action` | `iteration`, `kind` (`edit`, `command`, `delegate`), `summary`, `refs` | An action ran. A delegating script's delegate call is one `delegate` |
 | `evidence` | `iteration`, `kind`, plus the evidence's fields | Evidence an action recorded. `check`: `command`, `exitCode`, `output`. `diff`: `files` (`path`, `change`) |
 | `verdict` | `iteration`, `met`, `unmet`, `next` (`done`, `retry`, `ask`, `amend-spec`) | The iteration was judged. A gate failure is `met: false` with the gate's reason |
 | `loop-ended` | `status`, `iterations`, `ticked`, `changed` | The loop settled. `changed` is measured from the loop's start, across `resume` and `answer`: a resumed run lists edits made before the crash, and an answered run the blocked run's. A group's task lists only its own files |
@@ -531,7 +524,7 @@ Everything else is yours: the bundled scripts add `plan`, `checks_passed`, `chec
 
 - `next_action` must be a string whose default is one of `retry`, `amend-spec`, `ask`.
 - Every `subagent` runs each iteration, in source order. The bundled four are `orient`, `act`, `check`, `judge`.
-- The only actions a script can bind are the host's built-ins, with exactly these names and types: `read_file`, `edit_file`, `run_command`, `run_checks` and `delegate_claude_code` (see [04 Actions](04-actions.md)). `run_checks` fails with `no checks configured, and an empty set of checks is not a pass` when you set none.
+- The only actions a script can bind are the host's built-ins, with exactly these names and types: `read_file`, `edit_file`, `run_command`, `run_checks`, `list_files`, `search_files`, `delete_file` when granted, and a `delegate/<name>` per granted delegate (see [04 Actions](04-actions.md)). `run_checks` fails with `no checks configured, and an empty set of checks is not a pass` when you set none.
 - A script that uses a construct outside the supported subset is refused by name and position ([01 Writing Agent Script](01-agent-script.md)).
 
 A common edit is letting the judge see the deltas, which the bundled judge does not. In `judge`, after the `Task …` line:

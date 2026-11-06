@@ -41,9 +41,8 @@
  * one worktree for all its tasks) instead, and needs its own `--db`.
  * A database is held by one live process at a time (`<db>.lock`).
  *
- * `--provider claude-code` runs each step through your own `claude` binary; pair
- * it with the bundled task-delegate script, since that provider serves no
- * model-callable tools.
+ * `--provider claude-code` runs each step through your own `claude` binary; a
+ * step's tools (the workspace actions) are served to it over a loopback MCP bridge.
  *
  * The harness comes from `createAgentHarness`: the loop's model as `default` and
  * the config's named `models`, its workspace, checks and allowlist, and the
@@ -431,7 +430,6 @@ async function run(
 		}
 		workspace = rebase(plan, workspace);
 		changeDir = rebase(plan, change.dir);
-		delegates = rebaseContext(delegates, (file) => rebase(plan, file));
 		if (dirty > 0) {
 			warnings.push(`${dirty} uncommitted change${dirty === 1 ? " is" : "s are"} in the main tree and not in the worktree`);
 		}
@@ -505,16 +503,6 @@ async function run(
 		await loops.close();
 		lock.release();
 	}
-}
-
-/** The grants with each `context` entry mapped, as worktree runs rebase them into the worktree. */
-function rebaseContext(grants: DelegateGrants, map: (file: string) => string): DelegateGrants {
-	return Object.fromEntries(
-		Object.entries(grants).map(([name, grant]) => [
-			name,
-			Array.isArray(grant["context"]) ? { ...grant, context: (grant["context"] as string[]).map(map) } : grant,
-		]),
-	);
 }
 
 /** What a loop's harness is built over: its workspace, checks, allowlist and grants, as `run` resolved them or the loop stored them. */

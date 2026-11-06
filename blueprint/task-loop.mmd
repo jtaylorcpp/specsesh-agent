@@ -9,7 +9,7 @@ flowchart LR
   seed[seededVariables<br/>task · carried · changed]
   changed[changedSeed<br/>files since the baseline]
   preamble[taskPreamble<br/>for every delegate]
-  scripts[BUNDLED_SCRIPTS<br/>task · task-delegate]
+  scripts[BUNDLED_SCRIPTS<br/>task · group · spec stages]
   run[agentscript.run<br/>the script, once]
   await[await<br/>the settled child by id]
   judge[judge<br/>read-back to a verdict]
@@ -40,14 +40,14 @@ flowchart LR
   gate -->|all pass| tick
   answer -->|new run| iterate
 
-  %% code: start packages/agent/src/task/start.ts:79
+  %% code: start packages/agent/src/task/start.ts:86
   %% code: prepare packages/agent/src/task/start.ts:28
   %% code: contract packages/agent/src/task/contract.ts:100
   %% code: iterate packages/agent/src/task/loop.ts:179
   %% code: seed packages/agent/src/task/loop.ts:71
   %% code: changed packages/agent/src/task/changed.ts:68
   %% code: preamble packages/agent/src/task/preamble.ts:27
-  %% code: scripts packages/agent/src/task/options.ts:61
+  %% code: scripts packages/agent/src/task/options.ts:66
   %% code: run packages/agent/src/durable/extension.ts:573
   %% code: await packages/agent/src/task/loop.ts:228
   %% code: judge packages/agent/src/task/loop.ts:246

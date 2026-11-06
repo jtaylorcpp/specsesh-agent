@@ -54,6 +54,7 @@ export async function startGroupLoop(
 			checks: [...input.checks],
 			allow: [...input.allow],
 			...(input.delegates !== undefined ? { delegates: input.delegates } : {}),
+			...(options.runners !== undefined ? { runners: options.runners } : {}),
 		}),
 		undefined,
 		new Set(Object.keys(OPTIONAL_TARGETS)),

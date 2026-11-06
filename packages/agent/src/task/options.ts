@@ -6,7 +6,7 @@
  */
 
 import type { ModelRef } from "@earendil-works/pi-durable";
-import type { DelegateGrants } from "../durable/delegation.js";
+import type { DelegateGrants, Runners } from "../durable/delegation.js";
 import type { Recipient, TaskId } from "../openspec/index.js";
 
 /** Inline text, or a file read when the loop starts. */
@@ -40,6 +40,11 @@ export interface TaskLoopOptions {
 	readonly model?: ModelRef;
 	/** The delegates the loop's scripts may call, as `mcpTool://delegate/<name>`. Unset: none. */
 	readonly delegates?: DelegateGrants;
+	/**
+	 * The runners the grants name, the same the harness was given (`taskLoopExtensions({ runners })`).
+	 * The start check validates the grants against them; never stored. Unset: `defaultRunners`.
+	 */
+	readonly runners?: Runners;
 	/** Grants `delete_file`; the harness must bind it too (`taskLoopExtensions({ deleteFiles })`). Unset: `false`. */
 	readonly deleteFiles?: boolean;
 	/** The git worktree a host created for this loop, recorded so a resume or a status can name it. */
@@ -60,7 +65,6 @@ export const DEFAULT_ESCALATE_TO: Recipient = "principal";
 /** The bundled scripts, beside this module in `src/` and in `dist/` alike. */
 export const BUNDLED_SCRIPTS = {
 	task: new URL("./scripts/task.agent", import.meta.url),
-	delegate: new URL("./scripts/task-delegate.agent", import.meta.url),
 	group: new URL("./scripts/group.agent", import.meta.url),
 	specProposal: new URL("./scripts/spec-proposal.agent", import.meta.url),
 	specDesign: new URL("./scripts/spec-design.agent", import.meta.url),

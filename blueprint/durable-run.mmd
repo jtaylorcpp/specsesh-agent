@@ -22,10 +22,9 @@ flowchart LR
   builtins[builtinActions<br/>argv commands]
   deleg[delegationActions<br/>granted delegates only]
   grants[validateGrants<br/>DelegateGrantError]
-  runners[defaultRunners<br/>agent · claude-code]
+  runners[defaultRunners<br/>agent, plus a host's process runners]
   agentrun[agentRunner<br/>our script as a child run]
   scripts[READ_AGENT · EDIT_AGENT<br/>bundled delegate scripts]
-  ccrun[claudeCodeRunner<br/>claude -p in the workspace]
   mcptools[mcpTools<br/>server/tool actions]
 
   runscript --> startscript
@@ -54,7 +53,6 @@ flowchart LR
   deleg --> grants
   deleg --> runners
   runners --> agentrun
-  runners --> ccrun
   agentrun --> scripts
   agentrun -.->|child agentscript.run| ext
 
@@ -78,8 +76,9 @@ flowchart LR
   %% code: builtins packages/agent/src/node/builtins.ts:25
   %% code: deleg packages/agent/src/durable/delegation.ts:160
   %% code: grants packages/agent/src/durable/delegation.ts:87
-  %% code: runners packages/agent/src/node/index.ts:11
+  %% code: runners packages/agent/src/node/index.ts:9
   %% code: agentrun packages/agent/src/durable/agent-runner.ts:162
   %% code: scripts packages/agent/src/durable/delegate-scripts.ts:112
-  %% code: ccrun packages/agent/src/node/claude-code-runner.ts:55
   %% code: mcptools packages/agent/src/mcp/mcp.ts:102
+
+  class runners done

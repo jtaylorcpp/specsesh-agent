@@ -1,4 +1,4 @@
-import { chmodSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, writeFileSync } from "node:fs";
 import { uptime } from "node:os";
 import { join } from "node:path";
 import { openNodeSqliteDatabase } from "@earendil-works/pi-durable/storage/sqlite/node";
@@ -151,7 +151,7 @@ if (schemaAt >= 0) {
 		out = { type: "result", is_error: false, result: "", structured_output: { met: true, unmet: "", next_action: "retry", question: "", amend_path: "", amend_text: "" } };
 	}
 } else {
-	const task = /plan for (\\d+\\.\\d+)/.exec(text)?.[1];
+	const task = fs.existsSync(path.join(process.cwd(), "done-1.1.txt")) ? "1.2" : "1.1";
 	fs.writeFileSync(path.join(process.cwd(), "done-" + task + ".txt"), "done\\n");
 	out = { type: "result", is_error: false, result: "Wrote done-" + task + ".txt" };
 }
@@ -159,6 +159,9 @@ process.stdout.write(JSON.stringify(out));
 `,
 	);
 	chmodSync(path, 0o755);
+	// Copied as `fake-edit`, the act step of the config's script: its non-step branch writes done-1.1.txt, then done-1.2.txt.
+	copyFileSync(path, join(bin, "fake-edit"));
+	chmodSync(join(bin, "fake-edit"), 0o755);
 	return bin;
 }
 

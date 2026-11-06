@@ -307,6 +307,8 @@ export async function runLoop(
 		script: { text: JUDGE_ONLY },
 		workspace,
 		model: env.model,
+		// The start check validates grants against the same runners the harness was given.
+		...(actions.runners !== undefined ? { runners: actions.runners } : {}),
 		...overrides,
 	};
 	const id = await startTaskLoop(harness, options, context);

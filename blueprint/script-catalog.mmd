@@ -7,10 +7,8 @@ flowchart LR
   specloop[agentscript.spec-loop<br/>one stage of a change]
   pick[pickTests<br/>one-shot]
   agentrunner[agentRunner<br/>a granted agent delegate]
-  ccrunner[claudeCodeRunner<br/>a granted Claude Code delegate]
   agentcli[specsesh agent<br/>run · check your own script]
   task[task.agent<br/>orient · act · check · judge]
-  taskdelegate[task-delegate.agent<br/>acts through delegate/claude_code]
   group[group.agent<br/>rework · ask · amend-spec]
   proposal[spec-proposal.agent<br/>proposal.md]
   design[spec-design.agent<br/>design.md · mock · example code]
@@ -26,10 +24,8 @@ flowchart LR
   ex05[05-model-tools<br/>actions offered as tools]
   ex06[06-custom-task-agent<br/>a trimmed task script]
 
-  taskloop -->|script task| task
-  taskloop -->|default in this repo| taskdelegate
+  taskloop -->|default| task
   taskloop -.->|script path| ex06
-  taskdelegate -->|delegate/claude_code| ccrunner
   grouploop --> group
   specloop -->|proposal| proposal
   specloop -->|design| design
@@ -49,10 +45,8 @@ flowchart LR
   %% code: specloop packages/agent/src/task/spec-loop.ts:416
   %% code: pick packages/agent/src/task/test-pick.ts:163
   %% code: agentrunner packages/agent/src/durable/agent-runner.ts:162
-  %% code: ccrunner packages/agent/src/node/claude-code-runner.ts:55
   %% code: agentcli packages/agent/src/bin/agentscript-pi.ts:74
   %% code: task packages/agent/src/task/scripts/task.agent:3
-  %% code: taskdelegate packages/agent/src/task/scripts/task-delegate.agent:3
   %% code: group packages/agent/src/task/scripts/group.agent:3
   %% code: proposal packages/agent/src/task/scripts/spec-proposal.agent:3
   %% code: design packages/agent/src/task/scripts/spec-design.agent:3

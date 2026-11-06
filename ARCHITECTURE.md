@@ -53,8 +53,9 @@ Paths under `src/` are in `packages/agent/`.
   model; `reasoning.actions` offers them to the model as tools in the step's conversation, and each
   call runs on the host.
 - **Delegates.** Opt-in grants under `delegates` in `agentscript.config.json`. Runner `agent` runs one
-  of our scripts (`read`, `edit` or a path) as a child run; runner `claude-code` runs Claude Code with
-  its own file tools. Delegates don't nest.
+  of our scripts (`read`, `edit` or a path) as a child run, and is the only runner the CLI has. A
+  library host may bring its own process runners (`ProcessRunner`), passing the same `runners` to the
+  harness and to the loop starts (`TaskLoopOptions.runners`). Delegates don't nest.
 - **Hosts.** Node: SQLite storage, `localWorkspace`, `defaultRunners`. Cloudflare: `AgentScriptHost`
   and `defineAgentHost` (Durable Objects), Workers AI, Sandbox and Artifacts workspaces. Cloudflare
   is not deployed.
@@ -66,21 +67,24 @@ Paths under `src/` are in `packages/agent/`.
 
 Supported as convenient model access on a Claude subscription, with no API key. Every use is a
 headless `claude -p --no-session-persistence`: there is no long-lived or resumed Claude Code
-session. Claude Code's OAuth token is never read or forwarded. It appears three ways:
+session. Claude Code's OAuth token is never read or forwarded. It is model access only:
 
 | Role | Code | Who runs the tools | Fate |
 |---|---|---|---|
 | pi provider (model access) | `src/claude-code/claude-code-provider.ts`, `provider-session.ts` | Our harness. Claude Code's tool calls come back through a loopback MCP bridge as pi tool calls; a held `claude -p` lasts one step. | Keep. |
-| `ReasoningPort` | `src/claude-code/claude-code.ts` | Our host, through the same bridge. | Goes with the one-shot path. |
-| Delegate runner | `src/node/claude-code-runner.ts` | Claude Code itself: `Read`, `Edit`, `Write`, `Glob`, `Grep`, `Bash`, `dontAsk`, one task, then it exits. | Open (below). This repo's task loop uses it today. |
+| `ReasoningPort` | `src/claude-code/claude-code.ts` | Our host, through the same bridge. | Goes with the one-shot path (#29). |
+| Delegate runner (`claudeCodeRunner`) | removed | Claude Code itself, with its own file tools. | **Removed** (2026-11-06), with the bundled `task-delegate.agent`. |
 
 Every agent that works in a repo must be able to read and edit files and run commands. The workspace
-actions give that to any model, Claude Code included (`EDIT_AGENT` on the claude-code provider). The
-delegate runner is a second route to the same result, in which Claude Code acts on its own.
+actions give that to any model, Claude Code included, so the delegate runner was a redundant second
+route. This repo's task loop now runs the bundled `task` script on the Claude Code provider. Two
+things the delegate did better are open: a string-replacement edit (#36) and a per-step turn limit of
+16 on Claude Code tool steps (#37).
 
 ### Decisions
 
-- **One execution model: durable.** The non-durable path goes:
+- **Claude Code is model access only.** No delegate runs Claude Code with its own tools.
+- **One execution model: durable** (#29). The non-durable path goes:
   - `run()`, `streamRun()` and `ReasoningPort` in `src/interpreter` (the interpreter keeps
     `start`, `next` and `apply`);
   - `createPiReasoningPort` and its tool loop (`src/pi/port.ts`);
@@ -90,17 +94,17 @@ delegate runner is a second route to the same result, in which Claude Code acts 
     (`src/task/test-pick.ts`).
 
   A one-shot run would become a durable run on in-memory storage, which pi-durable already supports.
-- **Carry over first:** failure categories (`authentication_failed`, `rate_limit`, `overloaded`, …)
-  come only from the one-shot ports. Durable runs report `unknown`.
+- **Carry over first** (#28): failure categories (`authentication_failed`, `rate_limit`, `overloaded`,
+  …) come only from the one-shot ports. Durable runs report `unknown`.
 
 ### Gaps for a UI
 
 Tools in durable runs work. Streaming exists in the library, but:
 
 - nothing consumes `watchScript` yet: no CLI output uses it, and the Cloudflare routes only start a run
-  and read its result;
-- the Claude Code provider streams no text: a step's text arrives whole;
-- structured steps stream no text.
+  and read its result (#30);
+- the Claude Code provider streams no text: a step's text arrives whole (#31);
+- structured steps stream no text (#32).
 
 ## Agent Script
 
@@ -124,8 +128,7 @@ use them. A script added to either shows up with no code change.
 
 | Script | Run by | What it does |
 |---|---|---|
-| `task` | `specsesh task <change> <task> --script task` | One task-loop iteration: orient, act, check, judge. |
-| `task-delegate` | `specsesh task <change> <task>` (this repo's default) | The same, acting through the `claude_code` delegate. |
+| `task` | `specsesh task <change> <task>` (the default) | One task-loop iteration: orient, act, check, judge. |
 | `group` | `specsesh task <change> <group>` | After a failed group check: rework a task, ask, or amend the spec. |
 | `spec-proposal` | `specsesh change draft` (proposal stage) | Drafts `proposal.md` from the principal's words. |
 | `spec-design` | `specsesh change draft` (design stage) | Drafts `design.md`, an HTML mock and example code. |
@@ -148,7 +151,7 @@ use them. A script added to either shows up with no code change.
 ### Generic and OpenSpec-specific
 
 Both live in `src/task` today. The generic part (iterate until the checks pass, and what supports
-it) is to be extracted so other workflows can use it. A first cut of the line; the extraction's
+it) is to be extracted so other workflows can use it (#33). A first cut of the line; the extraction's
 design settles it:
 
 | Generic loop machinery | OpenSpec-specific |
@@ -165,19 +168,17 @@ where it goes is part of the same design.
 
 ## Next
 
-1. **Codify where we are:** this page and `blueprint/`.
-2. **All durable:** remove the one-shot path, keeping failure categories.
-3. **Extract the generic loop** from `src/task`.
-4. **Blueprint workflows:** users define their own software-factory flows and agents (scripts), with
-   OpenSpec as one flow among them.
-5. **Grow the catalog** of off-the-shelf scripts.
+1. **Codify where we are:** this page and `blueprint/`. Done.
+2. **All durable:** failure categories in durable runs (#28), then remove the one-shot path (#29).
+3. **Close the gaps the delegate left:** a string-replacement edit (#36), the Claude Code turn limit (#37).
+4. **Stream to a UI:** consume `watchScript` (#30), Claude Code provider text (#31), structured steps (#32).
+5. **Extract the generic loop** from `src/task` (#33).
+6. **Blueprint workflows:** users define their own software-factory flows and agents (scripts), with
+   OpenSpec as one flow among them (#34).
+7. **Grow the catalog** of off-the-shelf scripts (#35).
 
-Open questions:
-
-- Keep the Claude Code delegate runner, or make repo edits only through the workspace actions
-  (`EDIT_AGENT`) with Claude Code as the model?
-- Where does the generic loop live: in the harness, or in a layer of its own between the harness and
-  the workflows?
+Open question: where does the generic loop live, in the harness or in a layer of its own between the
+harness and the workflows? (#33)
 
 ## Keeping this current
 

@@ -238,7 +238,7 @@ usage:
 `run` and `models` work exactly as before (they are `agentscript-pi run` and `agentscript-pi models`).
 An unknown name, topic or option exits `2`.
 
-**`specsesh agent list [--json]`** lists the bundled scripts (`task`, `task-delegate`, `group`,
+**`specsesh agent list [--json]`** lists the bundled scripts (`task`, `group`,
 `spec-proposal`, `spec-design`, `spec-specify`, `spec-plan`, `ci-test-pick`) and the delegate
 scripts (`read`, `edit`). Each row shows the script's description, the command that runs it, and
 the variables it reads and writes. The list is read from the shipped `.agent` files, so it can't
@@ -448,7 +448,7 @@ registry.install(run);       // instead of AgentScript / AgentScriptStepExtensio
 registry.install(step);
 ```
 
-Model-callable actions (`reasoning.actions`) need a durable host and a provider that serves tools, such as `anthropic`; the Claude Code provider can't yet (one-shot `agentscript-pi run` can, through `mcpBridge`), which is why `task-delegate.agent` exists. `run` statements work on any provider. A subagent mixes either prompt lines or `run`, not both: split them across subagents and list both in `entry`.
+Model-callable actions (`reasoning.actions`) need a provider that serves tools: a pi provider such as `anthropic`, or the Claude Code provider given a `bridge` (`claudeCodeProvider({ bridge: mcpBridge() })`, as the CLI does), which serves the step's tools to `claude` over a loopback MCP server. `run` statements work on any provider. A subagent mixes either prompt lines or `run`, not both: split them across subagents and list both in `entry`.
 
 Add your own `HostAction`s beside the built-ins. A command action's replay policy is
 `"unsafe"`: if the process dies mid-command, it fails rather than running twice.
@@ -468,9 +468,8 @@ task is ticked in `tasks.md`; the loop never commits.
   "task": {
     "provider": "claude-code",
     "model": "opus",
-    "script": "task-delegate",
-    "delegateModel": "opus",
-    "delegateContext": ["CLAUDE.md"],
+    "script": "task",
+    "deleteFiles": true,
     "checks": ["pnpm check", "pnpm test"],
     "allow": ["pnpm", "node"],
     "db": ".agentscript/task-loops.sqlite",
@@ -489,9 +488,9 @@ agentscript-task resume 42                             # finish a loop whose pro
 agentscript-task answer 42 --by principal --decision "Relax the schema now"   # unblock an escalation
 ```
 
-Progress is JSON Lines on stderr. `task.agent` acts with the model's own tools;
-`task-delegate.agent` hands the act step to headless Claude Code, for subscription models
-that can't serve tools.
+Progress is JSON Lines on stderr. `task.agent` acts through the workspace actions (`read_file`,
+`edit_file`, `run_command`, and `delete_file` when granted), on any provider that serves tools,
+the Claude Code provider included.
 
 ## On Cloudflare
 
@@ -542,9 +541,9 @@ peer dependencies, so a consumer of the interpreter alone installs none of them.
 | `@specsesh/agent/durable` | The pi-durable extensions, `startScript` / `waitForScript` / `runScript`, actions and the built-ins | `@earendil-works/pi-ai`, `@earendil-works/pi-durable`, `@earendil-works/chord` |
 | `@specsesh/agent/node` | `localWorkspace(dir)`, a workspace over the filesystem, `child_process` and git; `gitSnapshot`; `builtinActions` (Node only) | the durable peers |
 | `@specsesh/agent/mcp` | `mcpTools(servers)`, MCP servers' tools as host actions; `mcpBridge()`, the bridge that serves a step's tools to `claude -p`; `McpServerError`, `mapTool` and the config types. Imports the MCP SDK statically; until 0.4.4 these were exported from `./node` (Node only) | the durable peers and `@modelcontextprotocol/sdk` |
-| `@specsesh/agent/cloudflare` | `AgentScriptHost`, a Durable Object class for a Worker to re-export (workerd only); `defineAgentHost<Env>(config)`, a Durable Object built from an `AgentConfig` on `AgentScriptHost`'s routes, whose POST body may name a `model`; `workersAI(binding, modelId)`, a model on the `AI` binding; the Sandbox and Artifacts workspace: `sandboxWorkspace(sandbox, { dir, secrets? })`, `artifactsSandboxWorkspace(artifacts, sandbox, { repo, fork, dir })` and the types `SandboxLike` and `ArtifactsLike`. Its only runner is `agent`, so a `claude-code` grant is refused | the durable peers and `agents` |
+| `@specsesh/agent/cloudflare` | `AgentScriptHost`, a Durable Object class for a Worker to re-export (workerd only); `defineAgentHost<Env>(config)`, a Durable Object built from an `AgentConfig` on `AgentScriptHost`'s routes, whose POST body may name a `model`; `workersAI(binding, modelId)`, a model on the `AI` binding; the Sandbox and Artifacts workspace: `sandboxWorkspace(sandbox, { dir, secrets? })`, `artifactsSandboxWorkspace(artifacts, sandbox, { repo, fork, dir })` and the types `SandboxLike` and `ArtifactsLike`. Its only runner is `agent` | the durable peers and `agents` |
 | `@specsesh/agent/openspec` | The OpenSpec ontology: typed schemas for a change, its lifecycle steps, its execution loops and their evidence | none (uses the `typebox` dependency) |
-| `@specsesh/agent/task` | The task and group loops (`startTaskLoop`, `startGroupLoop`, `answerEscalation`, …), `taskLoopExtensions`, the CI test picker `pickTests`, and the bundled `task.agent`, `task-delegate.agent`, `group.agent` and `ci-test-pick.agent` (Node only) | the durable peers |
+| `@specsesh/agent/task` | The task and group loops (`startTaskLoop`, `startGroupLoop`, `answerEscalation`, …), `taskLoopExtensions`, the CI test picker `pickTests`, and the bundled `task.agent`, `group.agent` and `ci-test-pick.agent` (Node only) | the durable peers |
 | `@specsesh/agent/cli` | `main(argv)`, the dispatcher behind `specsesh agent\|durable\|task\|change`, which resolves to the exit code, and its `USAGE` (Node only) | `@earendil-works/pi-ai`, `@earendil-works/pi-durable`, `@earendil-works/chord` |
 
 The authoring, interpreter and openspec entries run on Node and on Workers.
@@ -575,7 +574,7 @@ Each lands in order:
        reviewer: () => ({ provider: anthropicProvider(), model: { provider: "anthropic", modelId: "claude-haiku-4-5" } }),
      },
      workspace: () => localWorkspace("/path/to/worktree"),
-     delegates: { claude_code: { runner: "claude-code", model: "opus", allow: ["pnpm"] } },
+     delegates: { reviewer: { runner: "agent", model: "reviewer", script: "read" } },
    }, { storage, env: process.env, context });
    ```
 

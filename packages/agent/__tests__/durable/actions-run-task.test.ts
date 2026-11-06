@@ -528,8 +528,8 @@ describe("durable/run-task: A run survives its process dying and resumes from th
 });
 
 describe("the default task scripts, end to end on a faux model", () => {
-	it("task.agent and task-delegate.agent run every subagent against a temp workspace", async () => {
-		// Fake pnpm and claude, first on PATH for this test only: no real process of either.
+	it("task.agent runs every subagent against a temp workspace", async () => {
+		// A fake pnpm, first on PATH for this test only: no real pnpm runs.
 		const bin = temp("agentscript-bin-");
 		const { writeFileSync, chmodSync } = await import("node:fs");
 		const write = (name: string, body: string) => {
@@ -537,21 +537,16 @@ describe("the default task scripts, end to end on a faux model", () => {
 			chmodSync(join(bin, name), 0o755);
 		};
 		write("pnpm", 'process.stdout.write("ran " + process.argv.slice(2).join(" ")); process.exit(0);');
-		write(
-			"claude",
-			'require("node:fs").writeFileSync("DELEGATED.md", "done"); process.stdout.write(JSON.stringify({ is_error: false, result: "Wrote DELEGATED.md" }));',
-		);
 		const savedPath = process.env.PATH;
-		// Prepended, not replaced: the delegate's workspace snapshot still needs git.
+		// Prepended, not replaced: the workspace snapshot still needs git.
 		process.env.PATH = `${bin}:${savedPath ?? ""}`;
 		try {
-			for (const script of ["task.agent", "task-delegate.agent"] as const) {
+			for (const script of ["task.agent"] as const) {
 				const workspace = temp("agentscript-ws-");
 				const ws = localWorkspace(workspace);
 				const { env } = withActions(
 					[
 						...workspaceActions(ws, { allow: ["pnpm"], checks: ["pnpm test"] }),
-						...delegationActions({ claude_code: { runner: "claude-code" } }, { workspace: ws, runners: defaultRunners }),
 					],
 					workspace,
 				);
@@ -560,17 +555,13 @@ describe("the default task scripts, end to end on a faux model", () => {
 					{ stopReason: "toolUse" },
 				);
 				const plan = fauxAssistantMessage([fauxToolCall("submit_result", { plan: "write src/a.ts" })], { stopReason: "toolUse" });
-				env.faux.setResponses(
-					script === "task.agent"
-						? [
-								plan,
-								fauxAssistantMessage([fauxToolCall("edit", { path: "src/a.ts", content: "export {};" })], { stopReason: "toolUse" }),
-								fauxAssistantMessage([fauxToolCall("shell", { command: "pnpm test" })], { stopReason: "toolUse" }),
-								fauxAssistantMessage([fauxText("Wrote src/a.ts.")]),
-								judge,
-							]
-						: [plan, judge],
-				);
+				env.faux.setResponses([
+					plan,
+					fauxAssistantMessage([fauxToolCall("edit", { path: "src/a.ts", content: "export {};" })], { stopReason: "toolUse" }),
+					fauxAssistantMessage([fauxToolCall("shell", { command: "pnpm test" })], { stopReason: "toolUse" }),
+					fauxAssistantMessage([fauxText("Wrote src/a.ts.")]),
+					judge,
+				]);
 				const harness = await openHarness(new MemoryStorage(), env);
 				const result = await runScript(
 					harness,
@@ -583,14 +574,8 @@ describe("the default task scripts, end to end on a faux model", () => {
 				expect(result.kind, script).toBe("completed");
 				expect(result.variables).toMatchObject({ checks_passed: true, met: true });
 				expect(String(result.variables["check_output"])).toContain("ran test");
-				if (script === "task.agent") {
-					expect(readFileSync(join(workspace, "src/a.ts"), "utf8")).toBe("export {};");
-					expect(result.actions).toHaveLength(1);
-				} else {
-					expect(readFileSync(join(workspace, "DELEGATED.md"), "utf8")).toBe("done");
-					expect(result.variables).toMatchObject({ act_ok: true, act_summary: "Wrote DELEGATED.md" });
-					expect(result.actions.map((a) => a.call.tool)).toEqual(["delegate/claude_code", "run_checks"]);
-				}
+				expect(readFileSync(join(workspace, "src/a.ts"), "utf8")).toBe("export {};");
+				expect(result.actions).toHaveLength(1);
 			}
 		} finally {
 			process.env.PATH = savedPath;

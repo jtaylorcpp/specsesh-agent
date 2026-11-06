@@ -51,7 +51,7 @@ the script's actions do not match what this host provides, so the run was not st
   - subagent "check", action run_checks: mcpTool://run_tests is not registered on this host
 ```
 
-A script can bind only the built-ins `read_file`, `edit_file`, `run_command`, `run_checks` and `delegate_claude_code`, with exactly their input and output names and types. Other mismatches read `input x is not one the host action has`, `input x is declared string, registered number` and `output y of the host action is not declared`. See [04 Actions](04-actions.md).
+A script can bind only the host's actions (`read_file`, `edit_file`, `run_command`, `run_checks`, `list_files`, `search_files`, `delete_file` when granted, and a `delegate/<name>` per granted delegate), with exactly their input and output names and types. Other mismatches read `input x is not one the host action has`, `input x is declared string, registered number` and `output y of the host action is not declared`. See [04 Actions](04-actions.md).
 
 ### The change, task or group is not found
 
@@ -179,7 +179,7 @@ The judge must answer `next_action` with exactly one word and put explanations i
 the run ended failed: unknown: the step was not answered: model_error ("the claude-code provider runs at most one pi tool per request; this one offered 3 (read, edit, shell)")
 ```
 
-`task.agent` gives the model three tools in its `act` step, and the `claude-code` provider serves at most one. Use `--script task-delegate` with `claude-code`, or switch to a provider that can call tools.
+`task.agent` gives the model three tools in its `act` step, and the `claude-code` provider serves more than one only when it was built with a `bridge`. The CLI always passes one; a host that builds the provider itself passes `claudeCodeProvider({ bridge: mcpBridge() })` (`mcpBridge` from `@specsesh/agent/mcp`).
 
 **Provider errors.** A rate limit, an invalid model, a network failure: the provider's message follows `the step was not answered: model_error (…)`. The loop does not retry a failed step; run `agentscript-task resume <id>` once the cause is gone, or start a new run.
 

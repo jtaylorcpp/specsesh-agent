@@ -13,7 +13,6 @@ import { EDIT_AGENT, READ_AGENT } from "../../src/durable/delegate-scripts.js";
 
 const SHIPPED = [
 	"task",
-	"task-delegate",
 	"group",
 	"spec-proposal",
 	"spec-design",

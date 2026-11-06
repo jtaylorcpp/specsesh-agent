@@ -13,7 +13,7 @@
  *
  * A task script is any Agent Script declaring the contract variables (see
  * `SEEDED` and `READ_BACK`). The bundled `task.agent` acts with model-callable
- * tools; `task-delegate.agent` hands the work to headless Claude Code.
+ * tools: the workspace actions, on any model.
  */
 
 export { EscalationAnswerError, TaskLoopStartError } from "./errors.js";

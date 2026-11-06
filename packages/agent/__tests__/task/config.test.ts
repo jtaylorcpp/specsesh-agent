@@ -6,6 +6,7 @@ import { BUNDLED_SCRIPTS, DEFAULT_MAX_ITERATIONS } from "../../src/task/index.js
 import { ConfigError, loadConfig, resolveGroupScript, resolveRunSettings, validateTaskConfig } from "../../src/task/config.js";
 import { cli, fauxModels, storedLoops, workdir } from "./cli-helpers.js";
 import { cleanTemps, fakePnpm, temp, tinyChange, verdict } from "./helpers.js";
+import { READ_AGENT } from "../../src/durable/delegate-scripts.js";
 
 // A met verdict with checks goes to the gate, which runs `pnpm`: a fake one that exits 0 keeps these tests offline.
 let restorePath: (() => void) | undefined;
@@ -212,15 +213,15 @@ describe("task/headless: Values resolve flag, then environment, then config, the
 		expect(inputs[0]).toMatchObject({ checks: ["pnpm test"], budget: { maxIterations: 5 }, escalateTo: "principal" });
 	});
 
-	it("the config's delegates reach the loop, each context entry anchored at the config", async () => {
+	it("the config's delegates reach the loop, each agent script read relative to the config", async () => {
 		const { sub, root } = configured({ db: "loops.sqlite" });
 		writeFileSync(
 			join(root, "agentscript.config.json"),
-			JSON.stringify({ task: { db: "loops.sqlite" }, delegates: { claude_code: { runner: "claude-code", model: "sonnet", context: ["CLAUDE.md"] } } }),
+			JSON.stringify({ task: { db: "loops.sqlite" }, delegates: { reviewer: { runner: "agent", model: "default", script: "reviewer.agent" } } }),
 		);
-		writeFileSync(join(root, "CLAUDE.md"), "# repo\n");
-		// As written, without the runner's defaults filled in.
-		expect(loadConfig(sub).delegates).toEqual({ claude_code: { runner: "claude-code", model: "sonnet", context: [join(root, "CLAUDE.md")] } });
+		writeFileSync(join(root, "reviewer.agent"), READ_AGENT);
+		// As written, without the runner's defaults filled in, the script its source.
+		expect(loadConfig(sub).delegates).toEqual({ reviewer: { runner: "agent", model: "default", script: READ_AGENT } });
 		const { script } = workdir();
 		const env = fauxModels();
 		env.faux.setResponses([verdict(true)]);
@@ -228,7 +229,7 @@ describe("task/headless: Values resolve flag, then environment, then config, the
 		expect(r.code, r.err).toBe(0);
 		const { inputs } = await storedLoops(join(root, "loops.sqlite"));
 		expect(inputs[0]).toMatchObject({
-			delegates: { claude_code: { runner: "claude-code", model: "sonnet", context: [join(root, "CLAUDE.md")] } },
+			delegates: { reviewer: { runner: "agent", model: "default", script: READ_AGENT } },
 		});
 	});
 });
@@ -281,10 +282,10 @@ describe("task/headless: Config paths are relative to the config file", () => {
 
 describe("task/headless: script names a bundled script or a file", () => {
 	it("Scenario: A bundled name selects the bundled script", () => {
-		const { sub } = configured({ script: "task-delegate" });
+		const { sub } = configured({ script: "task" });
 		const settings = resolveRunSettings({}, {}, loadConfig(sub), sub);
-		expect(settings.script).toEqual({ label: "task-delegate", path: fileURLToPath(BUNDLED_SCRIPTS.delegate) });
-		expect(readFileSync(settings.script.path, "utf8")).toContain('agent_name: "task-agent-delegate"');
+		expect(settings.script).toEqual({ label: "task", path: fileURLToPath(BUNDLED_SCRIPTS.task) });
+		expect(readFileSync(settings.script.path, "utf8")).toContain("subagent act:");
 	});
 
 	it("Scenario: A missing script file is refused", async () => {

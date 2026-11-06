@@ -17,7 +17,7 @@ import {
 	type ProcessRunner,
 	type Workspace,
 } from "../../src/durable/index.js";
-import { defaultRunners } from "../../src/node/index.js";
+import { jsonRunner } from "./delegation-scripts.js";
 import { NO_DELEGATE, delegateTwice } from "./delegation-scripts.js";
 import { context } from "./helpers.js";
 
@@ -151,14 +151,14 @@ describe("actions/delegation", () => {
 		expect(result.kind).toBe("completed");
 	});
 
-	it("Scenario: Another permission mode is refused", () => {
+	it("Scenario: A value the runner's own check refuses is refused", () => {
 		const { workspace } = memWorkspace();
 		const error = thrownBy(() =>
-			delegationActions({ claude_code: { runner: "claude-code", permissionMode: "bypassPermissions" } }, { workspace, runners: defaultRunners }),
+			delegationActions({ claude_code: { runner: "claude-code", allow: "pnpm" } }, { workspace, runners: { "claude-code": jsonRunner() } }),
 		);
 		expect(error).toBeInstanceOf(DelegateGrantError);
 		expect((error as Error).message).toContain("claude_code");
-		expect((error as Error).message).toContain("permissionMode");
+		expect((error as Error).message).toContain("allow");
 	});
 
 	it("Scenario: An unknown runner is refused", () => {

@@ -12,7 +12,6 @@ flowchart LR
   sessions[SessionRegistry<br/>live sessions by id]
   bridge[ToolBridge<br/>agentscript MCP server]
   mcpbridge[mcpBridge<br/>loopback MCP server]
-  runner[claudeCodeRunner<br/>one-task delegate, own file tools]
 
   port --> args
   port --> spawn
@@ -25,7 +24,6 @@ flowchart LR
   session --> sessions
   session --> bridge
   bridge -.->|made by| mcpbridge
-  runner --> env
 
   %% code: port packages/agent/src/claude-code/claude-code.ts:258
   %% code: provider packages/agent/src/claude-code/claude-code-provider.ts:96
@@ -37,4 +35,3 @@ flowchart LR
   %% code: sessions packages/agent/src/claude-code/provider-session.ts:34
   %% code: bridge packages/agent/src/claude-code/tool-bridge.ts:35
   %% code: mcpbridge packages/agent/src/mcp/mcp-bridge.ts:24
-  %% code: runner packages/agent/src/node/claude-code-runner.ts:55
