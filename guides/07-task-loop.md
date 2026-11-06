@@ -55,7 +55,8 @@ This repository's own file:
     "escalateTo": "principal",
     "requireCleanTree": true,
     "worktreeSetup": ["pnpm install --frozen-lockfile --prefer-offline"],
-    "deleteFiles": true
+    "deleteFiles": true,
+    "context": ["CLAUDE.md"]
   }
 }
 ```
@@ -74,12 +75,13 @@ This repository's own file:
 | `maxReworks` | integer ≥ 1 | `2` | Reworks per group run. Flag: `--max-reworks`. |
 | `escalateTo` | `"principal"` or `"agent"` | `principal` | Who an escalation is addressed to, and so who may answer. Flag: `--escalate-to`. |
 | `deleteFiles` | boolean | `false` | Grants `delete_file`, so a task can retire a file. |
+| `context` | string[] | `[]` | Files about your repository (its conventions, such as `CLAUDE.md`), read once when the loop starts and stored with it. The bundled `task.agent` shows them to its orient and act steps; your own script gets them by declaring `context: mutable string`. Every delegate gets them in its preamble. A missing file refuses the run. In `--worktree` runs they are read from the worktree. Config only. |
 | `requireCleanTree` | boolean | `true` | Refuse to run on uncommitted changes. Flag: `--allow-dirty` turns it off for one run. |
 | `worktree` | boolean | `false` | Run in a new git worktree by default. Flag: `--worktree`. |
 | `worktreeDir` | string | `../<repo>-worktrees` | Where worktrees go. |
 | `worktreeSetup` | string[] | `[]` | Commands run in a new worktree before the loop starts. |
 
-Paths in the file (`changesDir`, `db`, `script`, `groupScript`, `worktreeDir`) are relative to the config file. Paths in flags are relative to where you run the command. There is also `--workspace <dir>` (flag only): the directory every action is confined to, default the current directory.
+Paths in the file (`changesDir`, `db`, `script`, `groupScript`, `worktreeDir`, `context`) are relative to the config file. Paths in flags are relative to where you run the command. There is also `--workspace <dir>` (flag only): the directory every action is confined to, default the current directory.
 
 Commands (`checks`, `worktreeSetup`) are split on whitespace and spawned directly, with no shell: no quoting, pipes, `&&` or environment assignments. Put a pipeline in a package script and check that (`"pnpm check"`).
 
@@ -87,7 +89,7 @@ Ignore the database. Add `.agentscript/` to `.gitignore`, or the second run will
 
 ### The task script
 
-`task.agent` edits files step by step through `read_file`, `edit_file` and `run_command` (and `delete_file` when `deleteFiles` grants it). It needs a provider that can call tools: a pi provider such as `anthropic`, or `claude-code`, whose steps get the tools over a loopback MCP bridge. Point `script` at your own `.agent` to change how a task is worked; it must keep the contract below.
+`task.agent` edits files step by step through `read_file`, `list_files`, `search_files`, `edit_file` and `run_command` (and `delete_file` when `deleteFiles` grants it). On a host whose workspace cannot list or search, those two are simply not offered. It needs a provider that can call tools: a pi provider such as `anthropic`, or `claude-code`, whose steps get the tools over a loopback MCP bridge. Point `script` at your own `.agent` to change how a task is worked; it must keep the contract below.
 
 The bundled scripts live in `node_modules/@specsesh/agent/dist/task/scripts/` (and `packages/agent/src/task/scripts/` in this repo): `task.agent` and `group.agent`, beside the spec stages' scripts.
 

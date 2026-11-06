@@ -29,6 +29,8 @@ variables:
         description: "whether delete_file is granted to this loop"
     changed: mutable string = ""
         description: "seeded: files changed since the loop started, one per line"
+    context: mutable string = ""
+        description: "seeded: the repository's own context files (its conventions), or empty"
     plan: mutable string = ""
         description: "this iteration's plan"
     checks_passed: mutable boolean = False
@@ -61,6 +63,9 @@ subagent orient:
             | {!@variables.design}
             | Spec deltas:
             | {!@variables.deltas}
+            if @variables.context != "":
+                | Project context (the repository's own conventions; the plan must follow them):
+                | {!@variables.context}
             if @variables.iteration > 1:
                 | This is iteration {!@variables.iteration}.
             if @variables.iteration > 1 and @variables.changed != "":
@@ -85,6 +90,21 @@ subagent act:
             outputs:
                 content: string
             target: "mcpTool://read_file"
+        list_files:
+            description: "List the workspace's files matching a glob"
+            inputs:
+                glob: string
+            outputs:
+                paths: string
+            target: "mcpTool://list_files"
+        search_files:
+            description: "Search the workspace's files matching a glob for a pattern"
+            inputs:
+                pattern: string
+                glob: string
+            outputs:
+                matches: string
+            target: "mcpTool://search_files"
         edit_file:
             description: "Replace a file's content in the workspace"
             inputs:
@@ -112,11 +132,19 @@ subagent act:
     reasoning:
         instructions: ->
             | You are the act step: you act in the real workspace, with the tools you are offered.
+            if @variables.context != "":
+                | Project context (the repository's own conventions; follow them):
+                | {!@variables.context}
             | Carry out this plan, using the tools: {!@variables.plan}
             | When done, summarise what you changed.
         actions:
             read: @actions.read_file
                 with path = ...
+            list: @actions.list_files
+                with glob = ...
+            search: @actions.search_files
+                with pattern = ...
+                with glob = ...
             edit: @actions.edit_file
                 with path = ...
                 with content = ...

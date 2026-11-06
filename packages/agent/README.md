@@ -489,8 +489,10 @@ agentscript-task answer 42 --by principal --decision "Relax the schema now"   # 
 ```
 
 Progress is JSON Lines on stderr. `task.agent` acts through the workspace actions (`read_file`,
-`edit_file`, `run_command`, and `delete_file` when granted), on any provider that serves tools,
-the Claude Code provider included.
+`list_files`, `search_files`, `edit_file`, `run_command`, and `delete_file` when granted), on any
+provider that serves tools, the Claude Code provider included. `"context": ["CLAUDE.md"]` under
+`task` hands the model the repository's own conventions: the files are read once when the loop
+starts, shown to `task.agent`'s orient and act steps, and put in every delegate's preamble.
 
 ## On Cloudflare
 

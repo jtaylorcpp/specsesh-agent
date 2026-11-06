@@ -410,6 +410,7 @@ async function run(
 	let workspace = settings.workspace;
 	let changeDir = change.dir;
 	let delegates: DelegateGrants = values["no-delegates"] === true ? {} : config.delegates;
+	let contextFiles = settings.context;
 	let worktree: LoopWorktree | undefined;
 	if (settings.worktree) {
 		const plan = planWorktree({
@@ -430,6 +431,8 @@ async function run(
 		}
 		workspace = rebase(plan, workspace);
 		changeDir = rebase(plan, change.dir);
+		// Read from the worktree, as the task sees the repository there.
+		contextFiles = contextFiles.map((file) => rebase(plan, file));
 		if (dirty > 0) {
 			warnings.push(`${dirty} uncommitted change${dirty === 1 ? " is" : "s are"} in the main tree and not in the worktree`);
 		}
@@ -474,6 +477,7 @@ async function run(
 			...(Object.keys(delegates).length > 0 ? { delegates } : {}),
 			...(worktree !== undefined ? { worktree } : {}),
 			deleteFiles,
+			...(contextFiles.length > 0 ? { context: contextFiles.map((path) => ({ path })) } : {}),
 			// The database is the runner's, never the loop's: no script is seeded it as changed.
 			excludeChanged: insideGit(workspace) ? [...dbFiles(repoRoot(workspace), db)] : [],
 		};

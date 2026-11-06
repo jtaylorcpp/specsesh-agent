@@ -49,7 +49,7 @@ import {
 	type Source,
 	type TaskLoopOptions,
 } from "./options.js";
-import { readChange, readScript, readSource } from "./sources.js";
+import { contextOf, readChange, readScript, readSource } from "./sources.js";
 import { delegatesOf } from "./start.js";
 import { untick } from "./tick.js";
 
@@ -113,6 +113,8 @@ export interface GroupLoopInput {
 	readonly worktree?: LoopWorktree;
 	/** Repository-relative paths every task loop's `changed` leaves out; each task loop measures from its own start. */
 	readonly excludeChanged?: readonly string[];
+	/** The `context` sources' text, read at start and handed to every task. Absent: none. */
+	readonly context?: string;
 	/** Set only on a run that answers a blocked group loop: the encoded checkpoint it starts from, and the loop it answers. */
 	readonly resume?: { readonly checkpoint: JsonObject; readonly answers: number };
 }
@@ -197,6 +199,7 @@ export function readGroupInput(options: ResolvedGroupOptions): GroupLoopInput {
 		...delegatesOf(options),
 		...(options.worktree !== undefined ? { worktree: { path: options.worktree.path, branch: options.worktree.branch } } : {}),
 		...(options.excludeChanged !== undefined ? { excludeChanged: [...options.excludeChanged] } : {}),
+		...contextOf(options),
 	};
 }
 
@@ -491,6 +494,7 @@ export function taskLoopInputFor(input: GroupLoopInput, task: string, carried: s
 		...(input.worktree !== undefined ? { worktree: input.worktree } : {}),
 		// No `since`: every task loop, a rework or a rerun included, takes its own baseline.
 		...(input.excludeChanged !== undefined ? { excludeChanged: input.excludeChanged } : {}),
+		...(input.context !== undefined ? { context: input.context } : {}),
 		carried,
 		earlier: [],
 	};

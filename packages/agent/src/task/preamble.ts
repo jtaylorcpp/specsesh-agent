@@ -20,16 +20,18 @@ const RULES = [
 const trimEnd = (text: string): string => text.replace(/\n+$/, "");
 
 /**
- * The opening line, the change (when named) and the task, the rules, then the
- * proposal, the design (when not empty) and the deltas in full, ending with
- * `# Instructions`. Blocks are separated by one blank line.
+ * The opening line, the change (when named) and the task, the rules, the project
+ * context (when the loop has one), then the proposal, the design (when not empty)
+ * and the deltas in full, ending with `# Instructions`. Blocks are separated by one
+ * blank line.
  */
-export function taskPreamble(input: Pick<TaskLoopInput, "task" | "change" | "taskText" | "proposal" | "design" | "deltas">): string {
+export function taskPreamble(input: Pick<TaskLoopInput, "task" | "change" | "taskText" | "proposal" | "design" | "deltas" | "context">): string {
 	const named = input.change !== undefined ? `Change: ${input.change}\n` : "";
 	return [
 		OPENING,
 		`${named}Task ${input.task}: ${input.taskText}`,
 		RULES,
+		...(input.context !== undefined && input.context !== "" ? [`# Project context\n\n${trimEnd(input.context)}`] : []),
 		`# proposal.md\n\n${trimEnd(input.proposal)}`,
 		...(input.design !== "" ? [`# design.md\n\n${trimEnd(input.design)}`] : []),
 		`# Spec deltas\n\n${trimEnd(input.deltas)}`,

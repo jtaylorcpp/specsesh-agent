@@ -49,6 +49,7 @@ const FIELDS = {
 	worktreeDir: "string",
 	worktreeSetup: "strings",
 	deleteFiles: "boolean",
+	context: "strings",
 } as const satisfies Record<string, FieldKind>;
 
 /** `task` keys that moved to `delegates`: refused with directions rather than as unknown. */
@@ -81,6 +82,8 @@ export interface TaskConfig {
 	readonly worktreeSetup?: readonly string[];
 	/** Grants the task loop `delete_file`. Unset: `false`. */
 	readonly deleteFiles?: boolean;
+	/** Files about the repository (its conventions, e.g. `CLAUDE.md`), relative to the config file. */
+	readonly context?: readonly string[];
 }
 
 export interface LoadedConfig {
@@ -410,6 +413,8 @@ export interface RunSettings {
 	readonly worktreeSetup: readonly string[];
 	/** Config only: no flag or environment variable sets it. */
 	readonly deleteFiles: boolean;
+	/** Absolute paths of `task.context`; config only. `[]` for none. */
+	readonly context: readonly string[];
 }
 
 /**
@@ -453,6 +458,7 @@ export function resolveRunSettings(
 		...(task.worktreeDir !== undefined ? { worktreeDir: fromConfig(task.worktreeDir) } : {}),
 		worktreeSetup: task.worktreeSetup ?? [],
 		deleteFiles: task.deleteFiles ?? false,
+		context: (task.context ?? []).map(fromConfig),
 	};
 }
 

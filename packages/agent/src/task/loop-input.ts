@@ -40,6 +40,8 @@ export interface TaskLoopInput {
 	readonly since?: Baseline;
 	/** Repository-relative paths `changed` leaves out, besides tasks.md. */
 	readonly excludeChanged?: readonly string[];
+	/** The `context` sources' text, read at start; seeded as `context`. Absent: none (and in older loops). */
+	readonly context?: string;
 }
 
 /**
