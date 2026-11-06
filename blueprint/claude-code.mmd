@@ -1,0 +1,40 @@
+---
+title: Claude Code
+---
+flowchart LR
+  port[createClaudeCodeReasoningPort<br/>one-shot, one claude -p per step]
+  provider[claudeCodeProvider<br/>pi provider, no text streaming]
+  args[claudeArgs<br/>safe-mode · json-schema · stream-json]
+  env[claudeCodeEnv<br/>strips ANTHROPIC_API_KEY]
+  spawn[spawnRunner<br/>fresh empty cwd per step]
+  outcome[toClaudeCodeOutcome<br/>StepOutcome]
+  session[ProviderSession<br/>held claude -p, calls to pi]
+  sessions[SessionRegistry<br/>live sessions by id]
+  bridge[ToolBridge<br/>agentscript MCP server]
+  mcpbridge[mcpBridge<br/>loopback MCP server]
+  runner[claudeCodeRunner<br/>one-task delegate, own file tools]
+
+  port --> args
+  port --> spawn
+  port --> env
+  port --> outcome
+  port -->|tools| bridge
+  provider --> args
+  provider --> spawn
+  provider -->|tool offers + bridge| session
+  session --> sessions
+  session --> bridge
+  bridge -.->|made by| mcpbridge
+  runner --> env
+
+  %% code: port packages/agent/src/claude-code/claude-code.ts:258
+  %% code: provider packages/agent/src/claude-code/claude-code-provider.ts:96
+  %% code: args packages/agent/src/claude-code/claude-code.ts:205
+  %% code: env packages/agent/src/claude-code/claude-code.ts:241
+  %% code: spawn packages/agent/src/claude-code/claude-code.ts:512
+  %% code: outcome packages/agent/src/claude-code/claude-code.ts:461
+  %% code: session packages/agent/src/claude-code/provider-session.ts:72
+  %% code: sessions packages/agent/src/claude-code/provider-session.ts:34
+  %% code: bridge packages/agent/src/claude-code/tool-bridge.ts:35
+  %% code: mcpbridge packages/agent/src/mcp/mcp-bridge.ts:24
+  %% code: runner packages/agent/src/node/claude-code-runner.ts:55

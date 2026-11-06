@@ -1,0 +1,59 @@
+---
+title: Agent Script
+---
+flowchart LR
+  run[run<br/>one-shot loop, not durable]
+  stream[streamRun<br/>RunEvents as they happen]
+  start[start<br/>RunState from source]
+  analyze[analyze<br/>parse + lint diagnostics]
+  doc[Document<br/>mutate · undo · redo]
+  scan[scanDocument<br/>refuse constructs outside the subset]
+  subset[SUPPORTED_CONSTRUCTS<br/>the declared subset]
+  next[next<br/>pure: step · action · done]
+  compose[compose<br/>system block · prompt · logic lines]
+  offers[composeToolOffers<br/>tools · output schema]
+  actions[readActionDefinitions<br/>actions and run clauses]
+  evaluate[evaluate<br/>expressions · templates]
+  port[ReasoningPort<br/>reason a step]
+  host[RunOptions.actions<br/>the host's action host]
+  apply[apply<br/>outcome into state]
+  catalog[Script catalog<br/>bundled · delegate · examples]
+
+  stream --> run
+  catalog -->|source| start
+  run --> start
+  run --> next
+  run --> apply
+  start -->|analyze| analyze
+  doc --> analyze
+  start --> scan
+  scan --> subset
+  next --> compose
+  compose --> evaluate
+  compose --> offers
+  offers --> actions
+  next -->|awaiting step| port
+  next -->|awaiting action| host
+  port -->|StepOutcome| apply
+  host -->|ActionResult| apply
+  apply -->|logic lines| evaluate
+  apply --> next
+
+  %% code: run packages/agent/src/interpreter/run.ts:664
+  %% code: stream packages/agent/src/interpreter/run.ts:738
+  %% code: start packages/agent/src/interpreter/run.ts:428
+  %% code: analyze packages/agent/src/authoring/document.ts:50
+  %% code: doc packages/agent/src/authoring/document.ts:173
+  %% code: scan packages/agent/src/interpreter/scan.ts:98
+  %% code: subset packages/agent/src/interpreter/subset.ts:54
+  %% code: next packages/agent/src/interpreter/run.ts:487
+  %% code: compose packages/agent/src/interpreter/compose.ts:254
+  %% code: offers packages/agent/src/interpreter/compose.ts:434
+  %% code: actions packages/agent/src/interpreter/actions.ts:76
+  %% code: evaluate packages/agent/src/interpreter/compose.ts:513
+  %% code: port packages/agent/src/interpreter/port.ts:164
+  %% code: host packages/agent/src/interpreter/run.ts:54
+  %% code: apply packages/agent/src/interpreter/run.ts:587
+  %% code: catalog packages/agent/src/cli/bundled.ts:69
+
+  %% subsystem: catalog script-catalog.mmd

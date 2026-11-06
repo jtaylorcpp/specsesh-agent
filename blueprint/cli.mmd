@@ -1,0 +1,59 @@
+---
+title: CLI
+---
+flowchart LR
+  specsesh[specsesh.js<br/>npx specsesh]
+  main[main<br/>route by first word]
+  agent[agent<br/>run · models, or explain]
+  explain[runList · runShow<br/>language · actions · check]
+  bundled[listBundled<br/>bundled scripts]
+  llm[runLlm<br/>guide · skill · providers · deploy]
+  help[runCommandHelp<br/>usage + docs/llm page]
+  pibin[agentscript-pi<br/>run · models]
+  durablebin[agentscript-durable<br/>run · resume]
+  taskbin[agentscript-task<br/>run · spec · resume · answer · status · pick-tests]
+  changebin[agentscript-change<br/>draft · approve · build · close]
+  models[cliModels<br/>pi providers + claude-code]
+  tools[loadActions<br/>tools modules · MCP files]
+  mcp[importMcp<br/>lazy MCP entry]
+  config[loadConfig<br/>agentscript.config.json]
+  release[Release workflow<br/>v tag, both packages to npm]
+
+  specsesh --> main
+  main --> agent
+  main --> llm
+  main --> help
+  main -->|durable| durablebin
+  main -->|task, run implied| taskbin
+  main -->|change| changebin
+  agent --> pibin
+  agent --> explain
+  explain --> bundled
+  pibin --> models
+  pibin --> tools
+  pibin -.-> mcp
+  durablebin --> models
+  durablebin --> tools
+  durablebin -.-> mcp
+  taskbin --> models
+  taskbin --> config
+  changebin --> config
+  changebin --> models
+  release -.->|packs · publishes| specsesh
+
+  %% code: specsesh packages/specsesh/bin/specsesh.js:9
+  %% code: main packages/agent/src/cli/index.ts:102
+  %% code: agent packages/agent/src/cli/index.ts:64
+  %% code: explain packages/agent/src/cli/explain.ts:37
+  %% code: bundled packages/agent/src/cli/bundled.ts:69
+  %% code: llm packages/agent/src/cli/llm.ts:79
+  %% code: help packages/agent/src/cli/llm.ts:135
+  %% code: pibin packages/agent/src/bin/agentscript-pi.ts:74
+  %% code: durablebin packages/agent/src/bin/agentscript-durable.ts:68
+  %% code: taskbin packages/agent/src/bin/agentscript-task.ts:199
+  %% code: changebin packages/agent/src/bin/agentscript-change.ts:87
+  %% code: models packages/agent/src/bin/models.ts:15
+  %% code: tools packages/agent/src/bin/tools.ts:75
+  %% code: mcp packages/agent/src/bin/mcp.ts:12
+  %% code: config packages/agent/src/task/config.ts:254
+  %% code: release .github/workflows/release.yml:36

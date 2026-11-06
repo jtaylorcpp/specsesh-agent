@@ -1,0 +1,32 @@
+---
+title: specsesh agent
+---
+flowchart LR
+  cli[CLI<br/>specsesh · agentscript-* bins]
+  lib[Library<br/>@specsesh/agent, 11 entry points]
+  script[Agent Script<br/>language · interpreter · catalog]
+  harness[Agent harness<br/>durable runs · models · tools · hosts]
+  workflow[OpenSpec workflow<br/>task · group · change · spec loops]
+
+  cli --> script
+  cli --> harness
+  cli --> workflow
+  lib -.->|exports| script
+  lib -.->|exports| harness
+  lib -.->|exports| workflow
+  lib -.->|exports| cli
+  script -->|next: a step or an action| harness
+  harness -->|apply: the outcome| script
+  workflow -->|bundled .agent scripts| script
+  workflow -->|agentscript.run children| harness
+
+  %% code: cli packages/agent/src/cli/index.ts:102
+  %% code: lib packages/agent/package.json:15
+  %% code: script packages/agent/src/interpreter/run.ts:487
+  %% code: harness packages/agent/src/durable/extension.ts:262
+  %% code: workflow packages/agent/src/task/loop.ts:218
+
+  %% subsystem: cli cli.mmd
+  %% subsystem: script agent-script.mmd
+  %% subsystem: harness harness.mmd
+  %% subsystem: workflow loops.mmd
