@@ -16,14 +16,16 @@ id: task-link                 # = the file name without .md
 name: TaskLink                # the type's name as the model spells it
 kind: type                    # type | step | loop | state-machine | rule
 area: taxonomy                # taxonomy | process | loops | evidence
-spec:                         # the requirement(s) this page restates
+spec:                         # optional, history: the requirement(s) this page restated
   - "openspec/model: A task links to requirements and scenarios by inference"
 related: [task, link-basis, requirement-ref, scenario-ref]   # ids of other concept pages
 status: modelled              # modelled | implemented
 ---
 ```
 
-`spec` entries are `<capability>: <exact requirement name>`. `related` entries must be ids that exist.
+`spec` entries are `<capability>: <exact requirement name>`. They name the OpenSpec requirements a page
+restated while this repo kept its own specs (removed 2026-11-06, in git history); they are kept as
+history, not checked, and a new page may leave `spec` out. `related` entries must be ids that exist.
 
 ## Sections, in this order
 
@@ -33,14 +35,13 @@ status: modelled              # modelled | implemented
 4. **Invariants:** the rules that must always hold, as a bullet list. Write "None." when there are none.
 5. **Relations:** how it connects to other concepts, each as a link (`[Task](../taxonomy/task.md)`).
 6. **Example:** a concrete instance, from this repo when possible (task `2.4` of `baseline-agentscript-durable`, capability `["durable", "run-task"]`).
-7. **Spec:** the requirement(s) restated, as a list.
+7. **Spec:** the requirement(s) restated, as a list (history, as for the `spec` field).
 
 ## Keeping it honest
 
 `pnpm docs:check` fails when:
 - a concept page has missing or malformed front matter, or `id` does not match its file name;
 - two pages share an `id`, or `related` names an id with no page;
-- a page is missing from README, README lists a path with no page, or lists one twice;
-- a `spec` entry names a requirement that does not exist in the ontology change or in `openspec/specs/`.
+- a page is missing from README, README lists a path with no page, or lists one twice.
 
 README, overview and this file are not concept pages.

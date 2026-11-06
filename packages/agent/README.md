@@ -559,54 +559,8 @@ use 0.4.6 or later.
 
 ## Roadmap
 
-Specified and validated in [`openspec/changes/`](../../openspec/changes), **not yet built**.
-Each lands in order:
-
-1. **[`add-actors-and-workspaces`](../../openspec/changes/add-actors-and-workspaces)** — an agent
-   acts by itself or through a **delegate the user grants** (`mcpTool://delegate/<name>`, terms
-   set in config), and every actor works in the loop's one `Workspace`. A typed host config,
-   with models as closures over the runtime's environment:
-
-   ```ts
-   const { harness, models } = await createAgentHarness({
-     models: {
-       default: () => ({ provider: claudeCodeProvider(), model: { provider: "claude-code", modelId: "opus" } }),
-       reviewer: () => ({ provider: anthropicProvider(), model: { provider: "anthropic", modelId: "claude-haiku-4-5" } }),
-     },
-     workspace: () => localWorkspace("/path/to/worktree"),
-     delegates: { reviewer: { runner: "agent", model: "reviewer", script: "read" } },
-   }, { storage, env: process.env, context });
-   ```
-
-   Adds a `./node` entry, so `./durable` (and `./cloudflare`) carry no Node-only code.
-2. **[`add-agent-runner`](../../openspec/changes/add-agent-runner)** — delegate to one of your own
-   agents on another model, as a durable child run with only the tools you grant; workspaces
-   gain `list_files` and `search_files`.
-3. **[`add-cloudflare-workspace`](../../openspec/changes/add-cloudflare-workspace)** — the same
-   config on Cloudflare: models on the `AI` binding, the workspace a Cloudflare Sandbox cloned
-   from a per-task Artifacts fork:
-
-   ```ts
-   export class Agent extends defineAgentHost<Env>({
-     models: { default: (env) => workersAI(env.AI, "@cf/meta/llama-4-scout") },
-     workspace: (env) => artifactsSandboxWorkspace(env.ARTIFACTS, getSandbox(env.SANDBOX, "task-2.1"),
-                                                   { repo: "my-app", fork: "task-2.1", dir: "/workspace" }),
-     checks: ["pnpm test"],
-   }) {}
-   ```
-4. **The spec agent, then `pnpm change`** (18 small changes, from
-   [`reorder-design-before-specs`](../../openspec/changes/reorder-design-before-specs) to
-   [`add-change-close`](../../openspec/changes/add-change-close)). An agent drafts a change in four
-   stages (proposal, design with an HTML mock and example code, specs, tasks). Rules check each
-   draft, and you approve or revise it. Then the change loop builds it group by group, each
-   group with its own task loops and judge, and `close` folds it into the specs:
-
-   ```bash
-   pnpm change draft add-plan-export --intent "Export a plan as JSON so CI can read it"
-   pnpm change approve add-plan-export     # once per stage; or: pnpm change draft add-plan-export "<what to change>"
-   pnpm change build add-plan-export       # stops only when an agent needs a decision
-   pnpm change close add-plan-export       # fold the deltas into the specs
-   ```
+[`ARCHITECTURE.md`](../../ARCHITECTURE.md) holds the model, the decisions and what comes next, and
+each next step is a [GitHub issue](https://github.com/jtaylorcpp/specsesh-agent/issues).
 
 ## `@specsesh/agent/openspec`
 
@@ -683,9 +637,8 @@ usage:
 ```
 
 Any other first argument, or none, prints this usage to stderr and exits `2`. Defaults come from
-the nearest `agentscript.config.json`. In this repo, `pnpm task …` runs the built bin and adds
-`run` when the first argument is not one of the five commands, so `pnpm task add-thing 2.1` is
-`agentscript-task run add-thing 2.1`.
+the nearest `agentscript.config.json`. `specsesh task …` adds `run` when the first argument is not
+one of the five commands, so `specsesh task add-thing 2.1` is `agentscript-task run add-thing 2.1`.
 
 **Headless.** It never prompts: progress is JSON Lines on stderr, the outcome on stdout. It never
 commits. The only git commands it runs are `git status`, `git rev-parse`, `git worktree add`,

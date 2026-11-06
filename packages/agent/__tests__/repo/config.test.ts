@@ -1,41 +1,12 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
-import { loadConfig, resolveRunSettings } from "../../src/task/config.js";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 
-describe("task/headless: This repo ships a config for its own tasks", () => {
-	it("Scenario: The shipped config is valid", () => {
-		const config = loadConfig(join(REPO, "packages", "agent"));
-		expect(config.path).toBe(join(REPO, "agentscript.config.json"));
-		expect(config.task).toEqual({
-			changesDir: "openspec/changes",
-			db: ".agentscript/task-loops.sqlite",
-			provider: "claude-code",
-			model: "opus",
-			script: "task",
-			checks: ["pnpm check", "pnpm test"],
-			allow: ["pnpm", "node"],
-			maxIterations: 8,
-			escalateTo: "principal",
-			requireCleanTree: true,
-			worktreeSetup: ["pnpm install --frozen-lockfile --prefer-offline"],
-			deleteFiles: true,
-		});
-		const raw = JSON.parse(readFileSync(join(REPO, "agentscript.config.json"), "utf8")) as { delegates?: unknown };
-		// No delegate is granted: the bundled task script edits through the workspace actions.
-		expect(raw.delegates).toBeUndefined();
-		expect(config.delegates).toEqual({});
-		const settings = resolveRunSettings({}, {}, config, REPO);
-		expect(settings.script.label).toBe("task");
-	});
-});
-
-describe("task/headless: The repo wires the runner in", () => {
+describe("task/headless: The repo wires the runner in (its own task loop is paused; see parked.md)", () => {
 	// Both bins run from packages/agent/dist.
 	beforeAll(() => {
 		if (!existsSync(join(REPO, "packages", "agent", "dist", "bin", "agentscript-task.js"))) {
@@ -46,21 +17,6 @@ describe("task/headless: The repo wires the runner in", () => {
 	it("Scenario: The database directory is ignored", () => {
 		const lines = readFileSync(join(REPO, ".gitignore"), "utf8").split("\n");
 		expect(lines).toContain(".agentscript/");
-	});
-
-	it("Scenario: pnpm task runs specsesh task", () => {
-		const scripts = (JSON.parse(readFileSync(join(REPO, "package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
-		expect(scripts["task"]).toBe("node packages/specsesh/bin/specsesh.js task");
-		const dir = mkdtempSync(join(tmpdir(), "task-script-"));
-		try {
-			const missing = join(dir, "missing.sqlite");
-			const status = spawnSync(process.execPath, ["packages/specsesh/bin/specsesh.js", "task", "status", "--db", missing], { cwd: REPO, encoding: "utf8" });
-			expect(status.status).toBe(0);
-			expect(status.stdout.trim()).toBe(`no loops in ${missing}`);
-			expect(existsSync(missing)).toBe(false);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
 	});
 
 	it("Scenario: The old task bin prints the specsesh usage", () => {
@@ -74,12 +30,4 @@ describe("task/headless: The repo wires the runner in", () => {
 		expect(old.stderr).not.toContain("pnpm task");
 	});
 
-	it("CLAUDE.md says how to run a task", () => {
-		const text = readFileSync(join(REPO, "CLAUDE.md"), "utf8");
-		const section = text.slice(text.indexOf("## Running a task"));
-		expect(text).toContain("## Running a task");
-		for (const needle of ["pnpm task <change-id> <task-id>", "--next", "--worktree", "git worktree remove", "pnpm task status", "pnpm task answer", "--allow-dirty", "never commits"]) {
-			expect(section, needle).toContain(needle);
-		}
-	});
 });

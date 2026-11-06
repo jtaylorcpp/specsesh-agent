@@ -1,7 +1,7 @@
 import { defineConfig } from "vitest/config";
 import { LIVE_TESTS } from "./vitest.config.js";
 
-// `pnpm test:live`: the task runner on your Claude subscription, against a copy of this repo.
+// `pnpm test:live`: live provider tests (Claude Code tool steps, a Bun bundle) on your machine.
 // Real model calls, so the default config excludes these files and only this config runs them.
 export default defineConfig({
 	test: {

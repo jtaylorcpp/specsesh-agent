@@ -8,6 +8,7 @@ flow does **not** apply here.
 
 **Architecture:** `ARCHITECTURE.md` is the model (CLI, agent harness, Agent Script, OpenSpec
 workflow), the decisions and the open questions; `blueprint/` holds the live diagrams. Read it first.
+Planning is Blueprint, `ARCHITECTURE.md`, GitHub issues and `parked.md`, not OpenSpec (see "Planning").
 
 ## Layout (pnpm workspace)
 
@@ -102,7 +103,7 @@ drops the entry of every stage that follows it, directly or through others. The 
 commits it: the principal commits it with the stage's files. `startSpecLoop` refuses a stage, and
 creates nothing, when a stage in its `after` has no approval (naming that stage), when a recorded
 hash no longer matches its file (naming the file and the stage to review again), or when
-`approvals.json` fails the schema (naming the file). The CLI (`pnpm task answer` for spec loops)
+`approvals.json` fails the schema (naming the file). The CLI (`specsesh task answer` for spec loops)
 is `add-spec-cli`'s job.
 
 `proposalStage` (`src/task/stages/proposal.ts`, exported from `./task`) is the first stage: named
@@ -252,7 +253,6 @@ pnpm agent models anthropic     # list a provider's models
 pnpm durable run <file> --db runs.sqlite [--provider --model --entry --var --json]   # durable, pi-ai
 pnpm durable resume <task-id> --db runs.sqlite                                      # finish a crashed run
 pnpm durable run <file> --db runs.sqlite --provider claude-code                     # durable, on your subscription
-pnpm task <change-id> <task-id>                      # see "Running a task"
 node packages/agent/dist/bin/agentscript-task.js pick-tests --input in.json [--provider --model --timeout <ms>]
                                 # pickTests once; prints { ok, pick, pattern } or { ok, reason }; exit 0/1/2
 pnpm --filter hello-world-example start [name]                                      # the example app, on Haiku
@@ -266,10 +266,7 @@ pnpm test:claude-code           # opt-in, not in `pnpm test`, your subscription:
                                 # __tests__/live/claude-code-tools.live.test.ts; skips, saying why, without a logged-in `claude`
 pnpm test:bun                   # opt-in, not in `pnpm test`, built dist: bun-builds the claude-code provider beside ./task
                                 # (--external @earendil-works/pi-ai/providers) and expects `stream ok`; BUN or bun on PATH, else skips
-pnpm spec:check                 # openspec validate --all --strict
-pnpm change close <change-id>   # end a built change: guard, trial fold, archive (see "Specs")
-pnpm spec:archive <change-id>   # this repo's own script: validate, trial fold, archive; no database
-pnpm docs:check                 # docs/ concept pages: front matter, ids, README index, spec refs, links
+pnpm docs:check                 # docs/ concept pages: front matter, ids, README index, links
 pnpm parity                     # rewrite README.md's provider parity block from parity.json (--check: exit 1 on drift)
 ```
 
@@ -307,30 +304,27 @@ git tag v0.2.0 && git push origin v0.2.0
   repo root (the tests use it).
 - **Partial failure.** If the agent publishes but `specsesh` fails, re-run only the `specsesh`
   publish step or cut the next patch. Never re-tag an existing version.
-- **Never `npm publish` by hand after the first.** Each package's first version is published
-  manually only because a trusted publisher can't be attached until the package exists
-  (`openspec/changes/archive/2026-10-16-add-npm-release-workflow/design.md`, "Manual steps"). Every later version
-  goes through the tag and the workflow so it carries provenance. Publishing access requires 2FA
+- **Never `npm publish` by hand after the first.** Each package's first version was published
+  manually (done) only because a trusted publisher can't be attached until the package exists;
+  the steps are in git history (`add-npm-release-workflow`'s design.md, "Manual steps"). Every later
+  version goes through the tag and the workflow so it carries provenance. Publishing access requires 2FA
   and disallows tokens.
 
-## Running a task
+## The task runner (`specsesh task`)
 
-`agentscript.config.json` holds the task runner's defaults for this repo: the claude-code provider
-(your subscription) running the bundled `task` script on Opus (`model` is `opus`), whose act step
-edits through the workspace actions, `maxIterations` 8, checks `pnpm check` and `pnpm test`,
-allowlist `pnpm` and `node`, `deleteFiles`, no delegate grants, and the database
-`.agentscript/task-loops.sqlite` (gitignored). Build first (`pnpm build`); flags override any `task` value, never a grant.
+The product's OpenSpec task runner, as a user runs it in their own repo against
+`openspec/changes/<change-id>/`, with defaults from that repo's `agentscript.config.json`. This repo
+does not run it on itself for now (no config, no `pnpm task` script; see `parked.md`).
 
 ```bash
-pnpm task <change-id> <task-id>        # work one task of openspec/changes/<change-id>, unattended
-pnpm task <change-id> --next           # the first unticked task; prints "no unticked task in …" when done
-pnpm task <change-id> <task-id> --worktree --db .agentscript/<change-id>-<task-id>.sqlite
-pnpm task <change-id> <group>          # a bare integer is a group (2), n.m is a task (2.1)
-pnpm task <change-id> --next-group     # the first group with an unticked task
-pnpm task add-group-loop 2 --worktree --db group-2.sqlite   # a group, in its own worktree
-pnpm task status                       # loops: id, change, task or `group <n>`, status, iterations (and branch)
-pnpm task resume <loop-id>             # finish a loop whose process died (worktree loops: same --db)
-pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop prints this exact command
+specsesh task <change-id> <task-id>        # work one task of openspec/changes/<change-id>, unattended
+specsesh task <change-id> --next           # the first unticked task; prints "no unticked task in …" when done
+specsesh task <change-id> <task-id> --worktree --db .agentscript/<change-id>-<task-id>.sqlite
+specsesh task <change-id> <group>          # a bare integer is a group (2), n.m is a task (2.1)
+specsesh task <change-id> --next-group     # the first group with an unticked task
+specsesh task status                       # loops: id, change, task or `group <n>`, status, iterations (and branch)
+specsesh task resume <loop-id>             # finish a loop whose process died (worktree loops: same --db)
+specsesh task answer <loop-id> --by principal --decision "…"   # a blocked loop prints this exact command
 ```
 
 - **When the loop converges.** A task iterates until its checks pass or it runs out of budget, and
@@ -338,8 +332,7 @@ pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop pr
   loop runs the checks itself in a `gate` phase, with no model. If a check fails, the iteration is
   recorded unmet, the failing commands and the last part of their output go into the next
   iteration, and the loop retries within budget. With no checks configured, `met` alone converges.
-- **The budget.** `maxIterations` defaults to 8 in the library and the CLI. This repo's
-  `agentscript.config.json` also sets 8.
+- **The budget.** `maxIterations` defaults to 8 in the library and the CLI.
 - **`next_action` is constrained.** It must be exactly one of `retry`, `amend-spec` or `ask` in the
   task loop, and one of `rework`, `ask` or `amend-spec` in the group loop. The loop passes these as
   start `choices`, so the judge's `submit_result` schema shows them as an `enum`. A value outside
@@ -352,7 +345,7 @@ pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop pr
   `timeoutMs` 900000 and `maxCalls` 5. The CLI's only runner is `agent` (below). A library host may
   bring its own process runners (`ProcessRunner`): it passes the same `runners` to
   `taskLoopExtensions` and to `startTaskLoop`/`startGroupLoop`/`startChangeLoop` (`TaskLoopOptions.runners`),
-  which check grants against them. This repo grants none. `run --no-delegates` withdraws every grant
+  which check grants against them. `run --no-delegates` withdraws every grant
   for one run: a delegating script then exits 2 naming its `delegate/<name>`.
   The retired `task.delegateModel` and `task.delegateContext` keys are refused with
   `grant a delegate under "delegates" instead`; an invalid grant exits 2, naming the grant and the
@@ -399,7 +392,7 @@ pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop pr
   `pnpm install --frozen-lockfile --prefer-offline`. The main tree is untouched, so you can keep working and
   run several tasks at once, each with its own `--db` (mandatory here). Review with
   `git -C <path> diff`; remove with `git worktree remove <path>` (and `git branch -D <branch>`).
-- **Groups.** `pnpm task <change> <group>` runs the group's unticked tasks in file order (ticked ones
+- **Groups.** `specsesh task <change> <group>` runs the group's unticked tasks in file order (ticked ones
   are skipped, so a re-run continues), then the group check: the configured `checks` once more (a group
   needs at least one). The `group.agent` judge may then rework a task, ask, or amend the spec.
   `--max-reworks <n>` (default 2) bounds the reworks; `--group-script <name|path>` picks the judge
@@ -414,44 +407,30 @@ pnpm task answer <loop-id> --by principal --decision "…"   # a blocked loop pr
   task events carry `group`. Text output: `# group loop <id> — <status>`, then
   `## task <id>: <status> (runs n)` per task, then `## group check: passed|failed`.
 - One live process per database (`<db>.lock`); a second is refused, naming the holder's pid.
-- `pnpm test:live` (opt-in, never in `pnpm test`) runs it for real on a copy of this repo, on your
-  subscription; it skips when `claude` is missing or not logged in.
 
-## Specs (OpenSpec 1.14.2, pinned; 1.14.1 is the minimum the agent supports)
+## Planning (Blueprint, not OpenSpec)
 
-`openspec/specs/<area>/<capability>/spec.md` is the contract: `core/{authoring,subset,composition,
-reasoning-port,step-machine}`, `pi/{port,cli,claude-code}`, `durable/{run-task,host,cli,cloudflare}` and
-`package/distribution`. Specs state public
-behaviour only; internals go in a change's `design.md`. Stock `spec-driven` schema.
+This repo plans and tracks its own work with Blueprint diagrams and plain documents. It stopped
+using OpenSpec for that on 2026-11-06; `openspec/` (specs, changes and their archive) is in git
+history before that date. The product's OpenSpec workflow (`src/task`, `src/openspec`,
+`specsesh change`/`task`) is unchanged: it is a feature for users' repos.
 
-- Every behaviour change starts as `openspec new change <verb-led-id>` with deltas against these specs.
-- One test per scenario, named `Scenario: <exact scenario name>`.
-- A task names at most about 8 scenarios. Split a capability's tests across tasks rather than
-  writing one task for all of them.
-- **A built change ends with `pnpm change close <change>`.** It refuses an unfinished change (a task
-  unticked, the change's newest change loop not converged, or `openspec validate <change> --strict`
-  failing) and changes nothing. Otherwise it folds the change into a temp copy of `openspec/`,
-  validates that with `--specs --strict`, and only then runs `openspec archive <change> --yes`, with
-  `OPENSPEC_TELEMETRY=0` throughout. It prints the capabilities folded into, the archive directory
-  and `git add -A openspec && git commit`, but never commits: that stays with the principal. There
-  is no `--force`: finish the change with `pnpm change build`, or tick a task you did by hand.
-- **Never `openspec archive` directly.** 1.14.1 archives invalid changes with exit 0 and drops
-  requirements. `pnpm spec:archive <change>` (`scripts/spec-archive.mjs`) stays as this repo's own
-  script: the same three steps (validate, trial fold, archive), no database. Other repos don't use
-  it, and it isn't the step a built change points at.
-- **Plans written before `close`** may end with a `pnpm spec:archive <change>` task. Run
-  `pnpm change close <change>` instead, and don't write new archive tasks.
-- A delta that creates a capability should carry `## Purpose`: it is only read at creation, and
-  archive otherwise writes a placeholder that `spec:check` rejects.
-- Requirement text (before its scenarios) must stay under 500 characters, or strict fails.
-- Tests never read `openspec/changes/<id>/` for their own change: archiving moves it. Read the folded
-  spec from `openspec/specs/` or the archived copy under `openspec/changes/archive/<date>-<id>/`.
-- Ideas and bugs outside the current change go in `openspec/parked.md`.
-- `docs/` holds the OpenSpec taxonomy and ontology, one concept per file; `docs/README.md` is the
-  directory and `docs/CONVENTIONS.md` the page format. A change to the ontology specs updates the
-  matching pages in the same commit, and `pnpm docs:check` must pass.
-- A change that adds or changes a provider's behaviour updates `parity.json` (and `pnpm parity`) in the same change.
-- Set `OPENSPEC_TELEMETRY=0` when calling `openspec` by hand (the scripts already do).
+- **`blueprint/`** is the live map of the code: `index.mmd` is the root (CLI, agent harness, Agent
+  Script, OpenSpec workflow), each box tied to its code with `%% code:` and opening its detail
+  diagram. Update the affected diagram in the same change as the code it draws.
+- **`ARCHITECTURE.md`** holds the model, the decisions, the gaps and what comes next. Update it when
+  a decision lands or changes.
+- **GitHub issues** are the work items; **`parked.md`** is the backlog of loose ends nobody is on yet.
+  Open an issue (and delete the entry) when work starts on one.
+- Existing tests named `Scenario: <name>` keep their names; new tests need no scenario.
+- `docs/` holds the OpenSpec taxonomy and ontology that `src/openspec` implements, one concept per
+  file; `docs/README.md` is the directory and `docs/CONVENTIONS.md` the page format. A change to
+  `src/openspec` updates the matching pages in the same commit, and `pnpm docs:check` must pass.
+- A change that adds or changes a provider's behaviour updates `parity.json` (and `pnpm parity`) in
+  the same change.
+- `@fission-ai/openspec` stays pinned (1.14.2; 1.14.1 is the minimum the agent supports) for the
+  product's `specsesh change close` and its tests. Set `OPENSPEC_TELEMETRY=0` when calling
+  `openspec` by hand.
 
 ## Hard lines (see README.md for the reasoning)
 

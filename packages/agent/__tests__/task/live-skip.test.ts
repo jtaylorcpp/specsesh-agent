@@ -45,7 +45,7 @@ describe("task/headless: An opt-in live run proves it works on this repo", () =>
 	});
 
 	it("is never part of pnpm test", () => {
-		const live = join(dirname(fileURLToPath(import.meta.url)), "..", "live", "task.live.test.ts");
+		const live = join(dirname(fileURLToPath(import.meta.url)), "..", "live", "claude-code-tools.live.test.ts");
 		expect(existsSync(live)).toBe(true);
 		expect(config.test?.exclude).toContain(LIVE_TESTS);
 		expect(liveConfig.test?.include).toEqual(["__tests__/live/**/*.live.test.ts"]);

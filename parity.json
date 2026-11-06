@@ -40,11 +40,9 @@
       "cells": {
         "api-keys": { "value": "tested", "evidence": [{ "test": "Scenario: A converged loop prints its iterations and ticked" }] },
         "claude-code": {
-          "value": "live",
-          "evidence": [
-            { "test": "Scenario: The live run converges and ticks the task" },
-            { "test": "Scenario: A live group converges" }
-          ]
+          "value": "tested",
+          "note": "on a fake `claude`; the live run went with this repo's self-hosting (see parked.md)",
+          "evidence": [{ "test": "Scenario: A converged loop's stream" }]
         },
         "gemini": { "value": "tested", "evidence": [{ "test": "Scenario: A task loop converges on Gemini" }] },
         "ollama": { "value": "tested", "evidence": [{ "test": "Scenario: A task loop converges on a pulled ollama model" }] },

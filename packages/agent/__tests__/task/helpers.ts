@@ -97,9 +97,12 @@ export async function loopHarness(env: ReturnType<typeof setup>, storage: Storag
 	return openHarness(storage, env);
 }
 
-/** The archived baseline change, wherever the archive put it. */
+/**
+ * The archived baseline change: a frozen copy under the ontology tests' fixtures, since this repo
+ * stopped keeping its own `openspec/` on 2026-11-06.
+ */
 export function baselineDir(): string {
-	const archive = join(REPO, "openspec", "changes", "archive");
+	const archive = join(HERE, "..", "openspec", "fixtures", "repo", "openspec", "changes", "archive");
 	const dir = readdirSync(archive).find((d) => d.endsWith("-baseline-agentscript-durable"));
 	if (dir === undefined) throw new Error("baseline-agentscript-durable is not archived");
 	return join(archive, dir);
