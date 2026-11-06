@@ -35,6 +35,7 @@ import {
 	deleteActions,
 	delegationActions,
 	OPTIONAL_TARGETS,
+	searchActions,
 	workspaceActions,
 	type DelegateGrants,
 	type RunInput,
@@ -64,9 +65,12 @@ export const DELETE_GRANTED = "delete_granted";
 /** Seeded, as what changed since the loop started, only into a script that declares it. */
 export const CHANGED = "changed";
 
+/** Seeded, as the loop's `context` text (`""` when it has none), only into a script that declares it. */
+export const CONTEXT = "context";
+
 /**
- * The contract's seeded variables for iteration `n`, and `delete_granted` and `changed` when the
- * script declares them. `changed` is the seed as `changedSeed` builds it; `(unknown)` when not given.
+ * The contract's seeded variables for iteration `n`, and `delete_granted`, `changed` and `context`
+ * when the script declares them. `changed` is the seed as `changedSeed` builds it; `(unknown)` when not given.
  */
 export function seededVariables(
 	input: TaskLoopInput,
@@ -85,6 +89,7 @@ export function seededVariables(
 		carried,
 		...(declarations.has(DELETE_GRANTED) ? { [DELETE_GRANTED]: input.deleteFiles === true } : {}),
 		...(declarations.has(CHANGED) ? { [CHANGED]: changed } : {}),
+		...(declarations.has(CONTEXT) ? { [CONTEXT]: input.context ?? "" } : {}),
 	};
 }
 
@@ -321,6 +326,8 @@ function registryOver(workspace: Workspace, options: TaskLoopActionOptions) {
 			allow: options.allow ?? [],
 			...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
 		}),
+		// As createAgentHarness: list_files and search_files only on a workspace that can do both.
+		...(typeof workspace.list === "function" && typeof workspace.search === "function" ? searchActions(workspace) : []),
 		...delegationActions(options.delegates ?? {}, { workspace, runners: options.runners ?? defaultRunners }),
 		...(options.deleteFiles === true ? deleteActions(workspace) : []),
 	]);

@@ -16,7 +16,7 @@ import { TaskLoopStartError } from "./errors.js";
 import type { TaskLoopInput } from "./loop-input.js";
 import { OPTIONAL_TARGETS, TaskLoopTask, subagentsOf, taskLoopRegistry } from "./loop.js";
 import { DEFAULT_ESCALATE_TO, DEFAULT_MAX_ITERATIONS, type TaskLoopOptions } from "./options.js";
-import { readChange, readScript } from "./sources.js";
+import { contextOf, readChange, readScript } from "./sources.js";
 import { findTask } from "./tasks-md.js";
 
 /** `{ delegates }` as plain JSON, for the durable input and the registry alike; `{}` when none are granted. */
@@ -77,6 +77,7 @@ export function prepareTaskLoop(options: TaskLoopOptions): TaskLoopInput {
 		deleteFiles,
 		...(options.worktree !== undefined ? { worktree: { path: options.worktree.path, branch: options.worktree.branch } } : {}),
 		...(options.excludeChanged !== undefined ? { excludeChanged: [...options.excludeChanged] } : {}),
+		...contextOf(options),
 		carried: "",
 		earlier: [],
 	};

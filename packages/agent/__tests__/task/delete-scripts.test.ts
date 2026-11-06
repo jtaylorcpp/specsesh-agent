@@ -72,7 +72,7 @@ describe("task/agent: task.agent can delete when granted", () => {
 		expect(orient).toContain(ORIENT_LINE);
 		// The act step names delete_file under the alias `delete`; calling it deletes in the workspace.
 		const act = r.env.requests.find((request) => JSON.stringify(request.messages).includes("Carry out this plan"));
-		expect(offeredTools(act)).toEqual(["read", "edit", "shell", "delete"]);
+		expect(offeredTools(act)).toEqual(["read", "list", "search", "edit", "shell", "delete"]);
 		expect(existsSync(join(workspace, "src/old.ts"))).toBe(false);
 		expect(r.outcome.iterations[0]?.actions).toContainEqual({ kind: "edit", summary: "delete_file src/old.ts", refs: ["src/old.ts"] });
 	});
@@ -108,7 +108,7 @@ describe("task/agent: An ungranted delete_file is an optional target", () => {
 		expect(seeded?.["delete_granted"]).toBe(false);
 		// The act step offers read_file, edit_file and run_command under their aliases, and no `delete`.
 		const act = r.env.requests.find((request) => JSON.stringify(request.messages).includes("Carry out this plan"));
-		expect(offeredTools(act)).toEqual(["read", "edit", "shell"]);
+		expect(offeredTools(act)).toEqual(["read", "list", "search", "edit", "shell"]);
 		expect(existsSync(join(workspace, "src/a.ts"))).toBe(true);
 	});
 });

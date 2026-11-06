@@ -286,6 +286,7 @@ export function prepareBuild(args: BuildArgs, options: BuildPrepareOptions): Bui
 			escalateTo: settings.escalateTo,
 			// Nothing granted stores nothing, so the loop records no `delegates`.
 			...(Object.keys(delegates).length > 0 ? { delegates } : {}),
+			...(settings.context.length > 0 ? { context: settings.context.map((path) => ({ path })) } : {}),
 		},
 	};
 }

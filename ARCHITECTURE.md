@@ -77,9 +77,10 @@ session. Claude Code's OAuth token is never read or forwarded. It is model acces
 
 Every agent that works in a repo must be able to read and edit files and run commands. The workspace
 actions give that to any model, Claude Code included, so the delegate runner was a redundant second
-route. This repo's task loop now runs the bundled `task` script on the Claude Code provider. Two
-things the delegate did better are open: a string-replacement edit (#36) and a per-step turn limit of
-16 on Claude Code tool steps (#37).
+route; the bundled `task` script does that work on the Claude Code provider. Of what the delegate did
+better, listing and searching files in the act step (#42) and the repository's own context files
+(`task.context`, #43) are back; a string-replacement edit (#36) and the per-step turn limit of 16 on
+Claude Code tool steps (#37) are open.
 
 ### Decisions
 
@@ -172,6 +173,7 @@ where it goes is part of the same design.
    issues and `parked.md` (loose ends), no longer with OpenSpec changes of its own.
 2. **All durable:** failure categories in durable runs (#28), then remove the one-shot path (#29).
 3. **Close the gaps the delegate left:** a string-replacement edit (#36), the Claude Code turn limit (#37).
+   Search in the act step (#42) and context files (#43) are done.
 4. **Stream to a UI:** consume `watchScript` (#30), Claude Code provider text (#31), structured steps (#32).
 5. **Extract the generic loop** from `src/task` (#33).
 6. **Blueprint workflows:** users define their own software-factory flows and agents (scripts), with

@@ -12,7 +12,7 @@ import type { TaskId, TaskOutcome } from "@earendil-works/pi-durable";
 import { declaredActions, type ActionResult, type RunResult, type VariableValue } from "../interpreter/index.js";
 import { isGrantedDelegate } from "./delegate-brand.js";
 import type { RunInput } from "./extension.js";
-import { actionRecord, type Workspace, type WorkspaceSnapshot } from "./workspace.js";
+import { NO_LIST, NO_SEARCH, actionRecord, type Workspace, type WorkspaceSnapshot } from "./workspace.js";
 
 /** The scalar types an action's inputs and outputs carry, like a script variable's. */
 export type ActionParameterType = "string" | "number" | "boolean";
@@ -233,8 +233,16 @@ export const NO_REMOVE ="this workspace cannot delete files";
 /** What a call of an ungranted `delete_file` answers. */
 export const DELETE_NOT_GRANTED = 'delete_file is not granted: set "deleteFiles": true under "task" in agentscript.config.json';
 
-/** The targets a task script may name without the harness binding them, each with what a call answers. */
-export const OPTIONAL_TARGETS: Readonly<Record<string, string>> = { delete_file: DELETE_NOT_GRANTED };
+/**
+ * The targets a task script may name without the harness binding them, each with what a call answers:
+ * `delete_file` until the host grants it, and `list_files` and `search_files` on a workspace that
+ * cannot list or search. A model step is offered only the ones the harness binds.
+ */
+export const OPTIONAL_TARGETS: Readonly<Record<string, string>> = {
+	delete_file: DELETE_NOT_GRANTED,
+	list_files: NO_LIST,
+	search_files: NO_SEARCH,
+};
 
 /**
  * `delete_file`, over `workspace.remove`. Never in `workspaceActions` or

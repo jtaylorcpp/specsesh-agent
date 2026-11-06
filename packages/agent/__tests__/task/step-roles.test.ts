@@ -8,10 +8,9 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { RESULT_TOOL } from "../../src/durable/index.js";
-import { jsonRunner } from "../durable/delegation-scripts.js";
 import { BUNDLED_SCRIPTS } from "../../src/task/index.js";
 import { gitRepo } from "./cli-helpers.js";
-import { COUNT_CHECK, cleanTemps, context, plan, prompts, runLoop, temp, text, verdict } from "./helpers.js";
+import { COUNT_CHECK, cleanTemps, context, plan, prompts, runLoop, temp, text, toolCall, verdict } from "./helpers.js";
 
 afterEach(() => cleanTemps());
 
@@ -86,6 +85,25 @@ describe("task/agent: Each bundled task step's prompt says its role", () => {
 		expect(act[0]).toContain("you act in the real workspace");
 		expect(act[0]).toContain("Carry out this plan");
 		expect(act[0]).not.toContain("You have no tools");
+	});
+
+	it("Scenario: task.agent's act step can search and list the workspace", async () => {
+		const r = await runLoop(
+			[plan(PLAN), toolCall("search", { pattern: "a = 1", glob: "src/**" }), toolCall("list", { glob: "src/*" }), text("Found it."), verdict(true)],
+			{ script: { path: TASK_SCRIPT }, workspace: gitRepo(), checks: [COUNT_CHECK], allow: ["pnpm", "node"] },
+		);
+		await r.harness.close(context);
+		expect(r.outcome.status).toBe("converged");
+		// Each call's result reaches the model in the act step's next request, as a successful tool result.
+		type Message = { role: string; toolName?: string; isError?: boolean; content?: { type: string; text?: string }[] };
+		const results = (r.env.requests.at(-2)?.messages ?? []) as unknown as Message[];
+		const result = (tool: string) => {
+			const found = results.find((m) => m.role === "toolResult" && m.toolName === tool);
+			expect(found?.isError, tool).toBe(false);
+			return JSON.parse(found?.content?.[0]?.text ?? "{}") as Record<string, string>;
+		};
+		expect(result("search")).toEqual({ matches: "src/a.ts:1: export const a = 1;" });
+		expect(result("list")).toEqual({ paths: "src/a.ts" });
 	});
 
 });

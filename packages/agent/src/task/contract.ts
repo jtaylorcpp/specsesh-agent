@@ -31,6 +31,7 @@ export const SEEDED: Readonly<Record<string, ContractType>> = {
  */
 export const OPTIONAL_SEEDED: Readonly<Record<string, ContractType>> = {
 	changed: "string",
+	context: "string",
 	delete_granted: "boolean",
 };
 

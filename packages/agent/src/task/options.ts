@@ -45,6 +45,11 @@ export interface TaskLoopOptions {
 	 * The start check validates the grants against them; never stored. Unset: `defaultRunners`.
 	 */
 	readonly runners?: Runners;
+	/**
+	 * Files about the repository, such as its `CLAUDE.md`, read once at start and stored with the loop.
+	 * Seeded as `context` into a script that declares it, and put in every delegate's preamble. Unset: none.
+	 */
+	readonly context?: readonly Source[];
 	/** Grants `delete_file`; the harness must bind it too (`taskLoopExtensions({ deleteFiles })`). Unset: `false`. */
 	readonly deleteFiles?: boolean;
 	/** The git worktree a host created for this loop, recorded so a resume or a status can name it. */

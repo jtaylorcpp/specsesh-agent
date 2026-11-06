@@ -54,7 +54,7 @@ import { TaskLoopStartError } from "./errors.js";
 import { GroupLoopTask, findGroup, formatCheckOutput, resolveGroupOptions, type GroupLoopInput, type GroupLoopResult } from "./group.js";
 import { loopWorkspace } from "./loop.js";
 import { BUNDLED_SCRIPTS, DEFAULT_ESCALATE_TO } from "./options.js";
-import { readChange, readScript, readSource } from "./sources.js";
+import { contextOf, readChange, readScript, readSource } from "./sources.js";
 import { delegatesOf } from "./start.js";
 import { changeOf } from "./status.js";
 
@@ -125,6 +125,7 @@ export function readChangeInput(options: ChangeLoopOptions, unclaimed: readonly 
 		...delegatesOf(options),
 		...(options.worktree !== undefined ? { worktree: { path: options.worktree.path, branch: options.worktree.branch } } : {}),
 		...(options.excludeChanged !== undefined ? { excludeChanged: [...options.excludeChanged] } : {}),
+		...contextOf(options),
 	};
 }
 

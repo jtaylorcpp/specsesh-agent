@@ -32,6 +32,25 @@ export function readSource(source: Source): string {
 	}
 }
 
+/**
+ * The `context` sources as one text: a file under a `# <path as given>` heading, a text as it is,
+ * blocks separated by a blank line. `""` for none. A path that cannot be read refuses the start.
+ */
+export function readContext(sources: readonly Source[] | undefined): string {
+	return (sources ?? [])
+		.map((source) => {
+			const text = readSource(source).replace(/\n+$/, "");
+			return "path" in source ? `# ${source.path}\n\n${text}` : text;
+		})
+		.join("\n\n");
+}
+
+/** The `context` field for a durable input: the text when there is any, else nothing. */
+export function contextOf(options: { readonly context?: readonly Source[] }): { context?: string } {
+	const context = readContext(options.context);
+	return context !== "" ? { context } : {};
+}
+
 /** The script's text: the given source, or the bundled `task.agent`. */
 export function readScript(script: Source | undefined): string {
 	return script === undefined ? readFileSync(BUNDLED_SCRIPTS.task, "utf8") : readSource(script);

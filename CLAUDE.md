@@ -372,6 +372,12 @@ specsesh task answer <loop-id> --by principal --decision "…"   # a blocked loo
   `run` gets the task preamble before its instructions: the change, the task, the rules, then the
   proposal, design and deltas in full (`taskPreamble`, carried as `RunInput.delegatePreamble`).
   Outside a loop, and for a delegate offered as a step tool, it gets none.
+- **`context` is seeded, if declared.** `task.context` (config, paths relative to it) or
+  `TaskLoopOptions.context` (`Source`s) names files about the repository, read once at start into the
+  loop's input (`# <path>` heading per file; a group or change loop hands it to every task). The loop
+  seeds it as `context` into a script that declares it as a string (`""` when there is none) and puts
+  it in every delegate's preamble. `task.agent` shows it to its orient and act steps. A missing file
+  refuses the start; `--worktree` reads it from the worktree.
 - **`changed` is seeded, if declared.** Before each iteration the loop seeds `changed` (the files
   changed since the loop started, one per line, measured from a baseline its first iteration takes
   and keeps across `resume` and answers; `(unknown)` when the workspace can't snapshot) into a
