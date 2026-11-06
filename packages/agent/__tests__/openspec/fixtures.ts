@@ -23,8 +23,15 @@ import type {
 	ValidationReport,
 } from "../../src/openspec/index.js";
 
+/** This repository's root. */
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
-export const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
+/**
+ * A frozen copy of the files of this repository's own `openspec/` that the ontology tests read as
+ * real-world fixtures. The repository stopped using OpenSpec for its own planning on 2026-11-06.
+ */
+export const SPEC_ROOT = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "repo");
+/** A file by repository path: `openspec/…` from `SPEC_ROOT`, anything else from `ROOT`. */
+export const read = (path: string) => readFileSync(join(path.startsWith("openspec/") ? SPEC_ROOT : ROOT, path), "utf8");
 
 /** `durable/run-task`'s step-number scenario, as the spec writes it. */
 export const STEP_SCENARIO: Scenario = {

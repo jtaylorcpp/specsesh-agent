@@ -30,7 +30,7 @@ import {
 } from "../../src/openspec/index.js";
 import {
 	OWN_PROPOSAL,
-	ROOT,
+	SPEC_ROOT,
 	RUN_TASK,
 	STEP_REF,
 	STEP_REQUIREMENT,
@@ -56,8 +56,8 @@ describe("Root locates a planning home", () => {
 	it("Scenario: This repository's root", () => {
 		const root: Root = { specsDir: "openspec/specs", changesDir: "openspec/changes", schema: "spec-driven" };
 		expect(check(Root, root)).toBe(true);
-		expect(existsSync(join(ROOT, root.specsDir))).toBe(true);
-		expect(existsSync(join(ROOT, root.changesDir))).toBe(true);
+		expect(existsSync(join(SPEC_ROOT, root.specsDir))).toBe(true);
+		expect(existsSync(join(SPEC_ROOT, root.changesDir))).toBe(true);
 		// The schema OpenSpec is configured with.
 		expect(read("openspec/config.yaml").split("\n")).toContain(`schema: ${root.schema}`);
 	});
@@ -67,7 +67,7 @@ describe("A capability is a path, a purpose and its requirements", () => {
 	it("Scenario: A nested capability path", () => {
 		expect(check(Capability, RUN_TASK)).toBe(true);
 		expect(RUN_TASK.path).toEqual(["durable", "run-task"]);
-		expect(existsSync(join(ROOT, "openspec/specs", ...RUN_TASK.path, "spec.md"))).toBe(true);
+		expect(existsSync(join(SPEC_ROOT, "openspec/specs", ...RUN_TASK.path, "spec.md"))).toBe(true);
 	});
 
 	it("Scenario: An empty path is not a capability path", () => {

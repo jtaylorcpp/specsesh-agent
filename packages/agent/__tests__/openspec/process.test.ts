@@ -29,7 +29,7 @@ import {
 	CHANGE_OUTCOME,
 	INVALID,
 	OWN_PROPOSAL,
-	ROOT,
+	SPEC_ROOT,
 	THREE,
 	THREE_CAP,
 	VALID,
@@ -213,7 +213,7 @@ describe("Archive folds a converged change, guarded", () => {
 	it("Scenario: The durable baseline's archive", () => {
 		const dir = "openspec/changes/archive/2026-10-11-baseline-agentscript-durable/specs";
 		const specFiles = (sub: string): string[] =>
-			readdirSync(join(ROOT, sub), { withFileTypes: true }).flatMap((entry) =>
+			readdirSync(join(SPEC_ROOT, sub), { withFileTypes: true }).flatMap((entry) =>
 				entry.isDirectory() ? specFiles(`${sub}/${entry.name}`) : entry.name === "spec.md" ? [`${sub}/${entry.name}`] : [],
 			);
 		const files = specFiles(dir);

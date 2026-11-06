@@ -33,9 +33,4 @@ describe("change/cli: The old bin and pnpm change run the same command", () => {
 		expect(old.stderr).not.toContain("agentscript-change");
 		expect(old.stderr).not.toContain("pnpm change");
 	});
-
-	it("Scenario: pnpm change runs specsesh change", () => {
-		const scripts = (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
-		expect(scripts["change"]).toBe("node packages/specsesh/bin/specsesh.js change");
-	});
 });

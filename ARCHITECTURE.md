@@ -168,7 +168,8 @@ where it goes is part of the same design.
 
 ## Next
 
-1. **Codify where we are:** this page and `blueprint/`. Done.
+1. **Codify where we are:** this page and `blueprint/`. Done; this repo plans with them, GitHub
+   issues and `parked.md` (loose ends), no longer with OpenSpec changes of its own.
 2. **All durable:** failure categories in durable runs (#28), then remove the one-shot path (#29).
 3. **Close the gaps the delegate left:** a string-replacement edit (#36), the Claude Code turn limit (#37).
 4. **Stream to a UI:** consume `watchScript` (#30), Claude Code provider text (#31), structured steps (#32).

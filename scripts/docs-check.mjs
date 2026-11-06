@@ -1,6 +1,7 @@
 // Checks docs/ against docs/CONVENTIONS.md: every concept page has valid front
 // matter, ids are unique and match file names, related ids exist, README lists
-// every page exactly once, and every `spec` entry names a requirement that exists.
+// every page exactly once. A page's `spec` entries name the requirements it restated when this
+// repo kept OpenSpec specs (removed 2026-11-06); they are history and are not checked.
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 
@@ -16,18 +17,6 @@ const walk = (dir) =>
 	readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
 		e.isDirectory() ? walk(join(dir, e.name)) : e.name.endsWith(".md") ? [join(dir, e.name)] : [],
 	);
-
-// Requirement names, per capability, from main specs and every open change.
-const requirements = new Set();
-for (const base of [join(root, "openspec/specs"), join(root, "openspec/changes")]) {
-	for (const file of walk(base).filter((f) => basename(f) === "spec.md" && !f.includes("/archive/"))) {
-		const capability = relative(base, file).replace(/^[^/]+\/specs\//, "").replace(/\/spec\.md$/, "");
-		for (const m of readFileSync(file, "utf8").matchAll(/^### Requirement: (.+)$/gm)) {
-			requirements.add(`${capability}: ${m[1].trim()}`);
-		}
-	}
-}
-if (requirements.size === 0) problems.push("read no spec requirements at all; the spec check would pass vacuously");
 
 function frontMatter(text, file) {
 	const m = text.match(/^---\n([\s\S]*?)\n---\n/);
@@ -61,8 +50,6 @@ for (const file of pages) {
 	if (fm.kind && !KINDS.has(fm.kind)) problems.push(`${rel}: kind "${fm.kind}" is not one of ${[...KINDS].join(", ")}`);
 	if (fm.area && !AREAS.has(fm.area)) problems.push(`${rel}: area "${fm.area}" is not one of ${[...AREAS].join(", ")}`);
 	if (fm.status && !STATUSES.has(fm.status)) problems.push(`${rel}: status "${fm.status}" is not one of ${[...STATUSES].join(", ")}`);
-	if (!Array.isArray(fm.spec) || fm.spec.length === 0) problems.push(`${rel}: spec lists no requirement`);
-	for (const s of fm.spec ?? []) if (!requirements.has(s)) problems.push(`${rel}: spec "${s}" names no existing requirement`);
 	byId.set(fm.id, { rel, fm });
 }
 for (const { rel, fm } of byId.values()) {
@@ -108,4 +95,4 @@ if (problems.length > 0) {
 	console.error(`docs:check found ${problems.length} problem(s):\n${problems.map((p) => `  - ${p}`).join("\n")}`);
 	process.exit(1);
 }
-console.log(`docs:check: ${pages.length} concept pages, ${listed.length} README entries, ${requirements.size} spec requirements read — ${links} links resolved — all consistent`);
+console.log(`docs:check: ${pages.length} concept pages, ${listed.length} README entries — ${links} links resolved — all consistent`);

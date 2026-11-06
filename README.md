@@ -41,11 +41,11 @@ pnpm change close   <id>                # trial-fold into the specs, then archiv
 | [`packages/agent`](packages/agent) | The package: authoring, interpreter, pi and Claude Code ports, durable execution, the Cloudflare host, the OpenSpec ontology, the task and group loops |
 | [`examples/hello-world`](examples/hello-world) | One script, run durably on Node |
 | [`examples/cloudflare-worker`](examples/cloudflare-worker) | `AgentScriptHost` in a Worker, with a faux model for `wrangler dev --local` |
-| [`openspec/`](openspec) | The specs (`specs/`) and changes in flight (`changes/`) that this code is held to |
 | [`docs/`](docs) | The taxonomy and ontology for executing an OpenSpec change, one concept per page ([index](docs/README.md)) |
-| [`agentscript.config.json`](agentscript.config.json) | How this repo runs its own tasks: provider, model, checks, allowlist |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | The model (CLI, agent harness, Agent Script, OpenSpec workflow), the decisions and what comes next |
+| [`blueprint/`](blueprint) | Live Mermaid diagrams of the code, for Herdr's Blueprint panel ([root](blueprint/index.mmd)) |
 | [`CLAUDE.md`](CLAUDE.md) | Working rules for agents (and people) in this repo |
-| [`gaps.md`](gaps.md) | What we still did by hand while the repo built itself; each row is a candidate tool |
+| [`parked.md`](parked.md) | Loose ends nobody is working on yet: possible bugs, ideas and gaps |
 
 ## Commands
 
@@ -54,14 +54,11 @@ pnpm change close   <id>                # trial-fold into the specs, then archiv
 | `pnpm build` | Compiles `packages/agent` to `dist/` |
 | `pnpm check` | Type-checks every package |
 | `pnpm test` | Unit and integration tests (faux models and a fake `claude`, no live calls) |
-| `pnpm test:live` | Opt-in acceptance run against real models on your subscription |
+| `pnpm test:live` | Opt-in live provider tests on your machine: Claude Code tool steps, a Bun bundle |
 | `pnpm test:cloudflare` | The example Worker's routes on `wrangler dev --local` |
 | `pnpm pack:check` | Packs the tarball and proves it installs and runs |
-| `pnpm spec:check` | Validates every spec and change (`openspec validate --all --strict`) |
-| `pnpm spec:archive <id>` | Trial-folds a finished change into the specs, validates, then archives it |
-| `pnpm docs:check` | Keeps `docs/` honest: front matter, index, spec references, links |
+| `pnpm docs:check` | Keeps `docs/` honest: front matter, index, links |
 | `pnpm parity` | Regenerates the provider parity table in this README from `parity.json` (`--check` in the test fails on drift) |
-| `pnpm task …` | The task runner (`agentscript-task`): `<change> <task>`, `<change> <group>`, `--next`, `spec`, `status`, `resume`, `answer` |
 | `pnpm change …` | The change flow (`agentscript-change`): `draft <id> --intent "…"` (or `"<feedback>"`), `approve <id>`, `build <id> ["<answer>"]`, `close <id>` |
 
 ## Provider parity
@@ -76,26 +73,27 @@ Each cell says how a feature is proven for a provider: by an offline test, only 
 | One-shot run (`agent run`, `run()`) | ✅ | ✅ | ✅ | ✅ | — |
 | Durable run | ✅ | ✅ | ✅ | ✅ | — ¹ |
 | Crash, then resume | ✅ | ✅ | ✅ | ✅ | ⚪ |
-| Task and change loops | ✅ | 🟢 | ✅ | ✅ | — |
-| Cloudflare Durable Object host | ✅ ² | — | ⚪ ³ | — | ⚪ ⁴ |
+| Task and change loops | ✅ | ✅ ² | ✅ | ✅ | — |
+| Cloudflare Durable Object host | ✅ ³ | — | ⚪ ⁴ | — | ⚪ ⁵ |
 | Structured steps | ✅ | ✅ | ✅ | ✅ | ⚪ |
 | Tools on one-shot runs | ✅ | ✅ | ✅ | ✅ | — |
 | Tools in durable runs | ✅ | ✅ | ⚪ | ⚪ | ⚪ |
-| A model calling MCP tools | ⚪ ⁵ | ⚪ | ⚪ | ⚪ | — |
+| A model calling MCP tools | ⚪ ⁶ | ⚪ | ⚪ | ⚪ | — |
 | Streaming text, one-shot | ✅ | ✅ | ✅ | ⚪ | — |
-| Streaming text, durable (`watchScript`) | ✅ | — ⁶ | ⚪ | ⚪ | ⚪ |
+| Streaming text, durable (`watchScript`) | ✅ | — ⁷ | ⚪ | ⚪ | ⚪ |
 | Abort a one-shot step (`signal`) | ⚪ | ✅ | ⚪ | ⚪ | — |
 | Failure categories, one-shot | ✅ | ✅ | ✅ | ✅ | — |
-| Failure categories, durable | — ⁷ | — | — | — | — |
+| Failure categories, durable | — ⁸ | — | — | — | — |
 | A live check against the real service | — | 🟢 | 🟢 | 🟢 | — |
 
 1. the Node durable command; on Cloudflare every run is durable (see the Cloudflare row)
-2. on a faux model under `wrangler dev --local`
-3. `defineAgentHost` takes any model; no test runs Gemini in a Worker
-4. the binding adapter is tested on a fake binding; no Durable Object run
-5. MCP tools are tested through `run` statements, never a model's call
-6. the claude-code pi provider doesn't stream
-7. every durable failure is `unknown`; parked
+2. on a fake `claude`; the live run went with this repo's self-hosting (see parked.md)
+3. on a faux model under `wrangler dev --local`
+4. `defineAgentHost` takes any model; no test runs Gemini in a Worker
+5. the binding adapter is tested on a fake binding; no Durable Object run
+6. MCP tools are tested through `run` statements, never a model's call
+7. the claude-code pi provider doesn't stream
+8. every durable failure is `unknown`; parked
 
 <details><summary>Evidence</summary>
 
@@ -112,7 +110,7 @@ Each cell says how a feature is proven for a provider: by an offline test, only 
 - **Crash, then resume × gemini:** `Scenario: A crashed Gemini run finishes on resume`
 - **Crash, then resume × ollama:** `Scenario: A crashed ollama run finishes on resume`
 - **Task and change loops × api-keys:** `Scenario: A converged loop prints its iterations and ticked`
-- **Task and change loops × claude-code:** `Scenario: The live run converges and ticks the task`; `Scenario: A live group converges`
+- **Task and change loops × claude-code:** `Scenario: A converged loop's stream`
 - **Task and change loops × gemini:** `Scenario: A task loop converges on Gemini`
 - **Task and change loops × ollama:** `Scenario: A task loop converges on a pulled ollama model`
 - **Cloudflare Durable Object host × api-keys:** `examples/cloudflare-worker/test/crash-resume.sh`; `examples/cloudflare-worker/test/routes.sh`
@@ -144,11 +142,11 @@ Each cell says how a feature is proven for a provider: by an offline test, only 
 
 ## How work happens here
 
-Every behaviour is a requirement in `openspec/specs/`, with one test per scenario. A change starts as
-a proposal, design, spec deltas and tasks in `openspec/changes/<id>/`. It is drafted and approved
-stage by stage (`pnpm change draft` / `approve`), executed group by group by our own agents
-(`pnpm change build`), and folded into the specs once every check passes (`pnpm change close`).
-The package README's [Roadmap](packages/agent/README.md#roadmap) says what comes next.
+Work is planned in [`ARCHITECTURE.md`](ARCHITECTURE.md) and the
+[Blueprint diagrams](blueprint/index.mmd), and tracked as GitHub issues; [`parked.md`](parked.md)
+holds loose ends nobody is on yet. Until 2026-11-06 this repo held itself to OpenSpec specs and
+built its changes with its own task loop (below); that history is in git. The OpenSpec workflow
+itself (`specsesh change`, `specsesh task`) is a product feature, for your repo.
 
 ## How we built the spec agent with itself
 
@@ -242,7 +240,7 @@ Per change, in the order they ran:
   requirements that did not exist. Each was fixed in the delta and answered with
   `pnpm task answer`.
 
-**What we still did by hand** is in [`gaps.md`](gaps.md): 13 entries. `pnpm change build` closed
+**What we still did by hand** is in [`parked.md`](parked.md), under "Gaps from running our own tools": 13 entries. `pnpm change build` closed
 "run the groups in order" and `pnpm change close` closed most of "archive"; the rest are open.
 The most useful next tools are a `delete_file` action, applying an agent's spec amendment, showing
 why a loop failed, duration stats per change and group, and restarting stored loops after a
