@@ -26,6 +26,14 @@ On Node, wherever `claude` is installed and logged in: `specsesh agent`, `durabl
 
 Each step runs in a fresh empty directory under the system temp directory, removed after, and its system prompt ends with a note that Claude Code's environment block (working directory, git status, platform) describes the process, not the project.
 
+`claude` can't outlive its step or its host. On Linux and macOS each `claude` runs under a small Node lifeline, the leader of a process group of its own, with `claude` and anything it starts in that group:
+
+- Stopping a step (an abort or a timeout) sends `SIGTERM` to the whole group.
+- The lifeline checks every 250 ms that the host is still there. If the host dies outright (`SIGKILL`, a crash, an exit with a step still running), the lifeline ends the group. No clock in the dead host can do that.
+- `claude`'s exit code, or the signal that ended it, passes through unchanged, and `claude` reads and writes the host's pipes directly.
+
+On Windows, and in a Bun or Deno host (the lifeline is a Node script), `claude` is spawned directly, as before.
+
 ### From code
 
 `createClaudeCodeReasoningPort(options)` from `@specsesh/agent/claude-code` takes:

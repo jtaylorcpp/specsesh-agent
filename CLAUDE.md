@@ -190,7 +190,9 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
   every step. A tool step passes the measured replacement (`--setting-sources "" --disable-slash-commands
   --strict-mcp-config`) instead, because `--safe-mode` also turns off the step's MCP server
   (`add-claude-code-tools`, design decision 1). Never `--bare` (it forces API-key auth), and
-  `ANTHROPIC_API_KEY` is still stripped on tool steps. Each step runs in a fresh empty directory under `os.tmpdir()`, removed
+  `ANTHROPIC_API_KEY` is still stripped on tool steps. Each step's `claude` runs, on POSIX, under `LIFELINE` (`node -e … -- claude …`),
+  a process-group leader that ends the group when its host goes away, and a stopped step kills
+  the whole group (#51). Each step runs in a fresh empty directory under `os.tmpdir()`, removed
   after (or in the port's or provider's `cwd` option), and the system prompt ends with a fixed
   no-workspace note, because Claude Code's environment block (working directory, git status,
   platform) can't be turned off. First live run: 2026-10-10, triage example, Haiku 4.5, completed.
