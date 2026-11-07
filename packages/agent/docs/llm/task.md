@@ -10,7 +10,8 @@
 - **The judge's next action** is `retry`, `amend-spec` (the spec deltas are wrong; the loop blocks with a proposed amendment) or `ask` (a decision for the principal).
 - **Clean tree.** A run refuses uncommitted changes, listing them; `--allow-dirty` overrides.
 - **`--worktree`** runs in `../<repo>-worktrees/<change>-<task>` on branch `task/<change>/<task>`, from `HEAD` (commit the change first). `--db <path>` is then required. Review there with `git -C <path> diff`.
-- **Delegates.** A script may hand work to a delegate (for example Claude Code) only under a grant in the config. `--no-delegates` withdraws every grant for one run.
+- **Delegates.** A script may hand work to a delegate (an `agent` delegate: one of our scripts on a model you name) only under a grant in the config. `--no-delegates` withdraws every grant for one run.
+- **Claude Code's turn limit.** On `--provider claude-code`, a step that offers tools stops after `--max-turns <n>` turns (else `task.maxTurns`, else 100), failing the loop with a message that says so. Raise it for long coding tasks. `resume` and `answer` take `--max-turns` too; the limit is not stored with a loop.
 
 ## Manage loops
 
@@ -30,11 +31,11 @@
     "task": { "provider": "ollama", "model": "qwen3:8b", "script": "task", "checks": ["pnpm test"], "allow": ["pnpm"] },
     "models": { "local": { "provider": "ollama", "model": "qwen3:8b" } },
     "delegates": { "editor": { "runner": "agent", "model": "local", "script": "edit",
-      "tools": ["read_file", "list_files", "search_files", "edit_file", "run_command"] } }
+      "tools": ["read_file", "list_files", "search_files", "edit_file", "replace_in_file", "run_command"] } }
   }
   ```
 
-  A script calls it with `run @actions.<x>` (target `mcpTool://delegate/editor`) and `instructions`. `tools` must cover the script's actions: the bundled `edit` uses `edit_file` and `run_command` beyond the default three.
+  A script calls it with `run @actions.<x>` (target `mcpTool://delegate/editor`) and `instructions`. `tools` must cover the script's actions: the bundled `edit` uses `edit_file`, `replace_in_file` and `run_command` beyond the default three.
 
 - **Fully local.** Pair the local judge with the bundled `task` script, or with an `agent` delegate on a local model.
 - **When the server is contacted.** Only when the run's model, a stored loop's model (`resume`, `answer`) or a `models` entry is on `ollama`. `resume` and `answer` finish a loop on the model it was started on.

@@ -73,6 +73,7 @@ This repository's own file:
 | `allow` | string[] | `[]` | The first words a command the agent runs may start with. Flag: `--allow`, repeated. |
 | `maxIterations` | integer ≥ 1 | `8` | Iterations per task run. Flag: `--max-iterations`. |
 | `maxReworks` | integer ≥ 1 | `2` | Reworks per group run. Flag: `--max-reworks`. |
+| `maxTurns` | integer ≥ 1 | `100` | On `claude-code` only: the turn limit of a step that offers tools (one held `claude -p --max-turns`). A step that reaches it fails, saying so, and the loop ends `failed`. Flag: `--max-turns`, on `run`, `resume` and `answer`; not stored with the loop, so `resume` and `answer` read it again and the resume hint repeats the flag. |
 | `escalateTo` | `"principal"` or `"agent"` | `principal` | Who an escalation is addressed to, and so who may answer. Flag: `--escalate-to`. |
 | `deleteFiles` | boolean | `false` | Grants `delete_file`, so a task can retire a file. |
 | `context` | string[] | `[]` | Files about your repository (its conventions, such as `CLAUDE.md`), read once when the loop starts and stored with it. The bundled `task.agent` shows them to its orient and act steps; your own script gets them by declaring `context: mutable string`. Every delegate gets them in its preamble. A missing file refuses the run. In `--worktree` runs they are read from the worktree. Config only. |
@@ -89,13 +90,13 @@ Ignore the database. Add `.agentscript/` to `.gitignore`, or the second run will
 
 ### The task script
 
-`task.agent` edits files step by step through `read_file`, `list_files`, `search_files`, `edit_file` and `run_command` (and `delete_file` when `deleteFiles` grants it). On a host whose workspace cannot list or search, those two are simply not offered. It needs a provider that can call tools: a pi provider such as `anthropic`, or `claude-code`, whose steps get the tools over a loopback MCP bridge. Point `script` at your own `.agent` to change how a task is worked; it must keep the contract below.
+`task.agent` edits files step by step through `read_file`, `list_files`, `search_files`, `edit_file`, `replace_in_file` and `run_command` (and `delete_file` when `deleteFiles` grants it). Its act step is told to change part of a file with `replace_in_file` and to keep `edit_file` for creating or rewriting a whole file. On a host whose workspace cannot list or search, those two are simply not offered. It needs a provider that can call tools: a pi provider such as `anthropic`, or `claude-code`, whose steps get the tools over a loopback MCP bridge. Point `script` at your own `.agent` to change how a task is worked; it must keep the contract below.
 
 The bundled scripts live in `node_modules/@specsesh/agent/dist/task/scripts/` (and `packages/agent/src/task/scripts/` in this repo): `task.agent` and `group.agent`, beside the spec stages' scripts.
 
 ### Credentials
 
-With `--provider claude-code`, every step is one `claude -p` process logged in as you. The tool strips `ANTHROPIC_API_KEY` from that process's environment so your subscription login is used rather than a metered key, and it never reads or forwards Claude Code's OAuth token. `--safe-mode` keeps your global `CLAUDE.md`, skills and hooks out of the steps, which is why the delegate only sees repo guidance you list in `delegateContext`. Any other provider reads its own environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …).
+With `--provider claude-code`, every step is one `claude -p` process logged in as you. The tool strips `ANTHROPIC_API_KEY` from that process's environment so your subscription login is used rather than a metered key, and it never reads or forwards Claude Code's OAuth token. Your global `CLAUDE.md`, skills and hooks stay out of the steps (`--safe-mode`, or its measured replacement on a tool step), which is why a step only sees the repository guidance you list in `context`. Any other provider reads its own environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …).
 
 ## Write changes an agent can execute
 
@@ -522,11 +523,11 @@ variables:
         description: "read back: the question to escalate"
 ```
 
-Everything else is yours: the bundled scripts add `plan`, `checks_passed`, `check_output` (and `act_ok`, `act_summary` for the delegate). Also:
+Everything else is yours: the bundled scripts add `plan`, `checks_passed`, `check_output`. Also:
 
 - `next_action` must be a string whose default is one of `retry`, `amend-spec`, `ask`.
 - Every `subagent` runs each iteration, in source order. The bundled four are `orient`, `act`, `check`, `judge`.
-- The only actions a script can bind are the host's built-ins, with exactly these names and types: `read_file`, `edit_file`, `run_command`, `run_checks`, `list_files`, `search_files`, `delete_file` when granted, and a `delegate/<name>` per granted delegate (see [04 Actions](04-actions.md)). `run_checks` fails with `no checks configured, and an empty set of checks is not a pass` when you set none.
+- The only actions a script can bind are the host's built-ins, with exactly these names and types: `read_file`, `edit_file`, `replace_in_file`, `run_command`, `run_checks`, `list_files`, `search_files`, `delete_file` when granted, and a `delegate/<name>` per granted delegate (see [04 Actions](04-actions.md)). `run_checks` fails with `no checks configured, and an empty set of checks is not a pass` when you set none.
 - A script that uses a construct outside the supported subset is refused by name and position ([01 Writing Agent Script](01-agent-script.md)).
 
 A common edit is letting the judge see the deltas, which the bundled judge does not. In `judge`, after the `Task …` line:

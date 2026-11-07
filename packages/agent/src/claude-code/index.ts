@@ -14,6 +14,7 @@ export {
 	CLAUDE_CODE_API,
 	CLAUDE_CODE_MODELS,
 	CLAUDE_CODE_PROVIDER_ID,
+	DEFAULT_TOOL_STEP_TURNS,
 	claudeCodeModel,
 	claudeCodeProvider,
 	promptOf,

@@ -14,8 +14,8 @@ import { draft, proposalStage } from "./spec-helpers.js";
 const USAGE_LINES = [
 	"specsesh task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]",
 	"specsesh task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]",
-	"specsesh task resume <loop-id>|--all [--db <path>] [--json]",
-	"specsesh task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]",
+	"specsesh task resume <loop-id>|--all [--db <path>] [--max-turns <n>] [--json]",
+	"specsesh task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--max-turns <n>] [--json]",
 	"specsesh task status [--db <path>]",
 ] as const;
 

@@ -57,7 +57,7 @@ The change loop drafts, approves, builds and closes a whole change: `specsesh ch
 
 ## Limits
 
-- [claude-code](../providers/claude-code.md) serves a step's tools to `claude` over a loopback MCP bridge, one held `claude -p` per step of at most 16 turns, and streams no text in durable runs.
+- [claude-code](../providers/claude-code.md) serves a step's tools to `claude` over a loopback MCP bridge, one held `claude -p` per step of at most `maxTurns` turns (default 100; `--max-turns` or `task.maxTurns`), and streams no text in durable runs.
 - Small [Ollama](../providers/ollama.md) models may answer a structured step in text instead of the forced `submit_result` call, which fails the step.
 - One live process per database: a second is refused, naming the holder's pid.
 - specsesh never commits. Review the diff and commit it yourself; only the principal approves a stage or answers a review.

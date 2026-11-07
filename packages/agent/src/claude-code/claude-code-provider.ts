@@ -33,7 +33,6 @@ import {
 	type StreamOptions,
 	type Tool,
 } from "@earendil-works/pi-ai";
-import { DEFAULT_MAX_ROUNDS } from "../pi/port.js";
 import {
 	SERVABLE_NAME,
 	claudeArgs,
@@ -59,7 +58,16 @@ export interface ClaudeCodeProviderOptions {
 	readonly runner?: (signal: AbortSignal | undefined) => Runner;
 	/** Serves a request's tools to `claude` (`mcpBridge()` from `./mcp`), so Claude Code can call them through pi. */
 	readonly bridge?: ToolBridgeFactory;
+	/**
+	 * `--max-turns` for a held session (a step offering tools): Claude Code's own bound on its
+	 * turns, each one model reply and the tool calls in it. Defaults to `DEFAULT_TOOL_STEP_TURNS`.
+	 * Reaching it ends the step with an error that names the limit.
+	 */
+	readonly maxTurns?: number;
 }
+
+/** A held session's default `--max-turns`: room for a coding step's reads, edits and test runs. */
+export const DEFAULT_TOOL_STEP_TURNS = 100;
 
 /** The structured answer's tool, by its fixed name. */
 const SUBMIT_RESULT = "submit_result";
@@ -94,11 +102,13 @@ export function claudeCodeModel(id: string): Model<typeof CLAUDE_CODE_API> {
 }
 
 export function claudeCodeProvider(options: ClaudeCodeProviderOptions = {}): Provider<typeof CLAUDE_CODE_API> {
+	const maxTurns = options.maxTurns ?? DEFAULT_TOOL_STEP_TURNS;
+	if (!Number.isInteger(maxTurns) || maxTurns < 1) throw new RangeError(`maxTurns must be a positive integer, got ${maxTurns}`);
 	const runnerFor = (signal: AbortSignal | undefined): Runner =>
 		options.runner?.(signal) ?? spawnRunner(options.binary ?? "claude", options.timeoutMs ?? 300_000, signal, options.cwd);
 	const sessions = new SessionRegistry();
 	const stream = (model: Model<Api>, context: { messages: Message[] }, streamOptions?: StreamOptions) =>
-		streamClaude(model, context.messages, { runnerFor, bridge: options.bridge, sessions, signal: streamOptions?.signal });
+		streamClaude(model, context.messages, { runnerFor, bridge: options.bridge, sessions, maxTurns, signal: streamOptions?.signal });
 	return createProvider({
 		id: CLAUDE_CODE_PROVIDER_ID,
 		name: "Claude Code (your subscription)",
@@ -158,6 +168,8 @@ interface StreamContext {
 	readonly runnerFor: (signal: AbortSignal | undefined) => Runner;
 	readonly bridge: ToolBridgeFactory | undefined;
 	readonly sessions: SessionRegistry;
+	/** A held session's `--max-turns`. */
+	readonly maxTurns: number;
 	readonly signal: AbortSignal | undefined;
 }
 
@@ -181,7 +193,7 @@ function streamClaude(model: Model<Api>, messages: readonly Message[], context: 
 	const refuse = (errorMessage: string) => finish({ ...base, stopReason: "error", errorMessage });
 	const aborted: AssistantMessage = { ...base, stopReason: "aborted", errorMessage: "Request was aborted" };
 	/** The session's next event as a message, unless the request's signal aborts first: then the session ends and `aborted` wins. */
-	const waitOn = async (session: ProviderSession, toolName: string | undefined): Promise<AssistantMessage> => {
+	const waitOn = async (session: ProviderSession, toolName: string | undefined, maxTurns: number): Promise<AssistantMessage> => {
 		const signal = context.signal;
 		let onAbort: (() => void) | undefined;
 		const abort = new Promise<"aborted">((resolve) => {
@@ -191,7 +203,7 @@ function streamClaude(model: Model<Api>, messages: readonly Message[], context: 
 		});
 		try {
 			const event = await Promise.race([session.nextEvent(), abort]);
-			if (event !== "aborted" && !signal?.aborted) return messageFromEvent(base, event, toolName);
+			if (event !== "aborted" && !signal?.aborted) return messageFromEvent(base, event, toolName, maxTurns);
 		} finally {
 			signal?.removeEventListener("abort", onAbort!);
 		}
@@ -208,7 +220,7 @@ function streamClaude(model: Model<Api>, messages: readonly Message[], context: 
 			events.push({ type: "start", partial: base });
 			const submit = tools.find((t) => t.name === SUBMIT_RESULT);
 			const continued = continueSession(messages, context.sessions);
-			if (continued !== undefined) return finish(await waitOn(continued, submit?.name));
+			if (continued !== undefined) return finish(await waitOn(continued, submit?.name, context.maxTurns));
 			if (context.signal?.aborted) return finish(aborted);
 			// No result names a live session: a first request, or a resumed run whose process died with the crash.
 			let session: ProviderSession;
@@ -220,7 +232,7 @@ function streamClaude(model: Model<Api>, messages: readonly Message[], context: 
 						system: systemPromptOf(messages),
 						model: model.id,
 						...(submit !== undefined ? { schema: submit.parameters as unknown as Record<string, unknown> } : {}),
-						maxTurns: DEFAULT_MAX_ROUNDS,
+						maxTurns: context.maxTurns,
 					},
 					prompt: promptOf(messages),
 					runnerFor: context.runnerFor,
@@ -229,7 +241,7 @@ function streamClaude(model: Model<Api>, messages: readonly Message[], context: 
 			} catch (error) {
 				return refuse(`could not start the tool bridge: ${error instanceof Error ? error.message : String(error)}`);
 			}
-			return finish(await waitOn(session, submit?.name));
+			return finish(await waitOn(session, submit?.name, context.maxTurns));
 		}
 
 		if (tools.length > 1) {
@@ -273,8 +285,8 @@ function continueSession(messages: readonly Message[], sessions: SessionRegistry
 }
 
 /** A session's event as one message: its held calls as `toolCall`s with zero usage, or the process's result. */
-function messageFromEvent(base: AssistantMessage, event: SessionEvent, toolName: string | undefined): AssistantMessage {
-	if (event.kind === "done") return messageFromResult(base, event.result, toolName);
+function messageFromEvent(base: AssistantMessage, event: SessionEvent, toolName: string | undefined, maxTurns: number): AssistantMessage {
+	if (event.kind === "done") return messageFromResult(base, event.result, toolName, maxTurns);
 	return {
 		...base,
 		stopReason: "toolUse",
@@ -285,8 +297,9 @@ function messageFromEvent(base: AssistantMessage, event: SessionEvent, toolName:
 /**
  * One process's result as a message: an error with diagnostics, a call to
  * `toolName` carrying the structured output when that tool was offered, or text.
+ * `maxTurns` is the held session's limit, named when the process stopped at it.
  */
-function messageFromResult(base: AssistantMessage, processResult: ProcessResult, toolName: string | undefined): AssistantMessage {
+function messageFromResult(base: AssistantMessage, processResult: ProcessResult, toolName: string | undefined, maxTurns?: number): AssistantMessage {
 	const { step, parsed } = toClaudeCodeOutcome(processResult, toolName !== undefined);
 	const usage = usageOf(parsed);
 
@@ -296,7 +309,7 @@ function messageFromResult(base: AssistantMessage, processResult: ProcessResult,
 			...base,
 			usage,
 			stopReason: "error",
-			errorMessage: step.kind === "failed" ? step.message : `claude stopped at its turn limit after ${step.turns} turns`,
+			errorMessage: step.kind === "failed" ? step.message : turnLimitMessage(step.turns, maxTurns),
 			...(status !== undefined && status !== null
 				? { diagnostics: [{ type: "claude-code", timestamp: Date.now(), error: { message: "api error", code: status } }] }
 				: {}),
@@ -311,6 +324,14 @@ function messageFromResult(base: AssistantMessage, processResult: ProcessResult,
 				content: [{ type: "toolCall", id: `claude-code-${Date.now()}`, name: toolName, arguments: step.structured as Record<string, never> }],
 			}
 		: { ...base, usage, stopReason: "stop", content: [{ type: "text", text: step.text }] };
+}
+
+/** Why a step ended at Claude Code's turn limit, and, when the limit is known, how to raise it. */
+export function turnLimitMessage(turns: number, maxTurns: number | undefined): string {
+	const stopped = `claude stopped at its turn limit after ${turns} turns`;
+	return maxTurns === undefined
+		? stopped
+		: `${stopped} (maxTurns ${maxTurns}); the step ended unfinished: raise maxTurns (the CLI's --max-turns, or task.maxTurns in agentscript.config.json) to give it more`;
 }
 
 function usageOf(parsed: ClaudeCodeResult | undefined): AssistantMessage["usage"] {

@@ -16,7 +16,7 @@ flowchart LR
   act[act<br/>run one host action]
   registry[createActionRegistry<br/>host actions by name]
   toolhost[registryHost<br/>registry for one-shot runs]
-  ws[workspaceActions<br/>read · write · list · search · exec]
+  ws[workspaceActions<br/>read · edit · replace · run · checks]
   mem[memoryWorkspace<br/>in memory]
   local[localWorkspace<br/>a directory on disk]
   builtins[builtinActions<br/>argv commands]
@@ -70,15 +70,15 @@ flowchart LR
   %% code: act packages/agent/src/durable/extension.ts:372
   %% code: registry packages/agent/src/durable/actions.ts:106
   %% code: toolhost packages/agent/src/durable/tool-host.ts:24
-  %% code: ws packages/agent/src/durable/workspace.ts:329
-  %% code: mem packages/agent/src/durable/workspace.ts:197
+  %% code: ws packages/agent/src/durable/workspace.ts:330
+  %% code: mem packages/agent/src/durable/workspace.ts:198
   %% code: local packages/agent/src/node/local-workspace.ts:29
   %% code: builtins packages/agent/src/node/builtins.ts:25
   %% code: deleg packages/agent/src/durable/delegation.ts:160
   %% code: grants packages/agent/src/durable/delegation.ts:87
   %% code: runners packages/agent/src/node/index.ts:9
   %% code: agentrun packages/agent/src/durable/agent-runner.ts:162
-  %% code: scripts packages/agent/src/durable/delegate-scripts.ts:112
+  %% code: scripts packages/agent/src/durable/delegate-scripts.ts:129
   %% code: mcptools packages/agent/src/mcp/mcp.ts:102
 
-  class runners done
+  class ws done

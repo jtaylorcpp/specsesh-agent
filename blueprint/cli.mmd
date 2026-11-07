@@ -13,7 +13,7 @@ flowchart LR
   durablebin[agentscript-durable<br/>run · resume]
   taskbin[agentscript-task<br/>run · spec · resume · answer · status · pick-tests]
   changebin[agentscript-change<br/>draft · approve · build · close]
-  models[cliModels<br/>pi providers + claude-code]
+  models[cliModels<br/>pi providers + claude-code, maxTurns]
   tools[loadActions<br/>tools modules · MCP files]
   mcp[importMcp<br/>lazy MCP entry]
   config[loadConfig<br/>agentscript.config.json]
@@ -32,13 +32,13 @@ flowchart LR
   pibin --> models
   pibin --> tools
   pibin -.-> mcp
-  durablebin --> models
+  durablebin -->|--max-turns| models
   durablebin --> tools
   durablebin -.-> mcp
-  taskbin --> models
+  taskbin -->|--max-turns · task.maxTurns| models
   taskbin --> config
   changebin --> config
-  changebin --> models
+  changebin -->|--max-turns · task.maxTurns| models
   release -.->|packs · publishes| specsesh
 
   %% code: specsesh packages/specsesh/bin/specsesh.js:9
@@ -49,11 +49,13 @@ flowchart LR
   %% code: llm packages/agent/src/cli/llm.ts:79
   %% code: help packages/agent/src/cli/llm.ts:135
   %% code: pibin packages/agent/src/bin/agentscript-pi.ts:74
-  %% code: durablebin packages/agent/src/bin/agentscript-durable.ts:68
-  %% code: taskbin packages/agent/src/bin/agentscript-task.ts:198
+  %% code: durablebin packages/agent/src/bin/agentscript-durable.ts:71
+  %% code: taskbin packages/agent/src/bin/agentscript-task.ts:205
   %% code: changebin packages/agent/src/bin/agentscript-change.ts:87
-  %% code: models packages/agent/src/bin/models.ts:15
+  %% code: models packages/agent/src/bin/models.ts:21
   %% code: tools packages/agent/src/bin/tools.ts:75
   %% code: mcp packages/agent/src/bin/mcp.ts:12
-  %% code: config packages/agent/src/task/config.ts:255
+  %% code: config packages/agent/src/task/config.ts:258
   %% code: release .github/workflows/release.yml:36
+
+  class models done

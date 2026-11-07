@@ -126,7 +126,7 @@ describe("actions/registry: An action registry maps names to host actions", () =
 	it("Scenario: No delegate is built in", () => {
 		for (const actions of [builtinActions({ workspace }), workspaceActions(localWorkspace(workspace))]) {
 			const names = actions.map((a) => a.name);
-			expect(names).toEqual(["read_file", "edit_file", "run_command", "run_checks"]);
+			expect(names).toEqual(["read_file", "edit_file", "replace_in_file", "run_command", "run_checks"]);
 			expect(names).not.toContain("delegate_claude_code");
 			expect(names.filter((name) => name.startsWith("delegate/"))).toEqual([]);
 		}

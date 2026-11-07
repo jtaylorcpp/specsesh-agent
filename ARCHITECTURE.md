@@ -43,8 +43,8 @@ Paths under `src/` are in `packages/agent/`.
   pi-ai's built-in providers (Anthropic, OpenAI, Google for Gemini, …), Ollama and the Claude Code
   provider.
 - **Tools.** One registry of host actions:
-  - workspace actions: `read_file`, `edit_file`, `run_command`, `list_files`, `search_files`, and
-    `delete_file` only when granted;
+  - workspace actions: `read_file`, `edit_file` (a whole file), `replace_in_file` (exact text),
+    `run_command`, `list_files`, `search_files`, and `delete_file` only when granted;
   - argv builtins (`src/node/builtins.ts`);
   - MCP server tools, as `<server>/<tool>` (`src/mcp`);
   - granted delegates (below).
@@ -71,16 +71,18 @@ session. Claude Code's OAuth token is never read or forwarded. It is model acces
 
 | Role | Code | Who runs the tools | Fate |
 |---|---|---|---|
-| pi provider (model access) | `src/claude-code/claude-code-provider.ts`, `provider-session.ts` | Our harness. Claude Code's tool calls come back through a loopback MCP bridge as pi tool calls; a held `claude -p` lasts one step. | Keep. |
+| pi provider (model access) | `src/claude-code/claude-code-provider.ts`, `provider-session.ts` | Our harness. Claude Code's tool calls come back through a loopback MCP bridge as pi tool calls; a held `claude -p` lasts one step, up to `maxTurns` turns (default 100). | Keep. |
 | `ReasoningPort` | `src/claude-code/claude-code.ts` | Our host, through the same bridge. | Goes with the one-shot path (#29). |
 | Delegate runner (`claudeCodeRunner`) | removed | Claude Code itself, with its own file tools. | **Removed** (2026-11-06), with the bundled `task-delegate.agent`. |
 
 Every agent that works in a repo must be able to read and edit files and run commands. The workspace
 actions give that to any model, Claude Code included, so the delegate runner was a redundant second
-route; the bundled `task` script does that work on the Claude Code provider. Of what the delegate did
-better, listing and searching files in the act step (#42) and the repository's own context files
-(`task.context`, #43) are back; a string-replacement edit (#36) and the per-step turn limit of 16 on
-Claude Code tool steps (#37) are open.
+route; the bundled `task` script does that work on the Claude Code provider. Everything the delegate did
+better is back: listing and searching files in the act step (#42), the repository's own context
+files (`task.context`, #43), a string-replacement edit (`replace_in_file`, #36), and room for a
+coding step on Claude Code (`maxTurns`, default 100, set by `--max-turns` or `task.maxTurns`; #37).
+One bound remains: a held session's `timeoutMs` (5 minutes) counts the time our host spends running
+its tools, so a step that runs long checks can reach it first.
 
 ### Decisions
 
@@ -172,8 +174,8 @@ where it goes is part of the same design.
 1. **Codify where we are:** this page and `blueprint/`. Done; this repo plans with them, GitHub
    issues and `parked.md` (loose ends), no longer with OpenSpec changes of its own.
 2. **All durable:** failure categories in durable runs (#28), then remove the one-shot path (#29).
-3. **Close the gaps the delegate left:** a string-replacement edit (#36), the Claude Code turn limit (#37).
-   Search in the act step (#42) and context files (#43) are done.
+3. **Close the gaps the delegate left.** Done: search in the act step (#42), context files (#43),
+   `replace_in_file` (#36) and the Claude Code turn limit (#37).
 4. **Stream to a UI:** consume `watchScript` (#30), Claude Code provider text (#31), structured steps (#32).
 5. **Extract the generic loop** from `src/task` (#33).
 6. **Blueprint workflows:** users define their own software-factory flows and agents (scripts), with

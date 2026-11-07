@@ -467,7 +467,7 @@ describe("durable/run-task: A step conversation is configured with the script's 
 		await harness.close(context);
 		expect(result.kind).toBe("completed");
 		// builtinActions binds no list_files or search_files: optional targets, so they are left out.
-		expect(toolNames(env.requests[0])).toEqual(["read", "edit", "shell"]);
+		expect(toolNames(env.requests[0])).toEqual(["read", "edit", "replace", "shell"]);
 	});
 });
 

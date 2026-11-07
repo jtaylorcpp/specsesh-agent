@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createModels, Type, type AssistantMessage, type Context, type Message, type ToolCall } from "@earendil-works/pi-ai";
 import type { ProcessResult, Runner } from "../../src/claude-code/claude-code.js";
-import { claudeCodeProvider } from "../../src/claude-code/claude-code-provider.js";
+import { DEFAULT_TOOL_STEP_TURNS, claudeCodeProvider } from "../../src/claude-code/claude-code-provider.js";
 import type { BridgeHandler, BridgeReply, BridgeTool, ToolBridgeFactory } from "../../src/claude-code/tool-bridge.js";
 
 const ok = (result: Record<string, unknown>): ProcessResult => ({
@@ -64,7 +64,7 @@ describe("With a bridge, a request offering tools runs a held claude session", (
 		expect(h.runner.calls).toHaveLength(1);
 		const { args, input, signal } = h.runner.calls[0]!;
 		expect(args).toContain("--mcp-config");
-		expect(flag(args, "--max-turns")).toBe("16");
+		expect(flag(args, "--max-turns")).toBe(String(DEFAULT_TOOL_STEP_TURNS));
 		expect(JSON.parse(flag(args, "--json-schema")!)).toEqual(JSON.parse(JSON.stringify(submitResult.parameters)));
 		expect(args).not.toContain("--safe-mode");
 		expect(input).toBe("Find order 7");

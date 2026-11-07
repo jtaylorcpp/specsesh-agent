@@ -12,7 +12,7 @@ import { declaredActions, scanDocument, start } from "../../src/interpreter/inde
 import { EDIT_AGENT, READ_AGENT, delegateContractProblems } from "../../src/durable/index.js";
 
 const READ_TOOLS = ["read_file", "list_files", "search_files"];
-const EDIT_TOOLS = [...READ_TOOLS, "edit_file", "run_command"];
+const EDIT_TOOLS = [...READ_TOOLS, "edit_file", "replace_in_file", "run_command"];
 
 function offered(source: string): string[] {
 	const work = readSubagents(analyze(source).parsed).get("work");
