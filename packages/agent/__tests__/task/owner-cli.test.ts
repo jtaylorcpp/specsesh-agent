@@ -143,7 +143,9 @@ if (schemaAt >= 0) {
 		const marker = path.join(__dirname, "killed");
 		if (task === "1.2" && !fs.existsSync(marker)) {
 			fs.writeFileSync(marker, "");
-			process.kill(process.ppid, "SIGKILL");
+			// The host: claude runs under its lifeline (#51), whose parent the host is.
+			const host = Number(require("node:child_process").execFileSync("ps", ["-o", "ppid=", "-p", String(process.ppid)], { encoding: "utf8" }).trim());
+			process.kill(host, "SIGKILL");
 			process.exit(137);
 		}
 		out = { type: "result", is_error: false, result: "", structured_output: { plan: "plan for " + task } };
