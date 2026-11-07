@@ -3,12 +3,12 @@ title: Claude Code
 ---
 flowchart LR
   port[createClaudeCodeReasoningPort<br/>one-shot, one claude -p per step]
-  provider[claudeCodeProvider<br/>pi provider, maxTurns, no text streaming]
+  provider[claudeCodeProvider<br/>pi provider, maxTurns · timeoutMs, no text streaming]
   args[claudeArgs<br/>safe-mode · json-schema · stream-json]
   env[claudeCodeEnv<br/>strips ANTHROPIC_API_KEY]
-  spawn[spawnRunner<br/>fresh empty cwd per step]
+  spawn[spawnRunner<br/>fresh empty cwd per step, optional clock]
   outcome[toClaudeCodeOutcome<br/>StepOutcome]
-  session[ProviderSession<br/>held claude -p --max-turns, calls to pi]
+  session[ProviderSession<br/>held claude -p --max-turns, calls to pi,<br/>turn clock stops while pi runs tools]
   sessions[SessionRegistry<br/>live sessions by id]
   bridge[ToolBridge<br/>agentscript MCP server]
   mcpbridge[mcpBridge<br/>loopback MCP server]
@@ -21,18 +21,19 @@ flowchart LR
   provider --> args
   provider --> spawn
   provider -->|tool offers + bridge| session
+  session -->|no clock| spawn
   session --> sessions
   session --> bridge
   bridge -.->|made by| mcpbridge
 
-  %% code: port packages/agent/src/claude-code/claude-code.ts:258
-  %% code: provider packages/agent/src/claude-code/claude-code-provider.ts:104
-  %% code: args packages/agent/src/claude-code/claude-code.ts:205
-  %% code: env packages/agent/src/claude-code/claude-code.ts:241
-  %% code: spawn packages/agent/src/claude-code/claude-code.ts:512
-  %% code: outcome packages/agent/src/claude-code/claude-code.ts:461
-  %% code: session packages/agent/src/claude-code/provider-session.ts:72
-  %% code: sessions packages/agent/src/claude-code/provider-session.ts:34
+  %% code: port packages/agent/src/claude-code/claude-code.ts:260
+  %% code: provider packages/agent/src/claude-code/claude-code-provider.ts:128
+  %% code: args packages/agent/src/claude-code/claude-code.ts:207
+  %% code: env packages/agent/src/claude-code/claude-code.ts:243
+  %% code: spawn packages/agent/src/claude-code/claude-code.ts:515
+  %% code: outcome packages/agent/src/claude-code/claude-code.ts:463
+  %% code: session packages/agent/src/claude-code/provider-session.ts:91
+  %% code: sessions packages/agent/src/claude-code/provider-session.ts:43
   %% code: bridge packages/agent/src/claude-code/tool-bridge.ts:35
   %% code: mcpbridge packages/agent/src/mcp/mcp-bridge.ts:24
 

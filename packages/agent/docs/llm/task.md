@@ -12,6 +12,7 @@
 - **`--worktree`** runs in `../<repo>-worktrees/<change>-<task>` on branch `task/<change>/<task>`, from `HEAD` (commit the change first). `--db <path>` is then required. Review there with `git -C <path> diff`.
 - **Delegates.** A script may hand work to a delegate (an `agent` delegate: one of our scripts on a model you name) only under a grant in the config. `--no-delegates` withdraws every grant for one run.
 - **Claude Code's turn limit.** On `--provider claude-code`, a step that offers tools stops after `--max-turns <n>` turns (else `task.maxTurns`, else 100), failing the loop with a message that says so. Raise it for long coding tasks. `resume` and `answer` take `--max-turns` too; the limit is not stored with a loop.
+- **Claude Code's time limit.** One turn (one reply) may take `--turn-timeout <ms>` (else `task.turnTimeoutMs`, else 300000). Time spent running the step's tools, such as a long check, doesn't count. A turn past it fails the loop, saying so. `resume` and `answer` take it too; it is not stored.
 
 ## Manage loops
 

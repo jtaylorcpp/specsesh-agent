@@ -132,8 +132,9 @@ our host; the step's `toolCalls` are in arrival order. The pi loop runs calls on
 this is a difference. A one-shot tool step defaults `--max-turns` to 16, and reaching it ends the
 step `cut-short`. Durable runs (`agentscript-durable`, pi-durable, and so every task loop) run
 tool steps through the claude-code pi provider's held sessions, whose turn limit is `maxTurns`
-(default 100; `--max-turns <n>` or `task.maxTurns`); reaching it fails the step with a message
-that names the limit.
+(default 100; `--max-turns <n>` or `task.maxTurns`), each turn bounded by `timeoutMs` (default 5
+minutes, not counting the time our tools take; `--turn-timeout <ms>` or `task.turnTimeoutMs`);
+reaching either fails the step with a message that names the limit.
 
 **From code.** The interpreter holds no credential and imports no model client: reasoning leaves
 through a `ReasoningPort` you inject. `@specsesh/agent/pi` builds one on pi-ai:
@@ -494,7 +495,8 @@ Progress is JSON Lines on stderr. `task.agent` acts through the workspace action
 `list_files`, `search_files`, `edit_file`, `replace_in_file`, `run_command`, and `delete_file` when
 granted), on any provider that serves tools, the Claude Code provider included. On Claude Code, a
 step that offers tools stops after `maxTurns` turns (default 100; `"maxTurns"` under `task`, or
-`--max-turns <n>`). `"context": ["CLAUDE.md"]` under
+`--max-turns <n>`), and a turn after 5 minutes of its own work (`"turnTimeoutMs"`, or
+`--turn-timeout <ms>`; tool time doesn't count). `"context": ["CLAUDE.md"]` under
 `task` hands the model the repository's own conventions: the files are read once when the loop
 starts, shown to `task.agent`'s orient and act steps, and put in every delegate's preamble.
 

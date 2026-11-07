@@ -1,12 +1,13 @@
-// The task CLI's turn limit for claude-code tool steps (#37): `--max-turns`, else `task.maxTurns`
-// in agentscript.config.json, handed to the model collection. Not stored with a loop, so `resume`
-// and `answer` read it again and every resume hint repeats the flag.
+// The task CLI's limits for claude-code tool steps: the turn limit (#37), `--max-turns`, else
+// `task.maxTurns` in agentscript.config.json, and the time limit on one turn, `--turn-timeout`, else
+// `task.turnTimeoutMs`, both handed to the model collection. Not stored with a loop, so `resume` and
+// `answer` read them again and every resume hint repeats the flags.
 
 import { cpSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseBuild, prepareBuild } from "../../src/task/cmd-build.js";
-import { ConfigError, loadConfig, resolveRunSettings, runFlagsOf } from "../../src/task/config.js";
+import { ConfigError, MAX_TIMEOUT_MS, loadConfig, resolveRunSettings, runFlagsOf } from "../../src/task/config.js";
 import { cli, fauxModels } from "./cli-helpers.js";
 import { cleanTemps, plan, temp, text, tinyChange, verdict } from "./helpers.js";
 
@@ -50,6 +51,33 @@ describe("task/headless: task.maxTurns in agentscript.config.json", () => {
 	});
 });
 
+describe("task/headless: task.turnTimeoutMs in agentscript.config.json", () => {
+	it("must be a positive integer of milliseconds a timer can keep", () => {
+		expect(MAX_TIMEOUT_MS).toBe(2_147_483_647);
+		expect(loadConfig(configured({ turnTimeoutMs: MAX_TIMEOUT_MS })).task.turnTimeoutMs).toBe(MAX_TIMEOUT_MS);
+		for (const bad of [0, -5, 1.5, "600000", MAX_TIMEOUT_MS + 1]) {
+			const root = configured({ turnTimeoutMs: bad });
+			expect(() => loadConfig(root), String(bad)).toThrow(ConfigError);
+			expect(() => loadConfig(root), String(bad)).toThrow("task.turnTimeoutMs must be a positive integer of milliseconds, at most 2147483647");
+		}
+	});
+
+	it("resolves flag, then config, then unset (the provider's default)", () => {
+		const root = configured({ turnTimeoutMs: 600_000 });
+		const config = loadConfig(root);
+		expect(resolveRunSettings({ turnTimeoutMs: 900_000 }, {}, config, root).turnTimeoutMs).toBe(900_000);
+		expect(resolveRunSettings({}, {}, config, root).turnTimeoutMs).toBe(600_000);
+		expect(resolveRunSettings({}, {}, loadConfig(configured({})), root).turnTimeoutMs).toBeUndefined();
+	});
+
+	it("--turn-timeout must be a positive integer of milliseconds a timer can keep", () => {
+		expect(runFlagsOf({ "turn-timeout": "600000" })).toMatchObject({ turnTimeoutMs: 600_000 });
+		for (const bad of ["0", "ten", "2.5", "2147483648"]) {
+			expect(runFlagsOf({ "turn-timeout": bad }), bad).toBe(`--turn-timeout must be a positive integer of milliseconds, at most 2147483647, got "${bad}"`);
+		}
+	});
+});
+
 describe("task/cli: run hands the turn limit to the model collection", () => {
 	it("from the config", async () => {
 		const r = await run(configured({ maxTurns: 40 }));
@@ -70,6 +98,15 @@ describe("task/cli: run hands the turn limit to the model collection", () => {
 		const r = await run(configured({}));
 		expect(r.code, r.err).toBe(0);
 		expect(r.seen).toEqual([{}]);
+	});
+
+	it("--turn-timeout and task.turnTimeoutMs beside the turn limit; the hint repeats each flag given", async () => {
+		const fromConfig = await run(configured({ maxTurns: 40, turnTimeoutMs: 600_000 }));
+		expect(fromConfig.seen).toEqual([{ maxTurns: 40, turnTimeoutMs: 600_000 }]);
+		const flagged = await run(configured({ turnTimeoutMs: 600_000 }), ["--max-turns", "60", "--turn-timeout", "900000"]);
+		expect(flagged.code, flagged.err).toBe(0);
+		expect(flagged.seen).toEqual([{ maxTurns: 60, turnTimeoutMs: 900_000 }]);
+		expect(flagged.errLines[0]).toMatch(/^loop \d+ — resume with: specsesh task resume \d+ --db loops\.sqlite --max-turns 60 --turn-timeout 900000$/);
 	});
 
 	it("refuses a bad --max-turns before any model is touched", async () => {
@@ -99,6 +136,20 @@ describe("task/cli: resume and answer read the turn limit again", () => {
 		await cli(["answer", "1", "--db", "loops.sqlite", "--by", "principal", "--decision", "go", "--max-turns", "15"], env, { cwd: root });
 		expect(env.modelOptions).toEqual([{ maxTurns: 15 }]);
 	});
+
+	it("resume and answer take --turn-timeout, else the config's", async () => {
+		const root = configured({ turnTimeoutMs: 600_000 });
+		expect((await run(root)).code).toBe(0);
+		const flagged = fauxModels();
+		await cli(["resume", "1", "--db", "loops.sqlite", "--turn-timeout", "700000"], flagged, { cwd: root });
+		expect(flagged.modelOptions).toEqual([{ turnTimeoutMs: 700_000 }]);
+		const plain = fauxModels();
+		await cli(["resume", "1", "--db", "loops.sqlite"], plain, { cwd: root });
+		expect(plain.modelOptions).toEqual([{ turnTimeoutMs: 600_000 }]);
+		const answered = fauxModels();
+		await cli(["answer", "1", "--db", "loops.sqlite", "--by", "principal", "--decision", "go", "--turn-timeout", "800000"], answered, { cwd: root });
+		expect(answered.modelOptions).toEqual([{ turnTimeoutMs: 800_000 }]);
+	});
 });
 
 describe("task/cli: change build resolves the turn limit as a run does", () => {
@@ -114,5 +165,7 @@ describe("task/cli: change build resolves the turn limit as a run does", () => {
 		};
 		expect(request([]).maxTurns).toBe(40);
 		expect(request(["--max-turns", "90"]).maxTurns).toBe(90);
+		expect(request([]).turnTimeoutMs).toBeUndefined();
+		expect(request(["--turn-timeout", "600000"]).turnTimeoutMs).toBe(600_000);
 	});
 });

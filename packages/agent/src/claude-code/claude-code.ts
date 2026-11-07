@@ -85,6 +85,8 @@ export interface ProcessResult {
 	readonly stderr: string;
 	/** Set when the process could not be started at all (e.g. ENOENT). */
 	readonly spawnError?: Error;
+	/** Set when a clock stopped the process: the runner's `timeoutMs`, or a held session's turn clock. */
+	readonly timedOut?: boolean;
 }
 
 /**
@@ -509,7 +511,8 @@ export function toClaudeCodeOutcome(
 	return { parsed, step: { kind: "answered", text } };
 }
 
-export function spawnRunner(binary: string, timeoutMs: number, signal?: AbortSignal, cwd?: string): Runner {
+/** A runner for `binary`. `timeoutMs` stops each process past it; undefined, only `signal` does (a held session keeps its own clock). */
+export function spawnRunner(binary: string, timeoutMs: number | undefined, signal?: AbortSignal, cwd?: string): Runner {
 	return async (args, input, env, onStdout) => {
 		// Run outside any project so no project-level settings are picked up either, and
 		// in a directory of our own, so Claude Code finds nothing another process left there.
@@ -533,7 +536,7 @@ function spawnIn(
 	args: readonly string[],
 	input: string,
 	env: NodeJS.ProcessEnv,
-	timeoutMs: number,
+	timeoutMs: number | undefined,
 	signal?: AbortSignal,
 	onStdout?: (chunk: string) => void,
 ): Promise<ProcessResult> {
@@ -541,7 +544,14 @@ function spawnIn(
 		const child = spawn(binary, args, { env, cwd, stdio: ["pipe", "pipe", "pipe"] });
 		let stdout = "";
 		let stderr = "";
-		const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+		let timedOut = false;
+		const timer =
+			timeoutMs === undefined
+				? undefined
+				: setTimeout(() => {
+						timedOut = true;
+						child.kill("SIGTERM");
+					}, timeoutMs);
 		const onAbort = () => child.kill("SIGTERM");
 		signal?.addEventListener("abort", onAbort, { once: true });
 		// Aborted while the directory was being made: the listener above will never fire.
@@ -564,7 +574,7 @@ function spawnIn(
 		});
 		child.on("close", (code) => {
 			settle();
-			resolve({ code, stdout, stderr });
+			resolve({ code, stdout, stderr, ...(timedOut ? { timedOut } : {}) });
 		});
 		child.stdin.end(input);
 	});

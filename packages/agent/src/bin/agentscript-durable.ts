@@ -5,8 +5,9 @@
  *   agentscript-durable run <file> --db <runs.sqlite> [--provider anthropic] [--model claude-haiku-4-5]
  *                                  [--entry <subagent>]... [--var name=value]... [--json]
  *                                  [--tools <module>]... [--mcp <file>]... [--workspace <dir>] [--max-turns <n>]
+ *                                  [--turn-timeout <ms>]
  *   agentscript-durable resume <task-id> --db <runs.sqlite> [--json] [--tools <module>]... [--mcp <file>]...
- *                                  [--workspace <dir>] [--max-turns <n>]
+ *                                  [--workspace <dir>] [--max-turns <n>] [--turn-timeout <ms>]
  *
  * `run` prints the task ID before the first model call. If the process dies,
  * `resume` with that ID on the same database finishes the run from its last step.
@@ -22,7 +23,9 @@
  * `--provider claude-code` runs each step through your own `claude` binary on your
  * Claude subscription (claudeCodeProvider from @specsesh/agent/claude-code), for local work.
  * `--max-turns` is its turn limit on a step that offers tools (default
- * `DEFAULT_TOOL_STEP_TURNS`); like the tools, it is not stored, so the hint repeats it.
+ * `DEFAULT_TOOL_STEP_TURNS`), and `--turn-timeout` its time limit on one turn (default
+ * `DEFAULT_TURN_TIMEOUT_MS`), not counting the time our tools take. Like the tools,
+ * neither is stored, so the hint repeats them.
  */
 
 import { readFileSync, realpathSync } from "node:fs";
@@ -37,21 +40,26 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { ActionBindingError, checkBindings, createActionRegistry, type ActionRegistry } from "../durable/actions.js";
 import { AgentScript, agentScriptExtensions, AgentScriptStepExtension, type RunInput } from "../durable/extension.js";
 import { startScript, waitForScript } from "../durable/host.js";
-import { cliModels, geminiRefusal, ollamaSuffix, turnOptions, withGemini, withOllama, type CliModelOptions } from "./models.js";
+import { cliModels, geminiRefusal, ollamaSuffix, turnFlags, turnOptions, withGemini, withOllama, type CliModelOptions } from "./models.js";
 import { loadActions, reportSkipped } from "./tools.js";
 
 export const DEFAULT_PROVIDER = "anthropic";
 export const DEFAULT_MODEL = "claude-haiku-4-5";
 
+/** The longest `--turn-timeout` a timer keeps. */
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
 export const USAGE = `usage:
   agentscript-durable run <file> --db <path> [--provider <id>] [--model <id>] [--entry <subagent>]... [--var name=value]... [--json]
-                          [--tools <module>]... [--mcp <file>]... [--workspace <dir>] [--max-turns <n>]
-  agentscript-durable resume <task-id> --db <path> [--json] [--tools <module>]... [--mcp <file>]... [--workspace <dir>] [--max-turns <n>]
+                          [--tools <module>]... [--mcp <file>]... [--workspace <dir>] [--max-turns <n>] [--turn-timeout <ms>]
+  agentscript-durable resume <task-id> --db <path> [--json] [--tools <module>]... [--mcp <file>]... [--workspace <dir>]
+                             [--max-turns <n>] [--turn-timeout <ms>]
 tools: JavaScript modules (compile TypeScript first); resume needs the same --tools and --mcp as run
---max-turns: claude-code's turn limit on a step that offers tools (default 100)`;
+--max-turns: claude-code's turn limit on a step that offers tools (default 100)
+--turn-timeout: claude-code's time limit on one turn, in ms, not counting its tools (default 300000)`;
 
 export interface CliDeps {
-	/** The pi-ai model collection. Defaults to every built-in provider; `options` carries `--max-turns`. */
+	/** The pi-ai model collection. Defaults to every built-in provider; `options` carries `--max-turns` and `--turn-timeout`. */
 	readonly models?: (options?: CliModelOptions) => Promise<Models> | Models;
 	readonly out?: (line: string) => void;
 	readonly err?: (line: string) => void;
@@ -91,6 +99,7 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 			mcp: { type: "string", multiple: true },
 			workspace: { type: "string" },
 			"max-turns": { type: "string" },
+			"turn-timeout": { type: "string" },
 		},
 	});
 	const target = positionals[0];
@@ -101,6 +110,12 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 	const turns = values["max-turns"];
 	if (turns !== undefined && !/^[1-9][0-9]*$/.test(turns)) {
 		err(`--max-turns must be a positive integer, got "${turns}"`);
+		err(USAGE);
+		return 2;
+	}
+	const turnTimeout = values["turn-timeout"];
+	if (turnTimeout !== undefined && !(/^[1-9][0-9]*$/.test(turnTimeout) && Number(turnTimeout) <= MAX_TIMEOUT_MS)) {
+		err(`--turn-timeout must be a positive integer of milliseconds, at most ${MAX_TIMEOUT_MS}, got "${turnTimeout}"`);
 		err(USAGE);
 		return 2;
 	}
@@ -151,6 +166,7 @@ async function runOnHarness(
 		readonly json?: boolean;
 		readonly workspace?: string;
 		readonly "max-turns"?: string;
+		readonly "turn-timeout"?: string;
 	},
 	toolPaths: readonly string[],
 	mcpFiles: readonly string[],
@@ -162,7 +178,13 @@ async function runOnHarness(
 ): Promise<number> {
 	const context = BACKGROUND_CONTEXT;
 	const turns = values["max-turns"];
-	const models = await (deps.models ?? cliModels)(turnOptions(turns !== undefined ? Number(turns) : undefined));
+	const turnTimeout = values["turn-timeout"];
+	const models = await (deps.models ?? cliModels)(
+		turnOptions({
+			maxTurns: turns !== undefined ? Number(turns) : undefined,
+			turnTimeoutMs: turnTimeout !== undefined ? Number(turnTimeout) : undefined,
+		}),
+	);
 	const harness = await Harness.open(await openNodeSqliteStorage(values.db), { models, registry }, context);
 
 	try {
@@ -201,8 +223,8 @@ async function runOnHarness(
 			const toolFlags = toolPaths.map((path) => ` --tools ${path}`).join("");
 			const mcpFlags = mcpFiles.map((file) => ` --mcp ${file}`).join("");
 			const workspaceFlag = values.workspace !== undefined ? ` --workspace ${values.workspace}` : "";
-			const turnsFlag = turns !== undefined ? ` --max-turns ${turns}` : "";
-			err(`task ${id} — resume with: agentscript-durable resume ${id} --db ${values.db}${toolFlags}${mcpFlags}${workspaceFlag}${turnsFlag}`);
+			const limitFlags = turnFlags({ maxTurns: turns, turnTimeoutMs: turnTimeout });
+			err(`task ${id} — resume with: agentscript-durable resume ${id} --db ${values.db}${toolFlags}${mcpFlags}${workspaceFlag}${limitFlags}`);
 		} else {
 			id = Number(target) as TaskId<RunResult>;
 			const task = Number.isInteger(id) ? await harness.getTask(id, context) : undefined;
