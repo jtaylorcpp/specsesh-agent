@@ -43,6 +43,17 @@ const DEFINITIONS = {
                 ok: boolean
             target: "mcpTool://edit_file"
 `,
+	replace_in_file: `        replace_in_file:
+            description: "Replace exact text in a file in the workspace"
+            inputs:
+                path: string
+                old_text: string
+                new_text: string
+                replace_all: boolean
+            outputs:
+                replaced: number
+            target: "mcpTool://replace_in_file"
+`,
 	run_command: `        run_command:
             description: "Run an allowed command in the workspace"
             inputs:
@@ -68,6 +79,12 @@ const OFFERS: Record<keyof typeof DEFINITIONS, string> = {
 	edit_file: `            edit_file: @actions.edit_file
                 with path = ...
                 with content = ...
+`,
+	replace_in_file: `            replace_in_file: @actions.replace_in_file
+                with path = ...
+                with old_text = ...
+                with new_text = ...
+                with replace_all = ...
 `,
 	run_command: `            run_command: @actions.run_command
                 with command = ...
@@ -111,11 +128,12 @@ ${actions.map((action) => OFFERS[action]).join("")}`;
 /** Reads, lists and searches: for reviews and research. */
 export const READ_AGENT: string = delegateScript("read-agent", "reads", ["read_file", "list_files", "search_files"]);
 
-/** `READ_AGENT` plus `edit_file` and `run_command`. */
+/** `READ_AGENT` plus `edit_file`, `replace_in_file` and `run_command`. */
 export const EDIT_AGENT: string = delegateScript("edit-agent", "reads, edits and runs commands", [
 	"read_file",
 	"list_files",
 	"search_files",
 	"edit_file",
+	"replace_in_file",
 	"run_command",
 ]);

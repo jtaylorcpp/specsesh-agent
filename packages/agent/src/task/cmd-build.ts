@@ -102,6 +102,8 @@ export interface BuildRequest {
 	readonly db: DbPath;
 	readonly provider: string;
 	readonly model: string;
+	/** `--max-turns`, else `task.maxTurns`: the provider's turn limit, which the bin applies. Undefined: its default. */
+	readonly maxTurns?: number;
 	readonly workspace: string;
 	readonly checks: readonly string[];
 	readonly allow: readonly string[];
@@ -269,6 +271,7 @@ export function prepareBuild(args: BuildArgs, options: BuildPrepareOptions): Bui
 		db: settings.db,
 		provider: settings.provider,
 		model: settings.model,
+		...(settings.maxTurns !== undefined ? { maxTurns: settings.maxTurns } : {}),
 		workspace: settings.workspace,
 		checks: settings.checks,
 		allow: settings.allow,

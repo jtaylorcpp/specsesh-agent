@@ -60,7 +60,7 @@ import type { SpecStage } from "../task/spec-stage.js";
 import { SPEC_STAGES } from "../task/spec-stages.js";
 import { readSlices, type Slice } from "../task/stages/slices-md.js";
 import { ollamaRefs, resolvePrincipal } from "./agentscript-task.js";
-import { cliModels, geminiRefusal, ollamaSuffix, withGemini, withOllama } from "./models.js";
+import { cliModels, geminiRefusal, ollamaSuffix, turnOptions, withGemini, withOllama, type CliModelOptions } from "./models.js";
 
 /** One line per command. */
 export const USAGE = `usage:
@@ -71,7 +71,7 @@ export const USAGE = `usage:
 
 export interface ChangeCliDeps {
 	/** The pi-ai model collection. Defaults to `cliModels()`; either way, `ollama` is added when a model needs it. */
-	readonly models?: () => Promise<Models> | Models;
+	readonly models?: (options?: CliModelOptions) => Promise<Models> | Models;
 	readonly out?: (line: string) => void;
 	readonly err?: (line: string) => void;
 	/** The directory the CLI runs in. Defaults to `process.cwd()`. */
@@ -197,7 +197,7 @@ interface ChangeIo {
 	readonly err: (line: string) => void;
 	readonly cwd: string;
 	readonly env: Readonly<Record<string, string | undefined>>;
-	readonly models: () => Promise<Models> | Models;
+	readonly models: (options?: CliModelOptions) => Promise<Models> | Models;
 	readonly stages: readonly SpecStage[];
 }
 
@@ -230,7 +230,7 @@ async function resolveTarget(command: string, dbFlag: string | undefined, config
 		provider: io.env["AGENTSCRIPT_PROVIDER"] ?? config.task.provider ?? DEFAULT_PROVIDER,
 		modelId: io.env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL,
 	};
-	const models = await io.models();
+	const models = await io.models(turnOptions(config.task.maxTurns));
 	const ollama = await withOllama(models, ollamaRefs(model, config));
 	const refusal = geminiRefusal(await withGemini(models, ollamaRefs(model, config), io.env));
 	if (refusal !== undefined) return refusal;
@@ -331,7 +331,7 @@ async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promi
 		const old = await refuseOldOpenspec(request.workspace, io);
 		if (old !== undefined) return old;
 	}
-	const models = await io.models();
+	const models = await io.models(turnOptions(request.maxTurns));
 	const model: ModelRef = { provider: request.provider, modelId: request.model };
 	const ollama = await withOllama(models, ollamaRefs(model, config));
 	const refusal = geminiRefusal(await withGemini(models, ollamaRefs(model, config), io.env));
@@ -382,7 +382,10 @@ async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promi
 					model: built.models["default"] ?? model,
 					...(principal !== undefined ? { principal } : {}),
 					// Before any model call, so a crash still leaves the way back: build without an answer resumes a running loop.
-					onLoop: (loop) => io.err(`change loop ${loop} — resume with: specsesh change build ${request.change} --db ${request.db.label}`),
+					onLoop: (loop) =>
+						io.err(
+							`change loop ${loop} — resume with: specsesh change build ${request.change} --db ${request.db.label}${args.flags.maxTurns !== undefined ? ` --max-turns ${args.flags.maxTurns}` : ""}`,
+						),
 				},
 				BACKGROUND_CONTEXT,
 			);

@@ -43,6 +43,7 @@ const FIELDS = {
 	allow: "strings",
 	maxIterations: "positive-integer",
 	maxReworks: "positive-integer",
+	maxTurns: "positive-integer",
 	escalateTo: "recipient",
 	requireCleanTree: "boolean",
 	worktree: "boolean",
@@ -75,6 +76,8 @@ export interface TaskConfig {
 	readonly allow?: readonly string[];
 	readonly maxIterations?: number;
 	readonly maxReworks?: number;
+	/** The `claude-code` provider's turn limit on a step that offers tools. Unset: its default. */
+	readonly maxTurns?: number;
 	readonly escalateTo?: "principal" | "agent";
 	readonly requireCleanTree?: boolean;
 	readonly worktree?: boolean;
@@ -326,6 +329,7 @@ export interface RunFlags {
 	readonly check?: readonly string[];
 	readonly allow?: readonly string[];
 	readonly maxIterations?: number;
+	readonly maxTurns?: number;
 	readonly escalateTo?: "principal" | "agent";
 	readonly provider?: string;
 	readonly model?: string;
@@ -342,6 +346,7 @@ export const RUN_FLAG_OPTIONS = {
 	allow: { type: "string", multiple: true },
 	"max-iterations": { type: "string" },
 	"max-reworks": { type: "string" },
+	"max-turns": { type: "string" },
 	"group-script": { type: "string" },
 	"escalate-to": { type: "string" },
 	provider: { type: "string" },
@@ -364,6 +369,10 @@ export function runFlagsOf(values: Readonly<Record<string, string | boolean | st
 	if (maxReworks !== undefined && !/^[1-9][0-9]*$/.test(maxReworks)) {
 		return `--max-reworks must be a positive integer, got "${maxReworks}"`;
 	}
+	const maxTurns = values["max-turns"] as string | undefined;
+	if (maxTurns !== undefined && !/^[1-9][0-9]*$/.test(maxTurns)) {
+		return `--max-turns must be a positive integer, got "${maxTurns}"`;
+	}
 	const escalateTo = values["escalate-to"] as string | undefined;
 	if (escalateTo !== undefined && escalateTo !== "principal" && escalateTo !== "agent") {
 		return `--escalate-to must be principal or agent, got "${escalateTo}"`;
@@ -377,6 +386,7 @@ export function runFlagsOf(values: Readonly<Record<string, string | boolean | st
 		...(values["group-script"] !== undefined ? { groupScript: values["group-script"] as string } : {}),
 		...(maxIterations !== undefined ? { maxIterations: Number(maxIterations) } : {}),
 		...(maxReworks !== undefined ? { maxReworks: Number(maxReworks) } : {}),
+		...(maxTurns !== undefined ? { maxTurns: Number(maxTurns) } : {}),
 		...(escalateTo !== undefined ? { escalateTo } : {}),
 		...(values["provider"] !== undefined ? { provider: values["provider"] as string } : {}),
 		...(values["model"] !== undefined ? { model: values["model"] as string } : {}),
@@ -405,6 +415,8 @@ export interface RunSettings {
 	readonly allow: readonly string[];
 	readonly maxIterations: number;
 	readonly maxReworks: number;
+	/** `--max-turns`, else `task.maxTurns`; undefined: the provider's default. */
+	readonly maxTurns?: number;
 	readonly escalateTo: "principal" | "agent";
 	readonly requireCleanTree: boolean;
 	readonly worktree: boolean;
@@ -431,6 +443,7 @@ export function resolveRunSettings(
 	const fromConfig = (path: string) => resolve(config.dir, path);
 	const worktree = flags.worktree ?? task.worktree ?? false;
 	const db = worktree && flags.db === undefined ? undefined : resolveDb(flags.db, config, cwd);
+	const maxTurns = flags.maxTurns ?? task.maxTurns;
 	const script =
 		flags.script !== undefined
 			? resolveScript(flags.script, cwd)
@@ -452,6 +465,7 @@ export function resolveRunSettings(
 		allow: flags.allow ?? task.allow ?? [],
 		maxIterations: flags.maxIterations ?? task.maxIterations ?? DEFAULT_MAX_ITERATIONS,
 		maxReworks: flags.maxReworks ?? task.maxReworks ?? DEFAULT_MAX_REWORKS,
+		...(maxTurns !== undefined ? { maxTurns } : {}),
 		escalateTo: flags.escalateTo ?? task.escalateTo ?? DEFAULT_ESCALATE_TO,
 		requireCleanTree: flags.allowDirty === true ? false : (task.requireCleanTree ?? true),
 		worktree,

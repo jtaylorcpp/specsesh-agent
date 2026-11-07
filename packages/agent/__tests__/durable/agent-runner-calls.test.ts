@@ -133,7 +133,7 @@ describe("actions/agent-runner: a call runs the script as a durable child", () =
 				runner: "agent",
 				model: "opus",
 				script: EDIT_AGENT,
-				tools: ["read_file", "list_files", "search_files", "edit_file", "run_command"],
+				tools: ["read_file", "list_files", "search_files", "edit_file", "replace_in_file", "run_command"],
 			},
 		});
 

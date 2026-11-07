@@ -1,5 +1,5 @@
 /**
- * The four built-in host actions over a directory on this machine:
+ * The five built-in host actions over a directory on this machine:
  * `workspaceActions(localWorkspace(dir), …)`. No delegate is built in; a host
  * grants one with `delegationActions`.
  *

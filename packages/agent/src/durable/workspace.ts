@@ -1,12 +1,13 @@
 /**
  * Where an agent's work happens, with no runtime in it: a `Workspace` reads and
- * writes confined paths, and may run processes and take snapshots. The four
+ * writes confined paths, and may run processes and take snapshots. The five
  * built-in actions, the checks and every `DiffEvidence` go through one.
  *
- *   read_file   { path } → { content }                read     safe
- *   edit_file   { path, content } → { ok }            edit     safe
- *   run_command { command } → { exit_code, output }   command  unsafe
- *   run_checks  { task_id } → { passed, output }      command  unsafe
+ *   read_file       { path } → { content }                                    read     safe
+ *   edit_file       { path, content } → { ok }                                edit     safe
+ *   replace_in_file { path, old_text, new_text, replace_all } → { replaced }  edit     unsafe
+ *   run_command     { command } → { exit_code, output }                       command  unsafe
+ *   run_checks      { task_id } → { passed, output }                          command  unsafe
  *
  * No `node:` import here: a workspace over a directory lives in `./node`, one
  * over a sandbox in `./cloudflare`. A workspace with no `exec` runs no command,
@@ -325,7 +326,7 @@ export interface WorkspaceActionOptions {
 	readonly timeoutMs?: number;
 }
 
-/** The four built-ins, every read, write and process going through `workspace`. */
+/** The five built-ins, every read, write and process going through `workspace`. */
 export function workspaceActions(workspace: Workspace, options: WorkspaceActionOptions = {}): ExecutedHostAction[] {
 	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const allow = options.allow ?? [];
@@ -378,6 +379,58 @@ export function workspaceActions(workspace: Workspace, options: WorkspaceActionO
 				record: actionRecord(
 					{ kind: "edit", summary: `${change === "added" ? "create" : "replace"} ${path}`, refs: [path] },
 					[{ kind: "diff", files: [{ path, change }] }],
+				),
+			};
+		},
+	};
+
+	// Unsafe to replay: run again after it wrote, it finds new_text where old_text was, and
+	// with replace_all it would replace inside new_text again.
+	const replaceInFileAction: ExecutedHostAction = {
+		name: "replace_in_file",
+		description:
+			"replace old_text with new_text in one existing file; old_text must occur exactly once unless replace_all, and the call fails saying how often it occurs",
+		kind: "edit",
+		inputs: { path: "string", old_text: "string", new_text: "string", replace_all: "boolean" },
+		outputs: { replaced: "number" },
+		replay: "unsafe",
+		async execute(inputs) {
+			const path = String(inputs["path"]);
+			const oldText = String(inputs["old_text"] ?? "");
+			const newText = String(inputs["new_text"] ?? "");
+			const all = inputs["replace_all"] === true;
+			if (oldText === "") return { ok: false, message: `old_text is empty; nothing was written to ${path}` };
+			let content: string;
+			try {
+				content = await workspace.read(path);
+			} catch (error) {
+				if (error instanceof WorkspaceError) return { ok: false, message: `${error.message}; nothing was written` };
+				throw error;
+			}
+			const replaced = occurrences(content, oldText);
+			if (replaced === 0) return { ok: false, message: `old_text does not occur in ${path}; nothing was written` };
+			if (replaced > 1 && !all) {
+				return {
+					ok: false,
+					message: `old_text occurs ${replaced} times in ${path}; give more of the surrounding text so it occurs once, or set replace_all; nothing was written`,
+				};
+			}
+			// split/join, not String.replace: a `$` in new_text must stay as written.
+			const next = all ? content.split(oldText).join(newText) : spliceOnce(content, oldText, newText);
+			// new_text equal to old_text: the file stays as it is, and so nothing is recorded.
+			if (next === content) return { ok: true, outputs: { replaced } };
+			try {
+				await workspace.write(path, next);
+			} catch (error) {
+				if (error instanceof WorkspaceError) return { ok: false, message: `${error.message}; nothing was written` };
+				throw error;
+			}
+			return {
+				ok: true,
+				outputs: { replaced },
+				record: actionRecord(
+					{ kind: "edit", summary: `replace ${replaced === 1 ? "1 occurrence" : `${replaced} occurrences`} in ${path}`, refs: [path] },
+					[{ kind: "diff", files: [{ path, change: "modified" }] }],
 				),
 			};
 		},
@@ -440,7 +493,20 @@ export function workspaceActions(workspace: Workspace, options: WorkspaceActionO
 		},
 	};
 
-	return [readFileAction, editFileAction, runCommandAction, runChecksAction];
+	return [readFileAction, editFileAction, replaceInFileAction, runCommandAction, runChecksAction];
+}
+
+/** How often `text` occurs in `content`, without overlaps. `text` is not empty. */
+function occurrences(content: string, text: string): number {
+	let count = 0;
+	for (let at = content.indexOf(text); at !== -1; at = content.indexOf(text, at + text.length)) count += 1;
+	return count;
+}
+
+/** `content` with its one occurrence of `text` replaced by `replacement`. */
+function spliceOnce(content: string, text: string, replacement: string): string {
+	const at = content.indexOf(text);
+	return content.slice(0, at) + replacement + content.slice(at + text.length);
 }
 
 /**

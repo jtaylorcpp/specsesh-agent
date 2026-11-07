@@ -117,7 +117,7 @@ describe("host/agent-config: createAgentHarness builds a harness from a config",
 		);
 		await harness.close(context);
 
-		expect([...actions.keys()]).toEqual(["read_file", "edit_file", "run_command", "run_checks", "list_files", "search_files", "lookup"]);
+		expect([...actions.keys()]).toEqual(["read_file", "edit_file", "replace_in_file", "run_command", "run_checks", "list_files", "search_files", "lookup"]);
 	});
 });
 
@@ -163,7 +163,7 @@ describe("host/agent-config: the harness registers search actions when its works
 		);
 		await harness.close(context);
 
-		expect([...actions.keys()]).toEqual(["read_file", "edit_file", "run_command", "run_checks", "lookup"]);
+		expect([...actions.keys()]).toEqual(["read_file", "edit_file", "replace_in_file", "run_command", "run_checks", "lookup"]);
 	});
 });
 

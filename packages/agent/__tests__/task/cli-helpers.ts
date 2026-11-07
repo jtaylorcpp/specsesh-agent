@@ -12,6 +12,7 @@ import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { buildHarness, main } from "../../src/bin/agentscript-task.js";
+import type { CliModelOptions } from "../../src/bin/models.js";
 import type { DelegateGrants } from "../../src/durable/delegation.js";
 import { GROUP_LOOP_NAME, type GroupLoopInput } from "../../src/task/group.js";
 import { TASK_LOOP, type TaskLoopInput } from "../../src/task/index.js";
@@ -27,7 +28,9 @@ export function fauxModels(provider?: string, modelId?: string) {
 	const models = createModels();
 	models.setProvider(faux.provider);
 	const model = faux.getModel();
-	return { faux, models, args: ["--provider", model.provider, "--model", model.id] };
+	/** What each `models` call was given, in order: how a test sees the turn limit the CLI applies. */
+	const modelOptions: (CliModelOptions | undefined)[] = [];
+	return { faux, models, modelOptions, args: ["--provider", model.provider, "--model", model.id] };
 }
 
 /** A temp directory with JUDGE_ONLY as a script file and a database path in it. */
@@ -59,7 +62,10 @@ export async function cli(
 	const out: string[] = [];
 	const err: string[] = [];
 	const code = await main(options.noDelegates === true ? [...argv, "--no-delegates"] : argv, {
-		models: () => env.models,
+		models: (modelOptions) => {
+			env.modelOptions.push(modelOptions);
+			return env.models;
+		},
 		out: (l) => out.push(l),
 		err: (l) => err.push(l),
 		cwd: options.cwd ?? temp("task-cwd-"),

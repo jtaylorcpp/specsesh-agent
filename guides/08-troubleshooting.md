@@ -51,7 +51,7 @@ the script's actions do not match what this host provides, so the run was not st
   - subagent "check", action run_checks: mcpTool://run_tests is not registered on this host
 ```
 
-A script can bind only the host's actions (`read_file`, `edit_file`, `run_command`, `run_checks`, `list_files`, `search_files`, `delete_file` when granted, and a `delegate/<name>` per granted delegate), with exactly their input and output names and types. Other mismatches read `input x is not one the host action has`, `input x is declared string, registered number` and `output y of the host action is not declared`. See [04 Actions](04-actions.md).
+A script can bind only the host's actions (`read_file`, `edit_file`, `replace_in_file`, `run_command`, `run_checks`, `list_files`, `search_files`, `delete_file` when granted, and a `delegate/<name>` per granted delegate), with exactly their input and output names and types. Other mismatches read `input x is not one the host action has`, `input x is declared string, registered number` and `output y of the host action is not declared`. See [04 Actions](04-actions.md).
 
 ### The change, task or group is not found
 
@@ -76,7 +76,7 @@ no model "gpt-9" on provider "claude-code"
 Each prints the usage text after it. The printed usage omits `--max-reworks` and `--group-script`, but both exist. For a config file:
 
 ```text
-/repo/agentscript.config.json: unknown key "task.check" (known: changesDir, db, provider, model, delegateModel, script, groupScript, checks, allow, maxIterations, maxReworks, escalateTo, delegateContext, requireCleanTree, worktree, worktreeDir, worktreeSetup)
+/repo/agentscript.config.json: unknown key "task.check" (known: changesDir, db, provider, model, script, groupScript, checks, allow, maxIterations, maxReworks, maxTurns, escalateTo, requireCleanTree, worktree, worktreeDir, worktreeSetup, deleteFiles, context)
 /repo/agentscript.config.json: "task.allow" must be an array of strings, got "pnpm"
 /repo/agentscript.config.json: not valid JSON (…)
 the script nope.agent does not exist (looked for /repo/nope.agent)
@@ -181,6 +181,14 @@ the run ended failed: unknown: the step was not answered: model_error ("the clau
 
 `task.agent` gives the model three tools in its `act` step, and the `claude-code` provider serves more than one only when it was built with a `bridge`. The CLI always passes one; a host that builds the provider itself passes `claudeCodeProvider({ bridge: mcpBridge() })` (`mcpBridge` from `@specsesh/agent/mcp`).
 
+**A `claude-code` step at its turn limit.**
+
+```text
+the run ended failed: unknown: the step was not answered: model_error ("claude stopped at its turn limit after 100 turns (maxTurns 100); the step ended unfinished: raise maxTurns (the CLI's --max-turns, or task.maxTurns in agentscript.config.json) to give it more")
+```
+
+On `claude-code`, a step that offers tools (`task.agent`'s `act`) is one `claude -p --max-turns <n>`, 100 by default, and each model reply in it counts as a turn. Set `maxTurns` under `task` in `agentscript.config.json`, or pass `--max-turns <n>` to `run`, `resume` or `answer`; then start a new run, since the failed loop is over. If a task keeps needing more, split it. Other providers have no turn limit in a durable run.
+
 **Provider errors.** A rate limit, an invalid model, a network failure: the provider's message follows `the step was not answered: model_error (…)`. The loop does not retry a failed step; run `agentscript-task resume <id>` once the cause is gone, or start a new run.
 
 ### Delegate and action failures
@@ -189,15 +197,13 @@ A failed *action* is different from a failed step. It does not end the loop: the
 
 | Message | Cause and fix |
 |---|---|
-| `Claude Code timed out after 600000ms` | The delegate ran for 10 minutes and was killed. Make the task smaller, or fix what makes the work slow. The limit is not configurable from the CLI. |
-| `Claude Code could not start: …` | The `claude` binary is not on `PATH` for the runner. |
-| `delegate context file /repo/CLAUDE.md does not exist; Claude Code was not started` | A `delegateContext` entry points at a missing file. Paths are relative to the config file. |
+| `old_text occurs 2 times in src/x.ts; give more of the surrounding text so it occurs once, or set replace_all; nothing was written` | `replace_in_file` found its text more than once. The model sees this as the tool's answer and usually retries with more context; it is a failed action only when a script `run`s it. |
 | `pnpm is not on the allowlist (allowed: node); nothing was run` | `task.agent`'s `run_command` refused a command whose first word is not in `allow`. Add the word, or leave it out on purpose. |
 | `<command> timed out after 600000ms` | A command run by `run_command` ran too long. |
 | `src/x.ts is outside the workspace; nothing was read or written` | A path was absolute, escaped with `..`, or resolved through a symlink out of `--workspace`. |
 | `no checks configured, and an empty set of checks is not a pass` | The script's `run_checks` ran with no `checks`. Configure at least one. |
 
-The delegate's own Bash is limited to your `allow` words and runs with `--permission-mode dontAsk`, so a command outside the list is denied rather than prompted. If the delegate keeps failing to run your checks, check that the check's first word (`pnpm`) is in `allow`.
+A delegate runs commands only through `run_command`, so the same `allow` words limit it. If it keeps failing to run your checks, check that the check's first word (`pnpm`) is in `allow`.
 
 ### Converged, but `ticked: false`
 
@@ -222,7 +228,7 @@ the run ended failed: unknown: the step was not answered: model_error ("claude e
 - **Not installed or not on `PATH`**: install Claude Code, and check `which claude` in the same shell and environment (a cron job or CI step has a different `PATH`).
 - **Not logged in**: run `claude` interactively once and sign in with your subscription (`/login`). The runner uses that login. It never reads Claude Code's OAuth token or passes it to anything, and it removes `ANTHROPIC_API_KEY` from the `claude` child's environment so a metered API key is not used by accident. If you want API billing, use `--provider anthropic` instead, with the key in your environment.
 - **Running inside a Claude Code session**: the runner clears `CLAUDECODE` from the child's environment, so a nested run is not refused.
-- **Your global `CLAUDE.md` is not read**: steps run with `--safe-mode`. Give the delegate repo guidance with `delegateContext`.
+- **Your global `CLAUDE.md` is not read**: steps run with `--safe-mode`. Give the steps repository guidance with `task.context`.
 
 ## Look inside a loop
 

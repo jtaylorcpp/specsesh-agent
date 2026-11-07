@@ -94,7 +94,14 @@
       "label": "Tools in durable runs",
       "cells": {
         "api-keys": { "value": "tested", "evidence": [{ "test": "Scenario: Bound inputs are merged into the call" }] },
-        "claude-code": { "value": "tested", "evidence": [{ "test": "Scenario: A durable claude-code run calls a --tools tool" }] },
+        "claude-code": {
+          "value": "tested",
+          "note": "a step stops after `maxTurns` turns (default 100; `--max-turns`, `task.maxTurns`), failing with a message that names the limit; other providers have no turn limit here",
+          "evidence": [
+            { "test": "Scenario: A durable claude-code run calls a --tools tool" },
+            { "test": "fails the step once, naming the limit, with no retry" }
+          ]
+        },
         "gemini": { "value": "untested" },
         "ollama": { "value": "untested" },
         "workers-ai": { "value": "untested" }

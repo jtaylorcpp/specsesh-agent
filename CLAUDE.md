@@ -38,7 +38,7 @@ The rest of this section is `packages/agent`:
 | `src/authoring`, `src/interpreter` → `./authoring`, `./interpreter` | The core: authoring + interpreter. No model client, ever. |
 | `src/pi` → `./pi` | A `ReasoningPort` on `@earendil-works/pi-ai`, so any pi provider can run a script. Default testing model: `anthropic/claude-haiku-4-5`. `ollama.ts`: the Ollama provider (`ollamaProvider`, `registerOllama`), keyless, OpenAI-compatible, on pi-ai's eager `api/openai-completions`: no library module may statically import a pi-ai `*.lazy` or `providers/*` subpath (Bun bundles break; `fix-bun-lazy-pi-ai`). `gemini.ts`: pi's built-in `google` provider on `GEMINI_API_KEY` (`registerGemini`, `geminiKeyIssue`, `geminiBaseUrl`, which reads `GEMINI_BASE_URL`). |
 | `src/claude-code` → `./claude-code` | The claude-code port and pi provider (Node only). |
-| `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). Runtime-neutral: never imports `node:` or `src/claude-code`, so `./cloudflare` can import it. Holds `workspace.ts` (`Workspace`, whose `publish` is optional and which `localWorkspace` never has; `memoryWorkspace`, `workspaceActions`, `runChecks`, `diffSnapshots`), `delegation.ts` (grants, `delegationActions`), `agent-runner.ts` (`agentRunner()`, the `agent` runner: checks a grant against the harness's models and registry, runs it as a durable host action whose child ID commits with the `act` checkpoint, answers `{ ok, summary, files_changed }`; also in node `defaultRunners`), `delegate-scripts.ts` (`READ_AGENT`, `EDIT_AGENT` as source strings, no file system, so they work in Workers; the delegate contract: `instructions` seeded, `ok` and `summary` read back) `agent-config.ts` (`AgentConfig`, `createAgentHarness`) and `watch.ts` (`watchScript`, a durable run as `RunEvent`s). |
+| `src/durable` → `./durable` | A pi-durable extension: each run is a crash-safe `agentscript.run` task. Works in any pi-durable host (Node SQLite/JSONL/memory, or a Durable Object). Runtime-neutral: never imports `node:` or `src/claude-code`, so `./cloudflare` can import it. Holds `workspace.ts` (`Workspace`, whose `publish` is optional and which `localWorkspace` never has; `memoryWorkspace`, `workspaceActions` (the five built-ins: `read_file`, `edit_file`, `replace_in_file`, `run_command`, `run_checks`), `runChecks`, `diffSnapshots`), `delegation.ts` (grants, `delegationActions`), `agent-runner.ts` (`agentRunner()`, the `agent` runner: checks a grant against the harness's models and registry, runs it as a durable host action whose child ID commits with the `act` checkpoint, answers `{ ok, summary, files_changed }`; also in node `defaultRunners`), `delegate-scripts.ts` (`READ_AGENT`, `EDIT_AGENT` as source strings, no file system, so they work in Workers; the delegate contract: `instructions` seeded, `ok` and `summary` read back) `agent-config.ts` (`AgentConfig`, `createAgentHarness`) and `watch.ts` (`watchScript`, a durable run as `RunEvent`s). |
 | `src/node` → `./node` | The Node side of `./durable`: `localWorkspace(dir)`, `builtinActions` (moved from `src/durable/builtins.ts`) and `defaultRunners` (`agent` only). Adds `src/durable`; never loads the MCP SDK. |
 | `src/mcp` → `./mcp` | `mcpTools(servers)`, MCP servers' tools as host actions `<server>/<tool>`, and `mcpBridge()`. The only importer of `@modelcontextprotocol/sdk`, always statically: a dynamic `import()` of it beside an app's static ones broke Bun bundles (`move-mcp-to-own-entry`). The bins reach it lazily through `src/bin/mcp.ts`, so they start without the SDK. Adds `src/durable`, `src/claude-code` and the MCP SDK. |
 | `src/cloudflare` → `./cloudflare` | `AgentScriptHost`, the Durable Object class (via Cloudflare's `PiHarness`, `agents` 0.28.0), Workers AI by default; `defineAgentHost`, `workersAI` and the Sandbox/Artifacts workspaces (see below). |
@@ -229,10 +229,17 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
   `--json-schema` (returned as a tool call). Without a `bridge` option, refuses requests offering
   more than one tool. With `bridge`, a request offering any tool other than `submit_result` starts
   a held session (`src/claude-code/provider-session.ts`): one `claude -p` with the tool-step flags
-  and `--max-turns 16`, each call Claude Code makes through the bridge handed to pi as a `toolCall`
+  and `--max-turns <maxTurns>`, each call Claude Code makes through the bridge handed to pi as a `toolCall`
   (id `claude-code-<uuid>`) and its `toolResult` handed back, so pi-durable runs and checkpoints
   every call. After a crash, results naming no live session start a fresh process on the whole
-  transcript. `cliModels` (`src/bin/models.ts`) registers it with `bridge: mcpBridge()`.
+  transcript. `cliModels(options)` (`src/bin/models.ts`) registers it with `bridge: mcpBridge()` and
+  the command's `maxTurns`.
+- **The held session's turn limit** is the provider's `maxTurns` (default `DEFAULT_TOOL_STEP_TURNS`,
+  100; the one-shot port keeps 16). The CLI sets it with `--max-turns <n>` on `durable run`/`resume`,
+  `task run`/`resume`/`answer` and `change build`, else `task.maxTurns`. It is the process's, not
+  stored with a run or loop, so resume hints repeat the flag. Reaching it fails the step (and so a
+  task loop) with `claude stopped at its turn limit after <n> turns (maxTurns <m>); …`, naming how to
+  raise it. The session is also bounded by `timeoutMs` (300000), which counts our tools' time.
 - **This is a library** consumed from other projects, not a deployed service. `examples/` holds
   consumers. `pnpm build` (tsc) emits `packages/agent/dist/`, which the exports, the bins and the examples use;
   `pnpm pack:check` proves the packed tarball installs and runs in an empty project. Cloudflare is not
@@ -361,6 +368,8 @@ specsesh task answer <loop-id> --by principal --decision "…"   # a blocked loo
     unknown provider or model, or a missing script path exits 2.
   - `tools` defaults to `read_file`, `list_files`, `search_files`, and `maxSteps` to 20. `tools`
     cannot include `delegate/…`: delegates don't nest.
+  - The bundled `edit` uses `edit_file`, `replace_in_file` and `run_command` beyond the default
+    three, so its `tools` must list them (a script using an action outside its `tools` is refused).
   - Call it with `run @actions.<x>` and `instructions`; it answers `{ ok, summary, files_changed }`.
     Offering it under `reasoning.actions` is refused with `call it with run`.
   - It runs as a durable child `agentscript.run` in the caller's workspace, so a crash resumes the

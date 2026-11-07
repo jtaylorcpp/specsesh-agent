@@ -180,12 +180,13 @@ Three things to know:
 
 ## The built-ins
 
-`builtinActions(options)` (from `@specsesh/agent/node`) returns four host actions bound to one workspace directory: `workspaceActions(localWorkspace(dir), …)`. No delegate is built in; a host grants one with `delegationActions` from `@specsesh/agent/durable`.
+`builtinActions(options)` (from `@specsesh/agent/node`) returns five host actions bound to one workspace directory: `workspaceActions(localWorkspace(dir), …)`. No delegate is built in; a host grants one with `delegationActions` from `@specsesh/agent/durable`.
 
 | Action | Inputs → outputs | `kind` | `replay` |
 |---|---|---|---|
 | `read_file` | `path` → `content` | read | safe |
 | `edit_file` | `path`, `content` → `ok` | edit | safe |
+| `replace_in_file` | `path`, `old_text`, `new_text`, `replace_all` → `replaced` | edit | unsafe |
 | `run_command` | `command` → `exit_code`, `output` | command | unsafe |
 | `run_checks` | `task_id` → `passed`, `output` | command | unsafe |
 
@@ -201,7 +202,8 @@ The options:
 How each behaves:
 
 - **`read_file`** answers the file's text, or `ok: false` naming the missing file.
-- **`edit_file`** replaces the whole file, creating parent directories inside the workspace. To change one line, read the file, change the text, write it all back.
+- **`edit_file`** replaces the whole file, creating parent directories inside the workspace. Use it to create a file or rewrite one whole.
+- **`replace_in_file`** changes part of an existing file: it replaces `old_text` with `new_text`, matched exactly (no patterns; a `$` in `new_text` stays as written). `old_text` must occur exactly once unless `replace_all` is true, which replaces every occurrence. Otherwise it answers `ok: false` with how often `old_text` occurs ("occurs 3 times in `<path>`; give more of the surrounding text so it occurs once, or set replace_all"), and writes nothing; so does an empty `old_text` or a missing file (it never creates one). `replaced` is how many occurrences it replaced. It is `unsafe` to replay: run again after it wrote, it would find `new_text` where `old_text` was.
 - **`run_command`** splits the command on whitespace into an argument list. There is no shell and no quoting. `pnpm test; rm -rf src` starts `pnpm` with four arguments and nothing else. The first word must be in `allow`, or the answer is `ok: false` and nothing starts. A command that exits non-zero is **not** a refusal: you get `ok: true` with its `exit_code` and `output`, so the script can read the failure.
 - **`run_checks`** runs every command in `checks`, in order, even after one fails, and answers `passed: true` only if all exited 0 and none timed out. `output` holds each command, its output and its exit code. With no `checks` configured it answers `ok: false` ("no checks configured") instead of passing vacuously. `task_id` is only recorded in the action's summary.
 
@@ -218,11 +220,11 @@ An action that changes or runs something attaches a `record` to its result: an o
 }
 ```
 
-`run_command` and `run_checks` record a `command` action with one `check` evidence per command (its exit code and output). A granted delegate records a `delegate` action. `read_file` records nothing. The record rides along in `RunResult.actions[n].result.record` for a `run`, and in `toolCalls[n].record` for a model call. The interpreter keeps it as given and never reads it.
+`replace_in_file` records an `edit` ("replace 1 occurrence in `<path>`") with a `modified` diff, and nothing when `new_text` equals `old_text`. `run_command` and `run_checks` record a `command` action with one `check` evidence per command (its exit code and output). A granted delegate records a `delegate` action. `read_file` records nothing. The record rides along in `RunResult.actions[n].result.record` for a `run`, and in `toolCalls[n].record` for a model call. The interpreter keeps it as given and never reads it.
 
 ## Deleting a file: `delete_file`
 
-`delete_file` is not one of the four built-ins. It is not in `builtinActions` or `workspaceActions`, so no host has it unless the host grants it.
+`delete_file` is not one of the five built-ins. It is not in `builtinActions` or `workspaceActions`, so no host has it unless the host grants it.
 
 | Action | Inputs → outputs | `kind` | `replay` |
 |---|---|---|---|
@@ -430,7 +432,7 @@ An unsafe interrupted action is a decision for a person: the work may have happe
 Pick the policy by one question: if this call runs twice with the same inputs, is the world the same as if it ran once?
 
 - Reading a file, looking something up, replacing a file's whole content: yes, `safe`. (`read_file` and `edit_file` are safe for this reason.)
-- Appending, deleting a file, sending a message, creating a ticket, running a command, calling a delegate: no, `unsafe`. When in doubt, choose `unsafe`.
+- Appending, replacing text in place (`replace_in_file`), deleting a file, sending a message, creating a ticket, running a command, calling a delegate: no, `unsafe`. When in doubt, choose `unsafe`.
 
 `execute` also receives an `AbortSignal` as `signal`. It fires when the run is aborted; pass it to `fetch` and to child processes, as the built-ins do.
 
@@ -438,9 +440,9 @@ Pick the policy by one question: if this call runs twice with the same inputs, i
 
 Every `execute` receives `workspace`, the directory you passed to `agentScriptExtensions`. What that does and does not promise:
 
-- `read_file` and `edit_file` refuse an absolute path, a `..` that escapes, and a path that leaves the workspace through a symlink, however deep. The answer is `ok: false` with "`<path>` is outside the workspace; nothing was read or written". Your own actions get the same check from `confine(workspace, path)`, which returns the resolved path, or an `ActionResult` refusal to return as is.
+- `read_file`, `edit_file` and `replace_in_file` refuse an absolute path, a `..` that escapes, and a path that leaves the workspace through a symlink, however deep. The answer is `ok: false` with "`<path>` is outside the workspace; nothing was read or written". Your own actions get the same check from `confine(workspace, path)`, which returns the resolved path, or an `ActionResult` refusal to return as is.
 - `run_command` and `run_checks` use the workspace as the working directory. That is **not** a sandbox. Whatever program you allow can do whatever that program does: `pnpm` can run any script in the package. Allow only first words you would run yourself, and prefer `run_checks` with a fixed list over a general `run_command`.
-- A granted `claude-code` delegate runs Claude Code in the workspace with `Bash` limited to its grant's `allow` list. What its file tools may touch is Claude Code's own permission model; this package does not add to it.
+- A granted `agent` delegate acts only through the same workspace actions, with the tools its grant names. A host's own process runner (`ProcessRunner`) runs a process in the workspace; what that process may touch is its own business, not this package's.
 
 ## Next
 

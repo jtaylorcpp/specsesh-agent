@@ -77,13 +77,13 @@ Each cell says how a feature is proven for a provider: by an offline test, only 
 | Cloudflare Durable Object host | ✅ ³ | — | ⚪ ⁴ | — | ⚪ ⁵ |
 | Structured steps | ✅ | ✅ | ✅ | ✅ | ⚪ |
 | Tools on one-shot runs | ✅ | ✅ | ✅ | ✅ | — |
-| Tools in durable runs | ✅ | ✅ | ⚪ | ⚪ | ⚪ |
-| A model calling MCP tools | ⚪ ⁶ | ⚪ | ⚪ | ⚪ | — |
+| Tools in durable runs | ✅ | ✅ ⁶ | ⚪ | ⚪ | ⚪ |
+| A model calling MCP tools | ⚪ ⁷ | ⚪ | ⚪ | ⚪ | — |
 | Streaming text, one-shot | ✅ | ✅ | ✅ | ⚪ | — |
-| Streaming text, durable (`watchScript`) | ✅ | — ⁷ | ⚪ | ⚪ | ⚪ |
+| Streaming text, durable (`watchScript`) | ✅ | — ⁸ | ⚪ | ⚪ | ⚪ |
 | Abort a one-shot step (`signal`) | ⚪ | ✅ | ⚪ | ⚪ | — |
 | Failure categories, one-shot | ✅ | ✅ | ✅ | ✅ | — |
-| Failure categories, durable | — ⁸ | — | — | — | — |
+| Failure categories, durable | — ⁹ | — | — | — | — |
 | A live check against the real service | — | 🟢 | 🟢 | 🟢 | — |
 
 1. the Node durable command; on Cloudflare every run is durable (see the Cloudflare row)
@@ -91,9 +91,10 @@ Each cell says how a feature is proven for a provider: by an offline test, only 
 3. on a faux model under `wrangler dev --local`
 4. `defineAgentHost` takes any model; no test runs Gemini in a Worker
 5. the binding adapter is tested on a fake binding; no Durable Object run
-6. MCP tools are tested through `run` statements, never a model's call
-7. the claude-code pi provider doesn't stream
-8. every durable failure is `unknown`; parked
+6. a step stops after `maxTurns` turns (default 100; `--max-turns`, `task.maxTurns`), failing with a message that names the limit; other providers have no turn limit here
+7. MCP tools are tested through `run` statements, never a model's call
+8. the claude-code pi provider doesn't stream
+9. every durable failure is `unknown`; parked
 
 <details><summary>Evidence</summary>
 
@@ -123,7 +124,7 @@ Each cell says how a feature is proven for a provider: by an offline test, only 
 - **Tools on one-shot runs × gemini:** `Scenario: A Gemini tool call is answered with a functionResponse`
 - **Tools on one-shot runs × ollama:** `Scenario: The model calls an offered tool from a module`
 - **Tools in durable runs × api-keys:** `Scenario: Bound inputs are merged into the call`
-- **Tools in durable runs × claude-code:** `Scenario: A durable claude-code run calls a --tools tool`
+- **Tools in durable runs × claude-code:** `Scenario: A durable claude-code run calls a --tools tool`; `fails the step once, naming the limit, with no retry`
 - **Streaming text, one-shot × api-keys:** `Scenario: Deltas concatenate to the step's text`
 - **Streaming text, one-shot × claude-code:** `Scenario: A listening text step streams its text`
 - **Streaming text, one-shot × gemini:** `Scenario: A listening Gemini step streams its text`

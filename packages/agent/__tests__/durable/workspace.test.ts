@@ -198,9 +198,9 @@ describe("actions/workspace: The built-ins are defined over a workspace", () => 
 		expect(command.ok === false && command.message).toContain("this workspace cannot run commands");
 	});
 
-	it("returns exactly the four built-ins, no delegate", () => {
+	it("returns exactly the five built-ins, no delegate", () => {
 		const names = workspaceActions(memory().workspace).map((action) => action.name);
-		expect(names).toEqual(["read_file", "edit_file", "run_command", "run_checks"]);
+		expect(names).toEqual(["read_file", "edit_file", "replace_in_file", "run_command", "run_checks"]);
 	});
 
 	it("refuses a command off the allowlist without calling exec", async () => {

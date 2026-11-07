@@ -2,7 +2,7 @@
 // included, so the block is role-neutral and each step's prompt says its role. The judges see
 // the plan as another step's instructions, and carried feedback under a neutral label.
 
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -104,6 +104,24 @@ describe("task/agent: Each bundled task step's prompt says its role", () => {
 		};
 		expect(result("search")).toEqual({ matches: "src/a.ts:1: export const a = 1;" });
 		expect(result("list")).toEqual({ paths: "src/a.ts" });
+	});
+
+	it("task.agent's act step can replace exact text in a file", async () => {
+		const repo = gitRepo();
+		const r = await runLoop(
+			[
+				plan(PLAN),
+				toolCall("replace", { path: "src/a.ts", old_text: "a = 1", new_text: "a = 2", replace_all: false }),
+				text("Changed a."),
+				verdict(true),
+			],
+			{ script: { path: TASK_SCRIPT }, workspace: repo, checks: [COUNT_CHECK], allow: ["pnpm", "node"] },
+		);
+		await r.harness.close(context);
+		expect(r.outcome.status).toBe("converged");
+		expect(readFileSync(join(repo, "src", "a.ts"), "utf8")).toBe("export const a = 2;\n");
+		const act = prompts(r.env.requests).find((p) => p.startsWith("You are the act step"));
+		expect(act).toContain("To change part of a file, use replace with text that occurs once in it");
 	});
 
 });

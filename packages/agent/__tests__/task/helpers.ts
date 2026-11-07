@@ -253,7 +253,7 @@ export const verdict = (
 	overrides: { amend_path?: string; amend_text?: string } = {},
 ) => submit({ met, unmet, next_action: nextAction, question, amend_path: "", amend_text: "", ...overrides });
 export const plan = (text: string) => submit({ plan: text });
-export const toolCall = (name: string, args: Record<string, string>) =>
+export const toolCall = (name: string, args: Parameters<typeof fauxToolCall>[1]) =>
 	fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
 export const text = (value: string) => fauxAssistantMessage([fauxText(value)]);
 

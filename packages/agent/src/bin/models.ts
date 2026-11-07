@@ -11,13 +11,22 @@ import { lazyMcpBridge } from "./mcp.js";
 import { GEMINI_PROVIDER, registerGemini, type GeminiEnv, type RegisterGeminiResult } from "../pi/gemini.js";
 import { OLLAMA_PROVIDER_ID, registerOllama, type RegisterOllamaResult } from "../pi/ollama.js";
 
+/** What a command passes to `cliModels`. */
+export interface CliModelOptions {
+	/** `claude-code`'s `maxTurns` for a step offering tools; unset: its default. */
+	readonly maxTurns?: number;
+}
+
 /** pi-ai's built-in providers plus `claude-code`. No network call. */
-export async function cliModels(): Promise<MutableModels> {
+export async function cliModels(options: CliModelOptions = {}): Promise<MutableModels> {
 	const { claudeCodeProvider } = await import("../claude-code/index.js");
 	const models = builtinModels();
-	models.setProvider(claudeCodeProvider({ bridge: lazyMcpBridge() }));
+	models.setProvider(claudeCodeProvider({ bridge: lazyMcpBridge(), ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}) }));
 	return models;
 }
+
+/** `cliModels`' options for a turn limit, or none. */
+export const turnOptions = (maxTurns: number | undefined): CliModelOptions => (maxTurns !== undefined ? { maxTurns } : {});
 
 /**
  * Registers and refreshes `ollama` on `models` when any ref is on it, and answers what
