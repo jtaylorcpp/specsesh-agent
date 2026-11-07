@@ -6,10 +6,11 @@
  *   agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [--script <name|path>] [--workspace <dir>]
  *                    [--check <command>]... [--allow <word>]... [--max-iterations <n>]
  *                    [--escalate-to principal|agent] [--provider <id>] [--model <id>]
- *                    [--allow-dirty] [--worktree] [--no-delegates] [--max-turns <n>] [--json]
+ *                    [--allow-dirty] [--worktree] [--no-delegates] [--max-turns <n>] [--turn-timeout <ms>] [--json]
  *   agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
- *   agentscript-task resume <loop-id>|--all [--db <path>] [--max-turns <n>] [--json]
- *   agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--max-turns <n>] [--json]
+ *   agentscript-task resume <loop-id>|--all [--db <path>] [--max-turns <n>] [--turn-timeout <ms>] [--json]
+ *   agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>]
+ *                    [--max-turns <n>] [--turn-timeout <ms>] [--json]
  *   agentscript-task status [--db <path>]
  *   agentscript-task pick-tests --input <file.json> [--provider <id>] [--model <id>] [--timeout <ms>]
  *
@@ -43,9 +44,10 @@
  *
  * `--provider claude-code` runs each step through your own `claude` binary; a
  * step's tools (the workspace actions) are served to it over a loopback MCP bridge.
- * `--max-turns` (else `task.maxTurns`) is its turn limit on such a step. It is not
- * stored with the loop: `resume` and `answer` read it again, and the resume hint
- * repeats the flag.
+ * `--max-turns` (else `task.maxTurns`) is its turn limit on such a step, and
+ * `--turn-timeout` (else `task.turnTimeoutMs`) its time limit on one turn, which
+ * doesn't count the time our tools take. Neither is stored with the loop: `resume`
+ * and `answer` read them again, and the resume hint repeats the flags.
  *
  * The harness comes from `createAgentHarness`: the loop's model as `default` and
  * the config's named `models`, its workspace, checks and allowlist, and the
@@ -124,7 +126,7 @@ import { after, formatSpecOutcome, runSpec, shownPath, specExitCode, stageScript
 import { changeDirOf } from "../task/spec-loop.js";
 import { changeOf, formatLoop, listLoops, markInterrupted, scriptOf } from "../task/status.js";
 import { WorktreeRefusedError, checkWorktree, createWorktree, inRepo, planWorktree, rebase, runSetup } from "../task/worktree.js";
-import { cliModels, geminiRefusal, ollamaSuffix, turnOptions, withGemini, withOllama, type CliModelOptions } from "./models.js";
+import { cliModels, geminiRefusal, ollamaSuffix, turnFlags, turnOptions, withGemini, withOllama, type CliModelOptions } from "./models.js";
 
 export { DEFAULT_MODEL, DEFAULT_PROVIDER };
 
@@ -137,20 +139,22 @@ export const USAGE = `usage:
                --max-iterations <n>  --escalate-to principal|agent  --provider <id>  --model <id>
                --allow-dirty  --worktree  --json
                --no-delegates   withdraw every delegate grant for this run
-               --max-turns <n>  claude-code's turn limit on a step that offers tools (default 100)
+               --max-turns <n>      claude-code's turn limit on a step that offers tools (default 100)
+               --turn-timeout <ms>  claude-code's time limit on one turn, not counting its tools (default 300000)
   specsesh task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
-  specsesh task resume <loop-id>|--all [--db <path>] [--max-turns <n>] [--json]
-  specsesh task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--max-turns <n>] [--json]
+  specsesh task resume <loop-id>|--all [--db <path>] [--max-turns <n>] [--turn-timeout <ms>] [--json]
+  specsesh task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>]
+                       [--max-turns <n>] [--turn-timeout <ms>] [--json]
   specsesh task status [--db <path>]
   specsesh task pick-tests --input <file.json> [--provider <id>] [--model <id>] [--timeout <ms>]`;
 
-/** The stderr line printed as soon as a loop exists, before the harness resumes it; `flags` repeats the run's `--max-turns`. */
+/** The stderr line printed as soon as a loop exists, before the harness resumes it; `flags` repeats the run's `--max-turns` and `--turn-timeout`. */
 const resumeHint = (id: number | string, db: string, flags = "") => `loop ${id} — resume with: specsesh task resume ${id} --db ${db}${flags}`;
 
 export interface CliDeps {
 	/**
 	 * The pi-ai model collection. Defaults to `cliModels(options)`; either way, `ollama` is added when a
-	 * model needs it. `options` carries the turn limit (`--max-turns`, `task.maxTurns`).
+	 * model needs it. `options` carries the turn limits (`--max-turns`, `task.maxTurns`; `--turn-timeout`, `task.turnTimeoutMs`).
 	 */
 	readonly models?: (options?: CliModelOptions) => Promise<Models> | Models;
 	readonly out?: (line: string) => void;
@@ -262,14 +266,13 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 		}
 		throw error;
 	}
-	const turnsFlag = parsed.values["max-turns"];
 	const io: Io = {
 		out,
 		err,
 		emit: jsonLines(err),
 		json: parsed.values.json,
 		pollMs: deps.pollMs ?? 200,
-		resumeFlags: turnsFlag !== undefined ? ` --max-turns ${turnsFlag}` : "",
+		resumeFlags: turnFlags({ maxTurns: parsed.values["max-turns"], turnTimeoutMs: parsed.values["turn-timeout"] }),
 	};
 	try {
 		if (command === "run") return await run(parsed.values, parsed.positionals, config, cwd, env, deps, io, usage);
@@ -353,7 +356,7 @@ interface Io {
 	readonly emit: EventSink;
 	readonly json: boolean | undefined;
 	readonly pollMs: number;
-	/** What every resume hint repeats after `--db`: ` --max-turns <n>` when given, else `""`. */
+	/** What every resume hint repeats after `--db`: ` --max-turns <n>` and ` --turn-timeout <ms>` when given, else `""`. */
 	readonly resumeFlags: string;
 	/** This process's `loop_owner` rows, set once the database is open. */
 	readonly ownership?: LoopOwnership;
@@ -407,7 +410,7 @@ async function run(
 	// A missing group script refuses the run here, before any model or database is touched.
 	const groupScript = group !== undefined ? resolveGroupScript(settings.groupScript.value, settings.groupScript.base) : undefined;
 
-	const models = await (deps.models ?? cliModels)(turnOptions(settings.maxTurns));
+	const models = await (deps.models ?? cliModels)(turnOptions(settings));
 	const model: ModelRef = { provider: settings.provider, modelId: settings.model };
 	const ollama = await withOllama(models, ollamaRefs(model, config));
 	const refusal = geminiRefusal(await withGemini(models, ollamaRefs(model, config), env));
@@ -798,8 +801,11 @@ async function continueLoop(
 	if (db === undefined) return usage(`${command} needs --db <path>, or a db in agentscript.config.json`);
 	const flags = runFlagsOf(values);
 	if (typeof flags === "string") return usage(flags);
-	// Not stored with the loop: the provider's limit is this process's, from the flag or the config.
-	const modelOptions = turnOptions(flags.maxTurns ?? config.task.maxTurns);
+	// Not stored with the loop: the provider's limits are this process's, from the flags or the config.
+	const modelOptions = turnOptions({
+		maxTurns: flags.maxTurns ?? config.task.maxTurns,
+		turnTimeoutMs: flags.turnTimeoutMs ?? config.task.turnTimeoutMs,
+	});
 	if (values["all"] === true) return await resumeEvery(db, config, cwd, env, deps, io, modelOptions);
 	if (target === undefined) return usage();
 	let by: Recipient | undefined;

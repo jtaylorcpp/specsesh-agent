@@ -96,10 +96,12 @@
         "api-keys": { "value": "tested", "evidence": [{ "test": "Scenario: Bound inputs are merged into the call" }] },
         "claude-code": {
           "value": "tested",
-          "note": "a step stops after `maxTurns` turns (default 100; `--max-turns`, `task.maxTurns`), failing with a message that names the limit; other providers have no turn limit here",
+          "note": "a step stops after `maxTurns` turns (default 100; `--max-turns`, `task.maxTurns`), and a turn after `timeoutMs` (default 5 minutes, not counting tool time; `--turn-timeout`, `task.turnTimeoutMs`), failing with a message that names the limit; other providers have no such limits here",
           "evidence": [
             { "test": "Scenario: A durable claude-code run calls a --tools tool" },
-            { "test": "fails the step once, naming the limit, with no retry" }
+            { "test": "fails the step once, naming the limit, with no retry" },
+            { "test": "fails the step once, naming timeoutMs, with no retry" },
+            { "test": "doesn't count the time pi takes over a call" }
           ]
         },
         "gemini": { "value": "untested" },

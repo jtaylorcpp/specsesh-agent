@@ -239,7 +239,14 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
   `task run`/`resume`/`answer` and `change build`, else `task.maxTurns`. It is the process's, not
   stored with a run or loop, so resume hints repeat the flag. Reaching it fails the step (and so a
   task loop) with `claude stopped at its turn limit after <n> turns (maxTurns <m>); …`, naming how to
-  raise it. The session is also bounded by `timeoutMs` (300000), which counts our tools' time.
+  raise it. Its time limit is per turn: `timeoutMs` (default `DEFAULT_TURN_TIMEOUT_MS`, 300000)
+  runs while Claude Code works and stops while its calls are with pi, so our tools' time never
+  counts (`--turn-timeout <ms>`, else `task.turnTimeoutMs`; repeated by resume hints too). Past it,
+  the step fails with `claude was stopped after working <ms>ms on one turn …`. While its calls are
+  with pi, a session waits at most `toolWaitMs` (an hour, provider option only), then ends; a late
+  answer starts a fresh process on the whole transcript, as after a crash. Both limits' messages
+  say "out of budget", which pi-ai never retries (it picks retries by error text, and "timeout" or
+  a number holding "500" would match); `__tests__/pi/claude-code-clocks.test.ts` pins that.
 - **This is a library** consumed from other projects, not a deployed service. `examples/` holds
   consumers. `pnpm build` (tsc) emits `packages/agent/dist/`, which the exports, the bins and the examples use;
   `pnpm pack:check` proves the packed tarball installs and runs in an empty project. Cloudflare is not

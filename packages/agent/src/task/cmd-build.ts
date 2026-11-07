@@ -104,6 +104,8 @@ export interface BuildRequest {
 	readonly model: string;
 	/** `--max-turns`, else `task.maxTurns`: the provider's turn limit, which the bin applies. Undefined: its default. */
 	readonly maxTurns?: number;
+	/** `--turn-timeout`, else `task.turnTimeoutMs`: the provider's time limit on one turn, which the bin applies. Undefined: its default. */
+	readonly turnTimeoutMs?: number;
 	readonly workspace: string;
 	readonly checks: readonly string[];
 	readonly allow: readonly string[];
@@ -272,6 +274,7 @@ export function prepareBuild(args: BuildArgs, options: BuildPrepareOptions): Bui
 		provider: settings.provider,
 		model: settings.model,
 		...(settings.maxTurns !== undefined ? { maxTurns: settings.maxTurns } : {}),
+		...(settings.turnTimeoutMs !== undefined ? { turnTimeoutMs: settings.turnTimeoutMs } : {}),
 		workspace: settings.workspace,
 		checks: settings.checks,
 		allow: settings.allow,

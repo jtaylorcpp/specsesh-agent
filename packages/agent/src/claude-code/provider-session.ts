@@ -6,6 +6,15 @@
  * Claude Code makes, the provider hands it to pi as a `toolCall`, and the call's
  * `toolResult`, on a later request, is handed back to the same process. One
  * session is one bridge plus one process, alive across those requests.
+ *
+ * Its clocks take turns. While Claude Code works, `turnTimeoutMs` runs: from the
+ * start, or from when its last outstanding call was answered, until it makes its
+ * next call or ends; past it the process is stopped and its result marked
+ * `timedOut`. While its calls are with pi, that clock is stopped, so the host's
+ * tools (a test run, a delegate) don't count, and `toolWaitMs` runs instead, from
+ * the last answer: past it the session ends, so a run that stopped answering
+ * doesn't keep `claude` alive. A late answer then names no live session, and the
+ * provider starts a fresh process on the whole transcript, as after a crash.
  */
 
 import { randomUUID } from "node:crypto";
@@ -49,6 +58,14 @@ export class SessionRegistry {
 	}
 }
 
+/** A session's two clocks, in milliseconds (see the module comment). */
+export interface SessionClocks {
+	/** How long Claude Code may work between handing out calls: from the start or its last answer to its next call or its end. */
+	readonly turnTimeoutMs: number;
+	/** How long the session waits on pi for the calls it handed out, from the last answer, before it ends. */
+	readonly toolWaitMs: number;
+}
+
 export interface StartSessionOptions {
 	readonly bridge: ToolBridgeFactory;
 	/** The request's tools other than `submit_result`, as the bridge serves them. */
@@ -57,13 +74,15 @@ export interface StartSessionOptions {
 	readonly invocation: Omit<ClaudeInvocation, "tools">;
 	/** `promptOf` the request's transcript, on stdin. */
 	readonly prompt: string;
+	/** A runner with no clock of its own: the session's clocks stop it. */
 	readonly runnerFor: (signal: AbortSignal) => Runner;
 	readonly registry: SessionRegistry;
+	readonly clocks: SessionClocks;
 }
 
 /** Starts the bridge, then the one process. Throws only when the bridge can't start. */
 export async function startSession(options: StartSessionOptions): Promise<ProviderSession> {
-	const session = new ProviderSession(options.registry);
+	const session = new ProviderSession(options.registry, options.clocks);
 	const running = await options.bridge(options.tools, session.handler);
 	session.run(running, options);
 	return session;
@@ -72,6 +91,11 @@ export async function startSession(options: StartSessionOptions): Promise<Provid
 export class ProviderSession {
 	readonly controller = new AbortController();
 	readonly #registry: SessionRegistry;
+	readonly #clocks: SessionClocks;
+	/** Whichever clock is running: Claude Code's turn, or the wait on pi. */
+	#clock: ReturnType<typeof setTimeout> | undefined;
+	/** Set when the turn clock stopped the process. */
+	#timedOut = false;
 	/** Calls not yet handed out, in arrival order. */
 	readonly #queue: QueuedCall[] = [];
 	/** Handed-out calls waiting for their result, by id. */
@@ -83,16 +107,42 @@ export class ProviderSession {
 	#exited = false;
 	#closing: Promise<void> | undefined;
 
-	constructor(registry: SessionRegistry) {
+	constructor(registry: SessionRegistry, clocks: SessionClocks) {
 		this.#registry = registry;
+		this.#clocks = clocks;
 	}
 
 	readonly handler: BridgeHandler = (name, args) =>
 		new Promise<BridgeReply>((resolve) => {
 			if (this.#closing !== undefined) return resolve({ ok: false, text: "aborted" });
+			if (this.#outstanding() === 0) this.#waitOnPi();
 			this.#queue.push({ name, args, resolve });
 			this.#arrived?.();
 		});
+
+	/** Calls Claude Code is waiting on: queued here, or handed out to pi. */
+	#outstanding(): number {
+		return this.#queue.length + this.#held.size;
+	}
+
+	#start(ms: number, fire: () => void): void {
+		clearTimeout(this.#clock);
+		this.#clock = setTimeout(fire, ms);
+	}
+
+	/** Claude Code is working: its turn clock starts afresh. */
+	#working(): void {
+		this.#start(this.#clocks.turnTimeoutMs, () => {
+			if (this.#exited) return;
+			this.#timedOut = true;
+			this.controller.abort();
+		});
+	}
+
+	/** Its calls are with pi: the turn clock stops, and the wait for pi's answers starts afresh. */
+	#waitOnPi(): void {
+		this.#start(this.#clocks.toolWaitMs, () => void this.end());
+	}
 
 	/** @internal Runs the process once; the bridge closes and the ids go as soon as it ends. */
 	run(running: ToolBridge, options: StartSessionOptions): void {
@@ -101,6 +151,7 @@ export class ProviderSession {
 			...options.invocation,
 			tools: { mcpConfig: running.mcpConfig, allowedTools: running.allowedTools },
 		});
+		this.#working();
 		this.#ended = options
 			.runnerFor(this.controller.signal)(args, options.prompt, toolStepEnv(process.env))
 			.catch((error: unknown): ProcessResult => ({
@@ -109,10 +160,10 @@ export class ProviderSession {
 				stderr: "",
 				spawnError: error instanceof Error ? error : new Error(String(error)),
 			}))
-			.then(async (result) => {
+			.then(async (result): Promise<ProcessResult> => {
 				this.#exited = true;
 				await this.end();
-				return result;
+				return this.#timedOut ? { ...result, timedOut: true } : result;
 			});
 	}
 
@@ -122,6 +173,7 @@ export class ProviderSession {
 	 * and closes the bridge. Both the process ending and an aborted request end here.
 	 */
 	end(): Promise<void> {
+		clearTimeout(this.#clock);
 		if (!this.#exited) this.controller.abort();
 		this.#closing ??= (async () => {
 			this.#registry.drop(this);
@@ -139,6 +191,10 @@ export class ProviderSession {
 		const resolve = this.#held.get(id);
 		if (resolve === undefined) return false;
 		this.#held.delete(id);
+		if (this.#closing === undefined) {
+			if (this.#outstanding() === 0) this.#working();
+			else this.#waitOnPi();
+		}
 		resolve(reply);
 		return true;
 	}

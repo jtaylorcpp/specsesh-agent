@@ -71,7 +71,7 @@ session. Claude Code's OAuth token is never read or forwarded. It is model acces
 
 | Role | Code | Who runs the tools | Fate |
 |---|---|---|---|
-| pi provider (model access) | `src/claude-code/claude-code-provider.ts`, `provider-session.ts` | Our harness. Claude Code's tool calls come back through a loopback MCP bridge as pi tool calls; a held `claude -p` lasts one step, up to `maxTurns` turns (default 100). | Keep. |
+| pi provider (model access) | `src/claude-code/claude-code-provider.ts`, `provider-session.ts` | Our harness. Claude Code's tool calls come back through a loopback MCP bridge as pi tool calls; a held `claude -p` lasts one step, up to `maxTurns` turns (default 100) of at most `timeoutMs` each (default 5 minutes, not counting tool time). | Keep. |
 | `ReasoningPort` | `src/claude-code/claude-code.ts` | Our host, through the same bridge. | Goes with the one-shot path (#29). |
 | Delegate runner (`claudeCodeRunner`) | removed | Claude Code itself, with its own file tools. | **Removed** (2026-11-06), with the bundled `task-delegate.agent`. |
 
@@ -81,8 +81,8 @@ route; the bundled `task` script does that work on the Claude Code provider. Eve
 better is back: listing and searching files in the act step (#42), the repository's own context
 files (`task.context`, #43), a string-replacement edit (`replace_in_file`, #36), and room for a
 coding step on Claude Code (`maxTurns`, default 100, set by `--max-turns` or `task.maxTurns`; #37).
-One bound remains: a held session's `timeoutMs` (5 minutes) counts the time our host spends running
-its tools, so a step that runs long checks can reach it first.
+A held session's `timeoutMs` (5 minutes) is per turn and stops while its calls are with our host, so
+long checks don't count against it (`--turn-timeout` or `task.turnTimeoutMs`).
 
 ### Decisions
 

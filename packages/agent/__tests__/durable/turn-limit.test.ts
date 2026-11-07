@@ -1,6 +1,7 @@
-// The claude-code provider's turn limit on a step that offers tools (#37): configurable as
-// `maxTurns`, defaulting to DEFAULT_TOOL_STEP_TURNS rather than the one-shot port's 16, and named
-// in the step's outcome when it ended the step.
+// The claude-code provider's limits on a step that offers tools. Its turn limit (#37): configurable
+// as `maxTurns`, defaulting to DEFAULT_TOOL_STEP_TURNS rather than the one-shot port's 16. Its time
+// limit on one turn, `timeoutMs`, which doesn't count the host's tools (claude-code-clocks.test.ts).
+// Each is named in the step's outcome when it ended the step, and each has a CLI flag.
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,7 +12,7 @@ import { MemoryStorage } from "@earendil-works/pi-durable";
 import { main as durableMain } from "../../src/bin/agentscript-durable.js";
 import type { CliModelOptions } from "../../src/bin/models.js";
 import type { ProcessResult, Runner } from "../../src/claude-code/claude-code.js";
-import { DEFAULT_TOOL_STEP_TURNS, claudeCodeModel, claudeCodeProvider } from "../../src/claude-code/claude-code-provider.js";
+import { DEFAULT_TOOL_STEP_TURNS, claudeCodeModel, claudeCodeProvider, type ClaudeCodeProviderOptions } from "../../src/claude-code/claude-code-provider.js";
 import type { ToolBridgeFactory } from "../../src/claude-code/tool-bridge.js";
 import { createAgentHarness } from "../../src/durable/harness.js";
 import { memoryWorkspace, runScript } from "../../src/durable/index.js";
@@ -87,7 +88,7 @@ describe("claude-code/provider: a held session's turn limit is maxTurns", () => 
 		const { message } = await toolStep({ maxTurns: 7 }, AT_LIMIT(7));
 		expect(message.stopReason).toBe("error");
 		expect(message.errorMessage).toBe(
-			"claude stopped at its turn limit after 7 turns (maxTurns 7); the step ended unfinished: raise maxTurns (the CLI's --max-turns, or task.maxTurns in agentscript.config.json) to give it more",
+			"claude stopped at its turn limit after 7 turns (maxTurns 7); the step ended unfinished, out of budget: raise maxTurns (the CLI's --max-turns, or task.maxTurns in agentscript.config.json) to give it more",
 		);
 	});
 });
@@ -116,38 +117,57 @@ subagent act:
                 with path = ...
 `;
 
+/** Runs READER durably on a claude-code provider with `options`, counting the processes it starts. */
+async function readerRun(options: ClaudeCodeProviderOptions & Required<Pick<ClaudeCodeProviderOptions, "runner">>) {
+	let spawned = 0;
+	const provider = claudeCodeProvider({
+		bridge,
+		...options,
+		runner: (signal) => {
+			spawned += 1;
+			return options.runner(signal);
+		},
+	});
+	const model = claudeCodeModel("claude-haiku-4-5");
+	const agent = await createAgentHarness(
+		{
+			models: { default: () => ({ provider, model: { provider: "claude-code", modelId: model.id } }) },
+			workspace: () => memoryWorkspace({ "a.txt": "hi" }),
+		},
+		{ storage: new MemoryStorage(), env: {}, context },
+	);
+	const run = await runScript(agent.harness, READER, { entry: ["act"], model: agent.models["default"]! }, context);
+	await agent.harness.close(context);
+	const outcome = run.steps.at(-1)?.outcome;
+	return { run, spawned, message: outcome?.kind === "failed" ? outcome.message : undefined };
+}
+
 describe("durable/run-task: a step that hit the turn limit says so in its outcome", () => {
 	it("fails the step once, naming the limit, with no retry", async () => {
-		let spawned = 0;
-		const provider = claudeCodeProvider({
-			bridge,
-			maxTurns: 12,
-			runner: () => async () => {
-				spawned += 1;
-				return AT_LIMIT(12);
-			},
-		});
-		const model = claudeCodeModel("claude-haiku-4-5");
-		const agent = await createAgentHarness(
-			{
-				models: { default: () => ({ provider, model: { provider: "claude-code", modelId: model.id } }) },
-				workspace: () => memoryWorkspace({ "a.txt": "hi" }),
-			},
-			{ storage: new MemoryStorage(), env: {}, context },
-		);
-		const run = await runScript(agent.harness, READER, { entry: ["act"], model: agent.models["default"]! }, context);
-		await agent.harness.close(context);
-
+		const { run, spawned, message } = await readerRun({ maxTurns: 12, runner: () => async () => AT_LIMIT(12) });
 		expect(spawned).toBe(1);
 		expect(run.kind).toBe("failed");
-		const outcome = run.steps.at(-1)?.outcome;
-		expect(outcome?.kind).toBe("failed");
-		expect(outcome?.kind === "failed" && outcome.message).toContain("claude stopped at its turn limit after 12 turns (maxTurns 12)");
-		expect(outcome?.kind === "failed" && outcome.message).toContain("--max-turns");
+		expect(message).toContain("claude stopped at its turn limit after 12 turns (maxTurns 12)");
+		expect(message).toContain("--max-turns");
 	});
 });
 
-describe("durable/cli: --max-turns", () => {
+describe("durable/run-task: a step whose turn ran past timeoutMs says so in its outcome", () => {
+	it("fails the step once, naming timeoutMs, with no retry", async () => {
+		const { run, spawned, message } = await readerRun({
+			timeoutMs: 50,
+			// A claude that never answers until it is stopped.
+			runner: (signal) => () =>
+				new Promise<ProcessResult>((resolve) => signal?.addEventListener("abort", () => resolve({ code: null, stdout: "", stderr: "" }))),
+		});
+		expect(spawned).toBe(1);
+		expect(run.kind).toBe("failed");
+		expect(message).toContain("claude was stopped after working 50ms on one turn without calling a tool or finishing (timeoutMs 50");
+		expect(message).toContain("--turn-timeout");
+	});
+});
+
+describe("durable/cli: --max-turns and --turn-timeout", () => {
 	function workdir() {
 		const dir = mkdtempSync(join(tmpdir(), "agentscript-turns-"));
 		dirs.push(dir);
@@ -192,6 +212,23 @@ describe("durable/cli: --max-turns", () => {
 			const r = await durable(["run", script, "--db", db, "--max-turns", bad]);
 			expect(r.code, bad).toBe(2);
 			expect(r.err, bad).toContain(`--max-turns must be a positive integer, got "${bad}"`);
+			expect(r.seen, bad).toEqual([]);
+		}
+	});
+
+	it("hands --turn-timeout over beside --max-turns, and the resume hint repeats both", async () => {
+		const { script, db } = workdir();
+		const r = await durable(["run", script, "--db", db, "--max-turns", "40", "--turn-timeout", "600000"]);
+		expect(r.seen).toEqual([{ maxTurns: 40, turnTimeoutMs: 600_000 }]);
+		expect(r.err).toMatch(/resume with: agentscript-durable resume \d+ --db \S+ --max-turns 40 --turn-timeout 600000/);
+	});
+
+	it("refuses a --turn-timeout a timer can't keep, opening nothing", async () => {
+		const { script, db } = workdir();
+		for (const bad of ["0", "ten", "1.5", "2147483648"]) {
+			const r = await durable(["run", script, "--db", db, "--turn-timeout", bad]);
+			expect(r.code, bad).toBe(2);
+			expect(r.err, bad).toContain(`--turn-timeout must be a positive integer of milliseconds, at most 2147483647, got "${bad}"`);
 			expect(r.seen, bad).toEqual([]);
 		}
 	});

@@ -30,7 +30,10 @@ export const DEFAULT_PROVIDER = "anthropic";
 export const DEFAULT_MODEL = "claude-haiku-4-5";
 export const DEFAULT_CHANGES_DIR = "openspec/changes";
 
-type FieldKind = "string" | "strings" | "positive-integer" | "recipient" | "boolean";
+type FieldKind = "string" | "strings" | "positive-integer" | "milliseconds" | "recipient" | "boolean";
+
+/** The longest timeout a timer keeps, so the longest `--turn-timeout` or `task.turnTimeoutMs`. */
+export const MAX_TIMEOUT_MS = 2_147_483_647;
 
 const FIELDS = {
 	changesDir: "string",
@@ -44,6 +47,7 @@ const FIELDS = {
 	maxIterations: "positive-integer",
 	maxReworks: "positive-integer",
 	maxTurns: "positive-integer",
+	turnTimeoutMs: "milliseconds",
 	escalateTo: "recipient",
 	requireCleanTree: "boolean",
 	worktree: "boolean",
@@ -60,6 +64,7 @@ const DESCRIBE: Record<FieldKind, string> = {
 	string: "a string",
 	strings: "an array of strings",
 	"positive-integer": "a positive integer",
+	milliseconds: `a positive integer of milliseconds, at most ${MAX_TIMEOUT_MS}`,
 	recipient: '"principal" or "agent"',
 	boolean: "a boolean",
 };
@@ -78,6 +83,8 @@ export interface TaskConfig {
 	readonly maxReworks?: number;
 	/** The `claude-code` provider's turn limit on a step that offers tools. Unset: its default. */
 	readonly maxTurns?: number;
+	/** The `claude-code` provider's `timeoutMs`: its time limit on one turn, not counting the host's tools. Unset: its default. */
+	readonly turnTimeoutMs?: number;
 	readonly escalateTo?: "principal" | "agent";
 	readonly requireCleanTree?: boolean;
 	readonly worktree?: boolean;
@@ -134,6 +141,8 @@ function matches(kind: FieldKind, value: unknown): boolean {
 			return Array.isArray(value) && value.every((item) => typeof item === "string");
 		case "positive-integer":
 			return typeof value === "number" && Number.isInteger(value) && value >= 1;
+		case "milliseconds":
+			return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= MAX_TIMEOUT_MS;
 		case "recipient":
 			return value === "principal" || value === "agent";
 		case "boolean":
@@ -330,6 +339,7 @@ export interface RunFlags {
 	readonly allow?: readonly string[];
 	readonly maxIterations?: number;
 	readonly maxTurns?: number;
+	readonly turnTimeoutMs?: number;
 	readonly escalateTo?: "principal" | "agent";
 	readonly provider?: string;
 	readonly model?: string;
@@ -347,6 +357,7 @@ export const RUN_FLAG_OPTIONS = {
 	"max-iterations": { type: "string" },
 	"max-reworks": { type: "string" },
 	"max-turns": { type: "string" },
+	"turn-timeout": { type: "string" },
 	"group-script": { type: "string" },
 	"escalate-to": { type: "string" },
 	provider: { type: "string" },
@@ -373,6 +384,9 @@ export function runFlagsOf(values: Readonly<Record<string, string | boolean | st
 	if (maxTurns !== undefined && !/^[1-9][0-9]*$/.test(maxTurns)) {
 		return `--max-turns must be a positive integer, got "${maxTurns}"`;
 	}
+	const turnTimeout = values["turn-timeout"] as string | undefined;
+	const turnTimeoutIssue = turnTimeout !== undefined ? turnTimeoutFlagIssue(turnTimeout) : undefined;
+	if (turnTimeoutIssue !== undefined) return turnTimeoutIssue;
 	const escalateTo = values["escalate-to"] as string | undefined;
 	if (escalateTo !== undefined && escalateTo !== "principal" && escalateTo !== "agent") {
 		return `--escalate-to must be principal or agent, got "${escalateTo}"`;
@@ -387,11 +401,19 @@ export function runFlagsOf(values: Readonly<Record<string, string | boolean | st
 		...(maxIterations !== undefined ? { maxIterations: Number(maxIterations) } : {}),
 		...(maxReworks !== undefined ? { maxReworks: Number(maxReworks) } : {}),
 		...(maxTurns !== undefined ? { maxTurns: Number(maxTurns) } : {}),
+		...(turnTimeout !== undefined ? { turnTimeoutMs: Number(turnTimeout) } : {}),
 		...(escalateTo !== undefined ? { escalateTo } : {}),
 		...(values["provider"] !== undefined ? { provider: values["provider"] as string } : {}),
 		...(values["model"] !== undefined ? { model: values["model"] as string } : {}),
 		allowDirty: values["allow-dirty"] === true,
 	};
+}
+
+/** The usage error for a `--turn-timeout` that isn't a positive integer of milliseconds up to `MAX_TIMEOUT_MS`, else undefined. */
+export function turnTimeoutFlagIssue(value: string): string | undefined {
+	return /^[1-9][0-9]*$/.test(value) && Number(value) <= MAX_TIMEOUT_MS
+		? undefined
+		: `--turn-timeout must be a positive integer of milliseconds, at most ${MAX_TIMEOUT_MS}, got "${value}"`;
 }
 
 /** A database: the path to open, and how messages and hints name it (as given, or absolute from the config). */
@@ -417,6 +439,8 @@ export interface RunSettings {
 	readonly maxReworks: number;
 	/** `--max-turns`, else `task.maxTurns`; undefined: the provider's default. */
 	readonly maxTurns?: number;
+	/** `--turn-timeout`, else `task.turnTimeoutMs`; undefined: the provider's default. */
+	readonly turnTimeoutMs?: number;
 	readonly escalateTo: "principal" | "agent";
 	readonly requireCleanTree: boolean;
 	readonly worktree: boolean;
@@ -444,6 +468,7 @@ export function resolveRunSettings(
 	const worktree = flags.worktree ?? task.worktree ?? false;
 	const db = worktree && flags.db === undefined ? undefined : resolveDb(flags.db, config, cwd);
 	const maxTurns = flags.maxTurns ?? task.maxTurns;
+	const turnTimeoutMs = flags.turnTimeoutMs ?? task.turnTimeoutMs;
 	const script =
 		flags.script !== undefined
 			? resolveScript(flags.script, cwd)
@@ -466,6 +491,7 @@ export function resolveRunSettings(
 		maxIterations: flags.maxIterations ?? task.maxIterations ?? DEFAULT_MAX_ITERATIONS,
 		maxReworks: flags.maxReworks ?? task.maxReworks ?? DEFAULT_MAX_REWORKS,
 		...(maxTurns !== undefined ? { maxTurns } : {}),
+		...(turnTimeoutMs !== undefined ? { turnTimeoutMs } : {}),
 		escalateTo: flags.escalateTo ?? task.escalateTo ?? DEFAULT_ESCALATE_TO,
 		requireCleanTree: flags.allowDirty === true ? false : (task.requireCleanTree ?? true),
 		worktree,

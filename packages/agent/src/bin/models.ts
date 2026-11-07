@@ -15,18 +15,33 @@ import { OLLAMA_PROVIDER_ID, registerOllama, type RegisterOllamaResult } from ".
 export interface CliModelOptions {
 	/** `claude-code`'s `maxTurns` for a step offering tools; unset: its default. */
 	readonly maxTurns?: number;
+	/** `claude-code`'s `timeoutMs`, its time limit on one turn (not counting the host's tools); unset: its default. */
+	readonly turnTimeoutMs?: number;
 }
 
 /** pi-ai's built-in providers plus `claude-code`. No network call. */
 export async function cliModels(options: CliModelOptions = {}): Promise<MutableModels> {
 	const { claudeCodeProvider } = await import("../claude-code/index.js");
 	const models = builtinModels();
-	models.setProvider(claudeCodeProvider({ bridge: lazyMcpBridge(), ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}) }));
+	models.setProvider(
+		claudeCodeProvider({
+			bridge: lazyMcpBridge(),
+			...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
+			...(options.turnTimeoutMs !== undefined ? { timeoutMs: options.turnTimeoutMs } : {}),
+		}),
+	);
 	return models;
 }
 
-/** `cliModels`' options for a turn limit, or none. */
-export const turnOptions = (maxTurns: number | undefined): CliModelOptions => (maxTurns !== undefined ? { maxTurns } : {});
+/** `cliModels`' options for the turn limits given, leaving out the unset ones. */
+export const turnOptions = (limits: { readonly maxTurns?: number | undefined; readonly turnTimeoutMs?: number | undefined }): CliModelOptions => ({
+	...(limits.maxTurns !== undefined ? { maxTurns: limits.maxTurns } : {}),
+	...(limits.turnTimeoutMs !== undefined ? { turnTimeoutMs: limits.turnTimeoutMs } : {}),
+});
+
+/** What a resume hint repeats of the turn limits given on the command line: ` --max-turns <n> --turn-timeout <ms>`, either, or `""`. */
+export const turnFlags = (limits: { readonly maxTurns?: number | string | undefined; readonly turnTimeoutMs?: number | string | undefined }): string =>
+	`${limits.maxTurns !== undefined ? ` --max-turns ${limits.maxTurns}` : ""}${limits.turnTimeoutMs !== undefined ? ` --turn-timeout ${limits.turnTimeoutMs}` : ""}`;
 
 /**
  * Registers and refreshes `ollama` on `models` when any ref is on it, and answers what

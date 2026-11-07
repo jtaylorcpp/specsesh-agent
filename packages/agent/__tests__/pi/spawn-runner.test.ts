@@ -20,7 +20,21 @@ describe("spawnRunner runs the binary outside any project, with a timeout", () =
 		const result = await spawnRunner(process.execPath, 100)(["-e", "setTimeout(() => {}, 30000)"], "", process.env);
 		expect(result.code).toBeNull();
 		expect(result.spawnError).toBeUndefined();
+		expect(result.timedOut).toBe(true);
 		expect(Date.now() - started).toBeLessThan(2000);
+	});
+
+	it("without a timeout, only the signal stops it, and a finished process isn't marked timed out", async () => {
+		const finished = await spawnRunner(process.execPath, undefined)(["-e", "setTimeout(() => process.stdout.write('done'), 300)"], "", process.env);
+		expect(finished).toMatchObject({ code: 0, stdout: "done" });
+		expect(finished.timedOut).toBeUndefined();
+
+		const controller = new AbortController();
+		const running = spawnRunner(process.execPath, undefined, controller.signal)(["-e", "setTimeout(() => {}, 30000)"], "", process.env);
+		setTimeout(() => controller.abort(), 100);
+		const stopped = await running;
+		expect(stopped.code).toBeNull();
+		expect(stopped.timedOut).toBeUndefined();
 	});
 
 	it("Input reaches the child's stdin", async () => {
