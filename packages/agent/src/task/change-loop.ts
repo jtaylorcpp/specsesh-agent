@@ -73,6 +73,8 @@ export interface ChangeLoopInput extends Omit<GroupLoopInput, "group" | "groupTi
 	readonly unclaimed: readonly ScenarioRef[];
 	/** Set only on a run that answers a blocked change loop: the encoded checkpoint it starts from, and the loop it answers. */
 	readonly resume?: { readonly checkpoint: JsonObject; readonly answers: number };
+	/** The change loop this one replaces (`change build --restart`), when it does. */
+	readonly restarts?: number;
 }
 
 /** The change loop's durable result: the ontology's outcome, notes it has no field for, and the group loop that blocked it. */
@@ -126,12 +128,13 @@ export function readChangeInput(options: ChangeLoopOptions, unclaimed: readonly 
 		...(options.worktree !== undefined ? { worktree: { path: options.worktree.path, branch: options.worktree.branch } } : {}),
 		...(options.excludeChanged !== undefined ? { excludeChanged: [...options.excludeChanged] } : {}),
 		...contextOf(options),
+		...(options.restarts !== undefined ? { restarts: options.restarts } : {}),
 	};
 }
 
 /** The group loop's input for `group`: the change's shared input, and the group's heading and tasks as tasks.md had them at the start. */
 export function groupLoopInputFor(input: ChangeLoopInput, group: number): GroupLoopInput {
-	const { groups: _groups, changeChecks: _changeChecks, unclaimed: _unclaimed, resume: _resume, ...shared } = input;
+	const { groups: _groups, changeChecks: _changeChecks, unclaimed: _unclaimed, resume: _resume, restarts: _restarts, ...shared } = input;
 	const found = findGroup(input.tasksText, group);
 	return { ...shared, group: found.number, groupTitle: found.title, tasks: found.tasks };
 }
