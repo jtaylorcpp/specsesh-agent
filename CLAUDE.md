@@ -342,6 +342,7 @@ specsesh task <change-id> <group>          # a bare integer is a group (2), n.m 
 specsesh task <change-id> --next-group     # the first group with an unticked task
 specsesh task status                       # loops: id, change, task or `group <n>`, status, iterations (and branch)
 specsesh task resume <loop-id>             # finish a loop whose process died (worktree loops: same --db)
+specsesh task retry <loop-id>              # a new run of a task or group loop that ended failed or exhausted (#47)
 specsesh task answer <loop-id> --by principal --decision "…"   # a blocked loop prints this exact command
 ```
 

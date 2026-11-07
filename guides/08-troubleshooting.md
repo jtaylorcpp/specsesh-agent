@@ -187,7 +187,7 @@ the run ended failed: unknown: the step was not answered: model_error ("the clau
 the run ended failed: unknown: the step was not answered: model_error ("claude stopped at its turn limit after 100 turns (maxTurns 100); the step ended unfinished, out of budget: raise maxTurns (the CLI's --max-turns, or task.maxTurns in agentscript.config.json) to give it more")
 ```
 
-On `claude-code`, a step that offers tools (`task.agent`'s `act`) is one `claude -p --max-turns <n>`, 100 by default, and each model reply in it counts as a turn. Set `maxTurns` under `task` in `agentscript.config.json`, or pass `--max-turns <n>` to `run`, `resume` or `answer`; then start a new run, since the failed loop is over. If a task keeps needing more, split it. Other providers have no turn limit in a durable run.
+On `claude-code`, a step that offers tools (`task.agent`'s `act`) is one `claude -p --max-turns <n>`, 100 by default, and each model reply in it counts as a turn. Set `maxTurns` under `task` in `agentscript.config.json`, or pass `--max-turns <n>` to `run`, `resume`, `retry` or `answer`. Then `specsesh task retry <loop-id> --max-turns <n>` starts the failed loop again: a new run that keeps its iterations and its work in the tree, with a fresh budget. If a task keeps needing more, split it. Other providers have no turn limit in a durable run.
 
 **A `claude-code` turn past its time limit.**
 
@@ -195,9 +195,9 @@ On `claude-code`, a step that offers tools (`task.agent`'s `act`) is one `claude
 the run ended failed: unknown: the step was not answered: model_error ("claude was stopped after working 300000ms on one turn without calling a tool or finishing (timeoutMs 300000, not counting the host's tools); the step ended unfinished, out of budget: raise timeoutMs (the CLI's --turn-timeout, or task.turnTimeoutMs in agentscript.config.json) to give it more")
 ```
 
-Claude Code worked on one reply for 5 minutes (by default) without calling a tool or finishing. The time our tools take, such as a long test run, doesn't count: the clock stops while a call is with the host and starts again when it is answered. A reply that writes a large file in one `edit_file` call can take this long; `replace` (`replace_in_file`) sends only the changed text. Otherwise set `turnTimeoutMs` under `task` in `agentscript.config.json`, or pass `--turn-timeout <ms>` to `run`, `resume` or `answer`, and start a new run. A step with no tools (a judge) is one process bounded the same way: `claude was stopped after <ms>ms without an answer (timeoutMs <ms>); …`.
+Claude Code worked on one reply for 5 minutes (by default) without calling a tool or finishing. The time our tools take, such as a long test run, doesn't count: the clock stops while a call is with the host and starts again when it is answered. A reply that writes a large file in one `edit_file` call can take this long; `replace` (`replace_in_file`) sends only the changed text. Otherwise set `turnTimeoutMs` under `task` in `agentscript.config.json`, or pass `--turn-timeout <ms>` to `run`, `resume`, `retry` or `answer`, and `specsesh task retry <loop-id> --turn-timeout <ms>`. A step with no tools (a judge) is one process bounded the same way: `claude was stopped after <ms>ms without an answer (timeoutMs <ms>); …`.
 
-**Provider errors.** A rate limit, an invalid model, a network failure: the provider's message follows `the step was not answered: model_error (…)`. The loop does not retry a failed step; run `agentscript-task resume <id>` once the cause is gone, or start a new run.
+**Provider errors.** A rate limit, an invalid model, a network failure: the provider's message follows `the step was not answered: model_error (…)`. The loop does not retry a failed step, and `resume` on a loop that has ended only prints how it ended. Once the cause is gone, `specsesh task retry <loop-id>` starts the loop again: a new run seeded with why the last one failed, keeping its iterations, its baseline and its work in the tree (no `--allow-dirty` needed). It works on task and group loops that ended `failed` or `exhausted`.
 
 ### Delegate and action failures
 

@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import { USAGE as CHANGE_USAGE, main as changeMain, type ChangeCliDeps } from "../bin/agentscript-change.js";
 import { USAGE as DURABLE_USAGE, main as durableMain, type CliDeps as DurableCliDeps } from "../bin/agentscript-durable.js";
 import { main as piMain } from "../bin/agentscript-pi.js";
-import { USAGE as TASK_USAGE, main as taskMain, type CliDeps as TaskCliDeps } from "../bin/agentscript-task.js";
+import { TASK_COMMANDS as TASK_COMMAND_LIST, USAGE as TASK_USAGE, main as taskMain, type CliDeps as TaskCliDeps } from "../bin/agentscript-task.js";
 import { runActions, runCheck, runLanguage, runList, runNew, runShow } from "./explain.js";
 import { HELP_COMMANDS, runCommandHelp, runLlm } from "./llm.js";
 
@@ -75,7 +75,8 @@ function agent(args: string[], deps: CliDeps): Promise<number> | number {
 	return route === undefined ? piMain(args) : route(rest, deps);
 }
 
-const TASK_COMMANDS = new Set(["run", "spec", "resume", "answer", "status"]);
+/** The task CLI's own list, so a new command (or `pick-tests`) is never taken for a change id. */
+const TASK_COMMANDS: ReadonlySet<string> = new Set(TASK_COMMAND_LIST);
 
 /** The implied-`run` rule of `specsesh task`: a first argument that is not a command or a flag is taken as `run <change> …`. */
 const implyRun = (args: string[]): string[] =>

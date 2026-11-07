@@ -14,6 +14,7 @@ flowchart LR
   status[listLoops<br/>task status]
   resume[resumeAll<br/>interrupted loops]
   answer[answerEscalation<br/>task answer]
+  retry[retryTaskLoop · retryGroupLoop<br/>task retry: failed or exhausted]
 
   run --> config
   run --> resolve
@@ -28,18 +29,21 @@ flowchart LR
   resume -->|readOwners| owner
   resume --> harness
   answer --> harness
+  retry --> harness
 
-  %% code: run packages/agent/src/bin/agentscript-task.ts:380
+  %% code: run packages/agent/src/bin/agentscript-task.ts:393
   %% code: config packages/agent/src/task/config.ts:267
   %% code: resolve packages/agent/src/task/resolve.ts:37
   %% code: worktree packages/agent/src/task/worktree.ts:92
   %% code: lock packages/agent/src/task/lock.ts:66
-  %% code: loops packages/agent/src/bin/agentscript-task.ts:369
+  %% code: loops packages/agent/src/bin/agentscript-task.ts:382
   %% code: owner packages/agent/src/task/owner.ts:32
-  %% code: harness packages/agent/src/bin/agentscript-task.ts:550
+  %% code: harness packages/agent/src/bin/agentscript-task.ts:563
   %% code: watcher packages/agent/src/task/events.ts:401
   %% code: status packages/agent/src/task/status.ts:140
   %% code: resume packages/agent/src/task/resume-all.ts:169
   %% code: answer packages/agent/src/task/answer.ts:81
+  %% code: retry packages/agent/src/task/retry.ts:53
 
   class config done
+  class retry done

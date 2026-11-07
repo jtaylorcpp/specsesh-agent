@@ -16,7 +16,8 @@
  * tools: the workspace actions, on any model.
  */
 
-export { EscalationAnswerError, TaskLoopStartError } from "./errors.js";
+export { EscalationAnswerError, LoopRetryError, TaskLoopStartError } from "./errors.js";
+export { retryCarried, retryCheckpoint, retryGroupLoop, retryTaskLoop } from "./retry.js";
 export { NEXT_ACTIONS, OPTIONAL_SEEDED, READ_BACK, SEEDED, amendPathChoices, checkContract, contractChoices, contractProblems, type ContractType } from "./contract.js";
 export { DELETE_NOT_GRANTED, TASK_LOOP, TaskLoop, TaskLoopTask, taskLoopExtensions, type TaskLoopActionOptions } from "./loop.js";
 export type { Baseline, LoopCheckpoint, TaskLoopInput, TaskLoopResult } from "./loop-input.js";

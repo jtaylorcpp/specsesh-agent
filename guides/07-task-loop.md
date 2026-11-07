@@ -357,16 +357,24 @@ agentscript-task run add-shout-flag 1.1 --worktree --db .agentscript/1.1.sqlite
 
 The task runs in `<worktreeDir>/<change-id>-<task-id>` (default `../<repo>-worktrees/…`) on a new branch `task/<change-id>/<task-id>`, created from `HEAD`; a group uses `<change-id>-<group>` and `task/<change-id>/<group>`. The main tree is untouched, so you can keep working and run several tasks at once, each with its own `--db`, which is mandatory here. The change must be committed first, because the worktree starts from `HEAD`. `worktreeSetup` commands run inside it before the loop. The tick lands in the worktree's `tasks.md`. The runner never reuses, removes or merges a worktree: when it ends it prints `worktree:`, `branch:`, `review: git -C <path> diff` and `remove: git worktree remove <path>`, and the rest is yours.
 
-### Status, resume, answer
+### Status, resume, retry, answer
 
 ```bash
 agentscript-task status                      # every loop in the database, newest first
 agentscript-task resume 7                    # finish a loop whose process died
 agentscript-task resume --all                # finish every interrupted loop in the database
+agentscript-task retry 7 --max-turns 200     # start a failed or exhausted loop again
 agentscript-task answer 7 --by principal --decision "Yes, upper-case the name too."
 ```
 
 `status` reads storage and runs nothing, so it works while another process holds the database. Its lines look like `loop 98  add-shout-flag  1.2  converged  1 iteration`; a group is listed as `group 1`, its iterations are check rounds, and a worktree loop adds its branch. `resume` re-attaches to a loop from the database alone (workspace, checks, allowlist and worktree are stored with it), so a crash mid-iteration resumes the same run rather than starting another. `answer` works on a loop that ended `blocked`, from the escalation's recipient (`--by` must match, or it exits 2 with `the escalation of task loop 7 goes to the principal, not the agent`).
+
+`retry` works on a task or group loop that ended `failed` or `exhausted`: a step at Claude Code's turn or time limit, a provider error, a budget used up. Like an answer, it leaves the loop as it ended and starts a new run of it, with its own id and resume hint:
+
+- **Task loops.** The new run is seeded with why the last one ended (`The last run of this loop ended failed: …`). It numbers on from the earlier iterations with a fresh `maxIterations`, and measures `changed` from the same baseline. It doesn't check the tree, since the loop's own edits are in it.
+- **Group loops.** The task that didn't converge runs again first, then the tasks the group hadn't reached; converged tasks don't rerun. When every task had converged, the group check runs again. Reworks start again from 0.
+- **Limits.** The turn limits are this process's: pass `--max-turns` or `--turn-timeout` to raise the one the step hit.
+- **Refusals.** A loop that converged, is blocked (answer it) or is still running is refused, exit 2. So is a spec loop.
 
 An answer never reopens the blocked loop: it starts a *new* run of the same task, seeded with your decision as its carried feedback. For a task loop the iteration numbers carry on from the blocked run and the budget is fresh. For a group loop the blocked task is rerun first, then the rest of the group, then the check. Because the run stores what it read at start, **an answer does not pick up edits to the spec or `tasks.md`**. After an `amend-spec` block, fix the spec, commit, and start a new `run`.
 
