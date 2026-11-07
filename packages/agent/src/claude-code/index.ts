@@ -20,6 +20,7 @@ export {
 	claudeCodeModel,
 	claudeCodeProvider,
 	promptOf,
+	serveClaudeCodeModels,
 	systemPromptOf,
 	toolsOf,
 	type ClaudeCodeProviderOptions,

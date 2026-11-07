@@ -30,6 +30,8 @@ vi.mock("../../src/claude-code/index.js", async () => {
 			claudeCode.faux = faux;
 			return faux.provider;
 		},
+		// The faux provider lists its own ids; the real one would add the run's.
+		serveClaudeCodeModels: () => false,
 	};
 });
 

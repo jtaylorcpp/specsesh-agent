@@ -126,7 +126,7 @@ import { after, formatSpecOutcome, runSpec, shownPath, specExitCode, stageScript
 import { changeDirOf } from "../task/spec-loop.js";
 import { changeOf, formatLoop, listLoops, markInterrupted, scriptOf } from "../task/status.js";
 import { WorktreeRefusedError, checkWorktree, createWorktree, inRepo, planWorktree, rebase, runSetup } from "../task/worktree.js";
-import { cliModels, geminiRefusal, ollamaSuffix, turnFlags, turnOptions, withGemini, withOllama, type CliModelOptions } from "./models.js";
+import { cliModels, geminiRefusal, ollamaSuffix, turnFlags, turnOptions, withClaudeCode, withGemini, withOllama, type CliModelOptions } from "./models.js";
 
 export { DEFAULT_MODEL, DEFAULT_PROVIDER };
 
@@ -339,6 +339,7 @@ async function pickTestsCommand(
 	const provider = values.provider ?? io.env["AGENTSCRIPT_PROVIDER"] ?? config.task.provider ?? DEFAULT_PROVIDER;
 	const model = values.model ?? io.env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL;
 	const models = await io.models();
+	await withClaudeCode(models, ollamaRefs({ provider, modelId: model }, config));
 	const ollama = await withOllama(models, ollamaRefs({ provider, modelId: model }, config));
 	const refusal = geminiRefusal(await withGemini(models, ollamaRefs({ provider, modelId: model }, config), io.env));
 	if (refusal !== undefined) {
@@ -412,6 +413,7 @@ async function run(
 
 	const models = await (deps.models ?? cliModels)(turnOptions(settings));
 	const model: ModelRef = { provider: settings.provider, modelId: settings.model };
+	await withClaudeCode(models, ollamaRefs(model, config));
 	const ollama = await withOllama(models, ollamaRefs(model, config));
 	const refusal = geminiRefusal(await withGemini(models, ollamaRefs(model, config), env));
 	if (refusal !== undefined) {
@@ -824,6 +826,7 @@ async function continueLoop(
 	}
 	const models = await (deps.models ?? cliModels)(modelOptions);
 	// The stored loop's own model is refreshed in continueStored, once the loop is read.
+	await withClaudeCode(models, namedRefs(config));
 	const ollama = await withOllama(models, namedRefs(config));
 	const refusal = geminiRefusal(await withGemini(models, namedRefs(config), env));
 	if (refusal !== undefined) {
@@ -881,6 +884,7 @@ async function continueStored(
 		modelId: env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL,
 	};
 	// A loop started on a local model finishes on it: refresh ollama unless the config's models already did.
+	if (found !== undefined) await withClaudeCode(models, [model]);
 	const refreshed = ollama ?? (found !== undefined ? await withOllama(models, [model]) : undefined);
 	const refusal = found !== undefined ? geminiRefusal(await withGemini(models, [model], env)) : undefined;
 	if (refusal !== undefined) {
@@ -994,6 +998,7 @@ async function resumeEvery(
 		return 0;
 	}
 	const models = await (deps.models ?? cliModels)(modelOptions);
+	await withClaudeCode(models, namedRefs(config));
 	const ollama = await withOllama(models, namedRefs(config));
 	const refusal = geminiRefusal(await withGemini(models, namedRefs(config), env));
 	if (refusal !== undefined) {

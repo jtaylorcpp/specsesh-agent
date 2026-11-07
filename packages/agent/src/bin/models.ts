@@ -11,6 +11,9 @@ import { lazyMcpBridge } from "./mcp.js";
 import { GEMINI_PROVIDER, registerGemini, type GeminiEnv, type RegisterGeminiResult } from "../pi/gemini.js";
 import { OLLAMA_PROVIDER_ID, registerOllama, type RegisterOllamaResult } from "../pi/ollama.js";
 
+/** `CLAUDE_CODE_PROVIDER_ID`, without loading the claude-code entry. */
+const CLAUDE_CODE_PROVIDER = "claude-code";
+
 /** What a command passes to `cliModels`. */
 export interface CliModelOptions {
 	/** `claude-code`'s `maxTurns` for a step offering tools; unset: its default. */
@@ -42,6 +45,21 @@ export const turnOptions = (limits: { readonly maxTurns?: number | undefined; re
 /** What a resume hint repeats of the turn limits given on the command line: ` --max-turns <n> --turn-timeout <ms>`, either, or `""`. */
 export const turnFlags = (limits: { readonly maxTurns?: number | string | undefined; readonly turnTimeoutMs?: number | string | undefined }): string =>
 	`${limits.maxTurns !== undefined ? ` --max-turns ${limits.maxTurns}` : ""}${limits.turnTimeoutMs !== undefined ? ` --turn-timeout ${limits.turnTimeoutMs}` : ""}`;
+
+/**
+ * Lets `claude-code` serve every model id among `refs` that names it: the provider lists four
+ * (`CLAUDE_CODE_MODELS`), and pi-ai finds a model only in its provider's list. `claude --model`
+ * judges the id when a step runs. Touches nothing without such a ref, or without a claude-code
+ * provider of `claudeCodeProvider`'s on `models`.
+ */
+export async function withClaudeCode(models: Models, refs: readonly ModelRef[]): Promise<void> {
+	const ids = refs.filter((ref) => ref.provider === CLAUDE_CODE_PROVIDER).map((ref) => ref.modelId);
+	if (ids.length === 0) return;
+	const provider = models.getProvider(CLAUDE_CODE_PROVIDER);
+	if (provider === undefined) return;
+	const { serveClaudeCodeModels } = await import("../claude-code/index.js");
+	serveClaudeCodeModels(provider, ids);
+}
 
 /**
  * Registers and refreshes `ollama` on `models` when any ref is on it, and answers what
