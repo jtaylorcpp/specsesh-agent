@@ -6,7 +6,7 @@ flowchart LR
   provider[claudeCodeProvider<br/>pi provider, maxTurns · timeoutMs, no text streaming]
   args[claudeArgs<br/>safe-mode · json-schema · stream-json]
   env[claudeCodeEnv<br/>strips ANTHROPIC_API_KEY]
-  spawn[spawnRunner<br/>fresh empty cwd per step, optional clock]
+  spawn[spawnRunner<br/>fresh empty cwd per step, optional clock,<br/>own process group under a lifeline]
   outcome[toClaudeCodeOutcome<br/>StepOutcome]
   session[ProviderSession<br/>held claude -p --max-turns, calls to pi,<br/>turn clock stops while pi runs tools]
   sessions[SessionRegistry<br/>live sessions by id]

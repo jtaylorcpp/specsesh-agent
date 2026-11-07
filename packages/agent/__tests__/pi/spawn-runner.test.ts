@@ -1,6 +1,8 @@
-import { existsSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { spawnRunner } from "../../src/claude-code/claude-code.js";
 
@@ -82,5 +84,85 @@ describe("spawnRunner runs the binary outside any project, with a timeout", () =
 	it("Stdout, stderr and the exit code are resolved", async () => {
 		const result = await node("process.stdout.write('out'); process.stderr.write('err'); process.exit(3)");
 		expect(result).toEqual({ code: 3, stdout: "out", stderr: "err" });
+	});
+});
+
+const alive = (pid: number) => {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+};
+
+async function gone(pid: number, withinMs: number): Promise<boolean> {
+	const deadline = Date.now() + withinMs;
+	while (alive(pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+	return !alive(pid);
+}
+
+async function pidIn(file: string, withinMs = 5000): Promise<number> {
+	const deadline = Date.now() + withinMs;
+	while (Date.now() < deadline) {
+		const text = existsSync(file) ? readFileSync(file, "utf8").trim() : "";
+		if (text !== "") return Number(text);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+	throw new Error(`no pid in ${file}`);
+}
+
+/** A `claude` that records its pid, starts a background `sleep` and records that pid, then waits. */
+function spawningClaude() {
+	const dir = mkdtempSync(join(tmpdir(), "agentscript-lifeline-"));
+	const binary = join(dir, "claude");
+	const files = { self: join(dir, "self.pid"), started: join(dir, "started.pid") };
+	writeFileSync(binary, `#!/bin/sh\nsleep 30 &\necho $! > '${files.started}'\necho $$ > '${files.self}'\nwait\n`);
+	chmodSync(binary, 0o755);
+	return { dir, binary, files };
+}
+
+describe.skipIf(process.platform === "win32")("spawnRunner: claude can't outlive its step or its host (#51)", () => {
+	it("stopping a step ends claude and whatever it started", async () => {
+		const fake = spawningClaude();
+		const result = await spawnRunner(fake.binary, 300)([], "", process.env);
+		expect(result.timedOut).toBe(true);
+		expect(await gone(await pidIn(fake.files.self), 2000)).toBe(true);
+		expect(await gone(await pidIn(fake.files.started), 2000)).toBe(true);
+		rmSync(fake.dir, { recursive: true, force: true });
+	});
+
+	it("an abort ends them too", async () => {
+		const fake = spawningClaude();
+		const controller = new AbortController();
+		const running = spawnRunner(fake.binary, undefined, controller.signal)([], "", process.env);
+		const started = await pidIn(fake.files.started);
+		controller.abort();
+		await running;
+		expect(await gone(started, 2000)).toBe(true);
+		rmSync(fake.dir, { recursive: true, force: true });
+	});
+
+	it("a host killed outright takes claude and what it started with it", async () => {
+		const fake = spawningClaude();
+		const dist = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), "dist", "claude-code", "claude-code.js");
+		// The host waits on a step with no clock of its own, as a held session's does.
+		const host = spawn(
+			process.execPath,
+			["-e", `import(${JSON.stringify(pathToFileURL(dist).href)}).then((m) => m.spawnRunner(${JSON.stringify(fake.binary)}, undefined)([], "", process.env))`],
+			{ stdio: "ignore" },
+		);
+		const self = await pidIn(fake.files.self);
+		const started = await pidIn(fake.files.started);
+		host.kill("SIGKILL");
+		expect(await gone(self, 3000)).toBe(true);
+		expect(await gone(started, 3000)).toBe(true);
+		rmSync(fake.dir, { recursive: true, force: true });
+	});
+
+	it("passes claude's exit code on", async () => {
+		const result = await spawnRunner(process.execPath, 2000)(["-e", "process.stdout.write('bye'); process.exit(3)"], "", process.env);
+		expect(result).toMatchObject({ code: 3, stdout: "bye" });
+		expect(result.spawnError).toBeUndefined();
 	});
 });

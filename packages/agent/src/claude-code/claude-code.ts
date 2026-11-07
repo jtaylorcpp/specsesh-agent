@@ -530,6 +530,47 @@ export function spawnRunner(binary: string, timeoutMs: number | undefined, signa
 	};
 }
 
+/**
+ * The lifeline each `claude` runs under on POSIX (#51), as `node -e LIFELINE -- <binary> <args…>`:
+ * the leader of a process group of its own, with `claude` (and whatever it starts) in that group,
+ * so stopping a step ends them all. It passes `claude`'s exit on, a signal included, and forwards
+ * the signals a host sends. It checks every 250 ms that its parent, the host, is still there: once
+ * the host is gone (`SIGKILL`, a crash, an exit with a step still running), it ends the group, which
+ * no clock in the dead host could. It writes a failure to start `claude` to fd 3, so the host can
+ * report it as a spawn error. It never reads stdin or writes stdout: `claude` inherits both.
+ */
+export const LIFELINE = `"use strict";
+const { spawn } = require("node:child_process");
+const { writeSync } = require("node:fs");
+const [binary, ...args] = process.argv.slice(1);
+const host = process.ppid;
+const SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"];
+const child = spawn(binary, args, { stdio: "inherit" });
+for (const signal of SIGNALS) process.on(signal, () => child.kill(signal));
+const watch = setInterval(() => {
+	if (process.ppid === host) return;
+	for (const signal of SIGNALS) process.removeAllListeners(signal);
+	try { process.kill(-process.pid, "SIGTERM"); } catch { child.kill("SIGKILL"); process.exit(1); }
+}, 250);
+child.on("error", (error) => {
+	clearInterval(watch);
+	try { writeSync(3, error.message); } catch {}
+	process.exit(127);
+});
+child.on("exit", (code, signal) => {
+	clearInterval(watch);
+	if (signal === null) return process.exit(code ?? 1);
+	process.removeAllListeners(signal);
+	process.kill(process.pid, signal);
+});
+`;
+
+/**
+ * The lifeline runs on Node (it is `process.execPath -e`) and process groups are POSIX only, so a
+ * Windows, Bun or Deno host spawns `claude` directly, as before.
+ */
+const GROUPS = process.platform !== "win32" && process.versions["bun"] === undefined && process.versions["deno"] === undefined;
+
 function spawnIn(
 	cwd: string,
 	binary: string,
@@ -541,18 +582,34 @@ function spawnIn(
 	onStdout?: (chunk: string) => void,
 ): Promise<ProcessResult> {
 	return new Promise((resolve) => {
-		const child = spawn(binary, args, { env, cwd, stdio: ["pipe", "pipe", "pipe"] });
+		const child = GROUPS
+			? spawn(process.execPath, ["-e", LIFELINE, "--", binary, ...args], { env, cwd, stdio: ["pipe", "pipe", "pipe", "pipe"], detached: true })
+			: spawn(binary, args, { env, cwd, stdio: ["pipe", "pipe", "pipe"] });
 		let stdout = "";
 		let stderr = "";
+		/** What the lifeline wrote to fd 3: why `claude` didn't start. */
+		let unstarted = "";
 		let timedOut = false;
+		// The whole group: the lifeline, `claude` and anything it started.
+		const stop = () => {
+			if (GROUPS && child.pid !== undefined) {
+				try {
+					process.kill(-child.pid, "SIGTERM");
+					return;
+				} catch {
+					// The group is gone already.
+				}
+			}
+			child.kill("SIGTERM");
+		};
 		const timer =
 			timeoutMs === undefined
 				? undefined
 				: setTimeout(() => {
 						timedOut = true;
-						child.kill("SIGTERM");
+						stop();
 					}, timeoutMs);
-		const onAbort = () => child.kill("SIGTERM");
+		const onAbort = stop;
 		signal?.addEventListener("abort", onAbort, { once: true });
 		// Aborted while the directory was being made: the listener above will never fire.
 		if (signal?.aborted === true) onAbort();
@@ -568,12 +625,14 @@ function spawnIn(
 			stdout += chunk;
 		});
 		child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+		child.stdio[3]?.on("data", (chunk: Buffer) => (unstarted += chunk.toString()));
 		child.on("error", (spawnError) => {
 			settle();
 			resolve({ code: null, stdout, stderr, spawnError });
 		});
 		child.on("close", (code) => {
 			settle();
+			if (unstarted !== "") return resolve({ code: null, stdout, stderr, spawnError: new Error(unstarted) });
 			resolve({ code, stdout, stderr, ...(timedOut ? { timedOut } : {}) });
 		});
 		child.stdin.end(input);
