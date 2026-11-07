@@ -16,5 +16,7 @@ export default defineConfig({
 		exclude: ["**/node_modules/**", PACK_TEST, LIVE_TESTS],
 		// Builds dist/ once, so the bin and package tests run against what would be published.
 		globalSetup: ["./vitest.setup.ts"],
+		// git with no global or system config in every test file (#49).
+		setupFiles: ["./vitest.git-env.ts"],
 	},
 });
