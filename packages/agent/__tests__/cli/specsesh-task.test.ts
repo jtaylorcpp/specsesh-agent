@@ -60,4 +60,18 @@ describe("task implies run as pnpm task does", () => {
 		const runCode = await taskMain(["run", "status", "--db", join(asRun.cwd, "missing.db")], asRun.deps);
 		expect([runCode, asRun.out(), asRun.err()]).not.toEqual([code, routed.out(), routed.err()]);
 	});
+
+	// Both were once taken for a change id, so `run` was inserted before them (#47).
+	it.each([
+		["retry", ["retry", "7"]],
+		["pick-tests", ["pick-tests"]],
+	])("%s passes through, as every task command does", async (_name, args) => {
+		const routed = capture();
+		const direct = capture();
+		const code = await main(["task", ...args], routed.deps);
+		expect(code).toBe(await taskMain(args, direct.deps));
+		expect(routed.out()).toBe(direct.out());
+		expect(routed.err()).toBe(direct.err());
+		expect(routed.err()).not.toContain("give exactly one of a task id");
+	});
 });

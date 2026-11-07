@@ -488,6 +488,7 @@ agentscript-task run add-thing 2                       # a whole group (2.1, 2.2
 agentscript-task run add-thing 2.1 --worktree --db .agentscript/2.1.sqlite   # in its own git worktree
 agentscript-task status                                # every loop in the database
 agentscript-task resume 42                             # finish a loop whose process died
+agentscript-task retry 42 --max-turns 200              # start a failed or exhausted loop again
 agentscript-task answer 42 --by principal --decision "Relax the schema now"   # unblock an escalation
 ```
 
@@ -640,6 +641,7 @@ usage:
   agentscript-task run <change> <task-id>|<group>|--next|--next-group [--db <path>] [options]
   agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
   agentscript-task resume <loop-id> [--db <path>] [--json]
+  agentscript-task retry <loop-id> [--db <path>] [--json]
   agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>] [--json]
   agentscript-task status [--db <path>]
 ```

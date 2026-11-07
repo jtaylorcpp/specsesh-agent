@@ -59,7 +59,7 @@ const sameEscalation = (a: Escalation | undefined, b: Escalation) =>
 	a !== undefined && a.level === b.level && a.to === b.to && a.reason === b.reason && a.question === b.question;
 
 /** The result's outcome, checked, its notes, and its baseline when it has one. */
-function readResult(value: unknown, id: unknown): { outcome: LoopOutcome<TaskOutcome>; notes: string[]; since?: Baseline } {
+export function readResult(value: unknown, id: unknown): { outcome: LoopOutcome<TaskOutcome>; notes: string[]; since?: Baseline } {
 	const { outcome, notes, since } = (value ?? {}) as Partial<TaskLoopResult>;
 	if (!check(TaskLoopOutcome, outcome)) {
 		throw new Error(`task loop ${String(id)} holds an outcome the ontology refuses: ${explain(TaskLoopOutcome, outcome).join("; ")}`);

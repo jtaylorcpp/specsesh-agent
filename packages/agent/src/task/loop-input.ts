@@ -34,6 +34,8 @@ export interface TaskLoopInput {
 	readonly earlier: readonly Iteration[];
 	/** The blocked loop this run answers, when it is one. */
 	readonly answers?: number;
+	/** The failed or exhausted loop this run retries, when it is one (`retryTaskLoop`). */
+	readonly retries?: number;
 	/** The escalation that blocked it. */
 	readonly escalation?: Escalation;
 	/** The blocked loop's baseline, which an answered run measures `changed` from. Absent: the run takes its own. */

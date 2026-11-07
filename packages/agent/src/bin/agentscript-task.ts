@@ -9,6 +9,7 @@
  *                    [--allow-dirty] [--worktree] [--no-delegates] [--max-turns <n>] [--turn-timeout <ms>] [--json]
  *   agentscript-task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
  *   agentscript-task resume <loop-id>|--all [--db <path>] [--max-turns <n>] [--turn-timeout <ms>] [--json]
+ *   agentscript-task retry <loop-id> [--db <path>] [--max-turns <n>] [--turn-timeout <ms>] [--json]
  *   agentscript-task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>]
  *                    [--max-turns <n>] [--turn-timeout <ms>] [--json]
  *   agentscript-task status [--db <path>]
@@ -22,6 +23,10 @@
  * goes to stderr as JSON Lines after the resume hint; the outcome goes to
  * stdout. A blocked loop exits 1 and ends with the exact `answer` command;
  * a spec loop waiting for review exits 0.
+ *
+ * `retry` starts a new run of a task or group loop that ended failed or exhausted
+ * (`retryTaskLoop`, `retryGroupLoop`): seeded with why it ended, numbering on from its
+ * iterations with a fresh budget, on this process's turn limits. It never checks the tree.
  *
  * `resume --all` resumes every interrupted loop in the database through its
  * root, under one lock, and prints one line per root (`resumeAll` in
@@ -77,6 +82,8 @@ import {
 	TaskLoop,
 	answerEscalation,
 	answerGroupEscalation,
+	retryGroupLoop,
+	retryTaskLoop,
 	answerSpecLoop,
 	pickTests,
 	specLoopExtensions,
@@ -130,6 +137,10 @@ import { cliModels, geminiRefusal, ollamaSuffix, turnFlags, turnOptions, withCla
 
 export { DEFAULT_MODEL, DEFAULT_PROVIDER };
 
+/** The task CLI's commands: anything else prints usage. */
+export const TASK_COMMANDS = ["run", "spec", "resume", "retry", "answer", "status", "pick-tests"] as const;
+type TaskCommand = (typeof TASK_COMMANDS)[number];
+
 /** How many dirty paths a refusal lists before saying how many more there are. */
 export const DIRTY_LISTED = 20;
 
@@ -143,6 +154,7 @@ export const USAGE = `usage:
                --turn-timeout <ms>  claude-code's time limit on one turn, not counting its tools (default 300000)
   specsesh task spec <change> [<stage>] [--intent <words>|--intent-file <path>] [--db <path>] [--json]
   specsesh task resume <loop-id>|--all [--db <path>] [--max-turns <n>] [--turn-timeout <ms>] [--json]
+  specsesh task retry <loop-id> [--db <path>] [--max-turns <n>] [--turn-timeout <ms>] [--json]
   specsesh task answer <loop-id> [--db <path>] --by principal|agent --decision <text> [--principal <name>]
                        [--max-turns <n>] [--turn-timeout <ms>] [--json]
   specsesh task status [--db <path>]
@@ -216,8 +228,9 @@ export async function main(argv: readonly string[], deps: CliDeps = {}): Promise
 		err(USAGE);
 		return 2;
 	};
-	const [command, ...rest] = argv;
-	if (command !== "run" && command !== "spec" && command !== "resume" && command !== "answer" && command !== "status" && command !== "pick-tests") return usage();
+	const [given, ...rest] = argv;
+	if (!TASK_COMMANDS.includes(given as TaskCommand)) return usage();
+	const command = given as TaskCommand;
 
 	// pick-tests needs no database and no loop: one script run, JSON out.
 	if (command === "pick-tests") return await pickTestsCommand(rest, { out, err, cwd, env, models: deps.models ?? cliModels }, usage);
@@ -675,7 +688,7 @@ async function settleGroup(harness: Harness, storage: Storage, id: GroupId, io: 
 
 /** `resume` and `answer` for a group loop. */
 async function continueGroup(
-	command: "resume" | "answer",
+	command: "resume" | "retry" | "answer",
 	harness: Harness,
 	storage: Storage,
 	id: GroupId,
@@ -683,8 +696,20 @@ async function continueGroup(
 	io: Io,
 	db: DbPath,
 ): Promise<number> {
-	if (command === "resume" || answer === undefined) return await settleGroup(harness, storage, id, io, db);
+	if (command === "resume") return await settleGroup(harness, storage, id, io, db);
 	let next: GroupId;
+	if (command === "retry") {
+		try {
+			next = await retryGroupLoop(harness, id, BACKGROUND_CONTEXT);
+		} catch (error) {
+			io.err(message(error));
+			return 2;
+		}
+		await io.ownership?.claim(Number(next), BACKGROUND_CONTEXT);
+		io.err(resumeHint(next, db.label, io.resumeFlags));
+		return await settleGroup(harness, storage, next, io, db);
+	}
+	if (answer === undefined) return await settleGroup(harness, storage, id, io, db);
 	try {
 		const record = await harness.getTask(id as unknown as TaskId<GroupLoopResult>, BACKGROUND_CONTEXT);
 		const settled =
@@ -781,9 +806,9 @@ async function continueSpec(
 	}
 }
 
-/** `resume` and `answer`: the loop's workspace, checks, allowlist, delegate and worktree come from the database. */
+/** `resume`, `retry` and `answer`: the loop's workspace, checks, allowlist, delegate and worktree come from the database. */
 async function continueLoop(
-	command: "resume" | "answer",
+	command: "resume" | "retry" | "answer",
 	values: Values,
 	positionals: readonly string[],
 	config: LoadedConfig,
@@ -865,9 +890,9 @@ interface StoredTerms {
 	readonly ollama?: RegisterOllamaResult | undefined;
 }
 
-/** `resume` or `answer` one stored loop, its database open and locked by the caller. */
+/** `resume`, `retry` or `answer` one stored loop, its database open and locked by the caller. */
 async function continueStored(
-	command: "resume" | "answer",
+	command: "resume" | "retry" | "answer",
 	target: string,
 	{ by, decision }: { readonly by: Recipient | undefined; readonly decision: string | undefined },
 	storage: Storage,
@@ -896,6 +921,11 @@ async function continueStored(
 	if (found === undefined || stored === undefined || provider === undefined) {
 		await storage.close(BACKGROUND_CONTEXT);
 		io.err(found === undefined ? `no loop ${target} in ${db.label}` : `no provider "${model.provider}" for loop ${target}${ollamaSuffix(refreshed, model.provider)}`);
+		return 2;
+	}
+	if (found.kind === "spec" && command === "retry") {
+		await storage.close(BACKGROUND_CONTEXT);
+		io.err(`loop ${target} is a spec loop; retry works on task and group loops (answer a spec loop, or run \`specsesh task spec\` again)`);
 		return 2;
 	}
 	if (found.kind === "spec") {
@@ -945,6 +975,20 @@ async function continueStored(
 		if (command === "resume") {
 			started(Number(id));
 			return await finish(harness, id, { ...context, earlier: input.earlier.length });
+		}
+		if (command === "retry") {
+			let retried: LoopId;
+			try {
+				retried = await retryTaskLoop(harness, id, BACKGROUND_CONTEXT);
+			} catch (error) {
+				io.err(message(error));
+				return 2;
+			}
+			await io.ownership?.claim(Number(retried), BACKGROUND_CONTEXT);
+			io.err(resumeHint(retried, db.label, io.resumeFlags));
+			started(Number(retried));
+			const earlier = ((await harness.getTask(retried, BACKGROUND_CONTEXT))?.input as unknown as TaskLoopInput | undefined)?.earlier.length ?? 0;
+			return await finish(harness, retried, { ...context, earlier });
 		}
 
 		const settled = record.state.status === "terminal" && record.state.outcome.status === "completed"
