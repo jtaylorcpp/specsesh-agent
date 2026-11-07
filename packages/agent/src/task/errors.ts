@@ -14,6 +14,14 @@ export class ApprovalsFileError extends Error {
 	}
 }
 
+/** A retry the loop does not accept: no such loop, still running, or not ended failed or exhausted. */
+export class LoopRetryError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "LoopRetryError";
+	}
+}
+
 /** An escalation answer the loop does not accept: not blocked, or not from the escalation's recipient. */
 export class EscalationAnswerError extends Error {
 	constructor(message: string) {

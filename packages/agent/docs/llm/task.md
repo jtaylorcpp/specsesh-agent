@@ -17,7 +17,8 @@
 ## Manage loops
 
 - `specsesh task status` lists loops: id, change, task or `group <n>`, status, iterations.
-- `specsesh task resume <loop-id>` finishes a loop whose process died; `--all` resumes every unfinished one. Use the same `--db`.
+- `specsesh task resume <loop-id>` finishes a loop whose process died; `--all` resumes every unfinished one. Use the same `--db`. On a loop that has ended, it only prints how it ended.
+- `specsesh task retry <loop-id>` starts a task or group loop that ended `failed` or `exhausted` again: a new run, seeded with why it ended, keeping its iterations and its work in the tree, with a fresh budget. Pass `--max-turns` or `--turn-timeout` to raise the limit a Claude Code step hit. It refuses any other loop, exit `2`.
 - `specsesh task answer <loop-id> --by principal --principal <name> --decision "<text>"` answers a blocked loop and starts a new run of it. A blocked loop prints this exact command. Use the principal's words; `--by agent` answers questions escalated to an agent.
 - `specsesh task spec <change> [<stage>]` runs the spec loop for one stage. Prefer `specsesh change draft`, which runs the stages in order.
 - `specsesh task pick-tests --input <file.json>` picks the tests that cover one closed task, for CI.

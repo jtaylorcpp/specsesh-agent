@@ -115,8 +115,11 @@ export interface GroupLoopInput {
 	readonly excludeChanged?: readonly string[];
 	/** The `context` sources' text, read at start and handed to every task. Absent: none. */
 	readonly context?: string;
-	/** Set only on a run that answers a blocked group loop: the encoded checkpoint it starts from, and the loop it answers. */
-	readonly resume?: { readonly checkpoint: JsonObject; readonly answers: number };
+	/**
+	 * Set only on a run that answers a blocked group loop, or retries a failed or exhausted one: the
+	 * encoded checkpoint it starts from, and the loop it answers or retries.
+	 */
+	readonly resume?: { readonly checkpoint: JsonObject; readonly answers?: number; readonly retries?: number };
 }
 
 function positiveInteger(name: string, value: unknown): number {
