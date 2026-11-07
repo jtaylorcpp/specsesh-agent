@@ -16,7 +16,9 @@ Subscription login is the only auth. Each step's child process runs `claude -p -
 
 ## Models
 
-Any id or alias `claude --model` accepts. The provider lists `claude-haiku-4-5`, `haiku`, `sonnet` and `opus`; another id is passed through as given. `specsesh agent models claude-code` says so instead of listing.
+Any id or alias `claude --model` accepts, on every command: `agent`, `durable`, `task` and `change`. The provider lists `claude-haiku-4-5`, `haiku`, `sonnet` and `opus` (`CLAUDE_CODE_MODELS`); another id is passed through as given, and `claude` judges it when a step runs. `specsesh agent models claude-code` says so instead of listing.
+
+pi-ai finds a model only in its provider's list, so the pi provider serves the other ids too. The CLI adds every claude-code id a run names: its `--model`, the config's named `models`, and a resumed loop's stored model. From code, pass `claudeCodeProvider({ models: ["claude-sonnet-4-5"] })`, or add ids later with `serveClaudeCodeModels(provider, ids)`, which answers false for a provider `claudeCodeProvider` didn't build.
 
 ## Where it runs
 

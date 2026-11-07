@@ -232,7 +232,9 @@ pins) are required. `examples/hello-world` and `examples/cloudflare-worker`
   and `--max-turns <maxTurns>`, each call Claude Code makes through the bridge handed to pi as a `toolCall`
   (id `claude-code-<uuid>`) and its `toolResult` handed back, so pi-durable runs and checkpoints
   every call. After a crash, results naming no live session start a fresh process on the whole
-  transcript. `cliModels(options)` (`src/bin/models.ts`) registers it with `bridge: mcpBridge()` and
+  transcript. It lists four model ids (`CLAUDE_CODE_MODELS`) but serves any: its `models` option
+  and `serveClaudeCodeModels(provider, ids)` add more, and the bins' `withClaudeCode(models, refs)`
+  (beside every `withOllama`) adds each claude-code id a run names (#50). `cliModels(options)` (`src/bin/models.ts`) registers it with `bridge: mcpBridge()` and
   the command's `maxTurns`.
 - **The held session's turn limit** is the provider's `maxTurns` (default `DEFAULT_TOOL_STEP_TURNS`,
   100; the one-shot port keeps 16). The CLI sets it with `--max-turns <n>` on `durable run`/`resume`,

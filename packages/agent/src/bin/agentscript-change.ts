@@ -60,7 +60,7 @@ import type { SpecStage } from "../task/spec-stage.js";
 import { SPEC_STAGES } from "../task/spec-stages.js";
 import { readSlices, type Slice } from "../task/stages/slices-md.js";
 import { ollamaRefs, resolvePrincipal } from "./agentscript-task.js";
-import { cliModels, geminiRefusal, ollamaSuffix, turnFlags, turnOptions, withGemini, withOllama, type CliModelOptions } from "./models.js";
+import { cliModels, geminiRefusal, ollamaSuffix, turnFlags, turnOptions, withClaudeCode, withGemini, withOllama, type CliModelOptions } from "./models.js";
 
 /** One line per command. */
 export const USAGE = `usage:
@@ -231,6 +231,7 @@ async function resolveTarget(command: string, dbFlag: string | undefined, config
 		modelId: io.env["AGENTSCRIPT_MODEL"] ?? config.task.model ?? DEFAULT_MODEL,
 	};
 	const models = await io.models(turnOptions(config.task));
+	await withClaudeCode(models, ollamaRefs(model, config));
 	const ollama = await withOllama(models, ollamaRefs(model, config));
 	const refusal = geminiRefusal(await withGemini(models, ollamaRefs(model, config), io.env));
 	if (refusal !== undefined) return refusal;
@@ -333,6 +334,7 @@ async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promi
 	}
 	const models = await io.models(turnOptions(request));
 	const model: ModelRef = { provider: request.provider, modelId: request.model };
+	await withClaudeCode(models, ollamaRefs(model, config));
 	const ollama = await withOllama(models, ollamaRefs(model, config));
 	const refusal = geminiRefusal(await withGemini(models, ollamaRefs(model, config), io.env));
 	if (refusal !== undefined) return refuse(refusal);
