@@ -79,6 +79,12 @@ export interface ClaudeCodeProviderOptions {
 	 * Reaching it ends the step with an error that names the limit.
 	 */
 	readonly maxTurns?: number;
+	/**
+	 * Model ids to serve beside `CLAUDE_CODE_MODELS`, so `Models.getModel("claude-code", id)` finds
+	 * them: any id `claude --model` accepts, such as `claude-sonnet-4-5`. `claude` judges each when a
+	 * step runs. More can be added later with `serveClaudeCodeModels`.
+	 */
+	readonly models?: readonly string[];
 }
 
 /** A held session's default `--max-turns`: room for a coding step's reads, edits and test runs. */
@@ -125,6 +131,24 @@ export function claudeCodeModel(id: string): Model<typeof CLAUDE_CODE_API> {
 	return CLAUDE_CODE_MODELS.find((m) => m.id === id) ?? chatModel(id, `${id} (via Claude Code)`);
 }
 
+/** The ids each provider built by `claudeCodeProvider` serves beyond `CLAUDE_CODE_MODELS`. */
+const SERVED = new WeakMap<Provider<Api>, Map<string, Model<typeof CLAUDE_CODE_API>>>();
+
+/**
+ * Lets a provider built by `claudeCodeProvider` serve more model ids (`claudeCodeModel(id)` for
+ * each), so a run can name one the provider doesn't list. `claude --model` judges each id when a
+ * step runs. Answers false, adding nothing, for any other provider. Empty ids are skipped.
+ */
+export function serveClaudeCodeModels(provider: Provider<Api>, ids: readonly string[]): boolean {
+	const served = SERVED.get(provider);
+	if (served === undefined) return false;
+	for (const id of ids) {
+		if (id === "" || served.has(id) || CLAUDE_CODE_MODELS.some((m) => m.id === id)) continue;
+		served.set(id, claudeCodeModel(id));
+	}
+	return true;
+}
+
 export function claudeCodeProvider(options: ClaudeCodeProviderOptions = {}): Provider<typeof CLAUDE_CODE_API> {
 	const maxTurns = options.maxTurns ?? DEFAULT_TOOL_STEP_TURNS;
 	if (!Number.isInteger(maxTurns) || maxTurns < 1) throw new RangeError(`maxTurns must be a positive integer, got ${maxTurns}`);
@@ -142,13 +166,23 @@ export function claudeCodeProvider(options: ClaudeCodeProviderOptions = {}): Pro
 	const limits = { maxTurns, timeoutMs, toolWaitMs };
 	const stream = (model: Model<Api>, context: { messages: Message[] }, streamOptions?: StreamOptions) =>
 		streamClaude(model, context.messages, { runnerFor, bridge: options.bridge, sessions, limits, signal: streamOptions?.signal });
-	return createProvider({
+	const listed = createProvider({
 		id: CLAUDE_CODE_PROVIDER_ID,
 		name: "Claude Code (your subscription)",
 		auth: { apiKey: { name: "Claude Code login", resolve: async () => ({ auth: {} }) } },
 		models: CLAUDE_CODE_MODELS,
 		api: { stream, streamSimple: stream },
 	});
+	// pi-ai finds a model in its provider's list, so the ids served beyond the four are listed too.
+	const served = new Map<string, Model<typeof CLAUDE_CODE_API>>();
+	const provider: Provider<typeof CLAUDE_CODE_API> = {
+		...listed,
+		getModels: () => [...listed.getModels(), ...served.values()],
+		getAllModels: () => [...(listed.getAllModels?.() ?? listed.getModels()), ...served.values()],
+	};
+	SERVED.set(provider as Provider<Api>, served);
+	serveClaudeCodeModels(provider as Provider<Api>, options.models ?? []);
+	return provider;
 }
 
 /** The system prompt pi described: base content, then sections in order, later messages replacing by name. */

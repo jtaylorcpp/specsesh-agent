@@ -40,7 +40,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { ActionBindingError, checkBindings, createActionRegistry, type ActionRegistry } from "../durable/actions.js";
 import { AgentScript, agentScriptExtensions, AgentScriptStepExtension, type RunInput } from "../durable/extension.js";
 import { startScript, waitForScript } from "../durable/host.js";
-import { cliModels, geminiRefusal, ollamaSuffix, turnFlags, turnOptions, withGemini, withOllama, type CliModelOptions } from "./models.js";
+import { cliModels, geminiRefusal, ollamaSuffix, turnFlags, turnOptions, withClaudeCode, withGemini, withOllama, type CliModelOptions } from "./models.js";
 import { loadActions, reportSkipped } from "./tools.js";
 
 export const DEFAULT_PROVIDER = "anthropic";
@@ -192,6 +192,7 @@ async function runOnHarness(
 		if (command === "run") {
 			const provider = values.provider ?? process.env.AGENTSCRIPT_PROVIDER ?? DEFAULT_PROVIDER;
 			const modelId = values.model ?? process.env.AGENTSCRIPT_MODEL ?? DEFAULT_MODEL;
+			await withClaudeCode(models, [{ provider, modelId }]);
 			const ollama = await withOllama(models, [{ provider, modelId }]);
 			const refusal = geminiRefusal(await withGemini(models, [{ provider, modelId }]));
 			if (refusal !== undefined) {
@@ -246,6 +247,7 @@ async function runOnHarness(
 			// Before resuming, so a run started on a pulled model finds it again.
 			const stored = (task.input as { model?: ModelRef } | null)?.model;
 			if (stored !== undefined) {
+				await withClaudeCode(models, [stored]);
 				await withOllama(models, [stored]);
 				const refusal = geminiRefusal(await withGemini(models, [stored]));
 				if (refusal !== undefined) {
