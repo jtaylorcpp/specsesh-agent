@@ -32,9 +32,6 @@ wrote its fixtures under `__tests__/live-fixture/` in a copy of the repo). All a
 - **pi cli: `--max-tokens abc` passes `NaN`** as `maxTokens` to pi; no validation.
 - **pi cli: `models <unknown provider>` prints nothing and exits 0**, where `run` fails such a provider by name.
 - **pi cli: `main` is not exported**, so the CLI can only be tested by spawning the bin (the durable CLI takes injected deps).
-- **claude-code provider registers only four ids** (`claude-haiku-4-5`, `haiku`, `sonnet`, `opus`). `claudeCodeModel(id)` builds any other but does not register it, so `agentscript-durable --provider claude-code --model claude-sonnet-4-5` is refused as an unknown model, while `agentscript-pi` accepts any id.
-- **claude-code: a timeout is reported as `claude exited by signal without a JSON result`**, never naming the timeout.
-- **claude-code: `spawnRunner` never removes its abort listener** from a long-lived signal.
 
 ## Not verified
 
@@ -75,7 +72,6 @@ wrote its fixtures under `__tests__/live-fixture/` in a copy of the repo). All a
 ## Durable claude-code tools (from add-durable-claude-code-tools)
 
 - **Temp directories survive a killed process.** A `SIGKILL`ed bin leaves its bridge's `/tmp/agentscript-bridge-*` (mode `0700`, a dead token) and `spawnRunner`'s `agentscript-claude-*` step directories, which also predates the change. A sweep at startup could remove the ones whose owning pid is gone, if the pid went into the directory name. Source: the change's design, Verified live.
-- **A held `claude -p` outlives a killed host** until its bridge calls fail or `timeoutMs` passes. Spawning it in its own process group, and killing the group on exit, would tighten that. Source: the same.
 
 ## Failure status (from fix-pi-failure-status)
 
@@ -92,7 +88,6 @@ wrote its fixtures under `__tests__/live-fixture/` in a copy of the repo). All a
 - **A crash between ticking and the judge's commit reports `ticked: false`.** The judge phase writes tasks.md, then commits the outcome. If the process dies in between, the re-run judge finds the line already ticked and reports `ticked: false` with "already ticked", though this loop ticked it. Recording the tick's intent in the checkpoint first would close it.
 - **One harness, one action configuration.** `agentScriptExtensions` binds one registry and workspace per harness, so loops with different workspaces, checks or allowlists need separate harnesses. The CLI's `resume`/`answer` install the stored configuration after opening the harness; a library host must do the same.
 - **Delegates offered as step tools get no task preamble** (from loop-supplies-delegate-contract). Only `run` calls receive `RunInput.delegatePreamble`. A process delegate offered under `reasoning.actions` runs as a pi-durable tool registered once per harness and reads its offer from the step's `agentscript.step-actions` doc, so carrying the preamble means adding it to that doc and its dispatch in `src/durable/extension.ts`. The bundled scripts call their delegates with `run`, and agent delegates are run-only.
-- **`task-delegate.agent`'s `orient` could stop restating the requirements** (from loop-supplies-delegate-contract). The delegate now sees the proposal, design and deltas in full, so the plan could focus on approach. The `RETIRE:` paragraph still belongs in the plan.
 
 ## Headless runner (from add-headless-task-runner)
 
@@ -149,4 +144,4 @@ Things we had to do by hand, or with a throwaway script, while executing the cha
 | 17 | Catch an over-long MODIFIED requirement before close. `openspec validate --strict` (1.14.1), on one change or `--all`, length-checks ADDED requirements in a delta but not MODIFIED ones; only the folded spec reports them. `add-spec-amendments-judge` passed verify and failed `close`'s trial fold on three. (An earlier note here blamed the single-change form; that came from running the global openspec 1.9.0 by hand, see #19) | Trimmed the requirements by hand and re-ran `close` | **Closed:** `add-trial-fold-check` (archived 2026-10-14): the specs gate and `pnpm change build` run `close`'s trial fold (`openspec validate --specs --strict --json`), so a folded problem is a draft issue or a blocked build, not a failed close |
 | 18 | Re-run a ship after verify fails. Re-running with the answer that unblocked the build is refused (`nothing … waits for an answer`), so the driver must drop it | Edited the driver's continue script | — |
 | 19 | Run the bins with the repo's openspec. `pnpm run change …` puts `node_modules/.bin` (openspec 1.14.1) first; calling `node packages/agent/dist/bin/agentscript-change.js` directly picks up the global openspec (1.9.0 here), whose `show --json` omits requirement names, so the specs gate fails every draft with "`openspec show` failed" and burned a full draft budget on `add-spec-amendments-cli` | Re-ran through `pnpm run change` | **Closed:** `add-pinned-openspec` (archived 2026-10-14): openspec is resolved from the project's `node_modules/.bin` before PATH; `draft`, `approve`, `close` and `build --amend` refuse below 1.14.1, naming version and path; gate issues name the openspec they ran |
-| 20 | Abandon a stuck change loop. `build` always continues the newest change loop, and nothing can end one, so a group holding stale briefs (#9) can only be escaped with a fresh `--db`. Done four times in the gaps 16/17/19 batch. A fresh database also drops earlier answers, so a question already answered returns, and the redraft that preceded it unticks finished tasks, so they run again | `SHIP_DB=<new db> ship-change.sh <change>` | — `build --restart` (or `--abandon`) that ends the newest change loop and starts a new one from the current files |
+| 20 | Abandon a stuck change loop. `build` always continues the newest change loop, and nothing can end one, so a group holding stale briefs (#9) can only be escaped with a fresh `--db`. Done four times in the gaps 16/17/19 batch. A fresh database also drops earlier answers, so a question already answered returns, and the redraft that preceded it unticks finished tasks, so they run again | `SHIP_DB=<new db> ship-change.sh <change>` | — #52: `build --restart`, which ends the newest change loop and starts a new one from the current files |
