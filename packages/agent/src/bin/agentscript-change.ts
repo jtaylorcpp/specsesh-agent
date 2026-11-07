@@ -6,7 +6,7 @@
  *
  *   agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
  *   agentscript-change approve <change> [--principal <name>] [--db <path>]
- *   agentscript-change build <change> [<answer>|--amend] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
+ *   agentscript-change build <change> [<answer>|--amend|--restart] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
  *   agentscript-change close <change> [--db <path>]
  *
  * `draft` starts, continues or answers the change's draft loop (`task/cmd-draft.ts`);
@@ -20,7 +20,8 @@
  * `build` starts, continues or answers the change's change loop (`task/cmd-build.ts`)
  * and prints `formatBuildOutput`. It takes the group run's flags, resolved as
  * `agentscript-task run` resolves them, and its harness is `agentscript-task`'s with
- * the change loop installed beside the task and group loops.
+ * the change loop installed beside the task and group loops. `--restart` ends the newest
+ * change loop (aborting it if a process died in it) and starts a new one (#52).
  *
  * `close` folds a finished change into `openspec/specs/` (`task/cmd-close.ts`). It needs
  * no model, and reads the database, when there is one, only for the change's newest loop.
@@ -66,7 +67,7 @@ import { cliModels, geminiRefusal, ollamaSuffix, turnFlags, turnOptions, withCla
 export const USAGE = `usage:
   specsesh change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
   specsesh change approve <change> [--principal <name>] [--db <path>]
-  specsesh change build <change> [<answer>|--amend] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
+  specsesh change build <change> [<answer>|--amend|--restart] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
   specsesh change close <change> [--db <path>]`;
 
 export interface ChangeCliDeps {
@@ -322,7 +323,7 @@ async function approve(args: ApproveArgs, principalFlag: string | undefined, dbF
 	});
 }
 
-/** `build <change> [<answer>|--amend]`: the exit code. */
+/** `build <change> [<answer>|--amend|--restart]`: the exit code. */
 async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promise<number> {
 	const refuse = refuser(io);
 	const request = prepareBuild(args, { config, env: io.env, cwd: io.cwd });
@@ -388,6 +389,8 @@ async function build(args: BuildArgs, config: LoadedConfig, io: ChangeIo): Promi
 						io.err(
 							`change loop ${loop} — resume with: specsesh change build ${request.change} --db ${request.db.label}${turnFlags(args.flags)}`,
 						),
+					// --restart: the loop it replaces, before the new one's hint (which never repeats --restart).
+					onRestart: (loop, status) => io.err(`change loop ${loop} of ${request.change} ${status === "aborted" ? "aborted" : `left ${status}`}; starting a new one`),
 				},
 				BACKGROUND_CONTEXT,
 			);

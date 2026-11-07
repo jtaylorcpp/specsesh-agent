@@ -18,6 +18,8 @@ export const CHANGE_LOOP_VERSION = 1;
 export type ChangeLoopOptions = Omit<GroupLoopOptions, "group"> & {
 	/** Run in order, each without a shell, once every group has converged. Defaults to `checks`. */
 	readonly changeChecks?: readonly string[];
+	/** The change loop this one replaces, when `change build --restart` started it (#52). Recorded on the input. */
+	readonly restarts?: number;
 };
 
 /** The change check's commands: `changeChecks`, or the `checks` when it is not set. */

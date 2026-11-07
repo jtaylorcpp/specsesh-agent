@@ -742,7 +742,7 @@ change's name, never by a loop ID:
 usage:
   agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
   agentscript-change approve <change> [--principal <name>] [--db <path>]
-  agentscript-change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
+  agentscript-change build <change> [<answer>|--amend|--restart] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
   agentscript-change close <change> [--db <path>]
 ```
 

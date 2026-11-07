@@ -14,7 +14,7 @@ The whole journey, stage by stage, is mocked in the [`add-spec-loop` walkthrough
 
 ```
 agentscript-change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]
-agentscript-change build <change> [<answer>] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
+agentscript-change build <change> [<answer>|--amend|--restart] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]
 agentscript-change close <change> [--db <path>]
 ```
 
@@ -95,6 +95,12 @@ pnpm change close add-plan-export
 - **Answering.** The answer is positional, as `draft`'s feedback is, and goes to whoever the escalation names: you, with the default `escalateTo`. `build <change>` with no answer shows the question again.
 - **Built.** A change that is already built says so and starts nothing.
 - **Crashes.** If the process dies, `pnpm change build <change>` with the same database continues the unfinished build instead of starting another. Before any model call, stderr prints `change loop <id> — resume with: agentscript-change build <change> --db <path>`.
+- **Starting over: `--restart`.** A build can get stuck on stale state, for example a group whose stored task briefs predate a redraft, so it asks the same question again. `build <change> --restart` ends the newest change loop and starts a new one from the files as they are now, on the same database:
+  - It prints `change loop <id> of <change> left blocked; starting a new one`, or `aborted` for a loop a process died in. An aborted loop's group and task loops are aborted with it.
+  - The old loop stays in the database. The new one records it as `restarts`.
+  - Answers and approvals on disk stay as they are, and ticked tasks stay ticked.
+  - It takes no answer and no `--amend`. It refuses a built change. It passes through the same guards as a new build: stale approvals, and a dirty tree unless `--allow-dirty`.
+  - The new loop's resume hint doesn't repeat `--restart`.
 - **Reworks** are extra task runs: each one is the group's judge reopening a task.
 - **Exit codes:** 0 built; 1 waiting for an answer, exhausted or failed; 2 usage or a refusal.
 

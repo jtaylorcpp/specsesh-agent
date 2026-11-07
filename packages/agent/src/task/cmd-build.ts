@@ -1,12 +1,17 @@
 /**
- * `build <change> [<answer>|--amend]`: start, continue or answer a change's change loop,
+ * `build <change> [<answer>|--amend|--restart]`: start, continue, answer or restart a change's change loop,
  * addressed by change, never by loop.
  *
- *   newest change loop             build                        build "<answer>"
- *   none, ended exhausted/failed   starts one, after the guards refused, nothing waits
- *   not settled yet                resumed and awaited          refused
- *   blocked                        shown again, exit 1          answered as the escalation's `to`
- *   converged                      built, nothing starts        refused, nothing waits
+ *   newest change loop             build                        build "<answer>"                    build --restart
+ *   none, ended exhausted/failed   starts one, after the guards refused, nothing waits       starts one, as build does
+ *   not settled yet                resumed and awaited          refused                             aborted, then a new one starts
+ *   blocked                        shown again, exit 1          answered as the escalation's `to`   left as it ended, a new one starts
+ *   converged                      built, nothing starts        refused, nothing waits              refused: nothing to restart
+ *
+ * `--restart` (#52) escapes a change loop stuck on stale state, such as a group holding briefs
+ * from before a redraft, without a fresh database: the new loop records `restarts`, the old one
+ * stays in the database, and answers and approvals on disk are untouched. It takes no answer and
+ * no `--amend`, and starts the new loop through the same guards (stale approvals, a dirty tree).
  *
  * `--amend` is refused (exit 2, nothing written) unless the loop is blocked on an escalation
  * carrying an `Amendment` whose delta is a `specs/**\/spec.md`. Then `applyAmendment` writes,
@@ -65,6 +70,8 @@ export interface BuildArgs {
 	readonly answer?: string;
 	/** `--amend`: apply the waiting escalation's amendment, then answer `amendment-applied`. Never with `answer`. */
 	readonly amend?: boolean;
+	/** `--restart`: end the newest change loop unless it converged, and start a new one. Never with `answer` or `--amend`. */
+	readonly restart?: boolean;
 	readonly flags: Omit<RunFlags, "worktree">;
 	/** `--change-check`, in order; undefined when none was given, so the checks stand in. */
 	readonly changeChecks?: readonly string[];
@@ -99,6 +106,7 @@ export interface BuildRequest {
 	readonly changePath: string;
 	readonly answer?: string;
 	readonly amend: boolean;
+	readonly restart: boolean;
 	readonly db: DbPath;
 	readonly provider: string;
 	readonly model: string;
@@ -123,6 +131,8 @@ export interface BuildRunOptions {
 	readonly principal?: string;
 	/** Called once a loop exists, before any model call, so a crash still leaves its ID. */
 	readonly onLoop?: (loop: number) => void;
+	/** Called under `--restart` once the loop it replaces has ended: that loop, and how it ended. */
+	readonly onRestart?: (loop: number, status: "aborted" | "blocked" | "exhausted" | "failed") => void;
 }
 
 /** A group the build entered: its latest status, its tasks, and the reworks over them. */
@@ -208,7 +218,7 @@ const refused = (message: string): BuildRefusal => ({ kind: "refused", message, 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
- * `<change> [<answer>|--amend]` and the group run's flags, plus `--change-check <command>`
+ * `<change> [<answer>|--amend|--restart]` and the group run's flags, plus `--change-check <command>`
  * (repeatable). `--worktree`, and `--amend` with an answer, are refused.
  */
 export function parseBuild(argv: readonly string[]): BuildArgs | BuildUsage | BuildRefusal {
@@ -217,7 +227,7 @@ export function parseBuild(argv: readonly string[]): BuildArgs | BuildUsage | Bu
 		parsed = parseArgs({
 			args: [...argv],
 			allowPositionals: true,
-			options: { ...RUN_FLAG_OPTIONS, "change-check": { type: "string", multiple: true }, amend: { type: "boolean" } },
+			options: { ...RUN_FLAG_OPTIONS, "change-check": { type: "string", multiple: true }, amend: { type: "boolean" }, restart: { type: "boolean" } },
 		});
 	} catch (error) {
 		return { kind: "usage", message: message(error) };
@@ -228,6 +238,8 @@ export function parseBuild(argv: readonly string[]): BuildArgs | BuildUsage | Bu
 	if (extra.length > 0) return { kind: "usage", message: `build takes a change and at most one answer, got ${positionals.join(" ")}; quote the answer` };
 	const amend = values.amend === true;
 	if (amend && answer !== undefined) return refused('--amend takes no answer: use either --amend or "<answer>"');
+	const restart = values.restart === true;
+	if (restart && (amend || answer !== undefined)) return refused("--restart takes no answer and no --amend: it starts a new change loop");
 	if (values.worktree === true) return refused("build has no --worktree yet; run it in a clean checkout");
 	const flags = runFlagsOf(values);
 	if (typeof flags === "string") return { kind: "usage", message: flags };
@@ -235,6 +247,7 @@ export function parseBuild(argv: readonly string[]): BuildArgs | BuildUsage | Bu
 		change,
 		...(answer !== undefined ? { answer } : {}),
 		...(amend ? { amend } : {}),
+		...(restart ? { restart } : {}),
 		flags,
 		...(values["change-check"] !== undefined ? { changeChecks: values["change-check"] } : {}),
 		noDelegates: values["no-delegates"] === true,
@@ -270,6 +283,7 @@ export function prepareBuild(args: BuildArgs, options: BuildPrepareOptions): Bui
 		changePath,
 		...(args.answer !== undefined ? { answer: args.answer } : {}),
 		amend: args.amend === true,
+		restart: args.restart === true,
 		db: settings.db,
 		provider: settings.provider,
 		model: settings.model,
@@ -308,6 +322,8 @@ export async function runBuild(harness: Harness, request: BuildRequest, options:
 		return amend(harness, request, { loop: state.loop, escalation: state.escalation, amendment: state.escalation.amendment }, options, context);
 	}
 
+	if (request.restart) return restart(harness, request, state, options, context);
+
 	switch (state.kind) {
 		case "built":
 			if (answer !== undefined) return nothingWaits();
@@ -325,26 +341,68 @@ export async function runBuild(harness: Harness, request: BuildRequest, options:
 				return settle(harness, request, state.loop!, context);
 			}
 			if (answer !== undefined) return nothingWaits();
-			// Before the dirty tree: an uncommitted hand edit gets the stale refusal, which --allow-dirty cannot pass.
-			const stale = staleRefusal(request);
-			if (stale !== undefined) return stale;
-			const dirty = dirtyRefusal(request);
-			if (dirty !== undefined) return dirty;
-			let id: ChangeId;
-			try {
-				const excludeChanged = [...dbFiles(request)];
-				id = await startChangeLoop(
-					harness,
-					{ ...request.options, excludeChanged, ...(options.model !== undefined ? { model: options.model } : {}) },
-					context,
-				);
-			} catch (error) {
-				return refused(message(error));
-			}
-			options.onLoop?.(Number(id));
-			return settle(harness, request, Number(id), context);
+			return started(harness, request, options, undefined, context);
 		}
 	}
+}
+
+/** Start a new change loop through the guards, then settle it. `restarts` names the loop it replaces. */
+async function started(harness: Harness, request: BuildRequest, options: BuildRunOptions, restarts: number | undefined, context: Context): Promise<BuildResult> {
+	// Before the dirty tree: an uncommitted hand edit gets the stale refusal, which --allow-dirty cannot pass.
+	const stale = staleRefusal(request);
+	if (stale !== undefined) return stale;
+	const dirty = dirtyRefusal(request);
+	if (dirty !== undefined) return dirty;
+	let id: ChangeId;
+	try {
+		const excludeChanged = [...dbFiles(request)];
+		id = await startChangeLoop(
+			harness,
+			{
+				...request.options,
+				excludeChanged,
+				...(options.model !== undefined ? { model: options.model } : {}),
+				...(restarts !== undefined ? { restarts } : {}),
+			},
+			context,
+		);
+	} catch (error) {
+		return refused(message(error));
+	}
+	options.onLoop?.(Number(id));
+	return settle(harness, request, Number(id), context);
+}
+
+/**
+ * `--restart`: end the newest change loop and start a new one. A converged loop is refused; one
+ * still running (a process died in it) is aborted, its group and task loops with it; one that
+ * ended is left as it ended. The guards run before anything is aborted, so a refusal changes nothing.
+ */
+async function restart(harness: Harness, request: BuildRequest, state: ChangeBuildState, options: BuildRunOptions, context: Context): Promise<BuildResult> {
+	if (state.kind === "built") return refused(`${request.change} is built (change loop ${state.loop}); there is nothing to restart`);
+	if (state.loop === undefined) return started(harness, request, options, undefined, context);
+	const stale = staleRefusal(request);
+	if (stale !== undefined) return stale;
+	const dirty = dirtyRefusal(request);
+	if (dirty !== undefined) return dirty;
+	const loop = state.loop;
+	if (state.kind === "ready" && state.running === true) {
+		// Marked before the harness resumes, so the loop runs its abort rather than another step.
+		await harness.abortTask(loop as unknown as ChangeId, context);
+		harness.resume();
+		await harness.waitForTask(loop as unknown as ChangeId, context);
+		options.onRestart?.(loop, "aborted");
+	} else {
+		options.onRestart?.(loop, state.kind === "waiting" ? "blocked" : await endedStatus(harness, loop, context));
+	}
+	return started(harness, request, options, loop, context);
+}
+
+/** How a settled, unconverged change loop ended: `failed` unless its outcome says `exhausted`. */
+async function endedStatus(harness: Harness, loop: number, context: Context): Promise<"exhausted" | "failed"> {
+	const record = await harness.getTask(loop as unknown as TaskId<ChangeLoopResult>, context);
+	if (record?.state.status !== "terminal" || record.state.outcome.status !== "completed") return "failed";
+	return readChangeResult(record.state.outcome.result, loop).outcome.status === "exhausted" ? "exhausted" : "failed";
 }
 
 type Waiting = Extract<ChangeBuildState, { kind: "waiting" }>;
