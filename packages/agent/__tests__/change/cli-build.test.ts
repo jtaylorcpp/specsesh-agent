@@ -12,11 +12,12 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CHANGE_LOOP_TASK } from "../../src/task/change-input.js";
 import { GROUP_LOOP_NAME } from "../../src/task/group.js";
-import { TASK_LOOP } from "../../src/task/index.js";
+import { TASK_LOOP, changeLoopExtensions, startChangeLoop } from "../../src/task/index.js";
+import { setup } from "../durable/helpers.js";
 import { recordApproval } from "../../src/task/spec-approvals.js";
 import { SPEC_STAGES } from "../../src/task/spec-stages.js";
 import { commitAll, gitIn, write } from "../task/cli-helpers.js";
-import { GROUP_JUDGE, JUDGE_ONLY, cleanTemps, context, temp, verdict } from "../task/helpers.js";
+import { GROUP_JUDGE, JUDGE_ONLY, cleanTemps, context, loopHarness, temp, verdict } from "../task/helpers.js";
 import { CHANGE, change, seedBlockedOnAmendment } from "./helpers.js";
 
 /** The repo's pinned `openspec` (1.14.1): the guard validates the change with it. */
@@ -223,5 +224,128 @@ describe.skipIf(process.platform === "win32")("change/cli build", () => {
 		expect(`${run.out}\n${run.err}`).not.toContain("approved files changed since they were approved");
 		expect(run.calls).toBe(0);
 		expect(await loopsIn(db)).toEqual(before);
+	}, 60_000);
+});
+
+/** The change loops in the database, oldest first: id, how the task stands, and the loop it restarts. */
+async function changeLoopsOf(db: string) {
+	const storage = await openNodeSqliteStorage(db);
+	try {
+		const page = await storage.scanTasks({ kind: CHANGE_LOOP_TASK }, 100, undefined, context);
+		return page.items
+			.map((task) => ({
+				id: Number(task.id),
+				state: task.state.status === "terminal" ? task.state.outcome.status : task.state.status,
+				restarts: (task.input as { restarts?: number }).restarts,
+			}))
+			.sort((a, b) => a.id - b.id);
+	} finally {
+		await storage.close(context);
+	}
+}
+
+/** Every task in the database that hasn't ended. */
+async function unsettledIn(db: string) {
+	const storage = await openNodeSqliteStorage(db);
+	try {
+		const live: string[] = [];
+		for (const kind of [CHANGE_LOOP_TASK, GROUP_LOOP_NAME, TASK_LOOP, "agentscript.run"]) {
+			for (const task of (await storage.scanTasks({ kind }, 100, undefined, context)).items) if (task.state.status !== "terminal") live.push(`${kind} ${task.id}`);
+		}
+		return live;
+	} finally {
+		await storage.close(context);
+	}
+}
+
+/** A change loop of `repo()`'s change created on `db` but never run, as a process that died before its first step leaves it. */
+async function interruptedLoop(built: ReturnType<typeof repo>) {
+	const env = setup();
+	for (const extension of changeLoopExtensions({ workspace: built.dir, checks: ["true"] })) env.registry.install(extension);
+	const harness = await loopHarness(env, await openNodeSqliteStorage(built.db));
+	const id = await startChangeLoop(
+		harness,
+		{ change: { dir: built.changeDir }, script: { text: JUDGE_ONLY }, groupScript: { text: GROUP_JUDGE }, workspace: built.dir, checks: ["true"], changeChecks: ["true"], model: env.model },
+		context,
+	);
+	await harness.close(context);
+	return Number(id);
+}
+
+describe.skipIf(process.platform === "win32")("change/cli build --restart (#52)", () => {
+	it("leaves a blocked loop as it ended and builds from a new one, which records it", async () => {
+		const { dir, db, args } = repo();
+		const blocked = await change(["build", CHANGE, ...args], dir, [verdict(false, "which?", "ask", "Which format?")]);
+		expect(blocked.code, blocked.err).toBe(1);
+		const [first] = await changeLoopsOf(db);
+
+		const run = await change(["build", CHANGE, "--restart", ...args], dir, converging());
+		expect(run.code, run.err).toBe(0);
+		expect(run.out.split("\n")[0]).toMatch(new RegExp(`^# ${CHANGE} — built`));
+		expect(run.err).toContain(`change loop ${first!.id} of ${CHANGE} left blocked; starting a new one`);
+		const loops = await changeLoopsOf(db);
+		expect(loops).toEqual([
+			{ id: first!.id, state: "completed", restarts: undefined },
+			{ id: expect.any(Number), state: "completed", restarts: first!.id },
+		]);
+		// The new loop's hint doesn't repeat --restart: building again resumes, it doesn't restart.
+		expect(run.err).toMatch(new RegExp(`change loop ${loops[1]!.id} — resume with: specsesh change build ${CHANGE} --db \\S+$`, "m"));
+	}, 60_000);
+
+	it("aborts a loop a process died in, then builds from a new one", async () => {
+		const built = repo();
+		const stuck = await interruptedLoop(built);
+		expect(await unsettledIn(built.db)).toEqual([`${CHANGE_LOOP_TASK} ${stuck}`]);
+
+		const run = await change(["build", CHANGE, "--restart", ...built.args], built.dir, converging());
+		expect(run.code, run.err).toBe(0);
+		expect(run.err).toContain(`change loop ${stuck} of ${CHANGE} aborted; starting a new one`);
+		const loops = await changeLoopsOf(built.db);
+		expect(loops[0]).toEqual({ id: stuck, state: "aborted", restarts: undefined });
+		expect(loops[1]).toMatchObject({ state: "completed", restarts: stuck });
+		expect(await unsettledIn(built.db)).toEqual([]);
+	}, 60_000);
+
+	it("aborts the group and task loops under it too", async () => {
+		const built = repo();
+		const env = setup();
+		// A check still running when the harness closes, so the loops under the change loop are left unsettled.
+		const slow = "node -e setTimeout(()=>{},2000)";
+		for (const extension of changeLoopExtensions({ workspace: built.dir, checks: [slow] })) env.registry.install(extension);
+		const harness = await loopHarness(env, await openNodeSqliteStorage(built.db));
+		env.faux.setResponses([verdict(true)]);
+		const stuck = await startChangeLoop(
+			harness,
+			{ change: { dir: built.changeDir }, script: { text: JUDGE_ONLY }, groupScript: { text: GROUP_JUDGE }, workspace: built.dir, checks: [slow], changeChecks: [slow], model: env.model },
+			context,
+		);
+		harness.resume();
+		while (env.faux.state.callCount < 1) await new Promise((resolve) => setTimeout(resolve, 20));
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		await harness.close(context);
+		const live = await unsettledIn(built.db);
+		expect(live.some((t) => t.startsWith(GROUP_LOOP_NAME)), live.join(", ")).toBe(true);
+		expect(live.some((t) => t.startsWith(TASK_LOOP)), live.join(", ")).toBe(true);
+
+		// The dead run ticked a task, as a crash mid-build leaves the tree.
+		const run = await change(["build", CHANGE, "--restart", "--allow-dirty", ...built.args], built.dir, converging());
+		expect(run.code, run.err).toBe(0);
+		expect(run.err).toContain(`change loop ${stuck} of ${CHANGE} aborted; starting a new one`);
+		expect(await unsettledIn(built.db)).toEqual([]);
+	}, 90_000);
+
+	it("refuses a built change, and --restart with an answer or --amend, changing nothing", async () => {
+		const { dir, db, args } = repo();
+		expect((await change(["build", CHANGE, ...args], dir, converging())).code).toBe(0);
+		const before = await changeLoopsOf(db);
+		const builtAgain = await change(["build", CHANGE, "--restart", ...args], dir, converging());
+		expect(builtAgain.code).toBe(2);
+		expect(builtAgain.err).toContain(`${CHANGE} is built (change loop ${before[0]!.id}); there is nothing to restart`);
+		for (const extra of [["an answer"], ["--amend"]]) {
+			const r = await change(["build", CHANGE, ...extra, "--restart", ...args], dir);
+			expect(r.code, extra.join(" ")).toBe(2);
+			expect(r.err).toContain("--restart takes no answer and no --amend");
+		}
+		expect(await changeLoopsOf(db)).toEqual(before);
 	}, 60_000);
 });

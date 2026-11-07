@@ -12,6 +12,7 @@ flowchart LR
   trial[trialFold<br/>fold into a temp copy]
   answer[answerChangeEscalation<br/>reruns the blocked group or check]
   amend[applyAmendment<br/>amend-spec patch]
+  restart[restart<br/>--restart: abort or leave the newest, start anew]
   startgroup[startGroupLoop<br/>task run on a group]
   gnext[group next<br/>the next unticked task]
   gtask[group task<br/>a child task loop]
@@ -26,6 +27,8 @@ flowchart LR
   prepare --> refusal
   build --> start
   build -->|amend-spec| amend
+  build -->|--restart| restart
+  restart --> start
   start --> next
   next --> group
   group -->|child| gnext
@@ -44,16 +47,17 @@ flowchart LR
   gjudge --> verdict
   verdict -->|rework| gtask
 
-  %% code: build packages/agent/src/task/cmd-build.ts:301
-  %% code: prepare packages/agent/src/task/cmd-build.ts:245
+  %% code: build packages/agent/src/task/cmd-build.ts:315
+  %% code: prepare packages/agent/src/task/cmd-build.ts:258
   %% code: refusal packages/agent/src/task/change-guard.ts:28
   %% code: start packages/agent/src/task/change-api.ts:79
-  %% code: next packages/agent/src/task/change-loop.ts:338
-  %% code: group packages/agent/src/task/change-loop.ts:345
-  %% code: check packages/agent/src/task/change-loop.ts:315
+  %% code: next packages/agent/src/task/change-loop.ts:341
+  %% code: group packages/agent/src/task/change-loop.ts:348
+  %% code: check packages/agent/src/task/change-loop.ts:318
   %% code: trial packages/agent/src/task/cmd-close.ts:190
   %% code: answer packages/agent/src/task/change-api.ts:131
   %% code: amend packages/agent/src/task/amend.ts:135
+  %% code: restart packages/agent/src/task/cmd-build.ts:381
   %% code: startgroup packages/agent/src/task/group-api.ts:38
   %% code: gnext packages/agent/src/task/group.ts:667
   %% code: gtask packages/agent/src/task/group.ts:673
@@ -65,3 +69,5 @@ flowchart LR
   %% code: checks packages/agent/src/task/checks.ts:29
 
   %% subsystem: taskloop task-loop.mmd
+
+  class restart done

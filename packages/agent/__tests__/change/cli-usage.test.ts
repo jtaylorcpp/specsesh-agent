@@ -16,7 +16,7 @@ afterEach(cleanTemps);
 
 // One line per command, word for word from the scenario.
 const BUILD_USAGE =
-	"specsesh change build <change> [<answer>|--amend] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]";
+	"specsesh change build <change> [<answer>|--amend|--restart] [--change-check <command>]... [--allow-dirty] [--db <path>] [options]";
 const USAGE_LINES = [
 	"specsesh change draft <change> [<feedback>] [--intent <words>|--intent-file <path>] [--db <path>]",
 	"specsesh change approve <change> [--principal <name>] [--db <path>]",

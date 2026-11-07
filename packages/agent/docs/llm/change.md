@@ -24,6 +24,7 @@ A change is addressed by its directory name under `openspec/changes/`, never by 
 - **Flags.** It takes the task run's flags (`--check`, `--allow`, `--max-iterations`, `--escalate-to`, `--provider`, `--model`, …) plus `--change-check <command>`, repeatable, defaulting to the configured checks.
 - **Refusals.** A dirty tree is refused unless `--allow-dirty`; `--worktree` isn't supported. Both exit 2 and start nothing.
 - **Crashes.** Running the same command with the same database continues an unfinished build. Before any model call, stderr names the loop and its resume command.
+- **Starting over.** `specsesh change build <change> --restart` ends the newest change loop (aborting it if a process died in it) and starts a new one from the files as they are now. Use it when a build keeps asking about state that no longer exists. Answers, approvals and ticked tasks stay. It refuses a built change, and takes no answer or `--amend`.
 - **Done.** It prints the groups, the change check, the files changed, and `specsesh change close <change>`. A built change says so and starts nothing.
 
 ## close
