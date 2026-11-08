@@ -294,6 +294,13 @@ on `GEMINI_API_KEY` (`--model` required, e.g. `gemini-3.5-flash`); the CLIs refu
 anything starts. The bins are compiled JavaScript;
 nothing needs `tsx`.
 
+**CI** (`.github/workflows/ci.yml`, #48): every pull request and every push to `main` run
+`pnpm install --frozen-lockfile`, `pnpm check`, `pnpm test`, `pnpm docs:check` and
+`node scripts/parity.mjs --check` on Node 24. None of the opt-in live tests run there. It follows
+`release.yml`'s rules: each action pinned to the same commit as in `release.yml`, `contents: read`
+only, no secrets, and a checkout that keeps no token. `__tests__/repo/ci-workflow.test.ts` pins all
+of that, so a step added to the workflow is added to the test too.
+
 ## Releasing
 
 ```bash
