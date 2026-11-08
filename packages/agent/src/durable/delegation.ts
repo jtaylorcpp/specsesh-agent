@@ -57,6 +57,14 @@ export interface ProcessRunner {
 		| { readonly argv: readonly string[]; readonly stdin: string; readonly env: Readonly<Record<string, string>> }
 		| { readonly error: string };
 	read(exited: Extract<ExecResult, { kind: "exited" }>): { readonly ok: boolean; readonly summary: string };
+	/**
+	 * `false` passes `prepare`'s `stdin` to the process unchanged. By default the
+	 * layer appends a block stating the grant's terms to it: the shell rule from
+	 * `allow`, one command per Bash call, and the time limit. Turn it off for a
+	 * process whose tools, permissions and deadline come from its own
+	 * configuration, which the block would contradict. `timeoutMs` still kills it.
+	 */
+	readonly terms?: false;
 }
 
 export type Runners = Readonly<Record<string, ProcessRunner | AgentRunner>>;
@@ -129,7 +137,7 @@ function validateGrant(name: string, grant: unknown, runners: Runners): Delegate
 	return terms as DelegateTerms;
 }
 
-/** The block appended to the delegate's stdin, so it knows the terms it runs on. */
+/** The block appended to the delegate's stdin, so it knows the terms it runs on, unless its runner sets `terms: false`. */
 function renderTerms(terms: DelegateTerms): string {
 	const allow = Array.isArray(terms["allow"]) ? (terms["allow"] as unknown[]).map(String) : [];
 	return [
@@ -192,7 +200,7 @@ export function delegationActions(grants: DelegateGrants = {}, options: Delegati
 				const command = prepared.argv.join(" ");
 				const before = await workspace.snapshot?.();
 				const ran = await workspace.exec(prepared.argv, {
-					stdin: `${prepared.stdin}\n\n${renderTerms(terms)}`,
+					stdin: runner.terms === false ? prepared.stdin : `${prepared.stdin}\n\n${renderTerms(terms)}`,
 					env: prepared.env,
 					timeoutMs: terms.timeoutMs,
 					...(context.signal !== undefined ? { signal: context.signal } : {}),

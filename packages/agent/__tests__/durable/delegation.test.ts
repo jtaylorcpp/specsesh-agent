@@ -146,6 +146,18 @@ describe("delegation smoke test", () => {
 		expect(execs[0]?.options.stdin).toContain("- Time limit: 900 seconds.");
 	});
 
+	// #14: a host runner whose agent has its own tools, permissions and deadline.
+	it("passes prepare's stdin unchanged to a runner with terms: false, and still kills it at timeoutMs", async () => {
+		const { workspace, execs } = memory();
+		const own: ProcessRunner = { ...fake, label: "Own", terms: false, prepare: ({ instructions }) => ({ argv: ["own"], stdin: `<task>\n${instructions}\n</task>`, env: {} }) };
+		const [action] = delegationActions({ one: { runner: "own", allow: ["pnpm"], timeoutMs: 60_000 } }, { workspace, runners: { own } });
+		const result = await call(action, "Fix the test", { delegatePreamble: "You are working on one task" });
+
+		expect(execs[0]?.options.stdin).toBe("<task>\nYou are working on one task\n\nFix the test\n</task>");
+		expect(execs[0]?.options.timeoutMs).toBe(60_000);
+		expect(result).toMatchObject({ ok: true, outputs: { ok: true, summary: "done", files_changed: 1 } });
+	});
+
 	it("answers ok: false past maxCalls without running anything", async () => {
 		const { workspace, execs } = memory();
 		const [action] = delegationActions({ one: { runner: "fake", maxCalls: 2 } }, { workspace, runners: { fake } });

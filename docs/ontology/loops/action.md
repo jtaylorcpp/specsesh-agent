@@ -62,11 +62,11 @@ Action { kind: "edit" | "command" | "delegate", summary: string, refs: string[] 
 - **Two actors.** An agent acts either *itself*, calling the workspace built-ins `read_file`, `edit_file`, `replace_in_file`, `run_command` and `run_checks` (`task.agent`), or through a *delegate*, a script action targeting `mcpTool://delegate/<name>` (an `agent` delegate runs one of our scripts as a child run, through the same workspace actions). `read_file` changes nothing and records no action.
 - **One loop, one workspace.** The built-ins, every delegate, the task loop's gate and the group loop's check all go through the one `Workspace` the loop was built with (`root`, `read`, `write`, optional `exec`, optional `snapshot`). Locally that is `localWorkspace(dir)` from `@specsesh/agent/node`, over a checkout or a worktree. Without `exec`, built-ins and checks answer `this workspace cannot run commands` and delegates `this workspace cannot run processes`; checks never pass without it.
 - **Cloudflare workspace.** On Cloudflare a task gets one Artifacts fork, which plays the part a worktree plays locally. `artifactsSandboxWorkspace(artifacts, sandbox, { repo, fork, dir })` from `@specsesh/agent/cloudflare` gets or creates the fork, so it is reused after the object restarts, and clones it into the Sandbox's `dir`, unless `dir` already holds it. The agent publishes only to its fork, through the optional `Workspace.publish(message)` (commit, push to `origin`); merging the fork back is the principal's call. `localWorkspace` has no `publish`, because the local runner never commits.
-- **No model inside the Sandbox.** Models run in the Durable Object, on `AI.run`; the Sandbox only holds files and runs commands. The only credential that enters it is the fork's write token, which is replaced with `***` in every output, record, event and error. The host's only runner is `agent`, so a `claude-code` grant is refused.
-- **Delegation is granted by the user.** Nothing is built in or granted by default (`delegate_claude_code`, `delegateModel` and `delegateContext` are retired), and only `delegationActions` may register a `delegate/` name. A grant names a `runner`, `claude-code` or `agent` (see [Delegation](#delegation)), and fixes the delegate's terms. The `claude-code` runner's terms are `model`, `tools`, `allow` (default `[]`), `permissionMode` (`"dontAsk"` only), `context` (default `[]`), `timeoutMs` (default `900000`) and `maxCalls` (default `5`). The task CLI reads grants from `delegates` in `agentscript.config.json`; `--no-delegates` withdraws them for one run.
+- **No model inside the Sandbox.** Models run in the Durable Object, on `AI.run`; the Sandbox only holds files and runs commands. The only credential that enters it is the fork's write token, which is replaced with `***` in every output, record, event and error. The host's only runner is `agent`, so a grant naming any other runner is refused.
+- **Delegation is granted by the user.** Nothing is built in or granted by default (`delegate_claude_code`, `delegateModel` and `delegateContext` are retired), and only `delegationActions` may register a `delegate/` name. A grant names a `runner`, `agent` or a process runner the host brings (see [Delegation](#delegation)), and fixes the delegate's terms: `maxCalls` (default `5`), `timeoutMs` (default `900000`) and the keys its runner declares. The task CLI reads grants from `delegates` in `agentscript.config.json`; `--no-delegates` withdraws them for one run.
 - **An ungranted delegate never starts.** A script targeting `mcpTool://delegate/<name>` with no such grant is refused at start with `ActionBindingError`, which lists the granted names or says `no delegates are granted`.
-- **A delegate's interface is fixed.** Inputs `{ instructions }`, outputs `{ ok, summary, files_changed }`, whatever the runner. Its terms come only from the grant; a `claude-code` delegate has them restated on stdin, after the instructions.
-- **Every delegation records what it changed.** The action, a `DiffEvidence` between workspace snapshots taken before and after (each path `added`, `deleted` or `modified`), and, for a `claude-code` delegate, a `CheckEvidence` for the process. `files_changed` is `0` for a delegate that changed nothing, and `-1`, with no `DiffEvidence`, when the workspace cannot snapshot.
+- **A delegate's interface is fixed.** Inputs `{ instructions }`, outputs `{ ok, summary, files_changed }`, whatever the runner. Its terms come only from the grant. A process delegate has them restated on stdin, after the instructions, unless its runner sets `terms: false`.
+- **Every delegation records what it changed.** The action, a `DiffEvidence` between workspace snapshots taken before and after (each path `added`, `deleted` or `modified`), and, for a process delegate, a `CheckEvidence` for the process. `files_changed` is `0` for a delegate that changed nothing, and `-1`, with no `DiffEvidence`, when the workspace cannot snapshot.
 
 ## Delegation
 
@@ -74,10 +74,34 @@ Action { kind: "edit" | "command" | "delegate", summary: string, refs: string[] 
 
 | Runner | Kind | From | What a call is |
 |---|---|---|---|
-| `claude-code` | `"process"` | `claudeCodeRunner()`, `@specsesh/agent/node` | One blocking call through `workspace.exec`. Node only, on your subscription. |
+| any name the host gives it | `"process"` | the host's own `ProcessRunner`, passed in `runners` | One blocking call through `workspace.exec`. |
 | `agent` | `"agent"` | `agentRunner()`, `@specsesh/agent/durable` | Another Agent Script, run as a durable child `agentscript.run`. Runtime-neutral: no `node:` import, so it runs on Cloudflare too. |
 
-`defaultRunners` in `@specsesh/agent/node` holds both: `claude-code` and `agent`, the latter equal to `agentRunner()`.
+`defaultRunners` in `@specsesh/agent/node` holds only `agent`, equal to `agentRunner()`. No process runner is bundled, and the task CLI has none.
+
+### Process runners
+
+A host brings a `ProcessRunner` (`@specsesh/agent/durable`) under a name in `runners`, beside `agent`:
+
+| Field | Meaning |
+|---|---|
+| `kind` | `"process"`. |
+| `label` | Names the runner in messages, e.g. `<label> timed out after <ms>ms`. |
+| `grantKeys` | The grant keys it accepts besides `runner`, `maxCalls` and `timeoutMs`, each with a `check` and an optional `default`. Any other key is refused. |
+| `prepare` | Builds the process (`argv`, `stdin`, `env`) from the instructions and the terms, or answers `{ error }`. The instructions reach it only on `stdin`, after the run's preamble. |
+| `read` | Maps the exited process to `{ ok, summary }`. |
+| `terms` | Optional. `false` passes `prepare`'s `stdin` unchanged. |
+
+By default the delegation layer appends a block to `prepare`'s `stdin`, so the process knows its terms:
+
+```
+Your terms for this delegation (set by the user; you cannot change them):
+- Shell: none.
+- One command per Bash call. Chained or prefixed commands (cd … &&, ;, |) are denied; use the tool's own flags, e.g. pnpm -C <dir> or pnpm --filter <pkg>.
+- Time limit: 900 seconds.
+```
+
+`Shell:` lists the grant's `allow` when it has one. The block suits a process whose permissions come from the grant. A runner whose process has its own tools, permissions and deadline sets `terms: false`, so the process gets only what `prepare` wrote. Either way, `timeoutMs` kills the process.
 
 ### The agent grant
 
@@ -163,7 +187,7 @@ An agent delegate's child runs with `scope` set to its grant's `tools`, so it ca
 
 An iteration of task `2.4` that runs the durable suite records `{ kind: "command", summary: "run the durable tests", refs: ["pnpm --filter agentscript-durable test"] }`. The suite's exit code goes in a `CheckEvidence`, and each `Scenario:` test's result in a `TestEvidence`, not on the action.
 
-An iteration of `task-delegate.agent` that hands the same task to the granted `claude_code` records `{ kind: "delegate", summary: "Fix the failing durable test", refs: ["delegate/claude_code"] }`, then a `DiffEvidence` such as `[{ path: "src/a.ts", change: "modified" }, { path: "src/new.ts", change: "added" }]` and a `CheckEvidence` for the `claude` process. The delegate answers `files_changed: 2`.
+An iteration that hands the same task to a granted process delegate `fixer` records `{ kind: "delegate", summary: "Fix the failing durable test", refs: ["delegate/fixer"] }`, then a `DiffEvidence` such as `[{ path: "src/a.ts", change: "modified" }, { path: "src/new.ts", change: "added" }]` and a `CheckEvidence` for its process. The delegate answers `files_changed: 2`.
 
 ## Spec
 
