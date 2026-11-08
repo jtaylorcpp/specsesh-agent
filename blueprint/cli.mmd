@@ -11,13 +11,14 @@ flowchart LR
   help[runCommandHelp<br/>usage + docs/llm page]
   pibin[agentscript-pi<br/>run · models]
   durablebin[agentscript-durable<br/>run · resume]
-  taskbin[agentscript-task<br/>run · spec · resume · answer · status · pick-tests]
+  taskbin[agentscript-task<br/>run · spec · resume · retry · answer · status · pick-tests]
   changebin[agentscript-change<br/>draft · approve · build · close]
   models[cliModels<br/>pi providers + claude-code, maxTurns · turnTimeoutMs]
   tools[loadActions<br/>tools modules · MCP files]
   mcp[importMcp<br/>lazy MCP entry]
   config[loadConfig<br/>agentscript.config.json]
   release[Release workflow<br/>v tag, both packages to npm]
+  ci[CI workflow<br/>pull requests and main: check · test · docs · parity]
 
   specsesh --> main
   main --> agent
@@ -40,6 +41,7 @@ flowchart LR
   changebin --> config
   changebin -->|--max-turns · --turn-timeout · task config| models
   release -.->|packs · publishes| specsesh
+  ci -.->|checks| specsesh
 
   %% code: specsesh packages/specsesh/bin/specsesh.js:9
   %% code: main packages/agent/src/cli/index.ts:103
@@ -57,5 +59,7 @@ flowchart LR
   %% code: mcp packages/agent/src/bin/mcp.ts:12
   %% code: config packages/agent/src/task/config.ts:267
   %% code: release .github/workflows/release.yml:36
+  %% code: ci .github/workflows/ci.yml:18
 
   class models done
+  class ci done
