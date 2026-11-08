@@ -442,7 +442,7 @@ Every `execute` receives `workspace`, the directory you passed to `agentScriptEx
 
 - `read_file`, `edit_file` and `replace_in_file` refuse an absolute path, a `..` that escapes, and a path that leaves the workspace through a symlink, however deep. The answer is `ok: false` with "`<path>` is outside the workspace; nothing was read or written". Your own actions get the same check from `confine(workspace, path)`, which returns the resolved path, or an `ActionResult` refusal to return as is.
 - `run_command` and `run_checks` use the workspace as the working directory. That is **not** a sandbox. Whatever program you allow can do whatever that program does: `pnpm` can run any script in the package. Allow only first words you would run yourself, and prefer `run_checks` with a fixed list over a general `run_command`.
-- A granted `agent` delegate acts only through the same workspace actions, with the tools its grant names. A host's own process runner (`ProcessRunner`) runs a process in the workspace; what that process may touch is its own business, not this package's.
+- A granted `agent` delegate acts only through the same workspace actions, with the tools its grant names. A host's own process runner (`ProcessRunner`) runs a process in the workspace; what that process may touch is its own business, not this package's. Its `stdin` ends with a block stating the grant's terms (shell rule, one command per Bash call, time limit) unless the runner sets `terms: false`, for a process with its own permissions and deadline. `timeoutMs` kills it either way.
 
 ## Next
 

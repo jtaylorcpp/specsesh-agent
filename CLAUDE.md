@@ -371,7 +371,9 @@ specsesh task answer <loop-id> --by principal --decision "…"   # a blocked loo
   `timeoutMs` 900000 and `maxCalls` 5. The CLI's only runner is `agent` (below). A library host may
   bring its own process runners (`ProcessRunner`): it passes the same `runners` to
   `taskLoopExtensions` and to `startTaskLoop`/`startGroupLoop`/`startChangeLoop` (`TaskLoopOptions.runners`),
-  which check grants against them. `run --no-delegates` withdraws every grant
+  which check grants against them. A process delegate's stdin ends with a block stating its terms
+  (shell rule, one command per Bash call, time limit) unless its runner sets `terms: false` (#14),
+  for a process with its own permissions and deadline; `timeoutMs` still kills it. `run --no-delegates` withdraws every grant
   for one run: a delegating script then exits 2 naming its `delegate/<name>`.
   The retired `task.delegateModel` and `task.delegateContext` keys are refused with
   `grant a delegate under "delegates" instead`; an invalid grant exits 2, naming the grant and the
