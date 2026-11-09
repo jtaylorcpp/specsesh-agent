@@ -1,0 +1,86 @@
+---
+title: Library entry points
+---
+flowchart LR
+  authoring[./authoring<br/>parse · mutate · lint]
+  interpreter[./interpreter<br/>subset · step machine · ReasoningPort]
+  openspec[./openspec<br/>ontology schemas and rules]
+  pi[./pi<br/>ReasoningPort on pi-ai]
+  claudecode[./claude-code<br/>port and pi provider · Node only]
+  durable[./durable<br/>agentscript.run · no node: imports]
+  nodeentry[./node<br/>localWorkspace · builtins · runners]
+  mcp[./mcp<br/>MCP tools and bridge · Node only]
+  cloudflare[./cloudflare<br/>Durable Object host · Workers only]
+  task[./task<br/>task · group · change · spec loops]
+  cli[./cli<br/>specsesh main · USAGE]
+  bins[agentscript-* bins<br/>pi · durable · task · change]
+  deps[dependencies<br/>@sf-agentscript/* · typebox, exact]
+  peers[optional peers<br/>pi-ai · pi-durable · chord · MCP SDK · agents]
+  build[build<br/>tsc to dist · .agent scripts · chmod bins]
+  layers[layers.test.ts<br/>the import graph holds]
+  pack[pack:check<br/>both tarballs into empty projects]
+  specsesh[specsesh package<br/>npx specsesh · pins the Node peers]
+  hello[hello-world example<br/>a durable run on Claude Code]
+  worker[cloudflare-worker example<br/>wrangler dev --local]
+
+  %% An arrow is a runtime import. Type-only imports, and imports implied by another arrow, are left out.
+  interpreter -->|parse| authoring
+  authoring -->|ast · subset| interpreter
+  authoring -->|@sf-agentscript/*| deps
+  openspec -->|typebox| deps
+  pi -->|implements ReasoningPort| interpreter
+  pi -->|pi-ai| peers
+  claudecode -->|tool rounds · categories| pi
+  durable -->|step machine| interpreter
+  durable -->|records with| openspec
+  durable -->|pi-durable · chord| peers
+  nodeentry --> durable
+  mcp -->|tool bridge| claudecode
+  mcp -->|MCP SDK| peers
+  cloudflare --> durable
+  cloudflare -->|agents| peers
+  task --> nodeentry
+  task -->|pickTests port| claudecode
+  bins --> task
+  bins -.->|lazy| mcp
+  cli -->|in-process| bins
+  specsesh --> cli
+  specsesh -.->|exact versions, all but agents| peers
+  hello --> durable
+  hello --> claudecode
+  worker --> cloudflare
+  layers -.->|Node-free| durable
+  layers -.->|alone speaks MCP| mcp
+  layers -.->|alone touches Workers| cloudflare
+  build -.->|copies .agent scripts| task
+  build -.->|chmod| bins
+  pack -.->|packs · installs · imports every entry| build
+
+  %% code: authoring packages/agent/src/authoring/index.ts:18
+  %% code: interpreter packages/agent/src/interpreter/index.ts:18
+  %% code: openspec packages/agent/src/openspec/index.ts:16
+  %% code: pi packages/agent/src/pi/index.ts:1
+  %% code: claudecode packages/agent/src/claude-code/index.ts:1
+  %% code: durable packages/agent/src/durable/index.ts:1
+  %% code: nodeentry packages/agent/src/node/index.ts:4
+  %% code: mcp packages/agent/src/mcp/index.ts:1
+  %% code: cloudflare packages/agent/src/cloudflare/index.ts:33
+  %% code: task packages/agent/src/task/index.ts:19
+  %% code: cli packages/agent/src/cli/index.ts:103
+  %% code: bins packages/agent/package.json:61
+  %% code: deps packages/agent/package.json:84
+  %% code: peers packages/agent/package.json:91
+  %% code: build packages/agent/package.json:75
+  %% code: layers packages/agent/__tests__/package/layers.test.ts:70
+  %% code: pack packages/agent/__tests__/package/pack.test.ts:138
+  %% code: specsesh packages/specsesh/bin/specsesh.js:9
+  %% code: hello examples/hello-world/main.ts:20
+  %% code: worker examples/cloudflare-worker/src/index.ts:47
+
+  %% subsystem: interpreter agent-script.mmd
+  %% subsystem: pi models.mmd
+  %% subsystem: claudecode claude-code.mmd
+  %% subsystem: durable durable-run.mmd
+  %% subsystem: cloudflare cloudflare.mmd
+  %% subsystem: task loops.mmd
+  %% subsystem: cli cli.mmd

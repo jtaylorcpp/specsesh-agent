@@ -22,7 +22,7 @@ Two npm packages publish from this workspace:
 - `packages/specsesh` → `specsesh`, the `specsesh` command that `npx specsesh` runs. Plain
   JavaScript (`bin/specsesh.js`), no build and no `scripts`: it only calls `main` from
   `@specsesh/agent/cli`. Its dependencies are `@specsesh/agent` at `workspace:*` plus `pi-ai`,
-  `pi-durable` and `chord` pinned to the exact versions in the agent's `devDependencies`.
+  `pi-durable`, `chord` and the MCP SDK pinned to the exact versions in the agent's `devDependencies`.
   `pnpm -r check` and `pnpm -r test` skip it; its tests live in `packages/agent/__tests__/package/`
   (`manifest.test.ts`, `specsesh.test.ts`, `pack.test.ts`).
 
