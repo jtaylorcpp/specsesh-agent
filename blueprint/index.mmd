@@ -7,6 +7,7 @@ flowchart LR
   script[Agent Script<br/>language · interpreter · catalog]
   harness[Agent harness<br/>durable runs · models · tools · hosts]
   workflow[OpenSpec workflow<br/>task · group · change · spec loops]
+  herdr[Herdr host · planned<br/>Agent Script sessions · tuning panel]
 
   cli --> script
   cli --> harness
@@ -19,15 +20,23 @@ flowchart LR
   harness -->|apply: the outcome| script
   workflow -->|bundled .agent scripts| script
   workflow -->|agentscript.run children| harness
+  %% Planned (#61): tied to the seam it will consume first until src/herdr exists.
+  cli -->|specsesh session| herdr
+  herdr -->|a durable run per message · watches it| harness
+  herdr -.->|later: loop status · answers| workflow
 
   %% code: cli packages/agent/src/cli/index.ts:103
   %% code: lib packages/agent/package.json:15
   %% code: script packages/agent/src/interpreter/run.ts:487
   %% code: harness packages/agent/src/durable/extension.ts:262
   %% code: workflow packages/agent/src/task/loop.ts:223
+  %% code: herdr packages/agent/src/durable/watch.ts:61
 
   %% subsystem: cli cli.mmd
   %% subsystem: lib library.mmd
   %% subsystem: script agent-script.mmd
   %% subsystem: harness harness.mmd
   %% subsystem: workflow loops.mmd
+  %% subsystem: herdr herdr.mmd
+
+  class herdr active
