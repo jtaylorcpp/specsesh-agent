@@ -7,7 +7,8 @@ interpreter over a declared subset of it. Spun out of coopcli on 2026-10-10 from
 flow does **not** apply here.
 
 **Architecture:** `ARCHITECTURE.md` is the model (CLI, agent harness, Agent Script, OpenSpec
-workflow), the decisions and the open questions; `blueprint/` holds the live diagrams. Read it first.
+workflow, and the planned Herdr host, #61), the decisions and the open questions; `blueprint/` holds
+the live diagrams. Read it first.
 Planning is Blueprint, `ARCHITECTURE.md`, GitHub issues and `parked.md`, not OpenSpec (see "Planning").
 
 ## Layout (pnpm workspace)
@@ -451,9 +452,11 @@ using OpenSpec for that on 2026-11-06; `openspec/` (specs, changes and their arc
 history before that date. The product's OpenSpec workflow (`src/task`, `src/openspec`,
 `specsesh change`/`task`) is unchanged: it is a feature for users' repos.
 
-- **`blueprint/`** is the live map of the code: `index.mmd` is the root (CLI, agent harness, Agent
-  Script, OpenSpec workflow), each box tied to its code with `%% code:` and opening its detail
-  diagram. Update the affected diagram in the same change as the code it draws.
+- **`blueprint/`** is the live map of the code: `index.mmd` is the root (CLI, library, agent
+  harness, Agent Script, OpenSpec workflow, Herdr host), each box tied to its code with `%% code:`
+  and opening its detail diagram. A planned box (the Herdr host's, `herdr.mmd`) is marked `active`
+  and tied to the code it will hook into until its own code lands. Update the affected diagram in
+  the same change as the code it draws.
 - **`ARCHITECTURE.md`** holds the model, the decisions, the gaps and what comes next. Update it when
   a decision lands or changes.
 - **GitHub issues** are the work items; **`parked.md`** is the backlog of loose ends nobody is on yet.

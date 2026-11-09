@@ -1,0 +1,55 @@
+---
+title: Herdr host
+---
+flowchart LR
+  program[menu entry · planned<br/>programs.json run: specsesh session]
+  session[specsesh session · planned<br/>one run per message · remembers its turns]
+  status[OSC 7501 status · planned<br/>idle · working · done · error · app=specsesh]
+  panel[tuning panel · planned<br/>Herdr mod · edit, check, save, rerun]
+  templates[hc templates · planned<br/>agents start sessions as sub-agents]
+  answers[answers in the terminal · later<br/>a blocked loop waits for the principal]
+  hcrunner[hc runner · later<br/>an agent delegate in its own terminal]
+  catalog[catalog<br/>bundled and delegate scripts]
+  contract[delegate contract<br/>instructions in · ok · summary out]
+  run[agentscript.run<br/>a durable run of one script]
+  watch[watchScript<br/>a durable run as RunEvents]
+  loopevents[LoopWatcher<br/>loop events from the checkpoint]
+  answer[answerEscalation<br/>a new run of the blocked loop]
+  agentrunner[agent runner<br/>a script as a durable child run]
+
+  %% Planned (#61): each active box is tied to the code it will hook into until its own code lands.
+  program -->|run: specsesh session| session
+  templates -->|command: specsesh session| session
+  templates -->|names a script from| catalog
+  session -->|refuses a script that breaks| contract
+  panel -->|saves the script · /rerun · /model| session
+  session -->|session.json · script versions| panel
+  session -->|starts one per message| run
+  session -->|watches each run with| watch
+  watch -.->|follows| run
+  watch -->|RunEvents| status
+  loopevents -.->|later: loop events| status
+  status -.->|blocked| answers
+  answers -->|the principal's decision| answer
+  hcrunner -->|starts in a child terminal| session
+  hcrunner -.->|same grant keys as| agentrunner
+
+  %% code: program packages/specsesh/bin/specsesh.js:9
+  %% code: session packages/agent/src/cli/index.ts:103
+  %% code: status packages/agent/src/durable/watch.ts:39
+  %% code: templates packages/agent/src/cli/bundled.ts:19
+  %% code: panel packages/agent/src/cli/explain.ts:310
+  %% code: answers packages/agent/src/bin/agentscript-task.ts:1214
+  %% code: hcrunner packages/agent/src/durable/delegation.ts:70
+  %% code: catalog packages/agent/src/cli/bundled.ts:68
+  %% code: contract packages/agent/src/durable/agent-runner.ts:91
+  %% code: run packages/agent/src/durable/extension.ts:262
+  %% code: watch packages/agent/src/durable/watch.ts:61
+  %% code: loopevents packages/agent/src/task/events.ts:401
+  %% code: answer packages/agent/src/task/answer.ts:81
+  %% code: agentrunner packages/agent/src/durable/agent-runner.ts:162
+
+  %% subsystem: catalog script-catalog.mmd
+  %% subsystem: run durable-run.mmd
+
+  class program,session,status,panel,templates,answers,hcrunner active
